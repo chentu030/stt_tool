@@ -1,26 +1,18 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim
+# Use NVIDIA CUDA runtime for GPU acceleration
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-# Set working directory
-WORKDIR /app
-
-# Install ffmpeg (required for faster-whisper and yt-dlp)
+# Install Python 3.11 + ffmpeg
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python3.11 python3.11-venv python3-pip ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# Copy requirements
+WORKDIR /app
 COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY main.py .
-
-# Cloud Run uses port 8080 by default
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+COPY . .
 EXPOSE 8080
-
-# Command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python3", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
