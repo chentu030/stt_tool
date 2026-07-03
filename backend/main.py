@@ -21,7 +21,11 @@ import requests as http_requests
 import firebase_admin
 from firebase_admin import credentials as fb_creds, firestore, storage as fb_storage, auth as fb_auth
 
+import base64
 sa_key_json = os.environ.get("FIREBASE_SA_KEY")
+sa_key_b64 = os.environ.get("FIREBASE_SA_KEY_B64")
+if sa_key_b64:
+    sa_key_json = base64.b64decode(sa_key_b64).decode("utf-8")
 if sa_key_json:
     cred = fb_creds.Certificate(json.loads(sa_key_json))
     firebase_admin.initialize_app(cred, {"storageBucket": "stt-tool-f6e6d.firebasestorage.app"})
