@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut,
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut as fbSignOut,
   onAuthStateChanged, User
 } from "firebase/auth";
 import {
@@ -31,7 +31,14 @@ export const storage = getStorage(app);
 const googleProvider = new GoogleAuthProvider();
 
 // ─── Auth ────────────────────────────────────────────────────
-export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);
+export const loginWithGoogle = async () => {
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch {
+    // Popup failed (domain not authorized, popup blocked, etc.) — use redirect
+    return signInWithRedirect(auth, googleProvider);
+  }
+};
 export const logout = () => fbSignOut(auth);
 export { onAuthStateChanged };
 export type { User, Unsubscribe };
