@@ -247,14 +247,27 @@ export default function Home() {
   // ─── YouTube OAuth ──────────────────────────────────────────
   const startYtAuth = async () => {
     try {
+      setError("");
       const res = await fetch(`${API}/youtube/auth/start`, { method: "POST" });
+      if (!res.ok) {
+        const errText = await res.text();
+        setError(`YouTube OAuth failed (${res.status}): ${errText}`);
+        return;
+      }
       const data = await res.json();
+      if (!data.user_code || !data.verification_url) {
+        setError(`YouTube OAuth returned empty data: ${JSON.stringify(data)}`);
+        return;
+      }
       setYtUserCode(data.user_code);
       setYtVerifyUrl(data.verification_url);
       setYtDeviceCode(data.device_code);
       setYtAuth("pending");
       pollYtAuth(data.device_code, data.interval || 5);
-    } catch { setError("Failed to start YouTube auth"); }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`YouTube OAuth error: ${msg}`);
+    }
   };
 
   const pollYtAuth = (deviceCode: string, interval: number) => {
