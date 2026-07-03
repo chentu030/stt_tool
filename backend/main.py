@@ -58,10 +58,8 @@ print(f"Loading Whisper model (small, {COMPUTE}) on {DEVICE}...")
 model = WhisperModel("small", device=DEVICE, compute_type=COMPUTE)
 print(f"Model loaded on {DEVICE}.")
 
-# ─── YouTube OAuth (yt-dlp YouTube TV client) ───────────────────
-YT_CID = os.environ.get("YT_OAUTH_CLIENT_ID", "")
-YT_CSE = os.environ.get("YT_OAUTH_CLIENT_SECRET", "")
-_tokens: Dict[str, dict] = {}
+# ─── YouTube Cookie Auth ─────────────────────────────────────────
+_cookies: Dict[str, str] = {}  # cookie_id -> cookie file content
 
 # ─── Background task executor ───────────────────────────────────
 executor = ThreadPoolExecutor(max_workers=2)
@@ -152,12 +150,11 @@ async def transcribe_youtube(url: str = Form(...), token_id: Optional[str] = For
             opts: dict = {"format": "bestaudio/best", "outtmpl": out_tpl,
                 "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
                 "quiet": True, "no_warnings": True, "noplaylist": False}
-            if token_id and token_id in _tokens:
-                cache = os.path.join(temp_dir, "_ytcache")
-                os.makedirs(os.path.join(cache, "yt-dlp"), exist_ok=True)
-                with open(os.path.join(cache, "yt-dlp", "youtube-oauth2-token.json"), "w") as f:
-                    json.dump(_tokens[token_id], f)
-                opts.update({"username": "oauth2", "password": "", "cachedir": cache})
+            if token_id and token_id in _cookies:
+                cookie_path = os.path.join(temp_dir, "cookies.txt")
+                with open(cookie_path, "w", encoding="utf-8") as f:
+                    f.write(_cookies[token_id])
+                opts["cookiefile"] = cookie_path
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([url])
             yield _sse({"status": "download_complete", "progress": 100})
@@ -219,12 +216,11 @@ def _process_job_sync(job_id: str, job_data: dict):
                 "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
                 "quiet": True, "no_warnings": True, "noplaylist": False}
             yt_token_id = job_data.get("yt_token_id")
-            if yt_token_id and yt_token_id in _tokens:
-                cache = os.path.join(temp_dir, "_ytcache")
-                os.makedirs(os.path.join(cache, "yt-dlp"), exist_ok=True)
-                with open(os.path.join(cache, "yt-dlp", "youtube-oauth2-token.json"), "w") as f:
-                    json.dump(_tokens[yt_token_id], f)
-                opts.update({"username": "oauth2", "password": "", "cachedir": cache})
+            if yt_token_id and yt_token_id in _cookies:
+                cookie_path = os.path.join(temp_dir, "cookies.txt")
+                with open(cookie_path, "w", encoding="utf-8") as f:
+                    f.write(_cookies[yt_token_id])
+                opts["cookiefile"] = cookie_path
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([yt_url])
             for mp3 in sorted(glob.glob(os.path.join(temp_dir, "*.mp3"))):
@@ -306,36 +302,15 @@ async def start_job(
 
     return {"status": "started", "job_id": job_id}
 
-# ─── YouTube OAuth ───────────────────────────────────────────────
-@app.post("/api/youtube/auth/start")
-async def yt_auth_start():
-    r = http_requests.post("https://oauth2.googleapis.com/device/code", data={
-        "client_id": YT_CID, "scope": "https://www.googleapis.com/auth/youtube"})
-    if r.status_code != 200:
-        raise HTTPException(500, f"OAuth start failed: {r.text}")
-    d = r.json()
-    return {"device_code": d["device_code"], "user_code": d["user_code"],
-            "verification_url": d["verification_url"],
-            "expires_in": d["expires_in"], "interval": d.get("interval", 5)}
-
-@app.post("/api/youtube/auth/poll")
-async def yt_auth_poll(device_code: str = Form(...)):
-    r = http_requests.post("https://oauth2.googleapis.com/token", data={
-        "client_id": YT_CID, "client_secret": YT_CSE, "device_code": device_code,
-        "grant_type": "urn:ietf:params:oauth:grant-type:device_code"})
-    d = r.json()
-    if "access_token" in d:
-        tid = str(uuid.uuid4())
-        _tokens[tid] = {"access_token": d["access_token"],
-            "refresh_token": d.get("refresh_token", ""),
-            "token_type": d.get("token_type", "Bearer"),
-            "expires_at": time.time() + d.get("expires_in", 3600)}
-        return {"status": "authorized", "token_id": tid}
-    if d.get("error") == "authorization_pending":
-        return {"status": "pending"}
-    if d.get("error") == "slow_down":
-        return {"status": "slow_down"}
-    return {"status": "error", "detail": d.get("error_description", d.get("error", "Unknown"))}
+# ─── YouTube Cookie Upload ───────────────────────────────────────
+@app.post("/api/youtube/cookie/upload")
+async def yt_cookie_upload(cookie_file: UploadFile = File(...)):
+    content = (await cookie_file.read()).decode("utf-8", errors="replace")
+    if "youtube.com" not in content.lower() and ".youtube.com" not in content.lower():
+        raise HTTPException(400, "This doesn't look like a YouTube cookies.txt file")
+    cid = str(uuid.uuid4())
+    _cookies[cid] = content
+    return {"status": "ok", "cookie_id": cid}
 
 @app.get("/api/health")
 async def health():

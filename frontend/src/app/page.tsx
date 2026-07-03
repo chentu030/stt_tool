@@ -39,12 +39,10 @@ export default function Home() {
   const [bgMode, setBgMode] = useState(false);
   const [bgJobId, setBgJobId] = useState<string | null>(null);
 
-  // YouTube OAuth
-  const [ytAuth, setYtAuth] = useState<"none" | "pending" | "authorized">("none");
-  const [ytUserCode, setYtUserCode] = useState("");
-  const [ytVerifyUrl, setYtVerifyUrl] = useState("");
+  // YouTube Cookie Auth
+  const [ytAuth, setYtAuth] = useState<"none" | "authorized">("none");
   const [ytTokenId, setYtTokenId] = useState("");
-  const [ytDeviceCode, setYtDeviceCode] = useState("");
+  const cookieInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
@@ -244,49 +242,28 @@ export default function Home() {
     }
   };
 
-  // ─── YouTube OAuth ──────────────────────────────────────────
-  const startYtAuth = async () => {
+  // ─── YouTube Cookie Upload ────────────────────────────────────
+  const handleCookieUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
     try {
       setError("");
-      const res = await fetch(`${API}/youtube/auth/start`, { method: "POST" });
+      const fd = new FormData();
+      fd.append("cookie_file", file);
+      const res = await fetch(`${API}/youtube/cookie/upload`, { method: "POST", body: fd });
       if (!res.ok) {
         const errText = await res.text();
-        setError(`YouTube OAuth failed (${res.status}): ${errText}`);
+        setError(`Cookie upload failed: ${errText}`);
         return;
       }
       const data = await res.json();
-      if (!data.user_code || !data.verification_url) {
-        setError(`YouTube OAuth returned empty data: ${JSON.stringify(data)}`);
-        return;
-      }
-      setYtUserCode(data.user_code);
-      setYtVerifyUrl(data.verification_url);
-      setYtDeviceCode(data.device_code);
-      setYtAuth("pending");
-      pollYtAuth(data.device_code, data.interval || 5);
+      setYtTokenId(data.cookie_id);
+      setYtAuth("authorized");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      setError(`YouTube OAuth error: ${msg}`);
+      setError(`Cookie upload error: ${msg}`);
     }
-  };
-
-  const pollYtAuth = (deviceCode: string, interval: number) => {
-    const poll = async () => {
-      const fd = new FormData();
-      fd.append("device_code", deviceCode);
-      const res = await fetch(`${API}/youtube/auth/poll`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.status === "authorized") {
-        setYtTokenId(data.token_id);
-        setYtAuth("authorized");
-      } else if (data.status === "pending" || data.status === "slow_down") {
-        setTimeout(poll, (data.status === "slow_down" ? interval + 5 : interval) * 1000);
-      } else {
-        setError(data.detail || "OAuth failed");
-        setYtAuth("none");
-      }
-    };
-    setTimeout(poll, interval * 1000);
+    e.target.value = "";
   };
 
   // ─── Downloads ──────────────────────────────────────────────
@@ -444,41 +421,25 @@ export default function Home() {
               value={youtubeUrl}
               onChange={(e) => { setYoutubeUrl(e.target.value); if (e.target.value) setFiles([]); }} />
 
-            {/* YouTube OAuth */}
+            {/* YouTube Cookie Auth */}
             <div style={{ marginTop: "0.6rem" }}>
+              <input ref={cookieInputRef} type="file" accept=".txt" style={{ display: "none" }}
+                onChange={handleCookieUpload} />
               {ytAuth === "none" && (
-                <button onClick={startYtAuth} className="pill-button outline"
+                <button onClick={() => cookieInputRef.current?.click()} className="pill-button outline"
                   style={{ width: "100%", padding: "0.45rem", fontSize: "0.75rem" }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                     strokeWidth="2" style={{ marginRight: "5px", verticalAlign: "middle" }}>
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                     <path d="M7 11V7a5 5 0 0110 0v4" />
                   </svg>
-                  Connect YouTube (private)
+                  Upload cookies.txt (private videos)
                 </button>
-              )}
-              {ytAuth === "pending" && (
-                <div style={{ padding: "0.5rem", borderRadius: "10px", background: "rgba(0,0,0,0.08)", fontSize: "0.75rem", textAlign: "center" }}>
-                  <p>Go to:</p>
-                  <a href={ytVerifyUrl} target="_blank" rel="noopener noreferrer"
-                    style={{ color: "#2563eb", fontWeight: 700, textDecoration: "underline", fontSize: "0.85rem" }}>
-                    {ytVerifyUrl}
-                  </a>
-                  <p style={{ margin: "0.4rem 0 0.2rem" }}>Enter code:</p>
-                  <div style={{ fontFamily: "monospace", fontSize: "1.3rem", fontWeight: 800,
-                    letterSpacing: "0.12em", color: "#000", padding: "0.2rem",
-                    background: "rgba(255,255,255,0.8)", borderRadius: "6px" }}>
-                    {ytUserCode}
-                  </div>
-                  <p style={{ marginTop: "0.3rem", color: "rgba(0,0,0,0.4)", fontSize: "0.65rem" }}>
-                    Waiting for authorization...
-                  </p>
-                </div>
               )}
               {ytAuth === "authorized" && (
                 <div style={{ padding: "0.4rem", borderRadius: "10px", background: "rgba(34,197,94,0.15)",
                   fontSize: "0.8rem", textAlign: "center", color: "#15803d", fontWeight: 600 }}>
-                  ✓ YouTube connected
+                  ✓ YouTube cookies loaded
                 </div>
               )}
             </div>
