@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+faster-whisper
+yt-dlp
+python-multipart
+pydantic
