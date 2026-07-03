@@ -244,8 +244,31 @@ export default function Home() {
     }
   };
 
-  // ─── YouTube OAuth (disabled — client revoked by Google) ───
-  // Public YouTube videos work without auth.
+  // ─── YouTube OAuth ──────────────────────────────────────────
+  const startYtAuth = async () => {
+    try {
+      setError("");
+      const res = await fetch(`${API}/youtube/auth/start`, { method: "POST" });
+      if (!res.ok) {
+        const errText = await res.text();
+        setError(`YouTube OAuth failed (${res.status}): ${errText}`);
+        return;
+      }
+      const data = await res.json();
+      if (!data.user_code || !data.verification_url) {
+        setError(`YouTube OAuth returned empty data: ${JSON.stringify(data)}`);
+        return;
+      }
+      setYtUserCode(data.user_code);
+      setYtVerifyUrl(data.verification_url);
+      setYtDeviceCode(data.device_code);
+      setYtAuth("pending");
+      pollYtAuth(data.device_code, data.interval || 5);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`YouTube OAuth error: ${msg}`);
+    }
+  };
 
   const pollYtAuth = (deviceCode: string, interval: number) => {
     const poll = async () => {
@@ -421,10 +444,43 @@ export default function Home() {
               value={youtubeUrl}
               onChange={(e) => { setYoutubeUrl(e.target.value); if (e.target.value) setFiles([]); }} />
 
-            {/* YouTube info */}
-            <div style={{ marginTop: "0.6rem", padding: "0.4rem 0.5rem", borderRadius: "10px",
-              background: "rgba(0,0,0,0.06)", fontSize: "0.7rem", color: "rgba(0,0,0,0.5)", textAlign: "center" }}>
-              ✓ Public videos work directly — just paste the link
+            {/* YouTube OAuth */}
+            <div style={{ marginTop: "0.6rem" }}>
+              {ytAuth === "none" && (
+                <button onClick={startYtAuth} className="pill-button outline"
+                  style={{ width: "100%", padding: "0.45rem", fontSize: "0.75rem" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2" style={{ marginRight: "5px", verticalAlign: "middle" }}>
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0110 0v4" />
+                  </svg>
+                  Connect YouTube (private)
+                </button>
+              )}
+              {ytAuth === "pending" && (
+                <div style={{ padding: "0.5rem", borderRadius: "10px", background: "rgba(0,0,0,0.08)", fontSize: "0.75rem", textAlign: "center" }}>
+                  <p>Go to:</p>
+                  <a href={ytVerifyUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ color: "#2563eb", fontWeight: 700, textDecoration: "underline", fontSize: "0.85rem" }}>
+                    {ytVerifyUrl}
+                  </a>
+                  <p style={{ margin: "0.4rem 0 0.2rem" }}>Enter code:</p>
+                  <div style={{ fontFamily: "monospace", fontSize: "1.3rem", fontWeight: 800,
+                    letterSpacing: "0.12em", color: "#000", padding: "0.2rem",
+                    background: "rgba(255,255,255,0.8)", borderRadius: "6px" }}>
+                    {ytUserCode}
+                  </div>
+                  <p style={{ marginTop: "0.3rem", color: "rgba(0,0,0,0.4)", fontSize: "0.65rem" }}>
+                    Waiting for authorization...
+                  </p>
+                </div>
+              )}
+              {ytAuth === "authorized" && (
+                <div style={{ padding: "0.4rem", borderRadius: "10px", background: "rgba(34,197,94,0.15)",
+                  fontSize: "0.8rem", textAlign: "center", color: "#15803d", fontWeight: 600 }}>
+                  ✓ YouTube connected
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: "auto", paddingTop: "0.8rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

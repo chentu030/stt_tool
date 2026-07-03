@@ -59,8 +59,8 @@ model = WhisperModel("small", device=DEVICE, compute_type=COMPUTE)
 print(f"Model loaded on {DEVICE}.")
 
 # ─── YouTube OAuth (yt-dlp YouTube TV client) ───────────────────
-YT_CID = "861556708454-d6dlm3lh05idd8id68urjjnp6cpemup4.apps.googleusercontent.com"
-YT_CSE = "SboVhoG9s0rNafixCSGGKXAT"
+YT_CID = os.environ.get("YT_OAUTH_CLIENT_ID", "")
+YT_CSE = os.environ.get("YT_OAUTH_CLIENT_SECRET", "")
 _tokens: Dict[str, dict] = {}
 
 # ─── Background task executor ───────────────────────────────────
