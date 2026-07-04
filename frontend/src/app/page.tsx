@@ -220,6 +220,7 @@ export default function Home() {
     setError("");
     setTranscripts([]);
     setLiveText("");
+    setUploadPct(0);
     setProgress({ fileIndex: 0, totalFiles: 0, filename: "", progress: 0, status: "" });
 
     try {
@@ -227,15 +228,47 @@ export default function Home() {
       if (files.length) {
         const fd = new FormData();
         files.forEach((f) => fd.append("files", f));
-        res = await fetch(`${API}/transcribe/upload`, { method: "POST", body: fd });
+        // Use XHR for upload progress tracking
+        setProgress({ fileIndex: 0, totalFiles: files.length, filename: "Uploading...", progress: 0, status: "uploading" });
+        const sseResponse = await new Promise<Response>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${API}/transcribe/upload`);
+          xhr.responseType = "blob";
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const pct = Math.round((e.loaded / e.total) * 100);
+              setUploadPct(pct);
+              setProgress({ fileIndex: 0, totalFiles: files.length, filename: "Uploading...", progress: pct, status: "uploading" });
+            }
+          };
+          xhr.onload = () => {
+            const stream = new ReadableStream({
+              start(controller) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  controller.enqueue(new TextEncoder().encode(reader.result as string));
+                  controller.close();
+                };
+                reader.readAsText(xhr.response);
+              }
+            });
+            resolve(new Response(stream, { status: xhr.status, headers: { "Content-Type": xhr.getResponseHeader("Content-Type") || "" } }));
+          };
+          xhr.onerror = () => reject(new Error("Upload failed"));
+          xhr.send(fd);
+        });
+        if (!sseResponse.ok) throw new Error(`Server error: ${sseResponse.status}`);
+        setUploadPct(100);
+        setProgress({ fileIndex: 0, totalFiles: files.length, filename: "", progress: 0, status: "transcribing" });
+        await readSSE(sseResponse);
       } else {
         const fd = new FormData();
         fd.append("url", youtubeUrl);
         if (ytTokenId) fd.append("token_id", ytTokenId);
         res = await fetch(`${API}/transcribe/youtube`, { method: "POST", body: fd });
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        await readSSE(res);
       }
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
-      await readSSE(res);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed";
       setError(msg);
@@ -278,7 +311,7 @@ export default function Home() {
   };
 
   const progressLabel = () => {
-    if (progress.status === "uploading") return `Uploading ${progress.filename}... ${progress.progress}%`;
+    if (progress.status === "uploading") return `⬆ Uploading ${progress.totalFiles} file(s)... ${uploadPct}%`;
     if (progress.status === "downloading") return "Downloading from YouTube...";
     if (progress.status === "download_complete") return "Download complete, starting transcription...";
     if (progress.totalFiles > 1 && progress.status === "transcribing")
@@ -514,7 +547,7 @@ export default function Home() {
               <div style={{ width: "100%", height: "8px", background: "var(--bg-secondary)",
                 borderRadius: "4px", overflow: "hidden" }}>
                 <div style={{
-                  width: `${progress.status === "downloading" ? 30 : overallProgress()}%`,
+                  width: `${progress.status === "uploading" ? uploadPct : progress.status === "downloading" ? 30 : overallProgress()}%`,
                   height: "100%",
                   background: "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
                   borderRadius: "4px", transition: "width 0.3s ease",
