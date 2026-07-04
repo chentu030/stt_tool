@@ -373,7 +373,7 @@ export default function Home() {
             </div>
 
             {files.length > 0 && (
-              <div style={{ marginTop: "0.8rem", maxHeight: "140px", overflowY: "auto" }}>
+              <div style={{ marginTop: "0.8rem", maxHeight: "240px", overflowY: "auto" }}>
                 {files.map((f, i) => (
                   <div key={i} style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
