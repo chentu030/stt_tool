@@ -88,6 +88,7 @@ export default function Home() {
     if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   };
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("[handleFileInput] files:", e.target.files);
     if (e.target.files?.length) addFiles(e.target.files);
     e.target.value = "";
   };
@@ -354,7 +355,7 @@ export default function Home() {
               onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               style={{ minHeight: files.length ? "100px" : "180px", flex: files.length ? undefined : 1 }}>
-              <input ref={fileInputRef} type="file" multiple accept="audio/*,video/*"
+              <input ref={fileInputRef} type="file" multiple accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.ogg,.flac,.aac,.wma,.webm,.mkv,.avi,.mov"
                 style={{ display: "none" }} onChange={handleFileInput} />
               <div className="upload-icon-large">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
