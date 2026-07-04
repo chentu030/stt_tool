@@ -88,9 +88,15 @@ export default function Home() {
     if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
   };
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("[handleFileInput] files:", e.target.files);
-    if (e.target.files?.length) addFiles(e.target.files);
-    e.target.value = "";
+    const fileList = e.target.files;
+    if (fileList && fileList.length > 0) {
+      // Copy to array BEFORE resetting input
+      const arr = Array.from(fileList);
+      console.log("[handleFileInput] selected:", arr.map(f => f.name));
+      addFiles(arr);
+    }
+    // Delay reset to avoid triggering another onChange with empty list
+    setTimeout(() => { if (fileInputRef.current) fileInputRef.current.value = ""; }, 100);
   };
 
   // ─── SSE stream reader (instant mode) ───────────────────────
@@ -386,7 +392,6 @@ export default function Home() {
 
             {/* Hidden file input - OUTSIDE the drop zone to avoid event conflicts */}
             <input ref={fileInputRef} type="file" multiple
-              accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.ogg,.flac,.aac,.wma,.webm,.mkv,.avi,.mov"
               style={{ display: "none" }}
               onChange={handleFileInput} />
 
