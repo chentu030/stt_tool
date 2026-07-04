@@ -2,6 +2,6 @@ fastapi
 uvicorn[standard]
 python-multipart
 yt-dlp
-faster-whisper
+replicate
 requests
 firebase-admin
