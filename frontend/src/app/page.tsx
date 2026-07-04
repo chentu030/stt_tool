@@ -384,12 +384,16 @@ export default function Home() {
               Drag and drop one or more audio/video files.
             </p>
 
+            {/* Hidden file input - OUTSIDE the drop zone to avoid event conflicts */}
+            <input ref={fileInputRef} type="file" multiple
+              accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.ogg,.flac,.aac,.wma,.webm,.mkv,.avi,.mov"
+              style={{ display: "none" }}
+              onChange={handleFileInput} />
+
             <div className={`upload-zone ${dragActive ? "active" : ""}`}
               onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              style={{ minHeight: files.length ? "100px" : "180px", flex: files.length ? undefined : 1 }}>
-              <input ref={fileInputRef} type="file" multiple accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.ogg,.flac,.aac,.wma,.webm,.mkv,.avi,.mov"
-                style={{ display: "none" }} onChange={handleFileInput} />
+              style={{ minHeight: files.length ? "100px" : "180px", flex: files.length ? undefined : 1,
+                cursor: "default" }}>
               <div className="upload-icon-large">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
@@ -397,12 +401,30 @@ export default function Home() {
                 </svg>
               </div>
               <p style={{ fontWeight: 600, fontSize: "1.05rem" }}>
-                {files.length ? `${files.length} file(s) selected` : "Select or drop files"}
+                {files.length ? `${files.length} file(s) selected` : "Drop files here"}
               </p>
               {!files.length && (
-                <p style={{ fontSize: "0.8rem", color: "rgba(0,0,0,0.5)", marginTop: "0.3rem" }}>
+                <button type="button" className="pill-button" onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  style={{ marginTop: "0.7rem", fontSize: "0.9rem", padding: "0.5rem 1.5rem" }}>
+                  📁 Choose Files
+                </button>
+              )}
+              {!files.length && (
+                <p style={{ fontSize: "0.8rem", color: "rgba(0,0,0,0.5)", marginTop: "0.5rem" }}>
                   MP4, MP3, M4A, WAV — multiple files supported
                 </p>
+              )}
+              {files.length > 0 && (
+                <button type="button" className="pill-button outline" onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  style={{ marginTop: "0.5rem", fontSize: "0.8rem", padding: "0.35rem 1rem" }}>
+                  + Add more files
+                </button>
               )}
             </div>
 
