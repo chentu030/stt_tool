@@ -67,19 +67,16 @@ def _transcribe_replicate(audio_path: str) -> str:
     """Send audio to Replicate openai/whisper and return timestamped transcript."""
     with open(audio_path, "rb") as f:
         output = replicate.run(
-            "openai/whisper",
+            "openai/whisper:8099696689d249cf8b122d833c36ac3f75505c666a395ca40ef26f68e7d3d16e",
             input={
                 "audio": f,
-                "model": "large-v3",
-                "language": "zh",
+                "language": "Chinese",
                 "translate": False,
                 "temperature": 0,
                 "transcription": "plain text",
                 "suppress_tokens": "-1",
                 "logprob_threshold": -1.0,
                 "no_speech_threshold": 0.6,
-                "condition_on_previous_text": True,
-                "compression_ratio_threshold": 2.4,
             }
         )
     # output is a dict with 'segments' and 'transcription'

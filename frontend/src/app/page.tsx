@@ -411,8 +411,8 @@ export default function Home() {
                 {files.map((f, i) => (
                   <div key={i} style={{
                     display: "flex", justifyContent: "space-between", alignItems: "center",
-                    padding: "0.35rem 0.5rem", borderRadius: "8px",
-                    background: "rgba(0,0,0,0.05)", marginBottom: "0.25rem", fontSize: "0.8rem",
+                    padding: "0.6rem 0.7rem", borderRadius: "10px", minHeight: "44px",
+                    background: "rgba(0,0,0,0.05)", marginBottom: "0.35rem", fontSize: "0.85rem",
                   }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                       {f.name}
