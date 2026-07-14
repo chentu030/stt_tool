@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   loginWithGoogle, logout, createJob, updateJobStatus,
@@ -44,7 +44,6 @@ export default function Home() {
   const [progress, setProgress] = useState<ProgressInfo>({
     fileIndex: 0, totalFiles: 0, filename: "", progress: 0, status: "", positionLabel: "",
   });
-  const [liveText, setLiveText] = useState("");
   const [uploadPct, setUploadPct] = useState(0);
   const [bgMode, setBgMode] = useState(false);
   const [bgJobId, setBgJobId] = useState<string | null>(null);
@@ -123,84 +122,18 @@ export default function Home() {
     setTimeout(() => { if (fileInputRef.current) fileInputRef.current.value = ""; }, 100);
   };
 
-  // ─── SSE stream reader (instant mode) ───────────────────────
-  const readSSE = useCallback(async (response: Response) => {
-    const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    const completedTranscripts: FileTranscript[] = [];
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop()!;
-
-      for (const part of parts) {
-        for (const line of part.split("\n")) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const d = JSON.parse(line.slice(6));
-            if (d.status === "transcribing") {
-              const pos = d.total_seconds
-                ? `${fmtSec(d.processed_seconds || 0)} / ${fmtSec(d.total_seconds)}`
-                : "";
-              setProgress({
-                fileIndex: d.file_index || 0, totalFiles: d.total_files || 0,
-                filename: d.filename || "", progress: d.progress || 0, status: "transcribing",
-                positionLabel: pos,
-              });
-              if (d.text) setLiveText((prev) => prev + d.text);
-            } else if (d.status === "downloading") {
-              setProgress((p) => ({ ...p, status: "downloading", filename: d.filename || "" }));
-            } else if (d.status === "download_complete") {
-              setProgress((p) => ({ ...p, status: "download_complete" }));
-            } else if (d.status === "file_done") {
-              completedTranscripts.push({ filename: d.filename, text: d.transcript });
-              setTranscripts([...completedTranscripts]);
-              setLiveText("");
-            } else if (d.status === "all_done") {
-              setIsTranscribing(false);
-              // Auto-save to Firestore if logged in (best effort).
-              // Firestore docs cap at 1 MiB, so only inline small transcripts.
-              if (user && completedTranscripts.length > 0) {
-                try {
-                  const bytes = completedTranscripts.reduce(
-                    (n, t) => n + new Blob([t.text]).size, 0);
-                  const jobId = await createJob(
-                    user.uid, files.length ? "upload" : "youtube",
-                    completedTranscripts.map((t) => t.filename),
-                    youtubeUrl
-                  );
-                  await updateJobStatus(jobId, {
-                    status: "done", progress: 100,
-                    transcripts: bytes <= 700000 ? completedTranscripts : [],
-                  });
-                } catch (e) {
-                  console.error("auto-save failed:", e);
-                }
-              }
-            } else if (d.status === "error") {
-              setError(d.detail || "Transcription failed");
-              setIsTranscribing(false);
-            }
-          } catch { /* skip malformed */ }
-        }
-      }
-    }
-  }, [user, files, youtubeUrl]);
-
-  // ─── Background mode (upload to Firebase, process in cloud) ─
+  // ─── Cloud mode (upload to Firebase Storage, process via Cloud Tasks) ─
   const handleBackgroundTranscribe = async () => {
     if (!user) return;
     setIsTranscribing(true);
     setBgMode(true);
     setError("");
     setTranscripts([]);
-    setLiveText("");
     setUploadPct(0);
-    setProgress({ fileIndex: 0, totalFiles: files.length || 1, filename: "", progress: 0, status: "uploading", positionLabel: "" });
+    setProgress({
+      fileIndex: 0, totalFiles: files.length || 1, filename: "", progress: 0,
+      status: files.length ? "uploading" : "queued", positionLabel: "",
+    });
 
     try {
       const filenames = files.map((f) => f.name);
@@ -257,44 +190,6 @@ export default function Home() {
       setError(msg);
       setIsTranscribing(false);
       setBgMode(false);
-    }
-  };
-
-  // ─── Instant mode (SSE stream) ──────────────────────────────
-  const handleInstantTranscribe = async () => {
-    if (!files.length && !youtubeUrl) {
-      setError("Please upload files or provide a YouTube URL.");
-      return;
-    }
-    setIsTranscribing(true);
-    setError("");
-    setTranscripts([]);
-    setLiveText("");
-    setUploadPct(0);
-    setProgress({ fileIndex: 0, totalFiles: 0, filename: "", progress: 0, status: "" });
-
-    try {
-      let res: Response;
-      if (files.length) {
-        const fd = new FormData();
-        files.forEach((f) => fd.append("files", f));
-        setProgress({ fileIndex: 0, totalFiles: files.length, filename: "Uploading & processing...", progress: -1, status: "uploading" });
-        res = await fetch(`${API}/transcribe/upload`, { method: "POST", body: fd });
-      } else {
-        const fd = new FormData();
-        fd.append("url", youtubeUrl);
-        if (ytTokenId) fd.append("token_id", ytTokenId);
-        res = await fetch(`${API}/transcribe/youtube`, { method: "POST", body: fd });
-      }
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Server error ${res.status}: ${errText}`);
-      }
-      await readSSE(res);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      setError(msg);
-      setIsTranscribing(false);
     }
   };
 
@@ -487,22 +382,14 @@ export default function Home() {
             {files.length > 0 && (
               <div style={{ marginTop: "0.8rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end", alignItems: "center" }}>
                 {user ? (
-                  <>
-                    <button className="pill-button outline" disabled={isTranscribing}
-                      onClick={handleInstantTranscribe} title="Quick mode — not saved. Best for small files."
-                      style={{ fontSize: "0.85rem" }}>
-                      ⚡ Quick
-                    </button>
-                    <button className="pill-button" disabled={isTranscribing}
-                      onClick={handleBackgroundTranscribe}
-                      title="Robust upload with progress, handles large files, saved to your history.">
-                      {isTranscribing ? "Processing..." : `☁️ Transcribe ${files.length} file(s)`}
-                    </button>
-                  </>
-                ) : (
                   <button className="pill-button" disabled={isTranscribing}
-                    onClick={handleInstantTranscribe}>
-                    {isTranscribing ? "Processing..." : `⚡ Transcribe ${files.length} file(s)`}
+                    onClick={handleBackgroundTranscribe}
+                    title="Shows upload progress, handles large files, and you can close the tab after upload.">
+                    {isTranscribing ? "Processing..." : `☁️ Transcribe ${files.length} file(s)`}
+                  </button>
+                ) : (
+                  <button className="pill-button" onClick={loginWithGoogle}>
+                    Sign in to transcribe
                   </button>
                 )}
               </div>
@@ -547,23 +434,17 @@ export default function Home() {
                 {[0, 1, 2, 3, 4].map((i) => <div key={i} className="bar"></div>)}
               </div>
               <div style={{ display: "flex", gap: "0.4rem" }}>
-                {user && youtubeUrl && (
-                  <button className="pill-button outline" style={{ fontSize: "0.7rem", padding: "0.35rem 0.6rem" }}
-                    disabled={isTranscribing} onClick={handleBackgroundTranscribe}>
-                    ☁️
+                {user ? (
+                  <button className="pill-button" style={{ fontSize: "0.85rem" }}
+                    disabled={isTranscribing || !youtubeUrl} onClick={handleBackgroundTranscribe}
+                    title="Queues the job in the cloud — you can close the tab right after.">
+                    {isTranscribing ? "Processing..." : "☁️ Transcribe"}
+                  </button>
+                ) : (
+                  <button className="pill-button" onClick={loginWithGoogle}>
+                    Sign in to transcribe
                   </button>
                 )}
-                <button className="icon-btn" style={{ width: "46px", height: "46px" }}
-                  disabled={isTranscribing || !youtubeUrl} onClick={handleInstantTranscribe}>
-                  {isTranscribing ? (
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10" strokeDasharray="31" strokeDashoffset="10">
-                        <animateTransform attributeName="transform" type="rotate"
-                          from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
-                      </circle>
-                    </svg>
-                  ) : "▶"}
-                </button>
               </div>
             </div>
           </div>
@@ -601,50 +482,6 @@ export default function Home() {
               <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
                 {progressLabel()}
               </p>
-            </div>
-          )}
-
-          {/* ── Progress Card (instant mode) ── */}
-          {isTranscribing && !bgMode && (
-            <div className="bento-card col-span-12" style={{ marginTop: "0.5rem" }}>
-              <h2 className="font-display" style={{ fontSize: "1.4rem", marginBottom: "1rem" }}>Progress</h2>
-              <div style={{ marginBottom: "0.5rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-                {progressLabel()}
-              </div>
-              <div style={{ width: "100%", height: "8px", background: "var(--bg-secondary)",
-                borderRadius: "4px", overflow: "hidden" }}>
-                <div style={{
-                  width: progress.status === "uploading" ? "100%" : `${progress.status === "downloading" ? 30 : overallProgress()}%`,
-                  height: "100%",
-                  background: progress.status === "uploading"
-                    ? "linear-gradient(90deg, transparent, var(--accent-1), var(--accent-2), transparent)"
-                    : "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
-                  borderRadius: "4px", transition: "width 0.3s ease",
-                  ...(progress.status === "uploading" ? {
-                    backgroundSize: "200% 100%",
-                    animation: "shimmer 1.5s infinite linear",
-                  } : {}),
-                }} />
-              </div>
-              {progress.totalFiles > 1 && progress.status === "transcribing" && (
-                <div style={{ marginTop: "0.6rem" }}>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>
-                    Current file: {progress.progress}%
-                  </div>
-                  <div style={{ width: "100%", height: "4px", background: "var(--bg-secondary)",
-                    borderRadius: "2px", overflow: "hidden" }}>
-                    <div style={{ width: `${progress.progress}%`, height: "100%",
-                      background: "var(--accent-1)", borderRadius: "2px", transition: "width 0.3s ease" }} />
-                  </div>
-                </div>
-              )}
-              {liveText && (
-                <div style={{ marginTop: "0.8rem", maxHeight: "100px", overflowY: "auto", fontSize: "0.75rem",
-                  fontFamily: "monospace", color: "var(--text-muted)", background: "var(--bg-secondary)",
-                  padding: "0.6rem", borderRadius: "8px", whiteSpace: "pre-wrap" }}>
-                  {liveText.slice(-500)}
-                </div>
-              )}
             </div>
           )}
 
