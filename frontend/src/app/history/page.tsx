@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserJobs, deleteJob, getFileUrl, Job } from "@/lib/firebase";
+import { listenToUserJobs, deleteJob, getResultText, Job } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
 import Link from "next/link";
 
@@ -10,12 +10,56 @@ export default function HistoryPage() {
   const { user, loading } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // For large transcripts stored only in Storage (not inline in Firestore)
+  const [loaded, setLoaded] = useState<Record<string, { filename: string; text: string }[]>>({});
+  const [loadingId, setLoadingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     const unsub = listenToUserJobs(user.uid, setJobs);
     return unsub;
   }, [user]);
+
+  // Return the transcripts for a job (inline if present, else from Storage cache)
+  const getTranscripts = (job: Job) =>
+    (job.transcripts && job.transcripts.length > 0) ? job.transcripts : (loaded[job.id] || []);
+
+  const loadFromStorage = async (job: Job) => {
+    if (loaded[job.id]) return loaded[job.id];
+    if (!job.result_paths?.length) return [];
+    setLoadingId(job.id);
+    try {
+      const results = await Promise.all(
+        job.result_paths.map(async (p) => ({
+          filename: p.split("/").pop()?.replace(/\.txt$/, "") || "transcript",
+          text: await getResultText(p),
+        }))
+      );
+      setLoaded((prev) => ({ ...prev, [job.id]: results }));
+      return results;
+    } catch (e) {
+      console.error("Failed to load transcript from storage:", e);
+      return [];
+    } finally {
+      setLoadingId(null);
+    }
+  };
+
+  const handleView = async (job: Job) => {
+    if (expandedId === job.id) { setExpandedId(null); return; }
+    setExpandedId(job.id);
+    if ((!job.transcripts || job.transcripts.length === 0) && job.result_paths?.length) {
+      await loadFromStorage(job);
+    }
+  };
+
+  const handleDownloadAll = async (job: Job) => {
+    let ts = getTranscripts(job);
+    if (ts.length === 0 && job.result_paths?.length) {
+      ts = await loadFromStorage(job);
+    }
+    ts.forEach((t) => downloadTxt(t.filename, t.text));
+  };
 
   const downloadTxt = (filename: string, text: string) => {
     const el = document.createElement("a");
@@ -128,11 +172,11 @@ export default function HistoryPage() {
                       {job.status === "done" && (
                         <>
                           <button className="pill-button" style={{ padding: "0.35rem 0.7rem", fontSize: "0.75rem" }}
-                            onClick={() => setExpandedId(expandedId === job.id ? null : job.id)}>
+                            onClick={() => handleView(job)}>
                             {expandedId === job.id ? "Hide" : "View"}
                           </button>
                           <button className="pill-button outline" style={{ padding: "0.35rem 0.7rem", fontSize: "0.75rem" }}
-                            onClick={() => job.transcripts?.forEach((t) => downloadTxt(t.filename, t.text))}>
+                            onClick={() => handleDownloadAll(job)}>
                             Download
                           </button>
                         </>
@@ -148,9 +192,12 @@ export default function HistoryPage() {
                   </div>
 
                   {/* Expanded transcript view */}
-                  {expandedId === job.id && job.transcripts && (
+                  {expandedId === job.id && (
                     <div style={{ marginTop: "1rem", borderTop: "1px solid var(--bg-secondary)", paddingTop: "1rem" }}>
-                      {job.transcripts.map((t, i) => (
+                      {loadingId === job.id && getTranscripts(job).length === 0 && (
+                        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading transcript…</p>
+                      )}
+                      {getTranscripts(job).map((t, i) => (
                         <div key={i} style={{ marginBottom: "0.8rem" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
                             <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>{t.filename}</span>

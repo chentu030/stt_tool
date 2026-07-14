@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   loginWithGoogle, logout, createJob, updateJobStatus,
-  uploadFile, listenToJob, Job,
+  uploadFile, listenToJob, getResultText, Job,
 } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
 import Link from "next/link";
@@ -14,12 +14,22 @@ interface FileTranscript {
   text: string;
 }
 
+function fmtSec(s: number): string {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 interface ProgressInfo {
   fileIndex: number;
   totalFiles: number;
   filename: string;
   progress: number;
   status: string;
+  positionLabel?: string;
 }
 
 export default function Home() {
@@ -32,7 +42,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
   const [progress, setProgress] = useState<ProgressInfo>({
-    fileIndex: 0, totalFiles: 0, filename: "", progress: 0, status: "",
+    fileIndex: 0, totalFiles: 0, filename: "", progress: 0, status: "", positionLabel: "",
   });
   const [liveText, setLiveText] = useState("");
   const [uploadPct, setUploadPct] = useState(0);
@@ -50,14 +60,28 @@ export default function Home() {
   // ─── Listen to background job ───────────────────────────────
   useEffect(() => {
     if (!bgJobId) return;
-    const unsub = listenToJob(bgJobId, (job: Job) => {
+    const unsub = listenToJob(bgJobId, async (job: Job) => {
       setProgress({
         fileIndex: job.current_file, totalFiles: job.total_files,
         filename: job.filenames[job.current_file - 1] || "", progress: job.progress,
-        status: job.status,
+        status: job.status, positionLabel: job.position_label || "",
       });
       if (job.status === "done") {
-        setTranscripts(job.transcripts || []);
+        let results = job.transcripts || [];
+        // Large transcripts are stored only in Storage (Firestore 1MB doc limit)
+        if (results.length === 0 && (job.result_paths?.length ?? 0) > 0) {
+          try {
+            results = await Promise.all(
+              job.result_paths.map(async (p) => ({
+                filename: p.split("/").pop()?.replace(/\.txt$/, "") || "transcript",
+                text: await getResultText(p),
+              }))
+            );
+          } catch (e) {
+            console.error("Failed to load results from storage:", e);
+          }
+        }
+        setTranscripts(results);
         setIsTranscribing(false);
         setBgJobId(null);
       } else if (job.status === "error") {
@@ -119,9 +143,13 @@ export default function Home() {
           try {
             const d = JSON.parse(line.slice(6));
             if (d.status === "transcribing") {
+              const pos = d.total_seconds
+                ? `${fmtSec(d.processed_seconds || 0)} / ${fmtSec(d.total_seconds)}`
+                : "";
               setProgress({
                 fileIndex: d.file_index || 0, totalFiles: d.total_files || 0,
                 filename: d.filename || "", progress: d.progress || 0, status: "transcribing",
+                positionLabel: pos,
               });
               if (d.text) setLiveText((prev) => prev + d.text);
             } else if (d.status === "downloading") {
@@ -134,16 +162,24 @@ export default function Home() {
               setLiveText("");
             } else if (d.status === "all_done") {
               setIsTranscribing(false);
-              // Auto-save to Firestore if logged in
+              // Auto-save to Firestore if logged in (best effort).
+              // Firestore docs cap at 1 MiB, so only inline small transcripts.
               if (user && completedTranscripts.length > 0) {
-                const jobId = await createJob(
-                  user.uid, files.length ? "upload" : "youtube",
-                  completedTranscripts.map((t) => t.filename),
-                  youtubeUrl
-                );
-                await updateJobStatus(jobId, {
-                  status: "done", progress: 100, transcripts: completedTranscripts,
-                });
+                try {
+                  const bytes = completedTranscripts.reduce(
+                    (n, t) => n + new Blob([t.text]).size, 0);
+                  const jobId = await createJob(
+                    user.uid, files.length ? "upload" : "youtube",
+                    completedTranscripts.map((t) => t.filename),
+                    youtubeUrl
+                  );
+                  await updateJobStatus(jobId, {
+                    status: "done", progress: 100,
+                    transcripts: bytes <= 700000 ? completedTranscripts : [],
+                  });
+                } catch (e) {
+                  console.error("auto-save failed:", e);
+                }
               }
             } else if (d.status === "error") {
               setError(d.detail || "Transcription failed");
@@ -159,9 +195,12 @@ export default function Home() {
   const handleBackgroundTranscribe = async () => {
     if (!user) return;
     setIsTranscribing(true);
+    setBgMode(true);
     setError("");
     setTranscripts([]);
     setLiveText("");
+    setUploadPct(0);
+    setProgress({ fileIndex: 0, totalFiles: files.length || 1, filename: "", progress: 0, status: "uploading", positionLabel: "" });
 
     try {
       const filenames = files.map((f) => f.name);
@@ -171,6 +210,10 @@ export default function Home() {
         files.length ? filenames : [youtubeUrl],
         youtubeUrl
       );
+
+      // Attach the progress listener now so upload + processing show live,
+      // even while the /jobs/start request stays open on the server.
+      setBgJobId(jobId);
 
       const storagePaths: string[] = [];
 
@@ -201,18 +244,19 @@ export default function Home() {
       if (youtubeUrl) fd.append("youtube_url", youtubeUrl);
       if (ytTokenId) fd.append("yt_token_id", ytTokenId);
 
-      await fetch(`${API}/jobs/start`, {
+      // Fire-and-forget: keeps the request open (so Cloud Run keeps processing),
+      // but the Firestore listener is the source of truth for progress/results,
+      // so a dropped connection here won't clobber a completed job.
+      fetch(`${API}/jobs/start`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
-      });
-
-      setBgJobId(jobId);
-      setBgMode(true);
+      }).catch((e) => console.error("jobs/start request:", e));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed";
       setError(msg);
       setIsTranscribing(false);
+      setBgMode(false);
     }
   };
 
@@ -289,13 +333,26 @@ export default function Home() {
   };
 
   const progressLabel = () => {
-    if (progress.status === "uploading") return "⬆ Uploading & processing... please wait";
+    if (progress.status === "uploading")
+      return `⬆ Uploading${progress.totalFiles > 1 ? ` file ${progress.fileIndex}/${progress.totalFiles}` : ""}: ${uploadPct}%`;
     if (progress.status === "downloading") return "Downloading from YouTube...";
     if (progress.status === "download_complete") return "Download complete, starting transcription...";
-    if (progress.totalFiles > 1 && progress.status === "transcribing")
-      return `File ${progress.fileIndex}/${progress.totalFiles}: ${progress.filename} — ${progress.progress}%`;
-    if (progress.filename && progress.status === "transcribing")
-      return `${progress.filename} — ${progress.progress}%`;
+    if (progress.status === "transcribing") {
+      const filePart = progress.totalFiles > 1
+        ? `File ${progress.fileIndex}/${progress.totalFiles}: ${progress.filename}`
+        : progress.filename;
+      // Show real audio position (mm:ss / total) when available
+      const posPart = progress.positionLabel
+        ? ` — ⏱ ${progress.positionLabel}`
+        : ` — ${progress.progress}%`;
+      return `${filePart}${posPart}`;
+    }
+    if (progress.status === "processing") {
+      // Background mode: position_label already includes filename + mm:ss
+      return progress.positionLabel
+        ? `⏱ ${progress.positionLabel} (${progress.progress}%)`
+        : `Processing... ${progress.progress}%`;
+    }
     if (progress.status === "queued") return "Queued, waiting to start...";
     return "Starting...";
   };
@@ -428,18 +485,26 @@ export default function Home() {
             )}
 
             {files.length > 0 && (
-              <div style={{ marginTop: "0.8rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-                {user && (
-                  <button className="pill-button outline" disabled={isTranscribing}
-                    onClick={handleBackgroundTranscribe}
-                    style={{ fontSize: "0.85rem" }}>
-                    ☁️ Background
+              <div style={{ marginTop: "0.8rem", display: "flex", gap: "0.5rem", justifyContent: "flex-end", alignItems: "center" }}>
+                {user ? (
+                  <>
+                    <button className="pill-button outline" disabled={isTranscribing}
+                      onClick={handleInstantTranscribe} title="Quick mode — not saved. Best for small files."
+                      style={{ fontSize: "0.85rem" }}>
+                      ⚡ Quick
+                    </button>
+                    <button className="pill-button" disabled={isTranscribing}
+                      onClick={handleBackgroundTranscribe}
+                      title="Robust upload with progress, handles large files, saved to your history.">
+                      {isTranscribing ? "Processing..." : `☁️ Transcribe ${files.length} file(s)`}
+                    </button>
+                  </>
+                ) : (
+                  <button className="pill-button" disabled={isTranscribing}
+                    onClick={handleInstantTranscribe}>
+                    {isTranscribing ? "Processing..." : `⚡ Transcribe ${files.length} file(s)`}
                   </button>
                 )}
-                <button className="pill-button" disabled={isTranscribing}
-                  onClick={handleInstantTranscribe}>
-                  {isTranscribing ? "Processing..." : `⚡ Transcribe ${files.length} file(s)`}
-                </button>
               </div>
             )}
           </div>
@@ -517,16 +582,19 @@ export default function Home() {
               background: "linear-gradient(135deg, rgba(168,85,247,0.1), rgba(59,130,246,0.1))" }}>
               <p style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>☁️</p>
               <h3 className="font-display" style={{ fontSize: "1.3rem", marginBottom: "0.5rem" }}>
-                Processing in background
+                {progress.status === "uploading" ? "Uploading to cloud" : "Transcribing in cloud"}
               </h3>
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: "1rem" }}>
-                You can safely close this page. Check your{" "}
+                {progress.status === "uploading"
+                  ? "Keep this tab open until the upload finishes."
+                  : "Upload done — you can safely close this tab now."}{" "}
+                Results are saved to your{" "}
                 <Link href="/history" style={{ color: "var(--accent-1)", fontWeight: 600 }}>history</Link>{" "}
-                later for results.
+                automatically.
               </p>
               <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto", height: "6px",
                 background: "var(--bg-secondary)", borderRadius: "3px", overflow: "hidden" }}>
-                <div style={{ width: `${overallProgress()}%`, height: "100%",
+                <div style={{ width: `${progress.status === "uploading" ? overallProgress() : progress.progress}%`, height: "100%",
                   background: "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
                   borderRadius: "3px", transition: "width 0.5s ease" }} />
               </div>

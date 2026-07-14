@@ -4,12 +4,12 @@ import {
   onAuthStateChanged, User
 } from "firebase/auth";
 import {
-  getFirestore, collection, doc, setDoc, getDocs,
-  query, where, orderBy, onSnapshot, updateDoc, deleteDoc,
+  getFirestore, collection, doc, setDoc,
+  query, where, onSnapshot, updateDoc, deleteDoc,
   Timestamp, Unsubscribe
 } from "firebase/firestore";
 import {
-  getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject,
+  getStorage, ref, uploadBytesResumable, getDownloadURL, getBytes, deleteObject,
   UploadTaskSnapshot
 } from "firebase/storage";
 
@@ -59,6 +59,7 @@ export interface Job {
   result_paths: string[];
   transcripts: { filename: string; text: string }[];
   error_message: string;
+  position_label?: string;
 }
 
 // ─── Firestore helpers ───────────────────────────────────────
@@ -117,22 +118,28 @@ export function listenToUserJobs(
   uid: string,
   callback: (jobs: Job[]) => void
 ): Unsubscribe {
-  const q = query(
-    collection(db, "jobs"),
-    where("user_id", "==", uid),
-    orderBy("created_at", "desc")
+  // No orderBy here: combining where(==) + orderBy(other field) requires a
+  // Firestore composite index, which silently breaks the query if not created.
+  // We sort client-side by created_at desc instead — no index needed.
+  const q = query(collection(db, "jobs"), where("user_id", "==", uid));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const jobs = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          ...data,
+          created_at: data.created_at?.toDate?.() || new Date(),
+        } as Job;
+      });
+      jobs.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      callback(jobs);
+    },
+    (err) => {
+      console.error("[listenToUserJobs] snapshot error:", err);
+    }
   );
-  return onSnapshot(q, (snap) => {
-    const jobs = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        ...data,
-        created_at: data.created_at?.toDate?.() || new Date(),
-      } as Job;
-    });
-    callback(jobs);
-  });
 }
 
 export async function deleteJob(jobId: string, storagePaths: string[], resultPaths: string[]) {
@@ -171,4 +178,10 @@ export function uploadFile(
 
 export async function getFileUrl(path: string): Promise<string> {
   return getDownloadURL(ref(storage, path));
+}
+
+// Fetch a stored .txt transcript's text content directly.
+export async function getResultText(path: string): Promise<string> {
+  const bytes = await getBytes(ref(storage, path));
+  return new TextDecoder("utf-8").decode(bytes);
 }

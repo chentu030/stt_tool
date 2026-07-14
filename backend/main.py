@@ -7,14 +7,13 @@ import uuid
 import subprocess
 import asyncio
 import threading
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import yt_dlp
 import replicate
-import requests as http_requests
 
 # ─── Firebase Admin ──────────────────────────────────────────────
 import firebase_admin
@@ -50,6 +49,58 @@ if REPLICATE_API_TOKEN:
     os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
 print(f"Replicate API configured: {'yes' if REPLICATE_API_TOKEN else 'NO TOKEN!'}")
 
+# incredibly-fast-whisper: L40S GPU, batched + flash-attn. ~10-20x faster than openai/whisper.
+WHISPER_MODEL = (
+    "vaibhavs10/incredibly-fast-whisper:"
+    "3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c"
+)
+DEFAULT_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "chinese")
+
+# Split long audio into chunks so we can report real position progress
+# and keep each Replicate request small & stable.
+CHUNK_SEC = int(os.environ.get("CHUNK_SEC", "600"))  # 10 min per chunk
+
+# ─── Cloud Tasks (background jobs that survive closing the browser) ──────────
+# Project NUMBER is embedded in the Cloud Run URL (whisper-api-<number>...).
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "1016448029865")
+TASKS_LOCATION = os.environ.get("TASKS_LOCATION", "asia-east1")
+TASKS_QUEUE = os.environ.get("TASKS_QUEUE", "whisper-jobs")
+SERVICE_URL = os.environ.get("SERVICE_URL", "")  # e.g. https://whisper-api-...run.app
+TASK_SECRET = os.environ.get("TASK_SECRET", "")
+
+def _enqueue_task(job_id: str) -> bool:
+    """Enqueue a Cloud Task that will POST /api/jobs/process. Returns False if
+    Cloud Tasks isn't configured (caller then falls back to inline processing)."""
+    if not (SERVICE_URL and TASK_SECRET and GCP_PROJECT):
+        return False
+    try:
+        from google.cloud import tasks_v2
+        from google.protobuf import duration_pb2
+        client = tasks_v2.CloudTasksClient()
+        parent = client.queue_path(GCP_PROJECT, TASKS_LOCATION, TASKS_QUEUE)
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": f"{SERVICE_URL}/api/jobs/process",
+                "headers": {"Content-Type": "application/json", "X-Task-Secret": TASK_SECRET},
+                "body": json.dumps({"job_id": job_id}).encode(),
+            },
+            "dispatch_deadline": duration_pb2.Duration(seconds=1800),  # 30 min (HTTP task max)
+        }
+        client.create_task(parent=parent, task=task)
+        return True
+    except Exception as e:
+        print(f"[tasks] enqueue failed, will process inline: {e}")
+        return False
+
+def _delete_uploads(job_data: dict):
+    """Delete the uploaded source audio from Storage (results are kept)."""
+    for sp in job_data.get("storage_paths", []):
+        try:
+            bucket.blob(sp).delete()
+        except Exception:
+            pass
+
 # ─── YouTube Cookie Auth ─────────────────────────────────────────
 _cookies: Dict[str, str] = {}  # cookie_id -> cookie file content
 
@@ -58,43 +109,111 @@ executor = ThreadPoolExecutor(max_workers=2)
 
 # ─── Helpers ─────────────────────────────────────────────────────
 def _hhmmss(s: float) -> str:
-    return f"{int(s//3600):02d}:{int(s%3600//60):02d}:{int(s%60):02d}"
+    s = max(0, int(s))
+    return f"{s//3600:02d}:{s%3600//60:02d}:{s%60:02d}"
 
 def _sse(data: dict, event: str = "progress") -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-def _transcribe_replicate(audio_path: str) -> str:
-    """Send audio to Replicate openai/whisper and return timestamped transcript."""
+def _ffprobe_duration(path: str) -> float:
+    """Return audio/video duration in seconds, or 0.0 if unknown."""
+    try:
+        out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            stderr=subprocess.STDOUT,
+        )
+        return float(out.decode().strip())
+    except Exception:
+        return 0.0
+
+def _extract_audio(src: str, dst: str, start: Optional[float] = None, dur: Optional[float] = None):
+    """Extract (and re-encode) audio to 16kHz mono mp3. Optionally a [start, start+dur] slice."""
+    cmd = ["ffmpeg", "-y", "-loglevel", "error"]
+    if start is not None and start > 0:
+        cmd += ["-ss", str(start)]
+    cmd += ["-i", src]
+    if dur is not None:
+        cmd += ["-t", str(dur)]
+    cmd += ["-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-q:a", "5", dst]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+def _plan_segments(total: float) -> List[tuple]:
+    """Return list of (start, dur|None). Single whole-file segment if short/unknown."""
+    if total <= 0 or total <= CHUNK_SEC:
+        return [(0.0, None)]
+    segs = []
+    s = 0.0
+    while s < total:
+        segs.append((s, min(CHUNK_SEC, total - s)))
+        s += CHUNK_SEC
+    return segs
+
+def _replicate_run(audio_path: str, language: str) -> dict:
+    """Call incredibly-fast-whisper on one audio file."""
     with open(audio_path, "rb") as f:
         output = replicate.run(
-            "openai/whisper:8099696689d249cf8b122d833c36ac3f75505c666a395ca40ef26f68e7d3d16e",
+            WHISPER_MODEL,
             input={
                 "audio": f,
-                "language": "Chinese",
-                "translate": False,
-                "temperature": 0,
-                "transcription": "plain text",
-                "suppress_tokens": "-1",
-                "logprob_threshold": -1.0,
-                "no_speech_threshold": 0.6,
-            }
+                "task": "transcribe",
+                "language": language,
+                "timestamp": "chunk",
+                "batch_size": 24,
+            },
         )
-    # output is a dict with 'segments' and 'transcription'
-    if isinstance(output, dict) and "segments" in output:
+    return output
+
+def _format_output(output, offset: float = 0.0) -> str:
+    """Turn model output into '[hh:mm:ss -> hh:mm:ss] text' lines with a time offset."""
+    if isinstance(output, dict) and output.get("chunks"):
         lines = []
-        for seg in output["segments"]:
-            start = seg.get("start", 0)
-            end = seg.get("end", 0)
-            text = seg.get("text", "").strip()
+        for c in output["chunks"]:
+            ts = c.get("timestamp") or [None, None]
+            start = ts[0] if ts and ts[0] is not None else 0.0
+            end = ts[1] if len(ts) > 1 and ts[1] is not None else start
+            text = (c.get("text") or "").strip()
             if text:
-                lines.append(f"[{_hhmmss(start)} -> {_hhmmss(end)}] {text}\n")
-        return "".join(lines)
-    elif isinstance(output, dict) and "transcription" in output:
-        return output["transcription"]
-    elif isinstance(output, str):
+                lines.append(f"[{_hhmmss(start + offset)} -> {_hhmmss(end + offset)}] {text}\n")
+        if lines:
+            return "".join(lines)
+    if isinstance(output, dict) and output.get("text"):
+        return output["text"]
+    if isinstance(output, str):
         return output
-    else:
-        return str(output)
+    return str(output)
+
+def _transcribe_audio_file(
+    src_path: str,
+    on_progress: Optional[Callable[[float, float], None]] = None,
+    language: str = DEFAULT_LANGUAGE,
+) -> str:
+    """Transcribe one file, splitting into chunks when long.
+
+    on_progress(done_seconds, total_seconds) is called after each chunk so callers
+    can report how far into the audio we've processed.
+    """
+    total = _ffprobe_duration(src_path)
+    segments = _plan_segments(total)
+    tmpd = tempfile.mkdtemp()
+    parts: List[str] = []
+    try:
+        done = 0.0
+        for (start, dur) in segments:
+            chunk_path = os.path.join(tmpd, f"chunk_{int(start)}.mp3")
+            _extract_audio(src_path, chunk_path, start=start, dur=dur)
+            output = _replicate_run(chunk_path, language)
+            parts.append(_format_output(output, offset=start))
+            try:
+                os.remove(chunk_path)
+            except OSError:
+                pass
+            done = min(start + (dur or (total - start) or 0), total) if total else 0
+            if on_progress:
+                on_progress(done, total)
+        return "".join(parts)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
 
 def _verify_token(authorization: Optional[str]) -> str:
     if not authorization or not authorization.startswith("Bearer "):
@@ -105,10 +224,70 @@ def _verify_token(authorization: Optional[str]) -> str:
     except Exception:
         raise HTTPException(401, "Invalid Firebase token")
 
+# ─── Streaming bridge: run sync transcription in a thread, stream SSE ─────────
+def _stream_transcription(saved: List[tuple]):
+    """saved = [(display_name, local_path), ...]. Returns an async generator of SSE."""
+    total_files = len(saved)
+
+    async def gen():
+        loop = asyncio.get_event_loop()
+        q: asyncio.Queue = asyncio.Queue()
+
+        def worker():
+            try:
+                for idx, (fname, path) in enumerate(saved):
+                    n = idx + 1
+
+                    def cb(done: float, tot: float):
+                        loop.call_soon_threadsafe(q.put_nowait, {
+                            "status": "transcribing", "file_index": n, "total_files": total_files,
+                            "filename": fname, "processed_seconds": round(done),
+                            "total_seconds": round(tot),
+                            "progress": int(done / tot * 100) if tot else 0,
+                        })
+
+                    loop.call_soon_threadsafe(q.put_nowait, {
+                        "status": "transcribing", "file_index": n, "total_files": total_files,
+                        "filename": fname, "processed_seconds": 0, "total_seconds": 0, "progress": 0,
+                    })
+                    text = _transcribe_audio_file(path, cb)
+                    loop.call_soon_threadsafe(q.put_nowait, {
+                        "status": "file_done", "file_index": n, "total_files": total_files,
+                        "filename": fname, "transcript": text, "progress": 100,
+                    })
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                loop.call_soon_threadsafe(q.put_nowait, {"status": "all_done"})
+            except Exception as e:
+                loop.call_soon_threadsafe(q.put_nowait, {"status": "error", "detail": str(e)})
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        try:
+            while True:
+                item = await q.get()
+                if item["status"] == "all_done":
+                    yield _sse({"status": "all_done"}, event="complete")
+                    break
+                if item["status"] == "error":
+                    yield _sse(item, event="error")
+                    break
+                yield _sse(item)
+        finally:
+            for _, p in saved:
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+
+    return gen
+
 # ─── Upload Endpoint (SSE, instant mode) ─────────────────────────
 @app.post("/api/transcribe/upload")
 async def transcribe_upload(files: List[UploadFile] = File(...)):
-    total = len(files)
     saved: List[tuple] = []
     for f in files:
         ext = os.path.splitext(f.filename or ".mp4")[1]
@@ -117,31 +296,14 @@ async def transcribe_upload(files: List[UploadFile] = File(...)):
         with open(path, "wb") as buf:
             shutil.copyfileobj(f.file, buf)
         saved.append((f.filename or "unknown", path))
-
-    async def gen():
-        try:
-            for idx, (fname, path) in enumerate(saved):
-                n = idx + 1
-                yield _sse({"file_index": n, "total_files": total, "filename": fname,
-                            "progress": 0, "status": "transcribing", "text": ""})
-                # Call Replicate API
-                transcript = await asyncio.get_event_loop().run_in_executor(
-                    executor, _transcribe_replicate, path)
-                yield _sse({"file_index": n, "total_files": total, "filename": fname,
-                            "progress": 100, "status": "file_done", "transcript": transcript})
-                os.remove(path)
-            yield _sse({"status": "all_done"}, event="complete")
-        except Exception as e:
-            yield _sse({"status": "error", "detail": str(e)}, event="error")
-        finally:
-            for _, p in saved:
-                if os.path.exists(p): os.remove(p)
+    gen = _stream_transcription(saved)
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ─── YouTube Endpoint (SSE, instant mode) ────────────────────────
 @app.post("/api/transcribe/youtube")
 async def transcribe_youtube(url: str = Form(...), token_id: Optional[str] = Form(None)):
     temp_dir = tempfile.mkdtemp()
+
     async def gen():
         try:
             yield _sse({"status": "downloading", "progress": 0, "filename": url})
@@ -154,8 +316,8 @@ async def transcribe_youtube(url: str = Form(...), token_id: Optional[str] = For
                 with open(cookie_path, "w", encoding="utf-8") as f:
                     f.write(_cookies[token_id])
                 opts["cookiefile"] = cookie_path
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
+            await asyncio.get_event_loop().run_in_executor(
+                executor, lambda: yt_dlp.YoutubeDL(opts).download([url]))
             yield _sse({"status": "download_complete", "progress": 100})
 
             audio_files = sorted(glob.glob(os.path.join(temp_dir, "*.mp3")))
@@ -166,38 +328,36 @@ async def transcribe_youtube(url: str = Form(...), token_id: Optional[str] = For
                 yield _sse({"status": "error", "detail": "No audio downloaded"}, event="error")
                 return
 
-            total = len(audio_files)
-            for idx, ap in enumerate(audio_files):
-                n = idx + 1
+            saved = []
+            for ap in audio_files:
                 bn = os.path.basename(ap)
                 title = bn.rsplit("__", 1)[0] if "__" in bn else bn.rsplit(".", 1)[0]
-                yield _sse({"file_index": n, "total_files": total, "filename": title,
-                            "progress": 0, "status": "transcribing"})
-                # Call Replicate API
-                transcript = await asyncio.get_event_loop().run_in_executor(
-                    executor, _transcribe_replicate, ap)
-                yield _sse({"file_index": n, "total_files": total, "filename": title,
-                            "progress": 100, "status": "file_done", "transcript": transcript})
-            yield _sse({"status": "all_done"}, event="complete")
+                saved.append((title, ap))
+            gen2 = _stream_transcription(saved)
+            async for chunk in gen2():
+                yield chunk
         except Exception as e:
             yield _sse({"status": "error", "detail": str(e)}, event="error")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 # ─── Background Job Processing ───────────────────────────────────
+# Firestore documents have a 1 MiB limit; keep big transcripts in Storage only.
+INLINE_LIMIT = 700_000  # bytes of combined transcript text kept inline in Firestore
+
 def _process_job_sync(job_id: str, job_data: dict):
-    """Process a job in background thread, updating Firestore."""
+    """Process a job in background thread, updating Firestore with real progress."""
     job_ref = fstore.collection("jobs").document(job_id)
     try:
-        job_ref.update({"status": "processing", "progress": 0})
+        job_ref.update({"status": "processing", "progress": 0, "position_label": ""})
         temp_dir = tempfile.mkdtemp()
         audio_files: List[tuple] = []  # (filename, local_path)
 
         source = job_data.get("source_type", "upload")
 
         if source == "upload":
-            # Download files from Firebase Storage
             for sp in job_data.get("storage_paths", []):
                 blob = bucket.blob(sp)
                 fname = os.path.basename(sp)
@@ -206,17 +366,21 @@ def _process_job_sync(job_id: str, job_data: dict):
                 audio_files.append((fname, local))
 
         elif source == "youtube":
-            # Download from YouTube
             yt_url = job_data.get("youtube_url", "")
             out_tpl = os.path.join(temp_dir, "%(title)s__%(id)s.%(ext)s")
             opts: dict = {"format": "bestaudio/best", "outtmpl": out_tpl,
                 "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
                 "quiet": True, "no_warnings": True, "noplaylist": False}
-            yt_token_id = job_data.get("yt_token_id")
-            if yt_token_id and yt_token_id in _cookies:
+            # Cookie is persisted in the job doc so any Cloud Run instance can use it
+            cookie_content = job_data.get("yt_cookie")
+            if not cookie_content:
+                yt_token_id = job_data.get("yt_token_id")
+                if yt_token_id and yt_token_id in _cookies:
+                    cookie_content = _cookies[yt_token_id]
+            if cookie_content:
                 cookie_path = os.path.join(temp_dir, "cookies.txt")
                 with open(cookie_path, "w", encoding="utf-8") as f:
-                    f.write(_cookies[yt_token_id])
+                    f.write(cookie_content)
                 opts["cookiefile"] = cookie_path
             with yt_dlp.YoutubeDL(opts) as ydl:
                 ydl.download([yt_url])
@@ -240,33 +404,57 @@ def _process_job_sync(job_id: str, job_data: dict):
 
         for idx, (fname, local_path) in enumerate(audio_files):
             n = idx + 1
-            job_ref.update({"current_file": n, "total_files": total,
-                "progress": int((idx / total) * 100)})
 
-            # Call Replicate API
-            transcript = _transcribe_replicate(local_path)
+            def cb(done: float, tot: float, _idx=idx, _fname=fname):
+                # overall progress across all files + within-file position label
+                within = (done / tot) if tot else 0
+                overall = int(((_idx + within) / total) * 100)
+                pos = f"{_hhmmss(done)} / {_hhmmss(tot)}" if tot else ""
+                job_ref.update({
+                    "progress": min(overall, 99),
+                    "current_file": n, "total_files": total,
+                    "position_label": (f"{_fname}: {pos}" if pos else _fname),
+                })
 
-            job_ref.update({"progress": int(((idx + 1) / total) * 100)})
+            job_ref.update({"current_file": n, "total_files": total})
+            transcript = _transcribe_audio_file(local_path, cb)
 
             all_transcripts.append({"filename": fname, "text": transcript})
 
-            # Upload result to Firebase Storage
+            # Always store the .txt in Storage (source of truth, no size limit)
             result_path = f"results/{uid}/{job_id}/{fname}.txt"
             blob = bucket.blob(result_path)
-            blob.upload_from_string(transcript, content_type="text/plain")
+            blob.upload_from_string(transcript, content_type="text/plain; charset=utf-8")
             result_paths.append(result_path)
 
-        job_ref.update({
+        # Delete uploaded source audio right away — only results are kept.
+        _delete_uploads(job_data)
+
+        # Only keep transcripts inline if small enough for a Firestore doc
+        combined_len = sum(len(t["text"].encode("utf-8")) for t in all_transcripts)
+        update = {
             "status": "done",
             "progress": 100,
-            "transcripts": all_transcripts,
+            "position_label": "",
             "result_paths": result_paths,
-        })
+            "storage_paths": [],
+            "yt_cookie": firestore.DELETE_FIELD,  # don't keep cookies around
+        }
+        update["transcripts"] = all_transcripts if combined_len <= INLINE_LIMIT else []
+        job_ref.update(update)
 
         shutil.rmtree(temp_dir, ignore_errors=True)
 
     except Exception as e:
-        job_ref.update({"status": "error", "error_message": str(e)})
+        # Clean up uploads/cookie even on failure so nothing is left behind.
+        try:
+            _delete_uploads(job_data)
+        except Exception:
+            pass
+        job_ref.update({
+            "status": "error", "error_message": str(e),
+            "storage_paths": [], "yt_cookie": firestore.DELETE_FIELD,
+        })
 
 @app.post("/api/jobs/start")
 async def start_job(
@@ -276,23 +464,56 @@ async def start_job(
     authorization: Optional[str] = Header(None),
 ):
     uid = _verify_token(authorization)
-    job_doc = fstore.collection("jobs").document(job_id).get()
+    job_ref = fstore.collection("jobs").document(job_id)
+    job_doc = job_ref.get()
     if not job_doc.exists:
         raise HTTPException(404, "Job not found")
     job_data = job_doc.to_dict()
     if job_data.get("user_id") != uid:
         raise HTTPException(403, "Not your job")
 
-    # Merge extra data
+    updates: dict = {}
     if youtube_url:
-        job_data["youtube_url"] = youtube_url
-    if yt_token_id:
-        job_data["yt_token_id"] = yt_token_id
+        updates["youtube_url"] = youtube_url
+    # Persist the cookie into the job doc so any Cloud Run instance (the one the
+    # background task lands on) can read it — in-memory would not survive.
+    if yt_token_id and yt_token_id in _cookies:
+        updates["yt_cookie"] = _cookies[yt_token_id]
+    if updates:
+        job_ref.update(updates)
+        job_data = {**job_data, **updates}
 
-    # Start background processing
-    executor.submit(_process_job_sync, job_id, job_data)
+    # Preferred: hand off to Cloud Tasks so the job survives closing the browser.
+    if _enqueue_task(job_id):
+        job_ref.update({"status": "queued"})
+        return {"status": "queued", "job_id": job_id}
 
-    return {"status": "started", "job_id": job_id}
+    # Fallback (Cloud Tasks not configured): process within this request.
+    # In this mode the browser tab must stay open until it finishes.
+    await asyncio.get_event_loop().run_in_executor(
+        executor, _process_job_sync, job_id, job_data)
+    return {"status": "done", "job_id": job_id}
+
+# ─── Cloud Tasks target: runs the job to completion ──────────────
+@app.post("/api/jobs/process")
+async def process_job(request: Request):
+    if not TASK_SECRET or request.headers.get("X-Task-Secret", "") != TASK_SECRET:
+        raise HTTPException(403, "Forbidden")
+    body = await request.json()
+    job_id = body.get("job_id")
+    if not job_id:
+        raise HTTPException(400, "Missing job_id")
+    job_ref = fstore.collection("jobs").document(job_id)
+    job_doc = job_ref.get()
+    if not job_doc.exists:
+        raise HTTPException(404, "Job not found")
+    job_data = job_doc.to_dict()
+    # Idempotency: if a retry arrives after completion, don't process (or bill) again.
+    if job_data.get("status") == "done":
+        return {"status": "already_done"}
+    await asyncio.get_event_loop().run_in_executor(
+        executor, _process_job_sync, job_id, job_data)
+    return {"status": "done"}
 
 # ─── YouTube Cookie Upload ───────────────────────────────────────
 @app.post("/api/youtube/cookie/upload")
@@ -306,7 +527,7 @@ async def yt_cookie_upload(cookie_file: UploadFile = File(...)):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "engine": "replicate", "model": "openai/whisper:large-v3"}
+    return {"status": "ok", "engine": "replicate", "model": "incredibly-fast-whisper"}
 
 if __name__ == "__main__":
     import uvicorn
