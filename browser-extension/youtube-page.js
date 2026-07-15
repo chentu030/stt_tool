@@ -154,6 +154,10 @@ function pageExtractSource(videoId, reqId) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "PING") {
+    sendResponse({ ok: true });
+    return false;
+  }
   if (msg?.type !== "EXTRACT_ON_PAGE") return;
   console.log(LOG, "EXTRACT_ON_PAGE", msg.videoId);
   injectPageExtract(msg.videoId, msg.reqId || "page")

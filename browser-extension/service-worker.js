@@ -1,29 +1,10 @@
 // ─────────────────────────────────────────────────────────────
-// Service worker v0.4 — fast path: reuse YouTube tab, download as Blob,
-// upload straight to Firebase (no base64 round-trip through the page).
+// Service worker v0.4.1 — always open a fresh YouTube tab, inject
+// content script if needed, no useless SW API fallback.
 // ─────────────────────────────────────────────────────────────
 
 const LOG = "[stt-ext]";
 const FB_BUCKET = "stt-tool-f6e6d.firebasestorage.app";
-const AUDIO_ITAG_PREFERENCE = [140, 251, 250, 249, 139, 18];
-
-const SW_CLIENTS = [
-  {
-    name: "ANDROID_VR",
-    id: "28",
-    ctx: {
-      clientName: "ANDROID_VR",
-      clientVersion: "1.60.19",
-      deviceMake: "Oculus",
-      deviceModel: "Quest 3",
-      osName: "Android",
-      osVersion: "12L",
-      androidSdkVersion: 32,
-      hl: "zh-TW",
-      gl: "TW",
-    },
-  },
-];
 
 function parseVideoId(input) {
   try {
@@ -59,7 +40,7 @@ function emitProgress(reqId, stage, pct) {
   chrome.runtime.sendMessage({ type: "PROGRESS", reqId, stage, pct }).catch(() => {});
 }
 
-function waitTabComplete(tabId, timeoutMs = 22000) {
+function waitTabComplete(tabId, timeoutMs = 25000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       chrome.tabs.onUpdated.removeListener(onUpd);
@@ -85,30 +66,25 @@ function waitTabComplete(tabId, timeoutMs = 22000) {
   });
 }
 
-async function findOrOpenYouTubeTab(videoId) {
-  const tabs = await chrome.tabs.query({ url: ["*://*.youtube.com/*"] });
-  for (const t of tabs) {
-    try {
-      const u = new URL(t.url || "");
-      const v = u.searchParams.get("v");
-      if (v === videoId) {
-        console.log(LOG, "reuse existing YouTube tab", t.id);
-        return { tabId: t.id, created: false };
-      }
-    } catch (_) {}
-  }
-  console.log(LOG, "open background YouTube tab…");
-  const tab = await chrome.tabs.create({
-    url: `https://www.youtube.com/watch?v=${videoId}`,
-    active: false,
+async function ensureContentScript(tabId) {
+  try {
+    const resp = await chrome.tabs.sendMessage(tabId, { type: "PING" });
+    if (resp?.ok) return;
+  } catch (_) {}
+  console.log(LOG, "inject youtube-page.js into tab", tabId);
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["youtube-page.js"],
   });
-  return { tabId: tab.id, created: true };
+  await sleep(400);
 }
 
 async function sendTabExtract(tabId, videoId) {
   const reqId = Math.random().toString(36).slice(2);
   let lastErr = "";
-  for (let i = 0; i < 12; i++) {
+  let injected = false;
+
+  for (let i = 0; i < 15; i++) {
     try {
       const resp = await chrome.tabs.sendMessage(tabId, {
         type: "EXTRACT_ON_PAGE",
@@ -117,121 +93,54 @@ async function sendTabExtract(tabId, videoId) {
       });
       if (resp?.ok) return resp;
       lastErr = resp?.error || "頁面擷取失敗";
-      if (!lastErr.includes("Could not establish")) break;
+      break;
     } catch (e) {
       lastErr = e?.message || String(e);
+      if (lastErr.includes("Could not establish connection") && !injected) {
+        await ensureContentScript(tabId);
+        injected = true;
+      }
     }
-    await sleep(350);
+    await sleep(400);
   }
   throw new Error(lastErr || "無法與 YouTube 分頁通訊");
 }
 
 async function extractViaYouTubeTab(videoId, reqId) {
   emitProgress(reqId, "parsing", 5);
-  const { tabId, created } = await findOrOpenYouTubeTab(videoId);
+  // Always open a fresh tab — reusing old tabs often lacks the content script
+  // (opened before extension load/reload → "Receiving end does not exist").
+  console.log(LOG, "open background YouTube tab…");
+  const tab = await chrome.tabs.create({
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    active: false,
+  });
   try {
-    if (created) await waitTabComplete(tabId);
-    else await sleep(300);
-    emitProgress(reqId, "parsing", 15);
-    await sleep(created ? 600 : 200);
-    const result = await sendTabExtract(tabId, videoId);
+    await waitTabComplete(tab.id);
+    emitProgress(reqId, "parsing", 12);
+    await ensureContentScript(tab.id);
+    emitProgress(reqId, "parsing", 18);
+    await sleep(600);
+    const result = await sendTabExtract(tab.id, videoId);
     emitProgress(reqId, "parsing", 30);
+    console.log(LOG, "extract ok:", result.title);
     return result;
   } finally {
-    if (created) chrome.tabs.remove(tabId).catch(() => {});
+    chrome.tabs.remove(tab.id).catch(() => {});
   }
-}
-
-async function fetchPlayerSw(videoId, client) {
-  const body = {
-    context: { client: client.ctx },
-    videoId,
-    contentCheckOk: true,
-    racyCheckOk: true,
-  };
-  const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
-    method: "POST",
-    credentials: "omit",
-    headers: {
-      "Content-Type": "application/json",
-      "X-YouTube-Client-Name": client.id,
-      "X-YouTube-Client-Version": client.ctx.clientVersion,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${client.name} HTTP ${res.status}`);
-  return res.json();
-}
-
-function pickAudio(streamingData) {
-  const fmts = (streamingData?.adaptiveFormats || []).filter(
-    (f) => (f.mimeType || "").startsWith("audio/") && f.url
-  );
-  if (!fmts.length) {
-    return (streamingData?.formats || []).find((f) => f.url && f.itag === 18) || null;
-  }
-  fmts.sort((a, b) => {
-    const ia = AUDIO_ITAG_PREFERENCE.indexOf(a.itag);
-    const ib = AUDIO_ITAG_PREFERENCE.indexOf(b.itag);
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || (b.bitrate || 0) - (a.bitrate || 0);
-  });
-  return fmts[0];
-}
-
-async function extractViaServiceWorker(videoId) {
-  const errors = [];
-  for (const client of SW_CLIENTS) {
-    try {
-      const player = await fetchPlayerSw(videoId, client);
-      const status = player?.playabilityStatus?.status;
-      if (status !== "OK") {
-        errors.push(`${client.name}: ${status}`);
-        continue;
-      }
-      const fmt = pickAudio(player.streamingData);
-      if (!fmt) {
-        errors.push(`${client.name}: 無直連音訊`);
-        continue;
-      }
-      return {
-        ok: true,
-        audioUrl: fmt.url,
-        mime: (fmt.mimeType || "audio/mp4").split(";")[0],
-        title: player?.videoDetails?.title || videoId,
-      };
-    } catch (e) {
-      errors.push(`${client.name}: ${e?.message || e}`);
-    }
-  }
-  throw new Error(errors.join(" / "));
 }
 
 async function resolveAudioMeta(url, reqId) {
   const videoId = parseVideoId(url);
   if (!videoId) throw new Error("無法辨識 YouTube 影片網址");
-
-  let tabErr = "";
-  try {
-    const meta = await extractViaYouTubeTab(videoId, reqId);
-    if (meta?.ok) return { videoId, ...meta };
-  } catch (e) {
-    tabErr = e?.message || String(e);
-    console.warn(LOG, "tab extract:", tabErr);
-  }
-
-  emitProgress(reqId, "parsing", 20);
-  try {
-    const meta = await extractViaServiceWorker(videoId);
-    return { videoId, ...meta };
-  } catch (swErr) {
-    throw new Error(
-      tabErr ? `YouTube 分頁：${tabErr}；API 備援：${swErr?.message || swErr}` : swErr?.message || String(swErr)
-    );
-  }
+  const meta = await extractViaYouTubeTab(videoId, reqId);
+  if (!meta?.ok) throw new Error(meta?.error || "擷取失敗");
+  return { videoId, ...meta };
 }
 
 async function downloadBlob(url, reqId) {
   emitProgress(reqId, "downloading", 0);
+  console.log(LOG, "downloading audio…");
   const res = await fetch(url, { credentials: "omit" });
   if (!res.ok) throw new Error("下載音訊失敗 HTTP " + res.status);
 
@@ -259,6 +168,7 @@ async function downloadBlob(url, reqId) {
 function uploadToFirebase(storagePath, idToken, blob, mime, reqId) {
   return new Promise((resolve, reject) => {
     emitProgress(reqId, "uploading", 0);
+    console.log(LOG, "uploading to Firebase…", blob.size, "bytes");
     const name = encodeURIComponent(storagePath);
     const url = `https://firebasestorage.googleapis.com/v0/b/${FB_BUCKET}/o?uploadType=media&name=${name}`;
     const xhr = new XMLHttpRequest();
@@ -289,33 +199,12 @@ async function extractAndUpload({ url, uid, jobId, idToken, reqId }) {
   const filename = safeName(meta.title, meta.videoId, meta.mime);
   const storagePath = `uploads/${uid}/${jobId}/${filename}`;
 
-  console.log(LOG, "download", filename);
   const blob = await downloadBlob(meta.audioUrl, reqId);
+  if (!blob.size) throw new Error("下載到的音訊檔案是空的");
 
-  console.log(LOG, "upload", storagePath, blob.size, "bytes");
   await uploadToFirebase(storagePath, idToken, blob, meta.mime, reqId);
 
   return { ok: true, filename, storagePath, bytes: blob.size, mime: meta.mime };
-}
-
-// Legacy: return base64 (slow for large files — kept for compatibility)
-async function extractAudioLegacy(url) {
-  const meta = await resolveAudioMeta(url, null);
-  const blob = await downloadBlob(meta.audioUrl, null);
-  const buf = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  return {
-    ok: true,
-    base64: btoa(binary),
-    filename: safeName(meta.title, meta.videoId, meta.mime),
-    mime: meta.mime,
-    bytes: buf.byteLength,
-  };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -325,14 +214,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     return true;
   }
-  if (msg?.type === "EXTRACT_AUDIO") {
-    extractAudioLegacy(msg.url)
-      .then(sendResponse)
-      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
-    return true;
-  }
   if (msg?.type === "PING") {
-    sendResponse({ ok: true, version: "0.4.0" });
+    sendResponse({ ok: true, version: "0.4.1" });
     return false;
   }
 });
