@@ -3,8 +3,8 @@ import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 
 export const metadata: Metadata = {
-  title: "AI Voice Transcription",
-  description: "Creating harmony with the power of AI transcription.",
+  title: "AI 語音轉錄",
+  description: "用 AI 的力量，快速又精準地轉錄語音。",
 };
 
 export default function RootLayout({

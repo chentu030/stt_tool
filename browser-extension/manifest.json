@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "語音轉錄 YouTube 擷取器",
+  "version": "0.1.0",
+  "description": "在本機用你自己的 IP 擷取 YouTube 音訊，送到語音轉錄網站，避開伺服器被 YouTube 封鎖的問題。",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://*.googlevideo.com/*",
+    "*://youtubei.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.vercel.app/*",
+        "http://localhost/*",
+        "http://localhost:*/*"
+      ],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -72,11 +72,11 @@ export default function HistoryPage() {
 
   const statusBadge = (status: string, progress: number) => {
     const map: Record<string, { bg: string; text: string; label: string }> = {
-      uploading: { bg: "rgba(59,130,246,0.15)", text: "#3b82f6", label: `Uploading...` },
-      queued: { bg: "rgba(234,179,8,0.15)", text: "#eab308", label: "Queued" },
-      processing: { bg: "rgba(168,85,247,0.15)", text: "#a855f7", label: `Processing ${progress}%` },
-      done: { bg: "rgba(34,197,94,0.15)", text: "#22c55e", label: "Complete" },
-      error: { bg: "rgba(239,68,68,0.15)", text: "#ef4444", label: "Failed" },
+      uploading: { bg: "rgba(59,130,246,0.15)", text: "#3b82f6", label: `上傳中…` },
+      queued: { bg: "rgba(234,179,8,0.15)", text: "#eab308", label: "排隊中" },
+      processing: { bg: "rgba(168,85,247,0.15)", text: "#a855f7", label: `處理中 ${progress}%` },
+      done: { bg: "rgba(34,197,94,0.15)", text: "#22c55e", label: "已完成" },
+      error: { bg: "rgba(239,68,68,0.15)", text: "#ef4444", label: "失敗" },
     };
     const s = map[status] || map.queued;
     return (
@@ -91,15 +91,15 @@ export default function HistoryPage() {
 
   if (loading) return (
     <main className="container" style={{ paddingTop: "8rem", textAlign: "center" }}>
-      <p style={{ color: "var(--text-muted)" }}>Loading...</p>
+      <p style={{ color: "var(--text-muted)" }}>載入中…</p>
     </main>
   );
 
   if (!user) return (
     <main className="container" style={{ paddingTop: "8rem", textAlign: "center" }}>
-      <h1 className="font-display" style={{ fontSize: "2rem", marginBottom: "1rem" }}>Please sign in</h1>
-      <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>Sign in with Google to view your transcription history.</p>
-      <Link href="/" className="pill-button">← Back to Home</Link>
+      <h1 className="font-display" style={{ fontSize: "2rem", marginBottom: "1rem" }}>請先登入</h1>
+      <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>使用 Google 登入即可查看你的轉錄歷史紀錄。</p>
+      <Link href="/" className="pill-button">← 回首頁</Link>
     </main>
   );
 
@@ -119,19 +119,19 @@ export default function HistoryPage() {
         <section style={{ paddingTop: "2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
             <h1 className="font-display" style={{ fontSize: "2.5rem" }}>
-              My <span>Transcripts</span>
+              我的<span>轉錄紀錄</span>
             </h1>
             <Link href="/" className="pill-button outline" style={{ padding: "0.5rem 1.2rem", fontSize: "0.9rem" }}>
-              ← New Transcription
+              ← 新的轉錄
             </Link>
           </div>
 
           {jobs.length === 0 ? (
             <div className="bento-card" style={{ textAlign: "center", padding: "4rem 2rem" }}>
               <p style={{ fontSize: "3rem", marginBottom: "1rem" }}>📝</p>
-              <p style={{ color: "var(--text-muted)", fontSize: "1.1rem" }}>No transcriptions yet.</p>
+              <p style={{ color: "var(--text-muted)", fontSize: "1.1rem" }}>目前還沒有任何轉錄紀錄。</p>
               <Link href="/" className="pill-button" style={{ marginTop: "1.5rem", display: "inline-block" }}>
-                Start Transcribing
+                開始轉錄
               </Link>
             </div>
           ) : (
@@ -143,11 +143,11 @@ export default function HistoryPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.4rem" }}>
                         <span style={{ fontWeight: 700, fontSize: "1rem" }}>
                           {job.source_type === "youtube" ? "🎬" : "📁"}{" "}
-                          {job.filenames[0] || job.youtube_url || "Untitled"}
+                          {job.filenames[0] || job.youtube_url || "未命名"}
                         </span>
                         {job.total_files > 1 && (
                           <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                            +{job.total_files - 1} more
+                            +{job.total_files - 1} 個檔案
                           </span>
                         )}
                       </div>
@@ -173,11 +173,11 @@ export default function HistoryPage() {
                         <>
                           <button className="pill-button" style={{ padding: "0.35rem 0.7rem", fontSize: "0.75rem" }}
                             onClick={() => handleView(job)}>
-                            {expandedId === job.id ? "Hide" : "View"}
+                            {expandedId === job.id ? "收合" : "檢視"}
                           </button>
                           <button className="pill-button outline" style={{ padding: "0.35rem 0.7rem", fontSize: "0.75rem" }}
                             onClick={() => handleDownloadAll(job)}>
-                            Download
+                            下載
                           </button>
                         </>
                       )}
@@ -185,7 +185,7 @@ export default function HistoryPage() {
                         background: "none", border: "none", cursor: "pointer",
                         color: "var(--text-muted)", fontSize: "1.1rem", padding: "0.2rem"
                       }} onClick={() => {
-                        if (confirm("Delete this transcription?"))
+                        if (confirm("確定要刪除這筆轉錄紀錄嗎？"))
                           deleteJob(job.id, job.storage_paths || [], job.result_paths || []);
                       }}>×</button>
                     </div>
@@ -195,7 +195,7 @@ export default function HistoryPage() {
                   {expandedId === job.id && (
                     <div style={{ marginTop: "1rem", borderTop: "1px solid var(--bg-secondary)", paddingTop: "1rem" }}>
                       {loadingId === job.id && getTranscripts(job).length === 0 && (
-                        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Loading transcript…</p>
+                        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>正在載入逐字稿…</p>
                       )}
                       {getTranscripts(job).map((t, i) => (
                         <div key={i} style={{ marginBottom: "0.8rem" }}>
@@ -203,9 +203,9 @@ export default function HistoryPage() {
                             <span style={{ fontWeight: 600, fontSize: "0.85rem" }}>{t.filename}</span>
                             <div style={{ display: "flex", gap: "0.3rem" }}>
                               <button className="pill-button outline" style={{ padding: "0.2rem 0.5rem", fontSize: "0.7rem" }}
-                                onClick={() => navigator.clipboard.writeText(t.text)}>Copy</button>
+                                onClick={() => navigator.clipboard.writeText(t.text)}>複製</button>
                               <button className="pill-button" style={{ padding: "0.2rem 0.5rem", fontSize: "0.7rem" }}
-                                onClick={() => downloadTxt(t.filename, t.text)}>.txt</button>
+                                onClick={() => downloadTxt(t.filename, t.text)}>下載 .txt</button>
                             </div>
                           </div>
                           <textarea className="transcript-display" readOnly value={t.text}
@@ -218,7 +218,7 @@ export default function HistoryPage() {
                   {/* Error message */}
                   {job.status === "error" && job.error_message && (
                     <p style={{ marginTop: "0.5rem", color: "#ef4444", fontSize: "0.8rem" }}>
-                      Error: {job.error_message}
+                      錯誤：{job.error_message}
                     </p>
                   )}
                 </div>
