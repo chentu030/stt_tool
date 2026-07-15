@@ -5,6 +5,8 @@
 // ─────────────────────────────────────────────────────────────
 
 (function () {
+  console.log("[stt-ext] content bridge injected on", location.href);
+
   function announce() {
     window.postMessage({ source: "stt-ext", type: "READY" }, "*");
   }
@@ -12,6 +14,12 @@
   // Tell the page the extension is installed (now and after it loads).
   announce();
   document.addEventListener("DOMContentLoaded", announce);
+  // Re-announce a few times in case the page's listener attaches after us.
+  let n = 0;
+  const iv = setInterval(() => {
+    announce();
+    if (++n >= 5) clearInterval(iv);
+  }, 400);
 
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;

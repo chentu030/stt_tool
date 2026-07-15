@@ -7,3 +7,4 @@ httpx
 requests
 firebase-admin
 google-cloud-tasks
+opencc-python-reimplemented

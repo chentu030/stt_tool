@@ -190,8 +190,29 @@ def _replicate_run(audio_path: str, language: str) -> dict:
         )
     return output
 
+_opencc_converter = None
+
+def _to_traditional(text: str) -> str:
+    """Convert any Simplified Chinese in the text to Traditional (Taiwan) Chinese.
+
+    Whisper often emits Simplified characters; we normalise everything to zh-TW so
+    stored transcripts, history and downloaded .txt are all Traditional.
+    """
+    if not text:
+        return text
+    global _opencc_converter
+    try:
+        if _opencc_converter is None:
+            from opencc import OpenCC
+            _opencc_converter = OpenCC("s2twp")
+        return _opencc_converter.convert(text)
+    except Exception as e:
+        print(f"[opencc] conversion skipped: {e}")
+        return text
+
 def _format_output(output, offset: float = 0.0) -> str:
     """Turn model output into '[hh:mm:ss -> hh:mm:ss] text' lines with a time offset."""
+    result = None
     if isinstance(output, dict) and output.get("chunks"):
         lines = []
         for c in output["chunks"]:
@@ -202,12 +223,14 @@ def _format_output(output, offset: float = 0.0) -> str:
             if text:
                 lines.append(f"[{_hhmmss(start + offset)} -> {_hhmmss(end + offset)}] {text}\n")
         if lines:
-            return "".join(lines)
-    if isinstance(output, dict) and output.get("text"):
-        return output["text"]
-    if isinstance(output, str):
-        return output
-    return str(output)
+            result = "".join(lines)
+    if result is None and isinstance(output, dict) and output.get("text"):
+        result = output["text"]
+    if result is None and isinstance(output, str):
+        result = output
+    if result is None:
+        result = str(output)
+    return _to_traditional(result)
 
 def _transcribe_audio_file(
     src_path: str,

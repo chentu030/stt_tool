@@ -3,16 +3,82 @@
 //
 // YouTube blocks datacenter IPs (our Cloud Run backend), but this runs inside
 // the user's own browser, so requests go out on their residential IP — exactly
-// how TubeMate works. We use the ANDROID_VR InnerTube client because it returns
-// direct (non-ciphered, PO-token-free) audio URLs, so no signature deciphering
-// is needed.
+// how TubeMate works. We ask several InnerTube clients (ANDROID_VR first) that
+// return direct (non-ciphered, PO-token-free) audio URLs, so no signature
+// deciphering is needed.
+//
+// To watch what it's doing: chrome://extensions → this extension →
+// "服務工作處理程序 / service worker" → Console.
 // ─────────────────────────────────────────────────────────────
+
+const LOG = "[stt-ext]";
 
 // Prefer m4a (140) then opus formats; fall back to highest audio bitrate.
 const AUDIO_ITAG_PREFERENCE = [140, 251, 250, 249, 139, 18];
 
-// Public InnerTube key used by the mobile clients.
 const INNERTUBE_KEY = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
+
+// Clients that historically return direct audio URLs without a PO token.
+const CLIENTS = [
+  {
+    name: "ANDROID_VR",
+    id: "28",
+    ctx: {
+      clientName: "ANDROID_VR",
+      clientVersion: "1.60.19",
+      deviceMake: "Oculus",
+      deviceModel: "Quest 3",
+      osName: "Android",
+      osVersion: "12L",
+      androidSdkVersion: 32,
+      hl: "en",
+      gl: "US",
+      userAgent:
+        "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; en_US; Quest 3 Build/SQ3A.220605.009.A1) gzip",
+    },
+  },
+  {
+    name: "IOS",
+    id: "5",
+    ctx: {
+      clientName: "IOS",
+      clientVersion: "19.45.4",
+      deviceMake: "Apple",
+      deviceModel: "iPhone16,2",
+      osName: "iPhone",
+      osVersion: "18.1.0.22B83",
+      hl: "en",
+      gl: "US",
+      userAgent:
+        "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
+    },
+  },
+  {
+    name: "ANDROID",
+    id: "3",
+    ctx: {
+      clientName: "ANDROID",
+      clientVersion: "19.44.38",
+      androidSdkVersion: 34,
+      osName: "Android",
+      osVersion: "14",
+      hl: "en",
+      gl: "US",
+      userAgent:
+        "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip",
+    },
+  },
+  {
+    name: "WEB_EMBEDDED",
+    id: "56",
+    ctx: {
+      clientName: "WEB_EMBEDDED_PLAYER",
+      clientVersion: "1.20241201.00.00",
+      hl: "en",
+      gl: "US",
+    },
+  },
+];
 
 function parseVideoId(input) {
   try {
@@ -30,23 +96,9 @@ function parseVideoId(input) {
   return null;
 }
 
-async function fetchPlayer(videoId) {
+async function fetchPlayer(videoId, client) {
   const body = {
-    context: {
-      client: {
-        clientName: "ANDROID_VR",
-        clientVersion: "1.60.19",
-        deviceMake: "Oculus",
-        deviceModel: "Quest 3",
-        osName: "Android",
-        osVersion: "12L",
-        androidSdkVersion: 32,
-        hl: "en",
-        gl: "US",
-        userAgent:
-          "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; en_US; Quest 3 Build/SQ3A.220605.009.A1) gzip",
-      },
-    },
+    context: { client: client.ctx },
     videoId,
     playbackContext: { contentPlaybackContext: { html5Preference: "HTML5_PREF_WANTS" } },
     contentCheckOk: true,
@@ -58,13 +110,13 @@ async function fetchPlayer(videoId) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-YouTube-Client-Name": "28",
-        "X-YouTube-Client-Version": "1.60.19",
+        "X-YouTube-Client-Name": client.id,
+        "X-YouTube-Client-Version": client.ctx.clientVersion,
       },
       body: JSON.stringify(body),
     }
   );
-  if (!res.ok) throw new Error("InnerTube player API HTTP " + res.status);
+  if (!res.ok) throw new Error(`${client.name} player API HTTP ${res.status}`);
   return res.json();
 }
 
@@ -103,28 +155,49 @@ function arrayBufferToBase64(buf) {
 async function extractAudio(url) {
   const videoId = parseVideoId(url);
   if (!videoId) throw new Error("無法辨識 YouTube 影片網址");
+  console.log(LOG, "extract videoId:", videoId);
 
-  const player = await fetchPlayer(videoId);
-  const status = player?.playabilityStatus?.status;
-  if (status && status !== "OK") {
-    const reason = player?.playabilityStatus?.reason || "";
-    throw new Error(`YouTube 拒絕播放 (${status}) ${reason}`);
+  let fmt = null;
+  let title = videoId;
+  const errors = [];
+
+  for (const client of CLIENTS) {
+    try {
+      const player = await fetchPlayer(videoId, client);
+      const status = player?.playabilityStatus?.status;
+      console.log(LOG, client.name, "playabilityStatus:", status);
+      if (status && status !== "OK") {
+        errors.push(`${client.name}: ${status} ${player?.playabilityStatus?.reason || ""}`);
+        continue;
+      }
+      const picked = pickAudio(player.streamingData);
+      if (picked) {
+        fmt = picked;
+        title = player?.videoDetails?.title || videoId;
+        console.log(LOG, "using", client.name, "itag", picked.itag, picked.mimeType);
+        break;
+      }
+      errors.push(`${client.name}: 無直連音訊格式`);
+    } catch (e) {
+      console.warn(LOG, client.name, "failed:", e);
+      errors.push(`${client.name}: ${e?.message || e}`);
+    }
   }
 
-  const fmt = pickAudio(player.streamingData);
-  if (!fmt) throw new Error("找不到可下載的音訊格式（可能為私人或受限影片）");
+  if (!fmt) {
+    throw new Error("找不到可下載的音訊（" + errors.join(" / ") + "）");
+  }
 
-  const title = (player?.videoDetails?.title || videoId)
-    .replace(/[\\/:*?"<>|]/g, "_")
-    .slice(0, 120);
-
+  const safeTitle = String(title).replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
+  console.log(LOG, "downloading audio…");
   const audioRes = await fetch(fmt.url);
   if (!audioRes.ok) throw new Error("下載音訊失敗 HTTP " + audioRes.status);
   const buf = await audioRes.arrayBuffer();
+  console.log(LOG, "downloaded", buf.byteLength, "bytes");
 
   return {
     base64: arrayBufferToBase64(buf),
-    filename: `${title}.${extFromMime(fmt.mimeType || "")}`,
+    filename: `${safeTitle}.${extFromMime(fmt.mimeType || "")}`,
     mime: (fmt.mimeType || "audio/mp4").split(";")[0],
     bytes: buf.byteLength,
   };
@@ -132,9 +205,16 @@ async function extractAudio(url) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "EXTRACT_AUDIO") {
+    console.log(LOG, "EXTRACT_AUDIO request:", msg.url);
     extractAudio(msg.url)
-      .then((r) => sendResponse({ ok: true, ...r }))
-      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      .then((r) => {
+        console.log(LOG, "done:", r.filename, r.bytes, "bytes");
+        sendResponse({ ok: true, ...r });
+      })
+      .catch((e) => {
+        console.error(LOG, "error:", e);
+        sendResponse({ ok: false, error: String(e?.message || e) });
+      });
     return true; // keep the message channel open for the async response
   }
   if (msg?.type === "PING") {
