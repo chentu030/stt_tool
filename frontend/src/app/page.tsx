@@ -111,8 +111,14 @@ export default function Home() {
     return () => window.removeEventListener("message", onMsg);
   }, []);
 
-  // Ask the extension to download a YouTube video's audio on the user's own IP.
-  const extractYouTubeAudio = (url: string): Promise<File> =>
+  // Extension: parse → download → upload to Firebase directly (no slow base64).
+  const extractAndUploadYouTube = (
+    url: string,
+    uid: string,
+    jobId: string,
+    idToken: string,
+    onProgress?: (stage: string, pct: number) => void,
+  ): Promise<{ filename: string; storagePath: string; bytes: number }> =>
     new Promise((resolve, reject) => {
       const reqId = Math.random().toString(36).slice(2);
       const cleanup = () => {
@@ -121,23 +127,30 @@ export default function Home() {
       };
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error("擴充功能沒有回應（請確認已安裝並重新整理頁面）"));
-      }, 300000);
+        reject(new Error("擴充功能逾時（超過 15 分鐘，可能是影片太長或網路太慢）"));
+      }, 900000);
       const onMsg = (e: MessageEvent) => {
         if (e.source !== window) return;
         const d = e.data;
-        if (d?.source !== "stt-ext" || d.type !== "EXTRACT_RESULT" || d.reqId !== reqId) return;
+        if (d?.source !== "stt-ext" || d.reqId !== reqId) return;
+        if (d.type === "EXTRACT_PROGRESS") {
+          onProgress?.(d.stage, d.pct ?? 0);
+          return;
+        }
+        if (d.type !== "EXTRACT_RESULT") return;
         cleanup();
         const r = d.result;
         if (!r?.ok) return reject(new Error(r?.error || "擷取失敗"));
-        const bin = atob(r.base64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        resolve(new File([bytes], r.filename, { type: r.mime }));
+        resolve({ filename: r.filename, storagePath: r.storagePath, bytes: r.bytes });
       };
       window.addEventListener("message", onMsg);
-      window.postMessage({ source: "stt-page", type: "EXTRACT_AUDIO", url, reqId }, "*");
+      window.postMessage(
+        { source: "stt-page", type: "EXTRACT_AND_UPLOAD", url, uid, jobId, idToken, reqId },
+        "*",
+      );
     });
+
+  const [extractStage, setExtractStage] = useState("");
 
   // ─── File handling ──────────────────────────────────────────
   const addFiles = (newFiles: FileList | File[]) => {
@@ -188,45 +201,69 @@ export default function Home() {
     });
 
     try {
-      // Resolve the effective files to upload (extension may produce one).
       let uploadList: File[] = files;
       let sourceType: "upload" | "youtube" = files.length ? "upload" : "youtube";
       let ytForServer = youtubeUrl;
+      let storagePaths: string[] = [];
+      let jobId = "";
 
       if (useExtension) {
-        const audioFile = await extractYouTubeAudio(youtubeUrl);
-        uploadList = [audioFile];
+        // Create job first, then let extension upload directly to Storage.
+        jobId = await createJob(user.uid, "upload", ["YouTube 音訊"], "");
+        setBgJobId(jobId);
+        setExtractStage("parsing");
+        const token = await user.getIdToken();
+
+        const extResult = await extractAndUploadYouTube(
+          youtubeUrl,
+          user.uid,
+          jobId,
+          token,
+          (stage, pct) => {
+            setExtractStage(stage);
+            setProgress({
+              fileIndex: 1, totalFiles: 1,
+              filename: stage === "parsing" ? "解析 YouTube…" : stage === "downloading" ? "下載音訊…" : "上傳中…",
+              progress: pct,
+              status: stage === "uploading" ? "uploading" : "extracting",
+            });
+            if (stage === "uploading") setUploadPct(pct);
+          },
+        );
+
+        storagePaths = [extResult.storagePath];
+        await updateJobStatus(jobId, {
+          status: "queued",
+          storage_paths: storagePaths,
+          filenames: [extResult.filename],
+          total_files: 1,
+        });
         sourceType = "upload";
-        ytForServer = ""; // backend won't re-download; we already have the audio
-      }
-
-      const filenames = uploadList.length ? uploadList.map((f) => f.name) : [youtubeUrl];
-      const jobId = await createJob(user.uid, sourceType, filenames, ytForServer);
-
-      // Attach the progress listener now so upload + processing show live,
-      // even while the /jobs/start request stays open on the server.
-      setBgJobId(jobId);
-
-      const storagePaths: string[] = [];
-
-      if (uploadList.length) {
-        // Upload files to Firebase Storage
-        for (let i = 0; i < uploadList.length; i++) {
-          const path = `uploads/${user.uid}/${jobId}/${uploadList[i].name}`;
-          setUploadPct(0);
-          setProgress({
-            fileIndex: i + 1, totalFiles: uploadList.length,
-            filename: uploadList[i].name, progress: 0, status: "uploading",
-          });
-          await uploadFile(path, uploadList[i], (pct) => {
-            setUploadPct(pct);
-            setProgress((p) => ({ ...p, progress: pct }));
-          });
-          storagePaths.push(path);
-        }
-        await updateJobStatus(jobId, { status: "queued", storage_paths: storagePaths });
+        ytForServer = "";
+        uploadList = [];
       } else {
-        await updateJobStatus(jobId, { status: "queued" });
+        const filenames = uploadList.length ? uploadList.map((f) => f.name) : [youtubeUrl];
+        jobId = await createJob(user.uid, sourceType, filenames, ytForServer);
+        setBgJobId(jobId);
+
+        if (uploadList.length) {
+          for (let i = 0; i < uploadList.length; i++) {
+            const path = `uploads/${user.uid}/${jobId}/${uploadList[i].name}`;
+            setUploadPct(0);
+            setProgress({
+              fileIndex: i + 1, totalFiles: uploadList.length,
+              filename: uploadList[i].name, progress: 0, status: "uploading",
+            });
+            await uploadFile(path, uploadList[i], (pct) => {
+              setUploadPct(pct);
+              setProgress((p) => ({ ...p, progress: pct }));
+            });
+            storagePaths.push(path);
+          }
+          await updateJobStatus(jobId, { status: "queued", storage_paths: storagePaths });
+        } else {
+          await updateJobStatus(jobId, { status: "queued" });
+        }
       }
 
       // Start backend processing
@@ -287,8 +324,13 @@ export default function Home() {
   };
 
   const progressLabel = () => {
-    if (progress.status === "extracting")
-      return "正在開啟 YouTube 分頁擷取音訊（背景分頁，完成後會自動關閉）…";
+    if (progress.status === "extracting") {
+      if (extractStage === "downloading")
+        return `下載 YouTube 音訊… ${progress.progress}%`;
+      if (extractStage === "parsing")
+        return "解析 YouTube 影片…";
+      return "正在擷取 YouTube 音訊…";
+    }
     if (progress.status === "uploading")
       return `⬆ 上傳中${progress.totalFiles > 1 ? ` 檔案 ${progress.fileIndex}/${progress.totalFiles}` : ""}：${uploadPct}%`;
     if (progress.status === "downloading") return "正在從 YouTube 下載…";
