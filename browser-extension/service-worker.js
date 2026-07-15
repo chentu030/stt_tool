@@ -108,6 +108,11 @@ async function fetchPlayer(videoId, client) {
     `https://youtubei.googleapis.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
     {
       method: "POST",
+      // IMPORTANT: omit cookies. Extensions with host_permissions otherwise send
+      // the user's logged-in YouTube cookies, creating a "half-authenticated"
+      // request that YouTube answers with LOGIN_REQUIRED / bot-check. Anonymous
+      // (no-cookie) requests return direct audio URLs cleanly.
+      credentials: "omit",
       headers: {
         "Content-Type": "application/json",
         "X-YouTube-Client-Name": client.id,
@@ -190,7 +195,7 @@ async function extractAudio(url) {
 
   const safeTitle = String(title).replace(/[\\/:*?"<>|]/g, "_").slice(0, 120);
   console.log(LOG, "downloading audio…");
-  const audioRes = await fetch(fmt.url);
+  const audioRes = await fetch(fmt.url, { credentials: "omit" });
   if (!audioRes.ok) throw new Error("下載音訊失敗 HTTP " + audioRes.status);
   const buf = await audioRes.arrayBuffer();
   console.log(LOG, "downloaded", buf.byteLength, "bytes");
