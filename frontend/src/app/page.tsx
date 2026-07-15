@@ -288,7 +288,7 @@ export default function Home() {
 
   const progressLabel = () => {
     if (progress.status === "extracting")
-      return "正在用你的瀏覽器擷取 YouTube 音訊…";
+      return "正在開啟 YouTube 分頁擷取音訊（背景分頁，完成後會自動關閉）…";
     if (progress.status === "uploading")
       return `⬆ 上傳中${progress.totalFiles > 1 ? ` 檔案 ${progress.fileIndex}/${progress.totalFiles}` : ""}：${uploadPct}%`;
     if (progress.status === "downloading") return "正在從 YouTube 下載…";
@@ -613,7 +613,7 @@ export default function Home() {
               </h3>
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: "1rem" }}>
                 {progress.status === "extracting" ? (
-                  <>正在用你的瀏覽器下載 YouTube 音訊，請保持此分頁開啟。</>
+                  <>正在背景開啟 YouTube 分頁擷取音訊，可能會短暫看到新分頁，完成後會自動關閉。請保持此分頁開啟。</>
                 ) : progress.status === "uploading" ? (
                   <>上傳完成前請保持此分頁開啟。</>
                 ) : progress.status === "queued" ? (
