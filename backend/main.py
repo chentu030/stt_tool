@@ -14,10 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import yt_dlp
 import replicate
+import httpx
 
 # ─── Firebase Admin ──────────────────────────────────────────────
 import firebase_admin
 from firebase_admin import credentials as fb_creds, firestore, storage as fb_storage, auth as fb_auth
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 import base64
 sa_key_json = os.environ.get("FIREBASE_SA_KEY")
@@ -48,6 +50,14 @@ REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
 if REPLICATE_API_TOKEN:
     os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
 print(f"Replicate API configured: {'yes' if REPLICATE_API_TOKEN else 'NO TOKEN!'}")
+
+# The default replicate client only allows a 30s read/write timeout, which is far
+# too short for uploading a whole audio file and waiting on a long transcription.
+# Use a generous timeout so big files and long predictions don't get cut off.
+_replicate_client = replicate.Client(
+    api_token=REPLICATE_API_TOKEN or None,
+    timeout=httpx.Timeout(600.0, connect=15.0),
+)
 
 # incredibly-fast-whisper: L40S GPU, batched + flash-attn. ~10-20x faster than openai/whisper.
 WHISPER_MODEL = (
@@ -107,6 +117,12 @@ _cookies: Dict[str, str] = {}  # cookie_id -> cookie file content
 # ─── Background task executor ───────────────────────────────────
 executor = ThreadPoolExecutor(max_workers=2)
 
+# How many files inside a single job are transcribed in parallel. Each file is
+# an ffmpeg extraction (CPU burst) + a Replicate call (mostly network wait), so
+# overlapping them speeds up multi-file jobs a lot. Bounded to avoid CPU/Replicate
+# overload on one instance.
+FILE_PARALLELISM = int(os.environ.get("FILE_PARALLELISM", "4"))
+
 # ─── Helpers ─────────────────────────────────────────────────────
 def _hhmmss(s: float) -> str:
     s = max(0, int(s))
@@ -150,9 +166,14 @@ def _plan_segments(total: float) -> List[tuple]:
     return segs
 
 def _replicate_run(audio_path: str, language: str) -> dict:
-    """Call incredibly-fast-whisper on one audio file."""
+    """Call incredibly-fast-whisper on one audio file.
+
+    Uses wait=False so the create request returns immediately (no long-held
+    connection) and then polls the prediction. This avoids read timeouts on
+    long transcriptions, while the custom client's timeout covers the upload.
+    """
     with open(audio_path, "rb") as f:
-        output = replicate.run(
+        output = _replicate_client.run(
             WHISPER_MODEL,
             input={
                 "audio": f,
@@ -161,6 +182,8 @@ def _replicate_run(audio_path: str, language: str) -> dict:
                 "timestamp": "chunk",
                 "batch_size": 24,
             },
+            wait=False,
+            use_file_output=False,
         )
     return output
 
@@ -188,30 +211,29 @@ def _transcribe_audio_file(
     on_progress: Optional[Callable[[float, float], None]] = None,
     language: str = DEFAULT_LANGUAGE,
 ) -> str:
-    """Transcribe one file, splitting into chunks when long.
+    """Transcribe one file in a single Replicate call.
 
-    on_progress(done_seconds, total_seconds) is called after each chunk so callers
-    can report how far into the audio we've processed.
+    incredibly-fast-whisper batches the whole file internally (30s windows in
+    parallel on the GPU), so one call is dramatically faster than splitting the
+    audio into sequential chunks. We downsample the audio to 16 kHz mono mp3 once
+    to keep the upload small and stable, then send the whole file at once.
     """
     total = _ffprobe_duration(src_path)
-    segments = _plan_segments(total)
+    if on_progress:
+        on_progress(0.0, total)
     tmpd = tempfile.mkdtemp()
-    parts: List[str] = []
     try:
-        done = 0.0
-        for (start, dur) in segments:
-            chunk_path = os.path.join(tmpd, f"chunk_{int(start)}.mp3")
-            _extract_audio(src_path, chunk_path, start=start, dur=dur)
-            output = _replicate_run(chunk_path, language)
-            parts.append(_format_output(output, offset=start))
-            try:
-                os.remove(chunk_path)
-            except OSError:
-                pass
-            done = min(start + (dur or (total - start) or 0), total) if total else 0
-            if on_progress:
-                on_progress(done, total)
-        return "".join(parts)
+        audio_path = os.path.join(tmpd, "audio.mp3")
+        try:
+            _extract_audio(src_path, audio_path)
+        except Exception:
+            # If re-encoding fails (odd format), send the original file directly.
+            audio_path = src_path
+        output = _replicate_run(audio_path, language)
+        text = _format_output(output, offset=0.0)
+        if on_progress:
+            on_progress(total, total)
+        return text
     finally:
         shutil.rmtree(tmpd, ignore_errors=True)
 
@@ -347,11 +369,52 @@ async def transcribe_youtube(url: str = Form(...), token_id: Optional[str] = For
 # Firestore documents have a 1 MiB limit; keep big transcripts in Storage only.
 INLINE_LIMIT = 700_000  # bytes of combined transcript text kept inline in Firestore
 
+def _ts_value(created_at) -> float:
+    """Best-effort epoch seconds from a Firestore timestamp value (for sorting)."""
+    try:
+        return created_at.timestamp()
+    except Exception:
+        return 0.0
+
+def _refresh_queue_positions() -> None:
+    """Write queue_ahead (number of audio files waiting ahead) onto each queued job.
+
+    Called whenever a job starts or finishes so waiting users get a live position.
+    Jobs that are already 'processing' still count as being ahead in line.
+    """
+    try:
+        pending = list(
+            fstore.collection("jobs")
+            .where(filter=FieldFilter("status", "in", ["queued", "processing"]))
+            .stream()
+        )
+    except Exception:
+        return
+    rows = []
+    for d in pending:
+        data = d.to_dict() or {}
+        rows.append((
+            d.id,
+            data.get("status"),
+            int(data.get("total_files") or 1),
+            _ts_value(data.get("created_at")),
+        ))
+    rows.sort(key=lambda r: r[3])  # oldest first (FIFO)
+    ahead_files = 0
+    for jid, status, nfiles, _ in rows:
+        if status == "queued":
+            try:
+                fstore.collection("jobs").document(jid).update({"queue_ahead": ahead_files})
+            except Exception:
+                pass
+        ahead_files += nfiles
+
 def _process_job_sync(job_id: str, job_data: dict):
     """Process a job in background thread, updating Firestore with real progress."""
     job_ref = fstore.collection("jobs").document(job_id)
     try:
-        job_ref.update({"status": "processing", "progress": 0, "position_label": ""})
+        job_ref.update({"status": "processing", "progress": 0, "position_label": "", "queue_ahead": 0})
+        _refresh_queue_positions()  # this job left the queue; bump everyone behind
         temp_dir = tempfile.mkdtemp()
         audio_files: List[tuple] = []  # (filename, local_path)
 
@@ -398,34 +461,51 @@ def _process_job_sync(job_id: str, job_data: dict):
             return
 
         total = len(audio_files)
-        all_transcripts = []
-        result_paths = []
         uid = job_data.get("user_id", "unknown")
 
-        for idx, (fname, local_path) in enumerate(audio_files):
-            n = idx + 1
+        # Transcribe the job's files in parallel (bounded), reporting progress by
+        # how many files are finished. Each file: transcribe -> store .txt.
+        results: List[Optional[dict]] = [None] * total
+        lock = threading.Lock()
+        counter = {"done": 0, "ok": 0}
 
-            def cb(done: float, tot: float, _idx=idx, _fname=fname):
-                # overall progress across all files + within-file position label
-                within = (done / tot) if tot else 0
-                overall = int(((_idx + within) / total) * 100)
-                pos = f"{_hhmmss(done)} / {_hhmmss(tot)}" if tot else ""
+        def _work(idx: int, fname: str, local_path: str) -> None:
+            try:
+                text = _transcribe_audio_file(local_path)
+                ok = True
+            except Exception as fe:
+                text = f"[轉錄失敗 / transcription failed: {fe}]"
+                ok = False
+            result_path = f"results/{uid}/{job_id}/{idx:02d}_{fname}.txt"
+            try:
+                bucket.blob(result_path).upload_from_string(
+                    text, content_type="text/plain; charset=utf-8")
+            except Exception:
+                result_path = ""
+            with lock:
+                counter["done"] += 1
+                if ok:
+                    counter["ok"] += 1
+                results[idx] = {"filename": fname, "text": text, "path": result_path}
                 job_ref.update({
-                    "progress": min(overall, 99),
-                    "current_file": n, "total_files": total,
-                    "position_label": (f"{_fname}: {pos}" if pos else _fname),
+                    "progress": min(int(counter["done"] / total * 100), 99),
+                    "current_file": counter["done"], "total_files": total,
+                    "position_label": f"{counter['done']}/{total} 檔完成",
                 })
 
-            job_ref.update({"current_file": n, "total_files": total})
-            transcript = _transcribe_audio_file(local_path, cb)
+        workers = max(1, min(FILE_PARALLELISM, total))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_work, i, fn, lp)
+                       for i, (fn, lp) in enumerate(audio_files)]
+            for fut in futures:
+                fut.result()
 
-            all_transcripts.append({"filename": fname, "text": transcript})
+        if counter["ok"] == 0:
+            raise RuntimeError(results[0]["text"] if results and results[0]
+                               else "All files failed to transcribe")
 
-            # Always store the .txt in Storage (source of truth, no size limit)
-            result_path = f"results/{uid}/{job_id}/{fname}.txt"
-            blob = bucket.blob(result_path)
-            blob.upload_from_string(transcript, content_type="text/plain; charset=utf-8")
-            result_paths.append(result_path)
+        all_transcripts = [{"filename": r["filename"], "text": r["text"]} for r in results if r]
+        result_paths = [r["path"] for r in results if r and r["path"]]
 
         # Delete uploaded source audio right away — only results are kept.
         _delete_uploads(job_data)
@@ -444,6 +524,7 @@ def _process_job_sync(job_id: str, job_data: dict):
         job_ref.update(update)
 
         shutil.rmtree(temp_dir, ignore_errors=True)
+        _refresh_queue_positions()  # a slot freed up; advance the queue
 
     except Exception as e:
         # Clean up uploads/cookie even on failure so nothing is left behind.
@@ -455,6 +536,7 @@ def _process_job_sync(job_id: str, job_data: dict):
             "status": "error", "error_message": str(e),
             "storage_paths": [], "yt_cookie": firestore.DELETE_FIELD,
         })
+        _refresh_queue_positions()
 
 @app.post("/api/jobs/start")
 async def start_job(
@@ -486,6 +568,7 @@ async def start_job(
     # Preferred: hand off to Cloud Tasks so the job survives closing the browser.
     if _enqueue_task(job_id):
         job_ref.update({"status": "queued"})
+        _refresh_queue_positions()  # compute this job's initial place in line
         return {"status": "queued", "job_id": job_id}
 
     # Fallback (Cloud Tasks not configured): process within this request.

@@ -30,6 +30,7 @@ interface ProgressInfo {
   progress: number;
   status: string;
   positionLabel?: string;
+  queueAhead?: number;
 }
 
 export default function Home() {
@@ -64,6 +65,7 @@ export default function Home() {
         fileIndex: job.current_file, totalFiles: job.total_files,
         filename: job.filenames[job.current_file - 1] || "", progress: job.progress,
         status: job.status, positionLabel: job.position_label || "",
+        queueAhead: job.queue_ahead ?? 0,
       });
       if (job.status === "done") {
         let results = job.transcripts || [];
@@ -243,13 +245,17 @@ export default function Home() {
       return `${filePart}${posPart}`;
     }
     if (progress.status === "processing") {
-      // Background mode: position_label already includes filename + mm:ss
+      // Background mode: position_label carries "N/總 檔完成"
       return progress.positionLabel
-        ? `⏱ ${progress.positionLabel} (${progress.progress}%)`
-        : `Processing... ${progress.progress}%`;
+        ? `${progress.positionLabel} (${progress.progress}%)`
+        : `處理中... ${progress.progress}%`;
     }
-    if (progress.status === "queued") return "Queued, waiting to start...";
-    return "Starting...";
+    if (progress.status === "queued") {
+      return (progress.queueAhead ?? 0) > 0
+        ? `排隊中 — 前面還有 ${progress.queueAhead} 個音檔`
+        : "排隊中 — 即將開始";
+    }
+    return "準備中...";
   };
 
   const overallProgress = () => {
@@ -461,23 +467,46 @@ export default function Home() {
           {bgMode && isTranscribing && (
             <div className="bento-card col-span-12" style={{ textAlign: "center", padding: "2rem",
               background: "linear-gradient(135deg, rgba(168,85,247,0.1), rgba(59,130,246,0.1))" }}>
-              <p style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>☁️</p>
+              <p style={{ fontSize: "1.5rem", marginBottom: "0.5rem" }}>
+                {progress.status === "queued" ? "⏳" : "☁️"}
+              </p>
               <h3 className="font-display" style={{ fontSize: "1.3rem", marginBottom: "0.5rem" }}>
-                {progress.status === "uploading" ? "Uploading to cloud" : "Transcribing in cloud"}
+                {progress.status === "uploading"
+                  ? "上傳中 Uploading"
+                  : progress.status === "queued"
+                  ? "排隊中 In queue"
+                  : "雲端轉錄中 Transcribing"}
               </h3>
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", marginBottom: "1rem" }}>
-                {progress.status === "uploading"
-                  ? "Keep this tab open until the upload finishes."
-                  : "Upload done — you can safely close this tab now."}{" "}
-                Results are saved to your{" "}
-                <Link href="/history" style={{ color: "var(--accent-1)", fontWeight: 600 }}>history</Link>{" "}
-                automatically.
+                {progress.status === "uploading" ? (
+                  <>上傳完成前請保持此分頁開啟。</>
+                ) : progress.status === "queued" ? (
+                  (progress.queueAhead ?? 0) > 0 ? (
+                    <>前面還有 <strong>{progress.queueAhead}</strong> 個音檔正在排隊，輪到你會自動開始。</>
+                  ) : (
+                    <>即將開始處理…</>
+                  )
+                ) : (
+                  <>上傳已完成 — 現在可以安全關閉此分頁。</>
+                )}{" "}
+                結果會自動存到你的{" "}
+                <Link href="/history" style={{ color: "var(--accent-1)", fontWeight: 600 }}>歷史紀錄</Link>。
               </p>
               <div style={{ width: "100%", maxWidth: "400px", margin: "0 auto", height: "6px",
                 background: "var(--bg-secondary)", borderRadius: "3px", overflow: "hidden" }}>
-                <div style={{ width: `${progress.status === "uploading" ? overallProgress() : progress.progress}%`, height: "100%",
-                  background: "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
-                  borderRadius: "3px", transition: "width 0.5s ease" }} />
+                <div style={{
+                  width: progress.status === "queued"
+                    ? "100%"
+                    : `${progress.status === "uploading" ? overallProgress() : progress.progress}%`,
+                  height: "100%",
+                  background: progress.status === "queued"
+                    ? "linear-gradient(90deg, transparent, var(--accent-1), var(--accent-2), transparent)"
+                    : "linear-gradient(90deg, var(--accent-1), var(--accent-2))",
+                  borderRadius: "3px", transition: "width 0.5s ease",
+                  ...(progress.status === "queued"
+                    ? { backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite linear" }
+                    : {}),
+                }} />
               </div>
               <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
                 {progressLabel()}

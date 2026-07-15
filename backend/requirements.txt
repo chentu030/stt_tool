@@ -3,6 +3,7 @@ uvicorn[standard]
 python-multipart
 yt-dlp
 replicate
+httpx
 requests
 firebase-admin
 google-cloud-tasks

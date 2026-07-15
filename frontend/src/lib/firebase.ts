@@ -60,6 +60,7 @@ export interface Job {
   transcripts: { filename: string; text: string }[];
   error_message: string;
   position_label?: string;
+  queue_ahead?: number;
 }
 
 // ─── Firestore helpers ───────────────────────────────────────
