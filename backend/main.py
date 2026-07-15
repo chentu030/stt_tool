@@ -7,6 +7,9 @@ import uuid
 import subprocess
 import asyncio
 import threading
+import time
+import random
+import requests
 from typing import Optional, Dict, List, Callable
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header, Request
@@ -369,6 +372,166 @@ async def transcribe_youtube(url: str = Form(...), token_id: Optional[str] = For
 # Firestore documents have a 1 MiB limit; keep big transcripts in Storage only.
 INLINE_LIMIT = 700_000  # bytes of combined transcript text kept inline in Firestore
 
+# ─── YouTube download with free-proxy rotation ───────────────────
+# YouTube blocks datacenter IPs (Cloud Run), so we route yt-dlp through free
+# public proxies (same idea as the stock crawler), trying until one works.
+YT_PROXY_ENABLED = os.environ.get("YT_PROXY_ENABLED", "1") == "1"
+YT_MAX_PROXY_ATTEMPTS = int(os.environ.get("YT_MAX_PROXY_ATTEMPTS", "15"))
+YT_PROXY_SOURCES = [
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
+]
+_yt_proxy_cache: dict = {"list": [], "ts": 0.0}
+_yt_proxy_lock = threading.Lock()
+
+def _fetch_free_proxies(limit: int = 500) -> List[str]:
+    """Download & cache (10 min) free http proxy lists as 'ip:port' strings."""
+    with _yt_proxy_lock:
+        if _yt_proxy_cache["list"] and time.time() - _yt_proxy_cache["ts"] < 600:
+            return list(_yt_proxy_cache["list"])
+    found = set()
+    for src in YT_PROXY_SOURCES:
+        try:
+            r = requests.get(src, timeout=10)
+            for line in r.text.strip().splitlines():
+                line = line.strip().replace("http://", "").replace("https://", "")
+                if line and ":" in line and line.count(".") == 3:
+                    found.add(line)
+        except Exception:
+            pass
+    lst = list(found)
+    random.shuffle(lst)
+    lst = lst[:limit]
+    with _yt_proxy_lock:
+        _yt_proxy_cache["list"] = lst
+        _yt_proxy_cache["ts"] = time.time()
+    return list(lst)
+
+def _filter_live_proxies(candidates: List[str], want: int = 25,
+                         timeout: int = 6, threads: int = 60) -> List[str]:
+    """Quickly keep proxies that can actually reach YouTube (filters dead ones)."""
+    live: List[str] = []
+    live_lock = threading.Lock()
+
+    def check(p: str):
+        if len(live) >= want:
+            return
+        try:
+            r = requests.get(
+                "https://www.youtube.com/robots.txt",
+                proxies={"http": f"http://{p}", "https": f"http://{p}"},
+                timeout=timeout,
+            )
+            if r.status_code == 200 and "User-agent" in r.text:
+                with live_lock:
+                    if len(live) < want:
+                        live.append(p)
+        except Exception:
+            pass
+
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        futs = [pool.submit(check, p) for p in candidates]
+        for f in futs:
+            if len(live) >= want:
+                break
+            try:
+                f.result(timeout=timeout + 2)
+            except Exception:
+                pass
+    return live
+
+def _collect_audio(temp_dir: str) -> List[tuple]:
+    out: List[tuple] = []
+    for mp3 in sorted(glob.glob(os.path.join(temp_dir, "*.mp3"))):
+        bn = os.path.basename(mp3)
+        title = bn.rsplit("__", 1)[0] if "__" in bn else bn.rsplit(".", 1)[0]
+        out.append((title, mp3))
+    if not out:
+        for f in sorted(glob.glob(os.path.join(temp_dir, "*"))):
+            if os.path.isfile(f) and "_ytcache" not in f and \
+               not f.endswith((".txt", ".json", ".part", ".ytdl")):
+                out.append((os.path.basename(f), f))
+    return out
+
+def _download_youtube(url: str, temp_dir: str, cookie_content: Optional[str] = None,
+                      on_status: Optional[Callable[[str], None]] = None) -> List[tuple]:
+    """Download YouTube audio, trying direct first then rotating free proxies.
+
+    Cookies (if given) are used on every attempt so private/members-only videos
+    keep working. Raises RuntimeError if no attempt succeeds.
+    """
+    cookie_path = None
+    if cookie_content:
+        cookie_path = os.path.join(temp_dir, "cookies.txt")
+        with open(cookie_path, "w", encoding="utf-8") as f:
+            f.write(cookie_content)
+
+    def _clear_media():
+        for f in glob.glob(os.path.join(temp_dir, "*")):
+            if f == cookie_path or not os.path.isfile(f):
+                continue
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+    def _attempt(proxy: Optional[str]) -> List[tuple]:
+        _clear_media()
+        opts: dict = {
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(temp_dir, "%(title)s__%(id)s.%(ext)s"),
+            "postprocessors": [{"key": "FFmpegExtractAudio",
+                                "preferredcodec": "mp3", "preferredquality": "192"}],
+            "quiet": True, "no_warnings": True, "noplaylist": False,
+            "socket_timeout": 20, "retries": 1, "fragment_retries": 1,
+        }
+        if cookie_path:
+            opts["cookiefile"] = cookie_path
+        if proxy:
+            opts["proxy"] = f"http://{proxy}"
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        return _collect_audio(temp_dir)
+
+    # 1) Try direct — cheap, and works if this instance's IP isn't flagged.
+    last_err = None
+    try:
+        if on_status:
+            on_status("嘗試直連下載 YouTube…")
+        got = _attempt(None)
+        if got:
+            return got
+    except Exception as e:
+        last_err = e
+
+    if not YT_PROXY_ENABLED:
+        raise RuntimeError(f"YouTube 直連下載失敗:{last_err}")
+
+    # 2) Rotate through free proxies.
+    if on_status:
+        on_status("直連被 YouTube 擋下,改用免費代理嘗試…")
+    live = _filter_live_proxies(_fetch_free_proxies(), want=YT_MAX_PROXY_ATTEMPTS + 10)
+    tried = 0
+    for p in live:
+        if tried >= YT_MAX_PROXY_ATTEMPTS:
+            break
+        tried += 1
+        if on_status:
+            on_status(f"透過免費代理嘗試中… ({tried}/{min(len(live), YT_MAX_PROXY_ATTEMPTS)})")
+        try:
+            got = _attempt(p)
+            if got:
+                return got
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise RuntimeError(
+        f"YouTube 下載失敗:試了 {tried} 個免費代理都不成功。"
+        f"此影片可能需要 cookies,或改用付費住宅代理。最後錯誤:{last_err}"
+    )
+
 def _ts_value(created_at) -> float:
     """Best-effort epoch seconds from a Firestore timestamp value (for sorting)."""
     try:
@@ -430,31 +593,18 @@ def _process_job_sync(job_id: str, job_data: dict):
 
         elif source == "youtube":
             yt_url = job_data.get("youtube_url", "")
-            out_tpl = os.path.join(temp_dir, "%(title)s__%(id)s.%(ext)s")
-            opts: dict = {"format": "bestaudio/best", "outtmpl": out_tpl,
-                "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
-                "quiet": True, "no_warnings": True, "noplaylist": False}
-            # Cookie is persisted in the job doc so any Cloud Run instance can use it
+            # Cookie is persisted in the job doc so any Cloud Run instance can use it.
             cookie_content = job_data.get("yt_cookie")
             if not cookie_content:
                 yt_token_id = job_data.get("yt_token_id")
                 if yt_token_id and yt_token_id in _cookies:
                     cookie_content = _cookies[yt_token_id]
-            if cookie_content:
-                cookie_path = os.path.join(temp_dir, "cookies.txt")
-                with open(cookie_path, "w", encoding="utf-8") as f:
-                    f.write(cookie_content)
-                opts["cookiefile"] = cookie_path
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([yt_url])
-            for mp3 in sorted(glob.glob(os.path.join(temp_dir, "*.mp3"))):
-                bn = os.path.basename(mp3)
-                title = bn.rsplit("__", 1)[0] if "__" in bn else bn.rsplit(".", 1)[0]
-                audio_files.append((title, mp3))
-            if not audio_files:
-                for f in sorted(glob.glob(os.path.join(temp_dir, "*"))):
-                    if os.path.isfile(f) and "_ytcache" not in f and not f.endswith((".txt", ".json")):
-                        audio_files.append((os.path.basename(f), f))
+            # YouTube blocks datacenter IPs ("Sign in to confirm you're not a bot"),
+            # so fall back to rotating free proxies. Cookies (if provided) are used
+            # in every attempt so private / members-only videos still work.
+            def _yt_status(msg: str):
+                job_ref.update({"position_label": msg})
+            audio_files = _download_youtube(yt_url, temp_dir, cookie_content, _yt_status)
 
         if not audio_files:
             job_ref.update({"status": "error", "error_message": "No audio files found"})
