@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
-// Service worker v0.4.1 — always open a fresh YouTube tab, inject
-// content script if needed, no useless SW API fallback.
+// Service worker v0.4.2 — extract via chrome.scripting.executeScript
+// in MAIN world (bypasses YouTube CSP that blocks inline <script> injection).
 // ─────────────────────────────────────────────────────────────
 
 const LOG = "[stt-ext]";
@@ -66,50 +66,144 @@ function waitTabComplete(tabId, timeoutMs = 25000) {
   });
 }
 
-async function ensureContentScript(tabId) {
-  try {
-    const resp = await chrome.tabs.sendMessage(tabId, { type: "PING" });
-    if (resp?.ok) return;
-  } catch (_) {}
-  console.log(LOG, "inject youtube-page.js into tab", tabId);
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ["youtube-page.js"],
-  });
-  await sleep(400);
-}
-
-async function sendTabExtract(tabId, videoId) {
-  const reqId = Math.random().toString(36).slice(2);
-  let lastErr = "";
-  let injected = false;
-
-  for (let i = 0; i < 15; i++) {
-    try {
-      const resp = await chrome.tabs.sendMessage(tabId, {
-        type: "EXTRACT_ON_PAGE",
-        videoId,
-        reqId,
-      });
-      if (resp?.ok) return resp;
-      lastErr = resp?.error || "頁面擷取失敗";
-      break;
-    } catch (e) {
-      lastErr = e?.message || String(e);
-      if (lastErr.includes("Could not establish connection") && !injected) {
-        await ensureContentScript(tabId);
-        injected = true;
-      }
+// Runs inside the YouTube page MAIN world (must be self-contained — no closures).
+async function extractAudioInPage(videoId) {
+  const waitYtcfg = async () => {
+    for (let i = 0; i < 40; i++) {
+      if (typeof ytcfg !== "undefined" && ytcfg.get && ytcfg.get("VISITOR_DATA")) return;
+      await new Promise((r) => setTimeout(r, 250));
     }
-    await sleep(400);
+    throw new Error("YouTube 頁面尚未就緒（ytcfg 載入逾時）");
+  };
+
+  await waitYtcfg();
+
+  const cfg = (k) => ytcfg.get(k);
+  const visitorData = cfg("VISITOR_DATA");
+  const apiKey = cfg("INNERTUBE_API_KEY");
+  const AUDIO_ITAGS = [140, 251, 250, 249, 139, 18];
+
+  const clients = [
+    {
+      name: "ANDROID_VR",
+      client: {
+        clientName: "ANDROID_VR",
+        clientVersion: "1.60.19",
+        deviceMake: "Oculus",
+        deviceModel: "Quest 3",
+        osName: "Android",
+        osVersion: "12L",
+        androidSdkVersion: 32,
+        hl: "zh-TW",
+        gl: "TW",
+      },
+    },
+    {
+      name: "TVHTML5",
+      client: {
+        clientName: "TVHTML5",
+        clientVersion: cfg("INNERTUBE_CLIENT_VERSION") || "7.20250120.19.00",
+        hl: "zh-TW",
+        gl: "TW",
+      },
+    },
+    {
+      name: "ANDROID",
+      client: {
+        clientName: "ANDROID",
+        clientVersion: "19.44.38",
+        androidSdkVersion: 34,
+        osName: "Android",
+        osVersion: "14",
+        hl: "zh-TW",
+        gl: "TW",
+      },
+    },
+  ];
+
+  const errors = [];
+  let picked = null;
+  let title = videoId;
+
+  for (const { name, client } of clients) {
+    try {
+      if (visitorData) client.visitorData = visitorData;
+      const body = {
+        context: { client, user: { lockedSafetyMode: false }, request: { useSsl: true } },
+        videoId,
+        contentCheckOk: true,
+        racyCheckOk: true,
+      };
+      const ep = apiKey
+        ? "/youtubei/v1/player?key=" + encodeURIComponent(apiKey) + "&prettyPrint=false"
+        : "/youtubei/v1/player?prettyPrint=false";
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      let r;
+      try {
+        r = await fetch(ep, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (!r.ok) {
+        errors.push(name + ": HTTP " + r.status);
+        continue;
+      }
+      const player = await r.json();
+      const status = player && player.playabilityStatus && player.playabilityStatus.status;
+      if (status !== "OK") {
+        const reason = (player && player.playabilityStatus && player.playabilityStatus.reason) || "";
+        errors.push(name + ": " + status + " " + reason);
+        continue;
+      }
+      title = (player.videoDetails && player.videoDetails.title) || title;
+
+      const fmts = ((player.streamingData && player.streamingData.adaptiveFormats) || []).filter(
+        (f) => f.mimeType && f.mimeType.indexOf("audio/") === 0 && f.url
+      );
+      fmts.sort((a, b) => {
+        const ia = AUDIO_ITAGS.indexOf(a.itag);
+        const ib = AUDIO_ITAGS.indexOf(b.itag);
+        return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || (b.bitrate || 0) - (a.bitrate || 0);
+      });
+      if (fmts[0]) {
+        picked = fmts[0];
+        break;
+      }
+      const combined = ((player.streamingData && player.streamingData.formats) || []).find(
+        (f) => f.url && f.itag === 18
+      );
+      if (combined) {
+        picked = combined;
+        break;
+      }
+      errors.push(name + ": 無直連音訊");
+    } catch (e) {
+      errors.push(name + ": " + (e && e.message ? e.message : String(e)));
+    }
   }
-  throw new Error(lastErr || "無法與 YouTube 分頁通訊");
+
+  if (!picked) {
+    throw new Error("找不到可下載的音訊（" + errors.join(" / ") + "）");
+  }
+
+  return {
+    ok: true,
+    audioUrl: picked.url,
+    mime: (picked.mimeType || "audio/mp4").split(";")[0],
+    title,
+  };
 }
 
 async function extractViaYouTubeTab(videoId, reqId) {
   emitProgress(reqId, "parsing", 5);
-  // Always open a fresh tab — reusing old tabs often lacks the content script
-  // (opened before extension load/reload → "Receiving end does not exist").
   console.log(LOG, "open background YouTube tab…");
   const tab = await chrome.tabs.create({
     url: `https://www.youtube.com/watch?v=${videoId}`,
@@ -117,11 +211,21 @@ async function extractViaYouTubeTab(videoId, reqId) {
   });
   try {
     await waitTabComplete(tab.id);
-    emitProgress(reqId, "parsing", 12);
-    await ensureContentScript(tab.id);
-    emitProgress(reqId, "parsing", 18);
-    await sleep(600);
-    const result = await sendTabExtract(tab.id, videoId);
+    emitProgress(reqId, "parsing", 15);
+    await sleep(800);
+    emitProgress(reqId, "parsing", 20);
+    console.log(LOG, "executeScript MAIN world…");
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: extractAudioInPage,
+      args: [videoId],
+    });
+
+    if (!result || !result.ok) {
+      throw new Error((result && result.error) || "頁面擷取失敗");
+    }
     emitProgress(reqId, "parsing", 30);
     console.log(LOG, "extract ok:", result.title);
     return result;
@@ -134,7 +238,6 @@ async function resolveAudioMeta(url, reqId) {
   const videoId = parseVideoId(url);
   if (!videoId) throw new Error("無法辨識 YouTube 影片網址");
   const meta = await extractViaYouTubeTab(videoId, reqId);
-  if (!meta?.ok) throw new Error(meta?.error || "擷取失敗");
   return { videoId, ...meta };
 }
 
@@ -215,7 +318,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === "PING") {
-    sendResponse({ ok: true, version: "0.4.1" });
+    sendResponse({ ok: true, version: "0.4.2" });
     return false;
   }
 });

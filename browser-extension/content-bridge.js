@@ -4,7 +4,7 @@
   console.log("[stt-ext] content bridge injected on", location.href);
 
   function announce() {
-    window.postMessage({ source: "stt-ext", type: "READY", version: "0.4.1" }, "*");
+    window.postMessage({ source: "stt-ext", type: "READY", version: "0.4.2" }, "*");
   }
 
   announce();

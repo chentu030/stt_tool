@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "語音轉錄 YouTube 擷取器",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "在本機用你自己的 IP 擷取 YouTube 音訊，送到語音轉錄網站，避開伺服器被 YouTube 封鎖的問題。",
   "permissions": ["storage", "declarativeNetRequest", "tabs", "scripting"],
   "host_permissions": [
@@ -27,11 +27,6 @@
       ],
       "js": ["content-bridge.js"],
       "run_at": "document_start"
-    },
-    {
-      "matches": ["https://*.youtube.com/*"],
-      "js": ["youtube-page.js"],
-      "run_at": "document_idle"
     }
   ]
 }
