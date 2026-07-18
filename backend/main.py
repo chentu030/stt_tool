@@ -1506,17 +1506,75 @@ def _fetch_free_dict(slug: str) -> dict:
         return {"id": "freedict", "name": "Free Dictionary", "error": str(e)}
 
 
-def _fetch_dict_url(url: str, timeout: float = 12.0) -> str:
+def _is_cf_challenge(html: str, status: int = 200) -> bool:
+    """偵測 Cloudflare JS／Managed Challenge 頁（不是真正詞典內容）。"""
+    t = html or ""
+    head = t[:4000]
+    if status in (403, 503) and (
+        "cloudflare" in t.lower() or "cf-" in t.lower() or "Just a moment" in t
+    ):
+        return True
+    needles = (
+        "Just a moment",
+        "cf-browser-verification",
+        "challenge-platform",
+        "Performing security verification",
+        "cdn-cgi/challenge",
+        "Attention Required! | Cloudflare",
+    )
+    if any(n in t for n in needles):
+        # 真正內容頁極少出現這些字；短頁更肯定是 challenge
+        if len(t) < 25000 or "Just a moment" in head:
+            return True
+    return False
+
+
+def _fetch_dict_url(url: str, timeout: float = 15.0, proxy: Optional[str] = None) -> str:
+    """抓詞典 HTML。優先 curl_cffi（Chrome TLS 指紋），比 requests 更易過 Cloudflare 基礎擋。
+    對 Turnstile／Managed Challenge 仍可能失敗，需再搭配代理。
+    """
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"} if proxy else None
+
+    # 1) curl_cffi：模擬真實瀏覽器 TLS／HTTP2（能過多數非 JS challenge 的 CF）
+    try:
+        from curl_cffi import requests as creq  # type: ignore
+        r = creq.get(
+            url,
+            impersonate="chrome131",
+            headers=headers,
+            timeout=timeout,
+            proxies=proxies,
+            allow_redirects=True,
+        )
+        text = r.text or ""
+        if _is_cf_challenge(text, getattr(r, "status_code", 200) or 200):
+            raise RuntimeError(f"Cloudflare challenge ({getattr(r, 'status_code', '?')})")
+        if getattr(r, "status_code", 0) >= 400:
+            raise RuntimeError(f"HTTP {r.status_code}")
+        return text
+    except ImportError:
+        pass
+    except Exception:
+        # 直連／此代理失敗時，再試普通 requests（部分站仍可用）
+        if proxy:
+            raise
+
     r = requests.get(
         url,
-        headers={
-            "User-Agent": _DICT_UA,
-            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-        },
+        headers={**headers, "User-Agent": _DICT_UA},
         timeout=timeout,
         allow_redirects=True,
+        proxies=proxies,
     )
+    text = r.text or ""
+    if _is_cf_challenge(text, r.status_code):
+        raise RuntimeError(f"Cloudflare challenge ({r.status_code})")
     r.raise_for_status()
     r.encoding = r.apparent_encoding or "utf-8"
     return r.text
@@ -1529,7 +1587,10 @@ def _fetch_dict_jina(url: str, timeout: float = 16.0) -> str:
         timeout=timeout,
     )
     r.raise_for_status()
-    return r.text
+    text = r.text or ""
+    if _is_cf_challenge(text, r.status_code):
+        raise RuntimeError("Jina also hit Cloudflare")
+    return text
 
 
 def _dict_sources(slug: str):
@@ -1538,6 +1599,7 @@ def _dict_sources(slug: str):
         {
             "id": "cambridge",
             "name": "劍橋 Cambridge",
+            "cf": True,  # 可能有 Cloudflare，失敗時走代理
             "urls": [
                 f"https://dictionary.cambridge.org/dictionary/english-chinese-traditional/{q}",
                 f"https://dictionary.cambridge.org/dictionary/english/{q}",
@@ -1546,6 +1608,7 @@ def _dict_sources(slug: str):
         {
             "id": "collins",
             "name": "柯林斯 Collins",
+            "cf": True,
             "urls": [
                 f"https://www.collinsdictionary.com/dictionary/english/{q}",
                 f"https://www.collinsdictionary.com/dictionary/english-chinese/{q}",
@@ -1574,15 +1637,64 @@ def _dict_sources(slug: str):
 
 def _fetch_one_dict_source(src: dict, slug: str = "") -> dict:
     last_err = ""
+    need_proxy = False
+
+    # 1) 直連（curl_cffi TLS 模擬）
     for url in src["urls"]:
         try:
             html_str = _fetch_dict_url(url)
             body = _focus_after_word(_html_to_text(html_str), slug or src.get("id", ""))
             text = _clean_dict_chunk(src["name"], body)
             if text:
-                return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": "direct"}
+                return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": "curl_cffi"}
         except Exception as e:
             last_err = str(e)
+            if "Cloudflare" in last_err or "403" in last_err:
+                need_proxy = True
+
+    # 2) Cloudflare 站：並行試免費代理 + curl_cffi（比無頭瀏覽器輕；Turnstile 需「乾淨」出口 IP）
+    if src.get("cf") or need_proxy:
+        try:
+            cands = list(_fetch_free_proxies(limit=160))
+            random.shuffle(cands)
+            cands = cands[:24]
+        except Exception as e:
+            cands = []
+            last_err = f"proxy list: {e}"
+        url = src["urls"][0]
+
+        def _try_proxy(p: str):
+            html_str = _fetch_dict_url(url, proxy=p, timeout=11.0)
+            body = _focus_after_word(_html_to_text(html_str), slug or src.get("id", ""))
+            text = _clean_dict_chunk(src["name"], body)
+            if not text:
+                raise RuntimeError("empty after clean")
+            return text
+
+        if cands:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                futs = {pool.submit(_try_proxy, p): p for p in cands}
+                try:
+                    from concurrent.futures import as_completed
+                    for fut in as_completed(futs, timeout=50):
+                        p = futs[fut]
+                        try:
+                            text = fut.result()
+                            print(f"[dict_fetch] {src['id']} via proxy {p}")
+                            # 取消其餘
+                            for other in futs:
+                                other.cancel()
+                            return {
+                                "id": src["id"], "name": src["name"], "url": url,
+                                "text": text, "via": "curl_cffi+proxy",
+                            }
+                        except Exception as e:
+                            last_err = str(e)
+                            continue
+                except Exception as e:
+                    last_err = str(e)
+
+    # 3) Jina 可讀內容後備
     for url in src["urls"]:
         try:
             md = _fetch_dict_jina(url)

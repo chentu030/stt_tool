@@ -8,3 +8,4 @@ requests
 firebase-admin
 google-cloud-tasks
 opencc-python-reimplemented
+curl_cffi>=0.7.0
