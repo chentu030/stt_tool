@@ -26,6 +26,7 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 import base64
 import re
+import html
 import mimetypes
 from urllib.parse import quote
 sa_key_json = os.environ.get("FIREBASE_SA_KEY")
@@ -862,7 +863,8 @@ def _parse_vtt(vtt_text: str) -> List[dict]:
         start = to_sec(*m.group(1, 2, 3, 4))
         end = to_sec(*m.group(5, 6, 7, 8))
         text = re.sub(r"<[^>]+>", "", " ".join(text_lines))
-        text = re.sub(r"\s+", " ", text).strip()
+        text = html.unescape(text)
+        text = re.sub(r"\s+", " ", text).replace("\xa0", " ").strip()
         if not text:
             continue
         if segs and segs[-1]["text"] == text:
