@@ -949,6 +949,26 @@ async def beidanzi_youtube(url: str = Form(...), language: Optional[str] = Form(
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+@app.post("/api/beidanzi/store_audio")
+async def beidanzi_store_audio(file: UploadFile = File(...)):
+    """把前端產生的 AI 語音（WAV）永久存進 Firebase Storage，回傳公開下載網址。"""
+    ext = os.path.splitext(file.filename or ".wav")[1].lower() or ".wav"
+    fd, path = tempfile.mkstemp(suffix=ext)
+    os.close(fd)
+    with open(path, "wb") as buf:
+        shutil.copyfileobj(file.file, buf)
+    try:
+        url, _ = await asyncio.get_event_loop().run_in_executor(
+            executor, _store_media_public, path, file.filename or "audio.wav")
+        return {"url": url}
+    except Exception as e:
+        raise HTTPException(500, f"存檔失敗: {e}")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "engine": "replicate", "model": "incredibly-fast-whisper"}
