@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+*-sa-key.json
+*-key.json
+env.yaml
+*.bak_*
+_watch.html

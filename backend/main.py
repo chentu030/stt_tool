@@ -25,6 +25,9 @@ from firebase_admin import credentials as fb_creds, firestore, storage as fb_sto
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 import base64
+import re
+import mimetypes
+from urllib.parse import quote
 sa_key_json = os.environ.get("FIREBASE_SA_KEY")
 sa_key_b64 = os.environ.get("FIREBASE_SA_KEY_B64")
 if sa_key_b64:
@@ -780,6 +783,171 @@ async def yt_cookie_upload(cookie_file: UploadFile = File(...)):
     cid = str(uuid.uuid4())
     _cookies[cid] = content
     return {"status": "ok", "cookie_id": cid}
+
+# ─── 背單字 App 整合端點 ──────────────────────────────────────────
+# 給「快速背單字」聽力頁使用：
+#   - 上傳音檔/影片 → 永久存進 Firebase Storage（可跨裝置播放）+ Replicate 轉逐字稿
+#   - YouTube → 有字幕優先用字幕，沒字幕才下載音訊轉錄；影片由前端內嵌播放
+# 回傳含時間戳的 segments，前端再做翻譯/重點分析。
+
+_VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"}
+
+def _output_to_segments(output) -> List[dict]:
+    """把 Replicate 輸出轉成 [{start,end,text}]（含繁體化）。"""
+    segs: List[dict] = []
+    if isinstance(output, dict) and output.get("chunks"):
+        for c in output["chunks"]:
+            ts = c.get("timestamp") or [None, None]
+            start = ts[0] if ts and ts[0] is not None else 0.0
+            end = ts[1] if len(ts) > 1 and ts[1] is not None else start
+            text = _to_traditional((c.get("text") or "").strip())
+            if text:
+                segs.append({"start": round(float(start), 2), "end": round(float(end if end is not None else start), 2), "text": text})
+    if not segs and isinstance(output, dict) and output.get("text"):
+        segs.append({"start": 0.0, "end": 0.0, "text": _to_traditional(output["text"].strip())})
+    return segs
+
+def _transcribe_to_segments(src_path: str, language: str) -> List[dict]:
+    """降頻成 16k mono mp3 後送 Replicate，回傳 segments。"""
+    tmpd = tempfile.mkdtemp()
+    try:
+        audio = os.path.join(tmpd, "audio.mp3")
+        try:
+            _extract_audio(src_path, audio)
+        except Exception:
+            audio = src_path
+        output = _replicate_run(audio, language or "None")
+        return _output_to_segments(output)
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+
+def _store_media_public(local_path: str, orig_name: str) -> tuple:
+    """把媒體存進 Storage 並回傳可公開播放的 Firebase 下載網址與類型（video/audio）。"""
+    ext = os.path.splitext(orig_name or "")[1].lower() or ".bin"
+    path = f"beidanzi_media/{uuid.uuid4().hex}{ext}"
+    token = uuid.uuid4().hex
+    ctype = mimetypes.guess_type(orig_name or path)[0] or "application/octet-stream"
+    blob = bucket.blob(path)
+    blob.metadata = {"firebaseStorageDownloadTokens": token}
+    blob.upload_from_filename(local_path, content_type=ctype)
+    url = (f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/"
+           f"{quote(path, safe='')}?alt=media&token={token}")
+    media_type = "video" if ext in _VIDEO_EXTS else "audio"
+    return url, media_type
+
+def _yt_id(url: str) -> str:
+    m = re.search(r"(?:v=|youtu\.be/|/embed/|/shorts/)([A-Za-z0-9_-]{11})", url or "")
+    return m.group(1) if m else ""
+
+def _parse_vtt(vtt_text: str) -> List[dict]:
+    segs: List[dict] = []
+    ts = r"(\d{2}):(\d{2}):(\d{2})[.,](\d{3})"
+    line_re = re.compile(rf"{ts}\s*-->\s*{ts}")
+    def to_sec(h, m, s, ms):
+        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+    for b in re.split(r"\n\n+", vtt_text.replace("\r", "")):
+        lines = [l for l in b.split("\n") if l.strip()]
+        if not lines:
+            continue
+        m = None
+        text_lines = []
+        for l in lines:
+            mm = line_re.search(l)
+            if mm and m is None:
+                m = mm
+            elif m is not None:
+                text_lines.append(l)
+        if not m:
+            continue
+        start = to_sec(*m.group(1, 2, 3, 4))
+        end = to_sec(*m.group(5, 6, 7, 8))
+        text = re.sub(r"<[^>]+>", "", " ".join(text_lines))
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            continue
+        if segs and segs[-1]["text"] == text:
+            segs[-1]["end"] = round(end, 2)
+        else:
+            segs.append({"start": round(start, 2), "end": round(end, 2), "text": text})
+    return segs
+
+def _youtube_captions(url: str, language: Optional[str]) -> tuple:
+    """抓 YouTube 現有字幕（含自動字幕）。回傳 (segments, source) 或 (None, None)。"""
+    workdir = tempfile.mkdtemp()
+    langs: List[str] = []
+    if language and language not in ("None", "auto"):
+        two = {"english": "en", "german": "de", "japanese": "ja", "french": "fr",
+               "korean": "ko", "spanish": "es", "dutch": "nl", "russian": "ru"}.get(language, language[:2])
+        langs += [two, f"{two}.*", f"{two}-orig"]
+    langs += ["en", "en.*", "en-orig"]
+    opts = {
+        "skip_download": True, "writesubtitles": True, "writeautomaticsub": True,
+        "subtitleslangs": langs, "subtitlesformat": "vtt",
+        "outtmpl": os.path.join(workdir, "%(id)s.%(ext)s"),
+        "quiet": True, "no_warnings": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.extract_info(url, download=True)
+        vtts = glob.glob(os.path.join(workdir, "*.vtt"))
+        if not vtts:
+            return None, None
+        vtts.sort(key=lambda p: (".auto." in p or "-orig" in p, len(p)))
+        with open(vtts[0], "r", encoding="utf-8", errors="ignore") as f:
+            segs = _parse_vtt(f.read())
+        source = "auto" if (".auto." in vtts[0]) else "manual"
+        return (segs if segs else None), source
+    except Exception as e:
+        print(f"[beidanzi] 抓字幕失敗: {e}")
+        return None, None
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+@app.post("/api/beidanzi/upload")
+async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] = Form(None)):
+    ext = os.path.splitext(file.filename or ".mp4")[1]
+    fd, path = tempfile.mkstemp(suffix=ext)
+    os.close(fd)
+    with open(path, "wb") as buf:
+        shutil.copyfileobj(file.file, buf)
+    loop = asyncio.get_event_loop()
+    try:
+        media_url, media_type = await loop.run_in_executor(executor, _store_media_public, path, file.filename or "media")
+        segments = await loop.run_in_executor(executor, _transcribe_to_segments, path, language or "None")
+        return {
+            "mediaUrl": media_url, "mediaType": media_type, "segments": segments,
+            "title": os.path.splitext(file.filename or "media")[0],
+        }
+    except Exception as e:
+        raise HTTPException(500, f"轉錄失敗: {e}")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+@app.post("/api/beidanzi/youtube")
+async def beidanzi_youtube(url: str = Form(...), language: Optional[str] = Form(None)):
+    vid = _yt_id(url)
+    loop = asyncio.get_event_loop()
+    # 1) 字幕優先
+    segs, source = await loop.run_in_executor(executor, _youtube_captions, url, language)
+    if segs:
+        return {"videoId": vid, "segments": segs, "captionSource": source or "manual"}
+    # 2) 沒字幕 → 下載音訊轉錄
+    temp_dir = tempfile.mkdtemp()
+    try:
+        audio_files = await loop.run_in_executor(executor, _download_youtube, url, temp_dir, None, None)
+        if not audio_files:
+            raise HTTPException(500, "找不到可轉錄的音訊")
+        segments = await loop.run_in_executor(executor, _transcribe_to_segments, audio_files[0][1], language or "None")
+        return {"videoId": vid, "segments": segments, "captionSource": "whisper"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"YouTube 轉錄失敗: {e}")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 @app.get("/api/health")
 async def health():
