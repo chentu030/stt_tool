@@ -122,7 +122,7 @@ def _delete_uploads(job_data: dict):
 _cookies: Dict[str, str] = {}  # cookie_id -> cookie file content
 
 # ─── Background task executor ───────────────────────────────────
-executor = ThreadPoolExecutor(max_workers=2)
+executor = ThreadPoolExecutor(max_workers=4)
 
 # How many files inside a single job are transcribed in parallel. Each file is
 # an ffmpeg extraction (CPU burst) + a Replicate call (mostly network wait), so
@@ -1165,6 +1165,87 @@ def _youtube_oembed_title(url: str) -> Optional[str]:
         print(f"[beidanzi] oEmbed 取標題失敗: {e}")
     return None
 
+def _youtube_captions_timedtext(vid: str, language: Optional[str]) -> tuple:
+    """不經 yt-dlp，直接打 YouTube timedtext（通常比 extract_info 快很多）。
+    回傳 (segments, source, None)。
+    """
+    if not vid:
+        return None, None, None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    preferred = _yt_caption_lang_keys(language)
+    tracks = []  # (lang, kind)
+    try:
+        r = requests.get(
+            f"https://www.youtube.com/api/timedtext?type=list&v={vid}",
+            headers=headers, timeout=8,
+        )
+        if r.status_code == 200 and r.text:
+            for m in re.finditer(r"<track\b([^>]+)/?>", r.text, flags=re.I):
+                attrs = m.group(1)
+                lang_m = re.search(r'lang_code="([^"]+)"', attrs, flags=re.I)
+                if not lang_m:
+                    continue
+                kind_m = re.search(r'kind="([^"]*)"', attrs, flags=re.I)
+                tracks.append((lang_m.group(1), (kind_m.group(1) if kind_m else "").lower()))
+    except Exception as e:
+        print(f"[beidanzi] timedtext list 失敗: {e}")
+
+    def pick_track():
+        for want_asr in (False, True):
+            for pref in preferred:
+                for lang, kind in tracks:
+                    is_asr = kind == "asr"
+                    if want_asr != is_asr:
+                        continue
+                    if lang == pref or lang.startswith(pref + "-") or pref.startswith(lang):
+                        return lang, is_asr
+            for lang, kind in tracks:
+                is_asr = kind == "asr"
+                if want_asr != is_asr:
+                    continue
+                if lang == "en" or lang.startswith("en"):
+                    return lang, is_asr
+        if tracks:
+            lang, kind = tracks[0]
+            return lang, kind == "asr"
+        return None, False
+
+    lang, is_asr = pick_track()
+    candidates = []
+    if lang:
+        candidates.append((lang, is_asr))
+    for pref in preferred:
+        candidates.append((pref, False))
+        candidates.append((pref, True))
+    seen = set()
+    for lang, is_asr in candidates:
+        key = (lang, is_asr)
+        if key in seen or not lang:
+            continue
+        seen.add(key)
+        params = {"v": vid, "lang": lang, "fmt": "vtt"}
+        if is_asr:
+            params["kind"] = "asr"
+        try:
+            r = requests.get(
+                "https://www.youtube.com/api/timedtext",
+                params=params, headers=headers, timeout=10,
+            )
+            if r.status_code == 200 and (r.text or "").strip() and "-->" in r.text:
+                segs = _parse_vtt(r.text)
+                if segs:
+                    src = "auto" if is_asr else "manual"
+                    print(f"[beidanzi] timedtext 抓到字幕 lang={lang} asr={is_asr} segs={len(segs)}")
+                    return segs, src, None
+        except Exception as e:
+            print(f"[beidanzi] timedtext 下載失敗 lang={lang}: {e}")
+            continue
+    return None, None, None
+
+
 def _youtube_captions_once(url: str, language: Optional[str], proxy: Optional[str] = None) -> tuple:
     """單次嘗試抓字幕。回傳 (segments, source, title)。"""
     opts: dict = {
@@ -1172,8 +1253,10 @@ def _youtube_captions_once(url: str, language: Optional[str], proxy: Optional[st
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "socket_timeout": 20,
+        "socket_timeout": 15,
         "retries": 1,
+        # android/ios client 在 Cloud Run 較不易被擋
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
     }
     if proxy:
         opts["proxy"] = f"http://{proxy}"
@@ -1194,17 +1277,32 @@ def _youtube_captions_once(url: str, language: Optional[str], proxy: Optional[st
     return (segs if segs else None), source, title
 
 def _youtube_captions(url: str, language: Optional[str]) -> tuple:
-    """抓 YouTube 現有字幕（含自動字幕）。直連失敗則輪替免費代理（與下載相同策略）。
-    回傳 (segments, source, title)。source: manual|auto
+    """抓 YouTube 現有字幕（含自動字幕）。
+    順序：timedtext（快）→ yt-dlp 直連 → 少量代理。回傳 (segments, source, title)。
     """
     last_err = None
     best_title = None
+    vid = _yt_id(url)
+
+    # 0) 最快路徑：timedtext API（不靠 yt-dlp）
+    try:
+        segs, source, _ = _youtube_captions_timedtext(vid or "", language)
+        if segs:
+            return segs, source, None
+    except Exception as e:
+        print(f"[beidanzi] timedtext 路徑失敗: {e}")
+
+    # 1) yt-dlp 直連（android client）
     try:
         segs, source, title = _youtube_captions_once(url, language, None)
         best_title = title or best_title
         if segs:
             print(f"[beidanzi] 直連抓到字幕 source={source} segs={len(segs)} title={title!r}")
             return segs, source, title
+        # extract 成功但沒字幕 → 再狂試代理通常沒用，直接放棄
+        if title is not None:
+            print("[beidanzi] 直連已取得影片資訊但無字幕內容，略過大量代理重試")
+            return None, None, best_title
     except Exception as e:
         last_err = e
         print(f"[beidanzi] 直連抓字幕失敗: {e}")
@@ -1212,10 +1310,12 @@ def _youtube_captions(url: str, language: Optional[str]) -> tuple:
     if not YT_PROXY_ENABLED:
         return None, None, best_title
 
-    live = _filter_live_proxies(_fetch_free_proxies(), want=min(12, YT_MAX_PROXY_ATTEMPTS + 5))
+    # 2) 少量代理（字幕場景掃太多會卡很久）
+    cap_proxy_tries = min(3, YT_MAX_PROXY_ATTEMPTS)
+    live = _filter_live_proxies(_fetch_free_proxies(), want=min(6, cap_proxy_tries + 2))
     tried = 0
     for p in live:
-        if tried >= min(10, YT_MAX_PROXY_ATTEMPTS):
+        if tried >= cap_proxy_tries:
             break
         tried += 1
         try:
