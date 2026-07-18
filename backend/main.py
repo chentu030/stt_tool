@@ -871,37 +871,166 @@ def _parse_vtt(vtt_text: str) -> List[dict]:
             segs.append({"start": round(start, 2), "end": round(end, 2), "text": text})
     return segs
 
-def _youtube_captions(url: str, language: Optional[str]) -> tuple:
-    """抓 YouTube 現有字幕（含自動字幕）。回傳 (segments, source) 或 (None, None)。"""
-    workdir = tempfile.mkdtemp()
-    langs: List[str] = []
+def _yt_caption_lang_keys(language: Optional[str]) -> List[str]:
+    """依偏好語言排出字幕語系候選（含自動字幕常見變體）。"""
+    keys: List[str] = []
+    two = None
     if language and language not in ("None", "auto"):
         two = {"english": "en", "german": "de", "japanese": "ja", "french": "fr",
-               "korean": "ko", "spanish": "es", "dutch": "nl", "russian": "ru"}.get(language, language[:2])
-        langs += [two, f"{two}.*", f"{two}-orig"]
-    langs += ["en", "en.*", "en-orig"]
-    opts = {
-        "skip_download": True, "writesubtitles": True, "writeautomaticsub": True,
-        "subtitleslangs": langs, "subtitlesformat": "vtt",
-        "outtmpl": os.path.join(workdir, "%(id)s.%(ext)s"),
-        "quiet": True, "no_warnings": True,
-    }
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.extract_info(url, download=True)
-        vtts = glob.glob(os.path.join(workdir, "*.vtt"))
-        if not vtts:
-            return None, None
-        vtts.sort(key=lambda p: (".auto." in p or "-orig" in p, len(p)))
-        with open(vtts[0], "r", encoding="utf-8", errors="ignore") as f:
-            segs = _parse_vtt(f.read())
-        source = "auto" if (".auto." in vtts[0]) else "manual"
-        return (segs if segs else None), source
-    except Exception as e:
-        print(f"[beidanzi] 抓字幕失敗: {e}")
+               "korean": "ko", "spanish": "es", "dutch": "nl", "russian": "ru",
+               "vietnamese": "vi"}.get(language, (language or "")[:2].lower() or None)
+        if two:
+            keys += [two, f"{two}-orig", f"{two}-en", f"{two}-US", f"{two}-GB"]
+    # 永遠附上英文備援（多數教育／談話節目預設）
+    for k in ("en", "en-orig", "en-en", "en-US", "en-GB"):
+        if k not in keys:
+            keys.append(k)
+    return keys
+
+def _pick_caption_track(info: dict, preferred: List[str]) -> tuple:
+    """從 yt-dlp info 挑出最佳字幕軌。回傳 (entries, source) 或 (None, None)。
+    source: 'manual' | 'auto'
+    """
+    manuals = info.get("subtitles") or {}
+    autos = info.get("automatic_captions") or {}
+
+    def find_in(bucket: dict, keys: List[str]):
+        for k in keys:
+            if k in bucket and bucket[k]:
+                return bucket[k], k
+            # 寬鬆比對：en.* / zh-Hans 等
+            for bk, entries in bucket.items():
+                if bk == k or bk.startswith(k + "-") or bk.startswith(k + "."):
+                    if entries:
+                        return entries, bk
         return None, None
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+
+    entries, _ = find_in(manuals, preferred)
+    if entries:
+        return entries, "manual"
+    entries, _ = find_in(autos, preferred)
+    if entries:
+        return entries, "auto"
+    # 最後：任意英文／任意第一軌
+    for bucket, src in ((manuals, "manual"), (autos, "auto")):
+        for k, entries in bucket.items():
+            if entries and (k == "en" or k.startswith("en")):
+                return entries, src
+    for bucket, src in ((manuals, "manual"), (autos, "auto")):
+        for k, entries in bucket.items():
+            if entries:
+                return entries, src
+    return None, None
+
+def _download_caption_body(entries: list, proxy: Optional[str] = None) -> Optional[str]:
+    """下載字幕內容；優先 vtt，其次 srv3/json3。"""
+    order = {"vtt": 0, "srv3": 1, "ttml": 2, "srv2": 3, "srv1": 4, "json3": 5, "srt": 6}
+    ranked = sorted(
+        [e for e in entries if isinstance(e, dict) and e.get("url")],
+        key=lambda e: order.get((e.get("ext") or "").lower(), 99),
+    )
+    proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"} if proxy else None
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    for e in ranked:
+        try:
+            r = requests.get(e["url"], timeout=25, proxies=proxies, headers=headers)
+            if r.status_code == 200 and (r.text or "").strip():
+                ext = (e.get("ext") or "").lower()
+                # 若拿到 json3，轉成簡單 text blocks 給 _parse_vtt 前先轉成偽 VTT
+                if ext == "json3" or r.text.lstrip().startswith("{"):
+                    return _json3_to_vtt(r.text)
+                return r.text
+        except Exception as ex:
+            print(f"[beidanzi] 下載字幕檔失敗 ({e.get('ext')}): {ex}")
+            continue
+    return None
+
+def _json3_to_vtt(raw: str) -> str:
+    """把 YouTube json3 字幕轉成簡易 VTT，供既有 _parse_vtt 使用。"""
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return raw
+    lines = ["WEBVTT", ""]
+    for ev in data.get("events") or []:
+        segs = ev.get("segs") or []
+        text = "".join(s.get("utf8", "") for s in segs).replace("\n", " ").strip()
+        if not text or text == "\n":
+            continue
+        start_ms = int(ev.get("tStartMs") or 0)
+        dur_ms = int(ev.get("dDurationMs") or 2000)
+        end_ms = start_ms + max(dur_ms, 200)
+        def fmt(ms: int) -> str:
+            h = ms // 3600000; ms %= 3600000
+            m = ms // 60000; ms %= 60000
+            s = ms // 1000; ms %= 1000
+            return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+        lines.append(f"{fmt(start_ms)} --> {fmt(end_ms)}")
+        lines.append(text)
+        lines.append("")
+    return "\n".join(lines)
+
+def _youtube_captions_once(url: str, language: Optional[str], proxy: Optional[str] = None) -> tuple:
+    """單次嘗試抓字幕。回傳 (segments, source) 或 (None, None)。"""
+    opts: dict = {
+        "skip_download": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "socket_timeout": 20,
+        "retries": 1,
+    }
+    if proxy:
+        opts["proxy"] = f"http://{proxy}"
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not info:
+        return None, None
+    preferred = _yt_caption_lang_keys(language)
+    entries, source = _pick_caption_track(info, preferred)
+    if not entries:
+        print(f"[beidanzi] 此影片無可用字幕軌（manual={list((info.get('subtitles') or {}).keys())[:8]} auto={list((info.get('automatic_captions') or {}).keys())[:8]}）")
+        return None, None
+    body = _download_caption_body(entries, proxy)
+    if not body:
+        return None, None
+    segs = _parse_vtt(body)
+    return (segs if segs else None), source
+
+def _youtube_captions(url: str, language: Optional[str]) -> tuple:
+    """抓 YouTube 現有字幕（含自動字幕）。直連失敗則輪替免費代理（與下載相同策略）。
+    回傳 (segments, source) 或 (None, None)。source: manual|auto
+    """
+    last_err = None
+    try:
+        segs, source = _youtube_captions_once(url, language, None)
+        if segs:
+            print(f"[beidanzi] 直連抓到字幕 source={source} segs={len(segs)}")
+            return segs, source
+    except Exception as e:
+        last_err = e
+        print(f"[beidanzi] 直連抓字幕失敗: {e}")
+
+    if not YT_PROXY_ENABLED:
+        return None, None
+
+    live = _filter_live_proxies(_fetch_free_proxies(), want=min(12, YT_MAX_PROXY_ATTEMPTS + 5))
+    tried = 0
+    for p in live:
+        if tried >= min(10, YT_MAX_PROXY_ATTEMPTS):
+            break
+        tried += 1
+        try:
+            segs, source = _youtube_captions_once(url, language, p)
+            if segs:
+                print(f"[beidanzi] 代理抓到字幕 source={source} segs={len(segs)} proxy={p}")
+                return segs, source
+        except Exception as e:
+            last_err = e
+            print(f"[beidanzi] 代理抓字幕失敗 ({tried}): {e}")
+            continue
+    print(f"[beidanzi] 抓字幕最終失敗（試了 {tried} 個代理）: {last_err}")
+    return None, None
 
 @app.post("/api/beidanzi/upload")
 async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] = Form(None)):
@@ -930,18 +1059,27 @@ async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] 
 async def beidanzi_youtube(url: str = Form(...), language: Optional[str] = Form(None)):
     vid = _yt_id(url)
     loop = asyncio.get_event_loop()
-    # 1) 字幕優先
+    # 1) 字幕優先（含自動 CC；直連失敗會走代理）
     segs, source = await loop.run_in_executor(executor, _youtube_captions, url, language)
     if segs:
-        return {"videoId": vid, "segments": segs, "captionSource": source or "manual"}
-    # 2) 沒字幕 → 下載音訊轉錄
+        return {
+            "videoId": vid, "segments": segs,
+            "captionSource": source or "manual",
+            "usedWhisper": False,
+        }
+    # 2) 沒字幕／抓不到 → 下載音訊轉錄
+    print(f"[beidanzi] 無字幕可用，改下載音訊 + Whisper: {url}")
     temp_dir = tempfile.mkdtemp()
     try:
         audio_files = await loop.run_in_executor(executor, _download_youtube, url, temp_dir, None, None)
         if not audio_files:
             raise HTTPException(500, "找不到可轉錄的音訊")
         segments = await loop.run_in_executor(executor, _transcribe_to_segments, audio_files[0][1], language or "None")
-        return {"videoId": vid, "segments": segments, "captionSource": "whisper"}
+        return {
+            "videoId": vid, "segments": segments,
+            "captionSource": "whisper",
+            "usedWhisper": True,
+        }
     except HTTPException:
         raise
     except Exception as e:
