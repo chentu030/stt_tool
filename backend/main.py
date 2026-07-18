@@ -857,7 +857,11 @@ def _parse_vtt(vtt_text: str) -> List[dict]:
             if mm and m is None:
                 m = mm
             elif m is not None:
-                text_lines.append(l)
+                # 去掉 VTT 時間標註／karaoke 標籤
+                cleaned = re.sub(r"<[^>]+>", "", l)
+                cleaned = re.sub(r"\d{2}:\d{2}:\d{2}[.,]\d{3}", "", cleaned)
+                if cleaned.strip():
+                    text_lines.append(cleaned)
         if not m:
             continue
         start = to_sec(*m.group(1, 2, 3, 4))
@@ -871,7 +875,89 @@ def _parse_vtt(vtt_text: str) -> List[dict]:
             segs[-1]["end"] = round(end, 2)
         else:
             segs.append({"start": round(start, 2), "end": round(end, 2), "text": text})
-    return segs
+    return _dedupe_rollup_captions(segs)
+
+
+def _longest_suffix_prefix_overlap(a: str, b: str) -> str:
+    """最長字串：同時是 a 的後綴與 b 的前綴（YouTube 滾動字幕用）。"""
+    max_n = min(len(a), len(b))
+    # 優先在空白斷點重疊，避免切到單字中間
+    for n in range(max_n, 0, -1):
+        if a[-n:] != b[:n]:
+            continue
+        if n == len(a) or n == len(b) or a[-n:].startswith(" ") or (len(a) > n and a[-n - 1] == " ") or (n < len(b) and b[n] == " "):
+            return a[-n:]
+    for n in range(max_n, 7, -1):  # 至少約一個短片語
+        if a[-n:] == b[:n]:
+            return a[-n:]
+    return ""
+
+
+def _dedupe_rollup_captions(segs: List[dict]) -> List[dict]:
+    """清除 YouTube 自動字幕常見的滾動／重疊重複（同一句寫兩三次）。
+
+    策略：
+    1) 完全相同 → 延長結束時間
+    2) 後段以整段前段為前綴（累積變長）→ 用較長文字覆寫
+    3) 後段是前段的子字串 → 略過
+    4) 前段出現在後段中間（兩行滾動重組）→ 與更早段落合併
+    5) 前段後綴與後段前綴重疊 → 只保留真正新增的文字
+    """
+    out: List[dict] = []
+    for seg in segs or []:
+        text = re.sub(r"\s+", " ", str(seg.get("text") or "")).strip()
+        if not text:
+            continue
+        start = float(seg.get("start") or 0)
+        end = float(seg.get("end") if seg.get("end") is not None else start)
+        if not out:
+            out.append({"start": round(start, 2), "end": round(end, 2), "text": text})
+            continue
+        prev = out[-1]
+        a = prev["text"]
+        b = text
+        if b == a:
+            prev["end"] = max(prev["end"], round(end, 2))
+            continue
+        # 累積變長（rollup growing）
+        if b.startswith(a) and (start - prev["start"] <= 12):
+            prev["text"] = b
+            prev["end"] = max(prev["end"], round(end, 2))
+            continue
+        # 後段是前段子集
+        if a.startswith(b) or b in a:
+            prev["end"] = max(prev["end"], round(end, 2))
+            continue
+        # 前段文字被包進後段（兩行字幕重組：舊行 + 新行）
+        if a in b and len(a) >= 8:
+            idx = b.find(a)
+            if idx == 0:
+                prev["text"] = b
+                prev["end"] = max(prev["end"], round(end, 2))
+                continue
+            if len(out) >= 2:
+                prev2 = out[-2]
+                prefix = b[:idx].strip()
+                if prefix and (prev2["text"] == prefix or prefix.startswith(prev2["text"]) or prev2["text"] in prefix):
+                    prev2["text"] = b
+                    prev2["end"] = max(prev2["end"], round(end, 2))
+                    out.pop()
+                    continue
+            # 無法合併到更早段落時，用完整句覆寫碎片
+            prev["text"] = b
+            prev["start"] = min(prev["start"], round(start, 2))
+            prev["end"] = max(prev["end"], round(end, 2))
+            continue
+        ov = _longest_suffix_prefix_overlap(a, b)
+        min_ov = min(10, max(6, min(len(a), len(b)) // 4))
+        if len(ov) >= min_ov:
+            delta = b[len(ov):].strip()
+            if not delta:
+                prev["end"] = max(prev["end"], round(end, 2))
+                continue
+            b = delta
+        out.append({"start": round(start, 2), "end": round(end, 2), "text": b})
+    return out
 
 def _yt_caption_lang_keys(language: Optional[str]) -> List[str]:
     """依偏好語言排出字幕語系候選（含自動字幕常見變體）。"""
