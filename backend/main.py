@@ -1078,23 +1078,31 @@ async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] 
             pass
 
 @app.post("/api/beidanzi/youtube")
-async def beidanzi_youtube(url: str = Form(...), language: Optional[str] = Form(None)):
+async def beidanzi_youtube(
+    url: str = Form(...),
+    language: Optional[str] = Form(None),
+    force_whisper: Optional[str] = Form(None),
+):
     vid = _yt_id(url)
     loop = asyncio.get_event_loop()
+    force = str(force_whisper or "").strip().lower() in ("1", "true", "yes", "whisper")
     # 先用 oEmbed 抓標題（快、常成功），稍後再被 yt-dlp 標題覆寫
     title = await loop.run_in_executor(executor, _youtube_oembed_title, url)
-    # 1) 字幕優先（含自動 CC；直連失敗會走代理）
-    segs, source, yt_title = await loop.run_in_executor(executor, _youtube_captions, url, language)
-    title = yt_title or title
-    if segs:
-        return {
-            "videoId": vid, "segments": segs,
-            "captionSource": source or "manual",
-            "usedWhisper": False,
-            "title": title or f"YouTube {vid}",
-        }
-    # 2) 沒字幕／抓不到 → 下載音訊轉錄
-    print(f"[beidanzi] 無字幕可用，改下載音訊 + Whisper: {url}")
+
+    # 1) 字幕優先（除非使用者強制 Whisper；含自動 CC；直連失敗會走代理）
+    if not force:
+        segs, source, yt_title = await loop.run_in_executor(executor, _youtube_captions, url, language)
+        title = yt_title or title
+        if segs:
+            return {
+                "videoId": vid, "segments": segs,
+                "captionSource": source or "manual",
+                "usedWhisper": False,
+                "title": title or f"YouTube {vid}",
+            }
+
+    # 2) 沒字幕／抓不到／強制 Whisper → 下載音訊轉錄
+    print(f"[beidanzi] {'強制' if force else '無字幕可用，改'}下載音訊 + Whisper: {url}")
     temp_dir = tempfile.mkdtemp()
     try:
         audio_files = await loop.run_in_executor(executor, _download_youtube, url, temp_dir, None, None)
