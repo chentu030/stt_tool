@@ -875,7 +875,7 @@ def _parse_vtt(vtt_text: str) -> List[dict]:
             segs[-1]["end"] = round(end, 2)
         else:
             segs.append({"start": round(start, 2), "end": round(end, 2), "text": text})
-    return _dedupe_rollup_captions(segs)
+    return _merge_caption_sentences(_dedupe_rollup_captions(segs))
 
 
 def _longest_suffix_prefix_overlap(a: str, b: str) -> str:
@@ -958,6 +958,97 @@ def _dedupe_rollup_captions(segs: List[dict]) -> List[dict]:
             b = delta
         out.append({"start": round(start, 2), "end": round(end, 2), "text": b})
     return out
+
+
+_SENT_END_RE = re.compile(r'[.!?。！？]["\'”’)\]]*$')
+_ABBREV_END_RE = re.compile(
+    r"(?:^|[\s(\[])(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|approx|fig|vol|nos?|u\.s|u\.k|e\.g|i\.e)\.$",
+    re.I,
+)
+
+
+def _caption_ends_sentence(text: str) -> bool:
+    """判斷字幕片段是否已在完整句尾（避開 Mr. / U.S. 等縮寫）。"""
+    t = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not t or not _SENT_END_RE.search(t):
+        return False
+    if t.endswith(".") and _ABBREV_END_RE.search(t):
+        return False
+    if re.search(r"\b[A-Z]\.$", t):
+        return False
+    if re.search(r"\d\.$", t):
+        return False
+    return True
+
+
+def _split_caption_sentences(text: str) -> List[str]:
+    """把已合併的文字再依句號切成完整句（保留句末標點）。"""
+    t = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not t:
+        return []
+    parts = re.split(r'(?<=[.!?。！？])\s+(?=[A-Z"“‘「])', t)
+    out = [p.strip() for p in parts if p and p.strip()]
+    return out or [t]
+
+
+def _merge_caption_sentences(
+    segs: List[dict],
+    max_chars: int = 420,
+    max_gap: float = 3.5,
+) -> List[dict]:
+    """把斷在句中的 CC 片段併成完整句子（保留起始時間）。
+
+    YouTube 自動字幕常在 and / the / a 等處切開；此步驟會往後併到句號為止。
+    """
+    buf: Optional[dict] = None
+    merged: List[dict] = []
+
+    def flush():
+        nonlocal buf
+        if not buf:
+            return
+        pieces = _split_caption_sentences(buf["text"])
+        if len(pieces) <= 1:
+            merged.append(buf)
+        else:
+            # 多句時依字數比例拆時間，方便跳播
+            total = max(1, sum(len(p) for p in pieces))
+            t0, t1 = buf["start"], max(buf["end"], buf["start"] + 0.4)
+            span = max(0.4, t1 - t0)
+            cur = t0
+            for i, p in enumerate(pieces):
+                share = len(p) / total
+                nxt = t1 if i == len(pieces) - 1 else round(cur + span * share, 2)
+                merged.append({"start": round(cur, 2), "end": round(max(nxt, cur + 0.2), 2), "text": p})
+                cur = nxt
+        buf = None
+
+    for seg in segs or []:
+        text = re.sub(r"\s+", " ", str(seg.get("text") or "")).strip()
+        if not text:
+            continue
+        start = float(seg.get("start") or 0)
+        end = float(seg.get("end") if seg.get("end") is not None else start)
+        if not buf:
+            buf = {"start": round(start, 2), "end": round(end, 2), "text": text}
+        else:
+            gap = start - buf["end"]
+            if gap > max_gap * 2:
+                flush()
+                buf = {"start": round(start, 2), "end": round(end, 2), "text": text}
+            else:
+                joiner = "" if buf["text"][-1:] in "-—/" else " "
+                buf["text"] = (buf["text"] + joiner + text).replace("  ", " ").strip()
+                buf["end"] = round(max(buf["end"], end), 2)
+
+        if buf and _caption_ends_sentence(buf["text"]):
+            flush()
+        elif buf and len(buf["text"]) >= max_chars:
+            flush()
+
+    flush()
+    return merged
+
 
 def _yt_caption_lang_keys(language: Optional[str]) -> List[str]:
     """依偏好語言排出字幕語系候選（含自動字幕常見變體）。"""
