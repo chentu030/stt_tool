@@ -972,8 +972,24 @@ def _json3_to_vtt(raw: str) -> str:
         lines.append("")
     return "\n".join(lines)
 
+def _youtube_oembed_title(url: str) -> Optional[str]:
+    """用 oEmbed 快速取影片標題（通常不需代理）。"""
+    try:
+        r = requests.get(
+            "https://www.youtube.com/oembed",
+            params={"url": url, "format": "json"},
+            timeout=10,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        if r.status_code == 200:
+            t = (r.json().get("title") or "").strip()
+            return t or None
+    except Exception as e:
+        print(f"[beidanzi] oEmbed 取標題失敗: {e}")
+    return None
+
 def _youtube_captions_once(url: str, language: Optional[str], proxy: Optional[str] = None) -> tuple:
-    """單次嘗試抓字幕。回傳 (segments, source) 或 (None, None)。"""
+    """單次嘗試抓字幕。回傳 (segments, source, title)。"""
     opts: dict = {
         "skip_download": True,
         "quiet": True,
@@ -987,34 +1003,37 @@ def _youtube_captions_once(url: str, language: Optional[str], proxy: Optional[st
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if not info:
-        return None, None
+        return None, None, None
+    title = (info.get("title") or "").strip() or None
     preferred = _yt_caption_lang_keys(language)
     entries, source = _pick_caption_track(info, preferred)
     if not entries:
         print(f"[beidanzi] 此影片無可用字幕軌（manual={list((info.get('subtitles') or {}).keys())[:8]} auto={list((info.get('automatic_captions') or {}).keys())[:8]}）")
-        return None, None
+        return None, None, title
     body = _download_caption_body(entries, proxy)
     if not body:
-        return None, None
+        return None, None, title
     segs = _parse_vtt(body)
-    return (segs if segs else None), source
+    return (segs if segs else None), source, title
 
 def _youtube_captions(url: str, language: Optional[str]) -> tuple:
     """抓 YouTube 現有字幕（含自動字幕）。直連失敗則輪替免費代理（與下載相同策略）。
-    回傳 (segments, source) 或 (None, None)。source: manual|auto
+    回傳 (segments, source, title)。source: manual|auto
     """
     last_err = None
+    best_title = None
     try:
-        segs, source = _youtube_captions_once(url, language, None)
+        segs, source, title = _youtube_captions_once(url, language, None)
+        best_title = title or best_title
         if segs:
-            print(f"[beidanzi] 直連抓到字幕 source={source} segs={len(segs)}")
-            return segs, source
+            print(f"[beidanzi] 直連抓到字幕 source={source} segs={len(segs)} title={title!r}")
+            return segs, source, title
     except Exception as e:
         last_err = e
         print(f"[beidanzi] 直連抓字幕失敗: {e}")
 
     if not YT_PROXY_ENABLED:
-        return None, None
+        return None, None, best_title
 
     live = _filter_live_proxies(_fetch_free_proxies(), want=min(12, YT_MAX_PROXY_ATTEMPTS + 5))
     tried = 0
@@ -1023,16 +1042,17 @@ def _youtube_captions(url: str, language: Optional[str]) -> tuple:
             break
         tried += 1
         try:
-            segs, source = _youtube_captions_once(url, language, p)
+            segs, source, title = _youtube_captions_once(url, language, p)
+            best_title = title or best_title
             if segs:
-                print(f"[beidanzi] 代理抓到字幕 source={source} segs={len(segs)} proxy={p}")
-                return segs, source
+                print(f"[beidanzi] 代理抓到字幕 source={source} segs={len(segs)} proxy={p} title={title!r}")
+                return segs, source, title
         except Exception as e:
             last_err = e
             print(f"[beidanzi] 代理抓字幕失敗 ({tried}): {e}")
             continue
     print(f"[beidanzi] 抓字幕最終失敗（試了 {tried} 個代理）: {last_err}")
-    return None, None
+    return None, None, best_title
 
 @app.post("/api/beidanzi/upload")
 async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] = Form(None)):
@@ -1061,13 +1081,17 @@ async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] 
 async def beidanzi_youtube(url: str = Form(...), language: Optional[str] = Form(None)):
     vid = _yt_id(url)
     loop = asyncio.get_event_loop()
+    # 先用 oEmbed 抓標題（快、常成功），稍後再被 yt-dlp 標題覆寫
+    title = await loop.run_in_executor(executor, _youtube_oembed_title, url)
     # 1) 字幕優先（含自動 CC；直連失敗會走代理）
-    segs, source = await loop.run_in_executor(executor, _youtube_captions, url, language)
+    segs, source, yt_title = await loop.run_in_executor(executor, _youtube_captions, url, language)
+    title = yt_title or title
     if segs:
         return {
             "videoId": vid, "segments": segs,
             "captionSource": source or "manual",
             "usedWhisper": False,
+            "title": title or f"YouTube {vid}",
         }
     # 2) 沒字幕／抓不到 → 下載音訊轉錄
     print(f"[beidanzi] 無字幕可用，改下載音訊 + Whisper: {url}")
@@ -1076,11 +1100,14 @@ async def beidanzi_youtube(url: str = Form(...), language: Optional[str] = Form(
         audio_files = await loop.run_in_executor(executor, _download_youtube, url, temp_dir, None, None)
         if not audio_files:
             raise HTTPException(500, "找不到可轉錄的音訊")
+        if not title:
+            title = audio_files[0][0]  # yt-dlp 下載檔名裡的標題
         segments = await loop.run_in_executor(executor, _transcribe_to_segments, audio_files[0][1], language or "None")
         return {
             "videoId": vid, "segments": segments,
             "captionSource": "whisper",
             "usedWhisper": True,
+            "title": title or f"YouTube {vid}",
         }
     except HTTPException:
         raise
