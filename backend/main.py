@@ -1321,6 +1321,227 @@ async def beidanzi_store_audio(file: UploadFile = File(...)):
         except OSError:
             pass
 
+
+# ─── 線上詞典補充（背單字：未貼歐路內容時自動抓） ───────────────
+_DICT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+
+
+def _dict_slug(word: str) -> str:
+    s = (word or "").strip().lower()
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"[^a-z0-9'\-]", "", s)
+    return s
+
+
+def _html_to_text(html_str: str) -> str:
+    t = html_str or ""
+    t = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", t)
+    t = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", t)
+    t = re.sub(r"(?is)<noscript[^>]*>.*?</noscript>", " ", t)
+    t = re.sub(r"(?is)<!--.*?-->", " ", t)
+    t = re.sub(r"(?is)<[^>]+>", " ", t)
+    t = html.unescape(t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _clean_dict_chunk(name: str, text: str, max_len: int = 3800) -> str:
+    t = text or ""
+    t = re.sub(r"\{\{[^}]{0,80}\}\}", " ", t)
+    t = re.sub(r"\b(AMP\.setState|searchAutoComplete|changeToLayoutContainer)\S{0,120}", " ", t, flags=re.I)
+    t = re.sub(
+        r"\b(Log in|Sign up|Cookie|Subscribe|Advertisement|My profile|AI Assistant|Thesaurus \+Plus|Cambridge Dictionary \+Plus)\b",
+        " ", t, flags=re.I,
+    )
+    t = re.sub(r"\s+", " ", t).strip()
+    if len(t) < 60:
+        return ""
+    if len(t) > max_len:
+        t = t[:max_len] + "…"
+    return f"【{name}】\n{t}"
+
+
+def _focus_after_word(text: str, word: str) -> str:
+    t = text or ""
+    w = (word or "").lower()
+    if not w:
+        return t
+    i = t.lower().find(w)
+    return t[i:] if i >= 0 else t
+
+
+def _fetch_free_dict(slug: str) -> dict:
+    try:
+        r = requests.get(
+            f"https://api.dictionaryapi.dev/api/v2/entries/en/{quote(slug)}",
+            headers={"Accept": "application/json", "User-Agent": _DICT_UA},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        lines = []
+        for en in data or []:
+            if en.get("phonetic"):
+                lines.append(f"音標 {en['phonetic']}")
+            for m in en.get("meanings") or []:
+                lines.append(f"詞性 {m.get('partOfSpeech') or ''}")
+                for d in (m.get("definitions") or [])[:5]:
+                    lines.append(f"- {d.get('definition') or ''}")
+                    if d.get("example"):
+                        lines.append(f"  例：{d['example']}")
+        text = _clean_dict_chunk("Free Dictionary（英英後備）", "\n".join(lines), 3500)
+        if not text:
+            return {"id": "freedict", "name": "Free Dictionary", "error": "empty"}
+        return {
+            "id": "freedict",
+            "name": "Free Dictionary",
+            "text": text,
+            "via": "api",
+            "url": "https://api.dictionaryapi.dev",
+        }
+    except Exception as e:
+        return {"id": "freedict", "name": "Free Dictionary", "error": str(e)}
+
+
+def _fetch_dict_url(url: str, timeout: float = 12.0) -> str:
+    r = requests.get(
+        url,
+        headers={
+            "User-Agent": _DICT_UA,
+            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        },
+        timeout=timeout,
+        allow_redirects=True,
+    )
+    r.raise_for_status()
+    r.encoding = r.apparent_encoding or "utf-8"
+    return r.text
+
+
+def _fetch_dict_jina(url: str, timeout: float = 16.0) -> str:
+    r = requests.get(
+        "https://r.jina.ai/" + url,
+        headers={"User-Agent": _DICT_UA, "Accept": "text/plain"},
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    return r.text
+
+
+def _dict_sources(slug: str):
+    q = quote(slug)
+    return [
+        {
+            "id": "cambridge",
+            "name": "劍橋 Cambridge",
+            "urls": [
+                f"https://dictionary.cambridge.org/dictionary/english-chinese-traditional/{q}",
+                f"https://dictionary.cambridge.org/dictionary/english/{q}",
+            ],
+        },
+        {
+            "id": "collins",
+            "name": "柯林斯 Collins",
+            "urls": [
+                f"https://www.collinsdictionary.com/dictionary/english/{q}",
+                f"https://www.collinsdictionary.com/dictionary/english-chinese/{q}",
+            ],
+        },
+        {
+            "id": "ldoce",
+            "name": "朗文 LDOCE",
+            "urls": [f"https://www.ldoceonline.com/dictionary/{q}"],
+        },
+        {
+            "id": "eudic",
+            "name": "歐路 Eudic",
+            "urls": [f"https://dict.eudic.net/dicts/en/{q}"],
+        },
+        {
+            "id": "etymonline",
+            "name": "Etymonline 詞源",
+            "urls": [
+                f"https://www.etymonline.com/word/{q}",
+                f"https://www.etymonline.com/tw/word/{q}",
+            ],
+        },
+    ]
+
+
+def _fetch_one_dict_source(src: dict, slug: str = "") -> dict:
+    last_err = ""
+    for url in src["urls"]:
+        try:
+            html_str = _fetch_dict_url(url)
+            body = _focus_after_word(_html_to_text(html_str), slug or src.get("id", ""))
+            text = _clean_dict_chunk(src["name"], body)
+            if text:
+                return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": "direct"}
+        except Exception as e:
+            last_err = str(e)
+    for url in src["urls"]:
+        try:
+            md = _fetch_dict_jina(url)
+            body = _focus_after_word(md, slug or src.get("id", ""))
+            text = _clean_dict_chunk(src["name"], body)
+            if text:
+                return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": "jina"}
+        except Exception as e:
+            last_err = str(e)
+    return {"id": src["id"], "name": src["name"], "error": last_err or "failed"}
+
+
+def _fetch_online_dicts_sync(word: str) -> dict:
+    slug = _dict_slug(word)
+    if not slug:
+        raise ValueError("invalid word")
+    sources = _dict_sources(slug)
+    results = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futs = [pool.submit(_fetch_one_dict_source, s, slug) for s in sources]
+        futs.append(pool.submit(_fetch_free_dict, slug))
+        for f in futs:
+            try:
+                results.append(f.result(timeout=25))
+            except Exception as e:
+                results.append({"id": "?", "name": "?", "error": str(e)})
+    ok = [r for r in results if r.get("text")]
+    text = "\n\n".join(r["text"] for r in ok)[:14000]
+    return {
+        "word": slug,
+        "text": text,
+        "sources": [
+            {
+                "id": r.get("id"),
+                "name": r.get("name"),
+                "ok": bool(r.get("text")),
+                "via": r.get("via"),
+                "url": r.get("url"),
+                "error": r.get("error"),
+                "chars": len(r["text"]) if r.get("text") else 0,
+            }
+            for r in results
+        ],
+    }
+
+
+@app.get("/api/beidanzi/dict_fetch")
+async def beidanzi_dict_fetch(word: str = ""):
+    """代抓劍橋／柯林斯／朗文／歐路／Etymonline 文字，供背單字 AI 整理補充。"""
+    slug = _dict_slug(word)
+    if not slug:
+        raise HTTPException(400, "請提供 word 參數")
+    try:
+        out = await asyncio.get_event_loop().run_in_executor(executor, _fetch_online_dicts_sync, slug)
+        return out
+    except Exception as e:
+        raise HTTPException(500, f"詞典抓取失敗: {e}")
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "engine": "replicate", "model": "incredibly-fast-whisper"}
