@@ -175,15 +175,30 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <NavGroup label="檢視" items={NAV_VIEWS} isActive={isActive} />
           <NavGroup label="其他" items={NAV_OTHER} isActive={isActive} />
         </div>
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.65rem", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
-          <ThemeToggle />
+        <div className="sidebar-footer">
           {loading ? null : user ? (
-            <button className="nav-item" onClick={() => logout()} style={{ color: "var(--text-muted)" }}>
-              <img src={user.photoURL || ""} alt="" width={18} height={18} style={{ borderRadius: "50%" }} />
-              登出
-            </button>
+            <div className="sidebar-user">
+              <img
+                className="sidebar-user-avatar"
+                src={user.photoURL || ""}
+                alt=""
+                referrerPolicy="no-referrer"
+              />
+              <div className="sidebar-user-meta">
+                <div className="sidebar-user-name">{user.displayName || "使用者"}</div>
+                <button type="button" className="sidebar-user-action" onClick={() => logout()}>
+                  登出
+                </button>
+              </div>
+              <ThemeToggle />
+            </div>
           ) : (
-            <button className="btn btn-sm" onClick={() => loginWithGoogle()}>登入</button>
+            <div className="sidebar-user sidebar-user--guest">
+              <button type="button" className="btn btn-sm" style={{ flex: 1 }} onClick={() => loginWithGoogle()}>
+                登入
+              </button>
+              <ThemeToggle />
+            </div>
           )}
         </div>
       </aside>

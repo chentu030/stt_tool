@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from "react";
 
-export default function ThemeToggle() {
+type Props = {
+  className?: string;
+};
+
+export default function ThemeToggle({ className }: Props) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
@@ -27,19 +31,20 @@ export default function ThemeToggle() {
 
   return (
     <button
-      className="btn-ghost btn-icon"
+      type="button"
+      className={`theme-toggle${className ? ` ${className}` : ""}`}
       onClick={toggleTheme}
       aria-label="切換深淺色"
       title={theme === "light" ? "切換深色" : "切換淺色"}
     >
       {theme === "light" ? (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       ) : (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="5" />
-          <path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="4.5" />
+          <path d="M12 2v1.5M12 20.5V22M4.2 4.2l1.1 1.1M18.7 18.7l1.1 1.1M2 12h1.5M20.5 12H22M4.2 19.8l1.1-1.1M18.7 5.3l1.1-1.1" />
         </svg>
       )}
     </button>
