@@ -26,6 +26,9 @@ type Props = {
   open: boolean;
   tab: "outline" | "ai" | "info";
   onTab: (t: "outline" | "ai" | "info") => void;
+  /** Current aside width in px (for resize handle) */
+  widthPx?: number;
+  onResizeWidth?: (px: number) => void;
 };
 
 function uid() {
@@ -46,6 +49,8 @@ export default function NoteAside({
   open,
   tab,
   onTab,
+  widthPx = 300,
+  onResizeWidth,
 }: Props) {
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
@@ -99,6 +104,34 @@ export default function NoteAside({
 
   return (
     <aside className="note-aside">
+      {onResizeWidth != null && (
+        <div
+          className="note-aside-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="調整側欄寬度"
+          title="拖曳調整寬度"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const startX = e.clientX;
+            const startW = widthPx;
+            const target = e.currentTarget;
+            target.setPointerCapture(e.pointerId);
+            const onMove = (ev: globalThis.PointerEvent) => {
+              const dx = startX - ev.clientX; // drag left → wider
+              const next = Math.round(Math.min(560, Math.max(220, startW + dx)));
+              onResizeWidth(next);
+            };
+            const onUp = (ev: globalThis.PointerEvent) => {
+              target.releasePointerCapture(ev.pointerId);
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+            };
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", onUp);
+          }}
+        />
+      )}
       <div className="note-aside-tabs">
         {(
           [

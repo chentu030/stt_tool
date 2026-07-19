@@ -1903,7 +1903,7 @@ button, input, textarea, select {
   min-height: 0;
 }
 .doc-workspace.has-aside:not(.is-focus) .doc-body-row {
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-columns: minmax(0, 1fr) var(--note-aside-w, 300px);
   min-height: calc(100vh - 5.6rem);
 }
 .doc-page {
@@ -2057,6 +2057,30 @@ button, input, textarea, select {
   display: flex;
   flex-direction: column;
   border-radius: 0;
+}
+.note-aside-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+.note-aside-resizer::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.note-aside-resizer:hover::after,
+.note-aside-resizer:active::after {
+  background: var(--accent, #0d9488);
 }
 .note-aside-tabs {
   display: flex;

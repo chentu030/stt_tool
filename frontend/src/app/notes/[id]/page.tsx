@@ -84,6 +84,16 @@ export default function NotePage() {
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
   const [asideOpen, setAsideOpen] = useState(true);
   const [asideTab, setAsideTab] = useState<"outline" | "ai" | "info">("outline");
+  const [asideWidth, setAsideWidth] = useState(() => {
+    if (typeof window === "undefined") return 300;
+    try {
+      const n = Number(localStorage.getItem("cadence_note_aside_w"));
+      if (Number.isFinite(n) && n >= 220 && n <= 560) return n;
+    } catch {
+      /* ignore */
+    }
+    return 300;
+  });
   const [focusMode, setFocusMode] = useState(false);
   const [pageMode, setPageMode] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -452,6 +462,15 @@ export default function NotePage() {
     enterSlidesAt(findSlideIndexForHeading(item.text));
   };
 
+  const onAsideResize = (px: number) => {
+    setAsideWidth(px);
+    try {
+      localStorage.setItem("cadence_note_aside_w", String(px));
+    } catch {
+      /* ignore */
+    }
+  };
+
   const deckStale = isDeckStale(deck, title, body);
   const slideCountHint =
     deck?.slides?.length ||
@@ -493,7 +512,10 @@ export default function NotePage() {
   };
 
   return (
-    <div className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}`}>
+    <div
+      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}`}
+      style={{ ["--note-aside-w" as string]: `${asideWidth}px` }}
+    >
       <div className={`doc-ribbon${viewMode === "slides" ? " is-hidden" : ""}`} ref={setRibbonHost} />
 
       <div className="doc-command">
@@ -1030,6 +1052,8 @@ export default function NotePage() {
           onInsertMarkdown={(md) => { setBody((b) => b + md); markDirty(); flash("已插入 AI 內容"); }}
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
+          widthPx={asideWidth}
+          onResizeWidth={onAsideResize}
         />
       </div>
     </div>
