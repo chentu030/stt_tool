@@ -169,11 +169,302 @@ export function nodeCenter(
   return null;
 }
 
-export function edgePath(a: Point, b: Point): string {
-  const dx = Math.abs(b.x - a.x) * 0.4;
-  const c1 = { x: a.x + (b.x >= a.x ? dx : -dx), y: a.y };
-  const c2 = { x: b.x - (b.x >= a.x ? dx : -dx), y: b.y };
-  return `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
+export function edgePath(a: Point, b: Point, radius = 12): string {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return `M ${a.x} ${a.y}`;
+  // Straight H or V
+  if (Math.abs(dy) < 2) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+  if (Math.abs(dx) < 2) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+
+  // Orthogonal with one elbow (mid X then Y, or mid Y then X) + rounded corner
+  const preferHFirst = Math.abs(dx) >= Math.abs(dy);
+  const mid = preferHFirst
+    ? { x: a.x + dx / 2, y: a.y }
+    : { x: a.x, y: a.y + dy / 2 };
+  const elbow = preferHFirst
+    ? { x: mid.x, y: b.y }
+    : { x: b.x, y: mid.y };
+
+  const r = Math.min(
+    radius,
+    Math.abs(preferHFirst ? dx / 2 : dx) * 0.45,
+    Math.abs(preferHFirst ? dy : dy / 2) * 0.45,
+    18
+  );
+
+  if (r < 2) {
+    return `M ${a.x} ${a.y} L ${elbow.x} ${elbow.y} L ${b.x} ${b.y}`;
+  }
+
+  // Approach elbow, arc around corner, continue to end
+  if (preferHFirst) {
+    const dirX = Math.sign(dx) || 1;
+    const dirY = Math.sign(b.y - a.y) || 1;
+    const p1 = { x: elbow.x - dirX * r, y: a.y };
+    const p2 = { x: elbow.x, y: a.y + dirY * r };
+    const sweep = dirX * dirY > 0 ? 1 : 0;
+    return `M ${a.x} ${a.y} L ${p1.x} ${p1.y} A ${r} ${r} 0 0 ${sweep} ${p2.x} ${p2.y} L ${b.x} ${b.y}`;
+  }
+  const dirY = Math.sign(dy) || 1;
+  const dirX = Math.sign(b.x - a.x) || 1;
+  const p1 = { x: a.x, y: elbow.y - dirY * r };
+  const p2 = { x: a.x + dirX * r, y: elbow.y };
+  const sweep = dirX * dirY < 0 ? 1 : 0;
+  return `M ${a.x} ${a.y} L ${p1.x} ${p1.y} A ${r} ${r} 0 0 ${sweep} ${p2.x} ${p2.y} L ${b.x} ${b.y}`;
+}
+
+/** AI canvas ops */
+export type CanvasAiOp =
+  | { op: "add_sticky"; text?: string; x?: number; y?: number; w?: number; h?: number; color?: StickyColor }
+  | { op: "add_shape"; shape?: ShapeKind; label?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
+  | { op: "update"; id: string; text?: string; label?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
+  | { op: "delete"; id: string }
+  | { op: "connect"; from: string; to: string; label?: string }
+  | { op: "pin_note"; noteId: string; x?: number; y?: number }
+  | { op: "layout_hint"; group?: string };
+
+export type CanvasAiResponse = {
+  message: string;
+  ops: CanvasAiOp[];
+};
+
+export function serializeCanvasForAi(
+  doc: CanvasDoc,
+  notes: { id: string; title: string }[],
+  selectedIds: string[] = []
+): string {
+  const noteMap = new Map(notes.map((n) => [n.id, n.title]));
+  const items = [
+    ...doc.stickies.map((s) => ({
+      id: s.id,
+      type: "sticky",
+      text: s.text.slice(0, 200),
+      x: Math.round(s.x),
+      y: Math.round(s.y),
+      w: s.w,
+      h: s.h,
+      color: s.color,
+    })),
+    ...doc.shapes.map((s) => ({
+      id: s.id,
+      type: "shape",
+      shape: s.shape,
+      label: s.label.slice(0, 80),
+      x: Math.round(s.x),
+      y: Math.round(s.y),
+      w: s.w,
+      h: s.h,
+    })),
+    ...doc.notes.map((p) => ({
+      id: `note:${p.noteId}`,
+      type: "note",
+      title: noteMap.get(p.noteId) || p.noteId,
+      x: Math.round(p.x),
+      y: Math.round(p.y),
+    })),
+  ];
+  const edges = doc.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, label: e.label || "" }));
+  const catalog = notes.slice(0, 80).map((n) => ({ id: n.id, title: n.title || "未命名" }));
+  return JSON.stringify(
+    {
+      name: doc.name,
+      selectedIds,
+      items,
+      edges,
+      noteCatalog: catalog,
+    },
+    null,
+    0
+  );
+}
+
+export function parseCanvasAiResponse(raw: string): CanvasAiResponse {
+  const trimmed = raw.trim();
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
+  const body = fence ? fence[1].trim() : trimmed;
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      const parsed = JSON.parse(body.slice(start, end + 1)) as CanvasAiResponse;
+      return {
+        message: typeof parsed.message === "string" ? parsed.message : trimmed,
+        ops: Array.isArray(parsed.ops) ? parsed.ops : [],
+      };
+    } catch {
+      /* fall through */
+    }
+  }
+  return { message: trimmed, ops: [] };
+}
+
+export function applyCanvasOps(
+  doc: CanvasDoc,
+  ops: CanvasAiOp[],
+  validNoteIds: Set<string>
+): CanvasDoc {
+  let next: CanvasDoc = {
+    ...doc,
+    stickies: [...doc.stickies],
+    shapes: [...doc.shapes],
+    edges: [...doc.edges],
+    notes: [...doc.notes],
+  };
+  let z = Date.now();
+  for (const op of ops) {
+    if (op.op === "add_sticky") {
+      const s: CanvasSticky = {
+        id: uid("st"),
+        kind: "sticky",
+        x: op.x ?? 80 + Math.random() * 120,
+        y: op.y ?? 80 + Math.random() * 80,
+        w: op.w ?? 180,
+        h: op.h ?? 140,
+        text: op.text || "",
+        color: op.color && STICKY_COLORS.some((c) => c.id === op.color) ? op.color : "yellow",
+        z: z++,
+      };
+      next.stickies.push(s);
+    } else if (op.op === "add_shape") {
+      const sh: CanvasShape = {
+        id: uid("sh"),
+        kind: "shape",
+        shape: op.shape === "ellipse" || op.shape === "frame" ? op.shape : "rect",
+        x: op.x ?? 60,
+        y: op.y ?? 60,
+        w: op.w ?? 200,
+        h: op.h ?? 140,
+        label: op.label || "",
+        color: op.color || SHAPE_COLORS[0],
+        z: z++,
+      };
+      next.shapes.push(sh);
+    } else if (op.op === "update" && op.id) {
+      next.stickies = next.stickies.map((s) => {
+        if (s.id !== op.id) return s;
+        return {
+          ...s,
+          text: op.text !== undefined ? op.text : s.text,
+          x: op.x ?? s.x,
+          y: op.y ?? s.y,
+          w: op.w ?? s.w,
+          h: op.h ?? s.h,
+          color:
+            op.color && STICKY_COLORS.some((c) => c.id === op.color)
+              ? (op.color as StickyColor)
+              : s.color,
+        };
+      });
+      next.shapes = next.shapes.map((s) => {
+        if (s.id !== op.id) return s;
+        return {
+          ...s,
+          label: op.label !== undefined ? op.label : s.label,
+          x: op.x ?? s.x,
+          y: op.y ?? s.y,
+          w: op.w ?? s.w,
+          h: op.h ?? s.h,
+          color: op.color || s.color,
+        };
+      });
+    } else if (op.op === "delete" && op.id) {
+      const id = op.id.startsWith("note:") ? op.id.slice(5) : op.id;
+      next.stickies = next.stickies.filter((s) => s.id !== op.id);
+      next.shapes = next.shapes.filter((s) => s.id !== op.id);
+      next.notes = next.notes.filter((n) => n.noteId !== id);
+      next.edges = next.edges.filter((e) => e.id !== op.id && e.from !== op.id && e.to !== op.id && e.from !== `note:${id}` && e.to !== `note:${id}`);
+    } else if (op.op === "connect" && op.from && op.to && op.from !== op.to) {
+      next.edges.push({
+        id: uid("e"),
+        kind: "edge",
+        from: op.from,
+        to: op.to,
+        label: op.label,
+      });
+    } else if (op.op === "pin_note" && op.noteId && validNoteIds.has(op.noteId)) {
+      if (!next.notes.some((n) => n.noteId === op.noteId)) {
+        next.notes.push({
+          noteId: op.noteId,
+          x: op.x ?? 100 + next.notes.length * 40,
+          y: op.y ?? 100 + next.notes.length * 30,
+          w: 200,
+          h: 120,
+        });
+      }
+    }
+  }
+  return next;
+}
+
+export type ClipboardPayload = {
+  stickies: CanvasSticky[];
+  shapes: CanvasShape[];
+  notes: NotePin[];
+  edges: CanvasEdge[];
+};
+
+export function copySelection(doc: CanvasDoc, selected: Selectable[]): ClipboardPayload {
+  const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
+  const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
+  const noteIds = new Set(selected.filter((s) => s.type === "note").map((s) => s.id));
+  const stickies = doc.stickies.filter((s) => stickyIds.has(s.id));
+  const shapes = doc.shapes.filter((s) => shapeIds.has(s.id));
+  const notes = doc.notes.filter((n) => noteIds.has(n.noteId));
+  const refs = new Set<string>([
+    ...stickies.map((s) => s.id),
+    ...shapes.map((s) => s.id),
+    ...notes.map((n) => `note:${n.noteId}`),
+  ]);
+  const edges = doc.edges.filter((e) => refs.has(e.from) && refs.has(e.to));
+  return { stickies, shapes, notes, edges };
+}
+
+export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 28): { doc: CanvasDoc; selected: Selectable[] } {
+  const idMap = new Map<string, string>();
+  const stickies = clip.stickies.map((s) => {
+    const id = uid("st");
+    idMap.set(s.id, id);
+    return { ...s, id, x: s.x + offset, y: s.y + offset, z: Date.now() };
+  });
+  const shapes = clip.shapes.map((s) => {
+    const id = uid("sh");
+    idMap.set(s.id, id);
+    return { ...s, id, x: s.x + offset, y: s.y + offset, z: Date.now() };
+  });
+  const notes = clip.notes
+    .filter((n) => !doc.notes.some((d) => d.noteId === n.noteId))
+    .map((n) => {
+      idMap.set(`note:${n.noteId}`, `note:${n.noteId}`);
+      return { ...n, x: n.x + offset, y: n.y + offset };
+    });
+  for (const n of clip.notes) {
+    if (!idMap.has(`note:${n.noteId}`)) idMap.set(`note:${n.noteId}`, `note:${n.noteId}`);
+  }
+  const edges = clip.edges
+    .map((e) => {
+      const from = idMap.get(e.from);
+      const to = idMap.get(e.to);
+      if (!from || !to) return null;
+      return { ...e, id: uid("e"), from, to };
+    })
+    .filter(Boolean) as CanvasEdge[];
+
+  const selected: Selectable[] = [
+    ...stickies.map((s) => ({ type: "sticky" as const, id: s.id })),
+    ...shapes.map((s) => ({ type: "shape" as const, id: s.id })),
+    ...notes.map((n) => ({ type: "note" as const, id: n.noteId })),
+  ];
+  return {
+    doc: {
+      ...doc,
+      stickies: [...doc.stickies, ...stickies],
+      shapes: [...doc.shapes, ...shapes],
+      notes: [...doc.notes, ...notes],
+      edges: [...doc.edges, ...edges],
+    },
+    selected,
+  };
 }
 
 export function autoLayoutNotes(pins: NotePin[], cols = 4, gapX = 240, gapY = 170, origin: Point = { x: 40, y: 40 }): NotePin[] {
@@ -238,9 +529,9 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
 }
 
 export const CANVAS_TIPS = [
-  "空白處拖曳可平移；滾輪縮放。",
-  "選取工具下可多選物件後刪除。",
-  "連線工具：先點起點再點終點。",
-  "便利貼雙擊可編輯文字。",
-  "右側可搜尋筆記釘到畫布。",
+  "空白處拖曳可框選；Alt+拖曳或按 H 平移；滾輪縮放。",
+  "雙擊便利貼／圖形可編輯；選取後拖角落可調整大小。",
+  "右鍵：編輯、剪下、複製、貼上、刪除。Ctrl+C/V/X/Z。",
+  "連線為直角圓角路徑；右側 AI 可讀寫整張白板。",
+  "可用切換器建立多個白板。",
 ];

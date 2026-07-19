@@ -10,6 +10,8 @@ type Props = {
   onDragStart: (id: string) => void;
   onMove: (id: string, status: BoardStatus) => void;
   onPriorityCycle: (id: string) => void;
+  onAddTag: (id: string) => void;
+  onRemoveTag: (id: string, tag: string) => void;
 };
 
 export default function BoardCardView({
@@ -19,6 +21,8 @@ export default function BoardCardView({
   onDragStart,
   onMove,
   onPriorityCycle,
+  onAddTag,
+  onRemoveTag,
 }: Props) {
   const pri = PRIORITIES.find((p) => p.id === card.meta.priority)!;
 
@@ -59,9 +63,31 @@ export default function BoardCardView({
 
       <div className="bd-card-meta">
         {card.folder ? <span>{card.folder}</span> : null}
-        {(card.tags || []).slice(0, 3).map((t) => (
-          <span key={t}>#{t}</span>
+        {(card.tags || []).slice(0, 5).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className="bd-tag-chip"
+            title="移除標籤"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemoveTag(card.id, t);
+            }}
+          >
+            #{t} ×
+          </button>
         ))}
+        <button
+          type="button"
+          className="bd-tag-add"
+          title="新增標籤"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddTag(card.id);
+          }}
+        >
+          +標籤
+        </button>
         {card.meta.due ? <span>截止 {card.meta.due.slice(5)}</span> : null}
       </div>
 

@@ -109,25 +109,24 @@ export async function deleteGraph(uid: string, id: string) {
 }
 
 export async function ensureDefaultGraph(uid: string): Promise<string> {
-  const flagKey = `cadence_graph_seeded_v1_${uid}`;
-  return new Promise((resolve) => {
-    const unsub = onSnapshot(graphsCol(uid), async (snap) => {
-      unsub();
-      if (!snap.empty) {
-        const last = localStorage.getItem(`cadence_last_graph_${uid}`);
-        const id =
-          last && snap.docs.some((d) => d.id === last) ? last : snap.docs[0].id;
-        localStorage.setItem(flagKey, "1");
-        localStorage.setItem(`cadence_last_graph_${uid}`, id);
-        resolve(id);
-        return;
-      }
-      const id = await createGraph(uid, "主圖譜");
-      localStorage.setItem(flagKey, "1");
-      localStorage.setItem(`cadence_last_graph_${uid}`, id);
-      resolve(id);
-    });
-  });
+  const existing = await getDocs(graphsCol(uid));
+  if (!existing.empty) {
+    const last =
+      typeof window !== "undefined" ? localStorage.getItem(lastGraphKey(uid)) : null;
+    const pick =
+      (last && existing.docs.some((d) => d.id === last) && last) || existing.docs[0].id;
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`cadence_graph_seeded_v1_${uid}`, "1");
+      localStorage.setItem(lastGraphKey(uid), pick);
+    }
+    return pick;
+  }
+  const id = await createGraph(uid, "主圖譜");
+  if (typeof window !== "undefined") {
+    localStorage.setItem(`cadence_graph_seeded_v1_${uid}`, "1");
+    localStorage.setItem(lastGraphKey(uid), id);
+  }
+  return id;
 }
 
 export function lastGraphKey(uid: string) {

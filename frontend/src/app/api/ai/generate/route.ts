@@ -36,8 +36,11 @@ type Body = {
     | "make_mermaid"
     | "meeting_pack"
     | "journal_review"
-    | "board_scaffold";
+    | "board_scaffold"
+    | "canvas";
   title?: string;
+  canvasSummary?: string;
+  selectedIds?: string[];
   body?: string;
   context?: string;
   selection?: string;
@@ -198,6 +201,24 @@ function buildPrompt(data: Body): {
       system: `${asst}你是看板規劃助手。依使用者描述，輸出 JSON 陣列（不要 markdown 圍籬），每項：{"title":"...","status":"backlog"|"doing"|"done","priority":"urgent"|"high"|"normal"|"low","due":"YYYY-MM-DD或空字串","body":"簡短說明"}。最多 12 張卡。`,
       prompt: `請規劃看板卡片：\n${data.prompt?.trim() || "一個個人專案看板"}\n\n可參考脈絡：\n${noteBlock}`,
       temperature: 0.4,
+    };
+  }
+
+  if (action === "canvas") {
+    return {
+      system: `${asst}你是 Cadence 白板助手。你會收到畫布 JSON（items、edges、noteCatalog、selectedIds）。用繁體中文回覆。
+必須回傳單一 JSON 物件（可包在 markdown code fence）：
+{"message":"給使用者看的說明與建議","ops":[...]}
+ops 可用：
+- {"op":"add_sticky","text":"...","x":number,"y":number,"color":"yellow"|"mint"|"sky"|"rose"|"violet"|"sand"}
+- {"op":"add_shape","shape":"rect"|"ellipse"|"frame","label":"...","x":n,"y":n,"w":n,"h":n}
+- {"op":"update","id":"現有id","text":"...","label":"...","x":n,"y":n}
+- {"op":"delete","id":"現有id"}
+- {"op":"connect","from":"id","to":"id"}
+- {"op":"pin_note","noteId":"必須來自 noteCatalog","x":n,"y":n}
+規則：不要捏造 noteId；刪除要謹慎；一次最多 12 個 ops；座標以現有物件附近為佳；若只需建議可不給 ops。`,
+      prompt: `畫布狀態：\n${data.canvasSummary || "{}"}\n\n選取：${JSON.stringify(data.selectedIds || [])}\n\n使用者：\n${data.prompt?.trim() || "請分析這張白板並給建議"}`,
+      temperature: 0.45,
     };
   }
 

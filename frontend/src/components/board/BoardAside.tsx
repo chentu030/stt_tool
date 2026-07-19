@@ -9,6 +9,9 @@ import {
 
 type Props = {
   stats: BoardStats;
+  boardTags: string[];
+  onRenameTag: (tag: string) => void;
+  onDeleteTag: (tag: string) => void;
   onAiTriage: () => void;
   onAiScaffold: (description: string) => void;
   aiBusy: boolean;
@@ -18,6 +21,9 @@ type Props = {
 
 export default function BoardAside({
   stats,
+  boardTags,
+  onRenameTag,
+  onDeleteTag,
   onAiTriage,
   onAiScaffold,
   aiBusy,
@@ -55,6 +61,29 @@ export default function BoardAside({
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="bd-aside-block">
+        <h3>標籤</h3>
+        {boardTags.length === 0 ? (
+          <p className="bd-muted">本看板尚無標籤</p>
+        ) : (
+          <ul className="bd-tag-mgmt">
+            {boardTags.map((t) => (
+              <li key={t}>
+                <span>#{t}</span>
+                <div>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => onRenameTag(t)}>
+                    改名
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => onDeleteTag(t)}>
+                    刪除
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="bd-aside-block">

@@ -15,6 +15,8 @@ type Props = {
   onSelect: (id: string, multi: boolean) => void;
   onMove: (id: string, status: BoardStatus) => void;
   onPriorityCycle: (id: string) => void;
+  onAddTag: (id: string) => void;
+  onRemoveTag: (id: string, tag: string) => void;
   onQuickAdd: (status: BoardStatus) => void;
 };
 
@@ -30,6 +32,8 @@ export default function BoardColumn({
   onSelect,
   onMove,
   onPriorityCycle,
+  onAddTag,
+  onRemoveTag,
   onQuickAdd,
 }: Props) {
   const col = BOARD_COLUMNS.find((c) => c.id === status)!;
@@ -79,6 +83,8 @@ export default function BoardColumn({
               onDragStart={onDragStart}
               onMove={onMove}
               onPriorityCycle={onPriorityCycle}
+              onAddTag={onAddTag}
+              onRemoveTag={onRemoveTag}
             />
           ))
         )}
