@@ -4628,6 +4628,19 @@ button, input, textarea, select {
 .dr-continue {
   margin: 0.35rem 0 1rem;
 }
+.bd-continue,
+.jn-continue,
+.hub-continue,
+.capture-continue {
+  margin: 0.35rem 0 0.85rem;
+}
+.cv-continue,
+.gp-continue {
+  margin: 0.35rem 0 0.45rem;
+  max-width: min(92vw, 720px);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
 .kb-chat-handoff {
   display: flex;
   flex-wrap: wrap;

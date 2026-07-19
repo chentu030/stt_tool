@@ -9,7 +9,7 @@ import {
   type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
   listenToUserNotes,
@@ -26,6 +26,7 @@ import GraphToolbar from "@/components/graph/GraphToolbar";
 import GraphAside from "@/components/graph/GraphAside";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
+import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 import { downloadText } from "@/lib/libraryIndex";
 import { askPrompt } from "@/lib/dialogs";
 import {
@@ -81,6 +82,7 @@ export default function GraphDetailPage() {
   const { prefs } = usePrefs();
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const graphId = String(params.id || "");
 
   const [notes, setNotes] = useState<Note[]>([]);
@@ -114,6 +116,7 @@ export default function GraphDetailPage() {
   const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
   const seededId = useRef<string | null>(null);
   const skipPersist = useRef(false);
+  const focusApplied = useRef(false);
 
   useEffect(() => {
     if (!user) return;
@@ -332,6 +335,26 @@ export default function GraphDetailPage() {
     }
     return { nodes: nodeSet, edges: edgeSet };
   }, [hoverId, selectedId, painted.edges]);
+
+  useEffect(() => {
+    const noteId = searchParams.get("note");
+    if (!noteId || focusApplied.current || !configReady) return;
+    const nid = nodeIdForNote(noteId);
+    const node = painted.byId.get(nid) || full.byId.get(nid);
+    if (!node) return;
+    focusApplied.current = true;
+    setSelectedId(nid);
+    setSelAiOpen(true);
+    const el = stageRef.current;
+    if (!el) return;
+    const w = el.clientWidth || 800;
+    const h = el.clientHeight || 600;
+    const s = scaleRef.current;
+    setPan({
+      x: w / 2 - node.x * s,
+      y: h / 2 - node.y * s,
+    });
+  }, [searchParams, painted, full, configReady]);
 
   const flash = (msg: string) => {
     setToast(msg);
@@ -776,6 +799,14 @@ ${orphanLines || "（無）"}`;
           onCreate={() => void onCreateGraph()}
           onRename={onRenameGraph}
           onDelete={(id) => void onDeleteGraph(id)}
+        />
+        <ContinueChips
+          className="gp-continue"
+          chips={spatialContinueChips({
+            kind: "graph",
+            noteId: selectedNote?.id || searchParams.get("note"),
+            title: selectedNote?.title,
+          })}
         />
         <div className="gp-float-actions">
           <span className="gp-float-meta">

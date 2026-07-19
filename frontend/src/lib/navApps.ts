@@ -46,6 +46,25 @@ export function libraryJobsUrl() {
   return "/library?tab=jobs";
 }
 
+/** Append ?note= for spatial apps to focus a note after redirect. */
+export function withNoteFocus(base: string, noteId?: string | null) {
+  if (!noteId) return base;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}note=${encodeURIComponent(noteId)}`;
+}
+
+export function graphNoteUrl(noteId: string) {
+  return withNoteFocus("/graph", noteId);
+}
+
+export function boardNoteUrl(noteId: string) {
+  return withNoteFocus("/board", noteId);
+}
+
+export function canvasNoteUrl(noteId: string) {
+  return withNoteFocus("/canvas", noteId);
+}
+
 export const RESEARCH_FOLDER = "深度研究";
 
 /** Command palette navigation rows */

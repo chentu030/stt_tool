@@ -9,6 +9,7 @@ import {
   GraphBundle,
   neighborsOf,
 } from "@/lib/graphModel";
+import { buildResearchUrl } from "@/lib/researchBridge";
 
 type Props = {
   stats: GraphStats;
@@ -100,6 +101,18 @@ export default function GraphAside({
               {selected.noteId && (
                 <Link href={`/notes/${selected.noteId}`} className="btn btn-soft btn-sm">
                   開啟筆記
+                </Link>
+              )}
+              {selected.noteId && (
+                <Link
+                  href={buildResearchUrl({
+                    from: selected.noteId,
+                    topic: selected.title || undefined,
+                    returnTo: true,
+                  })}
+                  className="btn btn-soft btn-sm"
+                >
+                  深度研究
                 </Link>
               )}
               {selected.kind === "ghost" && onCreateGhost && (

@@ -29,6 +29,7 @@ export default function BoardCardView({
   return (
     <article
       className={`bd-card${selected ? " is-selected" : ""}${card.overdue ? " is-overdue" : ""}`}
+      data-note-id={card.id}
       draggable
       onDragStart={() => onDragStart(card.id)}
       onClick={(e) => onSelect(card.id, e.metaKey || e.ctrlKey)}

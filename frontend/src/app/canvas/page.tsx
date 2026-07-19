@@ -17,7 +17,7 @@ export default function CanvasIndexPage() {
     void (async () => {
       const last = localStorage.getItem(lastCanvasKey(user.uid));
       const id = (await ensureCanvasesMigrated(user.uid)) || last;
-      if (id) router.replace(`/canvas/${id}`);
+      if (id) router.replace(`/canvas/${id}${window.location.search}`);
     })();
   }, [user, router]);
 

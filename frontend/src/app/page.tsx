@@ -9,6 +9,8 @@ import LineRippleBackground from "@/components/motion/LineRippleBackground";
 import TypeWriter from "@/components/motion/TypeWriter";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
+import ContinueChips, { hubContinueChips } from "@/components/shell/ContinueChips";
+import { libraryJobsUrl } from "@/lib/navApps";
 
 export default function HomePage() {
   const { user, loading } = useAuth();
@@ -97,10 +99,12 @@ export default function HomePage() {
         </p>
       </motion.div>
 
+      <ContinueChips className="hub-continue" chips={hubContinueChips()} />
+
       <div className="grid-3" style={{ marginBottom: "1.25rem" }}>
         {[
           { href: "/capture", badge: "快捷", title: "捕捉語音", sub: "上傳、YouTube 或錄音" },
-          { href: null, badge: "進行中", title: String(active.length), sub: "正在處理的轉錄" },
+          { href: libraryJobsUrl(), badge: "進行中", title: String(active.length), sub: "正在處理的轉錄" },
           { href: "/library", badge: "筆記", title: String(notes.length), sub: "知識庫篇數" },
         ].map((card, i) => {
           const inner = (
@@ -117,7 +121,7 @@ export default function HomePage() {
               <p style={{ color: "var(--text-muted)", fontSize: "0.88rem", marginTop: "0.35rem" }}>{card.sub}</p>
             </motion.div>
           );
-          return card.href ? <Link key={card.badge} href={card.href}>{inner}</Link> : <div key={card.badge}>{inner}</div>;
+          return <Link key={card.badge} href={card.href}>{inner}</Link>;
         })}
       </div>
 

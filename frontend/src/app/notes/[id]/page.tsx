@@ -805,22 +805,6 @@ function NotePageInner() {
               <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
                 {aiBusy ? "AI…" : "摘要"}
               </button>
-              <button
-                type="button"
-                className="doc-cmd"
-                title="以本篇為脈絡啟動深度研究"
-                onClick={() =>
-                  router.push(
-                    buildResearchUrl({
-                      from: note.id,
-                      topic: title || undefined,
-                      returnTo: true,
-                    })
-                  )
-                }
-              >
-                深度研究
-              </button>
               <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
                 抽待辦
               </button>
@@ -863,7 +847,6 @@ function NotePageInner() {
             {moreOpen && (
               <div className="doc-more-menu">
                 {[
-                  { label: "深度研究", fn: () => router.push(buildResearchUrl({ from: note.id, topic: title || undefined, returnTo: true })) },
                   { label: "改寫", fn: () => runAi("rewrite") },
                   { label: "擴寫", fn: () => runAi("expand") },
                   { label: "產出大綱", fn: () => runAi("outline") },

@@ -9,6 +9,7 @@ import {
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
+import ContinueChips, { captureContinueChips } from "@/components/shell/ContinueChips";
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
@@ -219,6 +220,8 @@ export default function CapturePage() {
           <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" speed={22} />
           <p className="capture-lead">上傳、貼連結或錄音。</p>
         </header>
+
+        <ContinueChips className="capture-continue" chips={captureContinueChips()} />
 
         <input
           ref={fileRef}

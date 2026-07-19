@@ -35,7 +35,7 @@ export default function BoardRedirectPage() {
           } catch {
             /* ignore */
           }
-          router.replace(`/board/${id}`);
+          router.replace(`/board/${id}${window.location.search}`);
           return;
         }
         let target = "";
@@ -52,7 +52,7 @@ export default function BoardRedirectPage() {
         } catch {
           /* ignore */
         }
-        router.replace(`/board/${target}`);
+        router.replace(`/board/${target}${window.location.search}`);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "無法開啟看板");
       }

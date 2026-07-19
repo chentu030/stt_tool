@@ -211,7 +211,9 @@ export default function KnowledgeChat({
           href={
             selectedIds.length
               ? buildResearchUrl({ notes: selectedIds })
-              : "/research"
+              : buildResearchUrl({
+                  topic: [...messages].reverse().find((m) => m.role === "user")?.text?.trim().slice(0, 120),
+                })
           }
         >
           {selectedIds.length ? `深度研究已選 ${selectedIds.length}` : "深度研究"}

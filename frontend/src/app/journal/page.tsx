@@ -32,6 +32,7 @@ import {
 } from "@/lib/journalMeta";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import ContinueChips, { journalContinueChips } from "@/components/shell/ContinueChips";
 
 export default function JournalPage() {
   const { user, loading } = useAuth();
@@ -327,6 +328,11 @@ export default function JournalPage() {
           </ShinyPill>
         </div>
       </header>
+
+      <ContinueChips
+        className="jn-continue"
+        chips={journalContinueChips({ noteId: selectedEntry?.id })}
+      />
 
       <div className="jn-layout">
         <div className="jn-left">

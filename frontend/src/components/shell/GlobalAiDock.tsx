@@ -217,10 +217,21 @@ export default function GlobalAiDock() {
                 setOpen(false);
                 const noteMatch = pathname?.match(/^\/notes\/([^/?#]+)/);
                 const from = noteMatch?.[1];
+                const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+                const pinnedTitles = pinnedNotes
+                  .map((n) => n.title)
+                  .filter(Boolean)
+                  .slice(0, 3)
+                  .join("、");
+                const topic =
+                  lastUser?.text?.trim().slice(0, 120) ||
+                  pinnedTitles ||
+                  undefined;
                 router.push(
                   buildResearchUrl({
                     from,
                     notes: pinnedIds.length ? pinnedIds : undefined,
+                    topic,
                     returnTo: !!from,
                   })
                 );

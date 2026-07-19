@@ -2,8 +2,8 @@
 
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
   listenToUserNotes,
@@ -46,6 +46,7 @@ import {
 } from "@/lib/boardMeta";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefs } from "@/components/PrefsProvider";
+import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -75,12 +76,14 @@ export default function BoardByIdPage() {
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [notes, setNotes] = useState<Note[]>([]);
   const [boards, setBoards] = useState<BoardConfig[]>([]);
   const [boardsReady, setBoardsReady] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<BoardStatus | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const focusApplied = useRef(false);
   const [sort, setSort] = useState<BoardSort>(prefs.boardSort);
   const [swimlanes, setSwimlanes] = useState(prefs.boardSwimlanes);
   const [busy, setBusy] = useState(false);
@@ -114,6 +117,19 @@ export default function BoardByIdPage() {
     if (!user) return;
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
+
+  useEffect(() => {
+    const noteId = searchParams.get("note");
+    if (!noteId || focusApplied.current || notes.length === 0) return;
+    if (!notes.some((n) => n.id === noteId)) return;
+    focusApplied.current = true;
+    setSelected([noteId]);
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-note-id="${CSS.escape(noteId)}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [searchParams, notes]);
 
   useEffect(() => {
     if (!user) return;
@@ -658,6 +674,15 @@ export default function BoardByIdPage() {
           </ShinyPill>
         </div>
       </header>
+
+      <ContinueChips
+        className="bd-continue"
+        chips={spatialContinueChips({
+          kind: "board",
+          noteId: selected[0] || searchParams.get("note"),
+          title: notes.find((n) => n.id === (selected[0] || searchParams.get("note") || ""))?.title,
+        })}
+      />
 
       <div className="bd-scope-bar">
         <span className="bd-scope-label">範圍</span>

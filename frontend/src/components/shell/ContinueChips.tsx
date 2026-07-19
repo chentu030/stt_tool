@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { buildResearchUrl } from "@/lib/researchBridge";
-import { libraryFolderUrl, libraryJobsUrl, RESEARCH_FOLDER } from "@/lib/navApps";
+import {
+  boardNoteUrl,
+  canvasNoteUrl,
+  graphNoteUrl,
+  libraryFolderUrl,
+  libraryJobsUrl,
+  RESEARCH_FOLDER,
+} from "@/lib/navApps";
 
 export type ContinueChip = {
   href: string;
@@ -59,10 +66,11 @@ export function noteContinueChips(opts: {
       label: "深度研究",
       primary: true,
     },
-    { href: "/graph", label: "圖譜" },
-    { href: "/board", label: "看板" },
-    { href: "/canvas", label: "白板" },
+    { href: graphNoteUrl(opts.noteId), label: "圖譜" },
+    { href: boardNoteUrl(opts.noteId), label: "看板" },
+    { href: canvasNoteUrl(opts.noteId), label: "白板" },
     { href: "/library", label: "知識庫" },
+    { href: "/journal", label: "日誌" },
   ];
   if (opts.sourceJobId) {
     chips.splice(1, 0, { href: `/job/${opts.sourceJobId}`, label: "來源逐字稿" });
@@ -86,6 +94,7 @@ export function researchContinueChips(opts?: {
     { href: "/library", label: "知識庫" },
     { href: "/graph", label: "圖譜" },
     { href: "/board", label: "看板" },
+    { href: "/canvas", label: "白板" },
   ];
   if (opts?.savedNoteId) {
     chips.unshift({ href: `/notes/${opts.savedNoteId}`, label: "開啟報告筆記", primary: true });
@@ -144,6 +153,8 @@ export function libraryContinueChips(opts?: {
     { href: libraryJobsUrl(), label: "轉錄" },
     { href: "/capture", label: "捕捉" },
     { href: "/graph", label: "圖譜" },
+    { href: "/board", label: "看板" },
+    { href: "/canvas", label: "白板" },
     { href: "/journal", label: "日誌" },
   ];
   if (opts?.selectedIds?.length) {
@@ -154,4 +165,92 @@ export function libraryContinueChips(opts?: {
     });
   }
   return chips;
+}
+
+export function spatialContinueChips(opts: {
+  kind: "board" | "canvas" | "graph";
+  noteId?: string | null;
+  title?: string;
+}): ContinueChip[] {
+  const chips: ContinueChip[] = [
+    { href: "/library", label: "知識庫" },
+    { href: "/journal", label: "日誌" },
+    { href: "/research", label: "深度研究" },
+  ];
+  if (opts.kind !== "graph") {
+    chips.unshift({
+      href: opts.noteId ? graphNoteUrl(opts.noteId) : "/graph",
+      label: "圖譜",
+    });
+  }
+  if (opts.kind !== "board") {
+    chips.unshift({
+      href: opts.noteId ? boardNoteUrl(opts.noteId) : "/board",
+      label: "看板",
+    });
+  }
+  if (opts.kind !== "canvas") {
+    chips.unshift({
+      href: opts.noteId ? canvasNoteUrl(opts.noteId) : "/canvas",
+      label: "白板",
+    });
+  }
+  if (opts.noteId) {
+    chips.unshift(
+      { href: `/notes/${opts.noteId}`, label: "開啟筆記", primary: true },
+      {
+        href: buildResearchUrl({
+          from: opts.noteId,
+          topic: opts.title || undefined,
+          returnTo: true,
+        }),
+        label: "深度研究",
+        primary: true,
+      }
+    );
+  }
+  return chips;
+}
+
+export function journalContinueChips(opts?: {
+  noteId?: string | null;
+}): ContinueChip[] {
+  const chips: ContinueChip[] = [
+    { href: "/library", label: "知識庫", primary: !opts?.noteId },
+    { href: "/research", label: "深度研究" },
+    { href: "/graph", label: "圖譜" },
+    { href: "/board", label: "看板" },
+    { href: "/capture", label: "捕捉" },
+  ];
+  if (opts?.noteId) {
+    chips.unshift(
+      { href: `/notes/${opts.noteId}`, label: "開啟今日筆記", primary: true },
+      {
+        href: buildResearchUrl({ from: opts.noteId, returnTo: true }),
+        label: "深度研究此篇",
+      }
+    );
+  }
+  return chips;
+}
+
+export function captureContinueChips(): ContinueChip[] {
+  return [
+    { href: libraryJobsUrl(), label: "轉錄紀錄", primary: true },
+    { href: "/library", label: "知識庫" },
+    { href: "/research", label: "深度研究" },
+    { href: "/journal", label: "日誌" },
+  ];
+}
+
+export function hubContinueChips(): ContinueChip[] {
+  return [
+    { href: "/capture", label: "捕捉", primary: true },
+    { href: "/library", label: "知識庫" },
+    { href: libraryJobsUrl(), label: "轉錄" },
+    { href: "/research", label: "深度研究" },
+    { href: "/journal", label: "日誌" },
+    { href: "/graph", label: "圖譜" },
+    { href: "/board", label: "看板" },
+  ];
 }

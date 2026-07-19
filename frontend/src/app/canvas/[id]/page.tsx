@@ -10,7 +10,7 @@ import {
   type PointerEvent as REPointerEvent,
 } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, loginWithGoogle, uploadCanvasMedia, type Note } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
@@ -19,6 +19,7 @@ import CanvasToolbar from "@/components/canvas/CanvasToolbar";
 import CanvasAside from "@/components/canvas/CanvasAside";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
+import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import {
@@ -76,6 +77,7 @@ export default function CanvasIdPage() {
   const params = useParams();
   const canvasId = String(params.id || "");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -85,6 +87,7 @@ export default function CanvasIdPage() {
   const [tool, setTool] = useState<ToolId>(prefs.canvasDefaultTool);
   const [stickyColor, setStickyColor] = useState<StickyColor>("yellow");
   const [selected, setSelected] = useState<Selectable[]>([]);
+  const focusApplied = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingShape, setEditingShape] = useState<string | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
@@ -872,6 +875,41 @@ export default function CanvasIdPage() {
     setSelected([{ type: "note", id: noteId }]);
   };
 
+  useEffect(() => {
+    const noteId = searchParams.get("note");
+    if (!noteId || !ready || focusApplied.current) return;
+    focusApplied.current = true;
+    setDoc((d) => {
+      if (d.notes.some((n) => n.noteId === noteId)) return d;
+      const i = d.notes.length;
+      return {
+        ...d,
+        notes: [
+          ...d.notes,
+          {
+            noteId,
+            x: 60 + (i % 5) * 230,
+            y: 60 + Math.floor(i / 5) * 160,
+            w: 200,
+            h: 120,
+          },
+        ],
+      };
+    });
+    // Focus after pin lands in state on next tick
+    requestAnimationFrame(() => {
+      setSelected([{ type: "note", id: noteId }]);
+      setDoc((d) => {
+        const pin = d.notes.find((n) => n.noteId === noteId);
+        if (!pin) return d;
+        return {
+          ...d,
+          pan: { x: 120 - pin.x * d.scale, y: 120 - pin.y * d.scale },
+        };
+      });
+    });
+  }, [searchParams, ready]);
+
   const askCanvasAi = async (prompt: string) => {
     const selectedIds = selected.map((s) => (s.type === "note" ? `note:${s.id}` : s.id));
     const res = await fetch("/api/ai/generate", {
@@ -1071,6 +1109,21 @@ export default function CanvasIdPage() {
               else router.push("/canvas");
             })();
           }}
+        />
+        <ContinueChips
+          className="cv-continue"
+          chips={spatialContinueChips({
+            kind: "canvas",
+            noteId:
+              selected.find((s) => s.type === "note")?.id ||
+              searchParams.get("note"),
+            title: (() => {
+              const id =
+                selected.find((s) => s.type === "note")?.id ||
+                searchParams.get("note");
+              return id ? notes.find((n) => n.id === id)?.title : undefined;
+            })(),
+          })}
         />
         <CanvasToolbar
           tool={tool}

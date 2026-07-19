@@ -18,7 +18,7 @@ export default function GraphIndexPage() {
     void (async () => {
       try {
         const id = await ensureDefaultGraph(user.uid);
-        if (!cancelled) router.replace(`/graph/${id}`);
+        if (!cancelled) router.replace(`/graph/${id}${window.location.search}`);
       } catch {
         if (!cancelled) router.replace("/graph");
       }
