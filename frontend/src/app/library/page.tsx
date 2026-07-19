@@ -99,14 +99,6 @@ function LibraryPageInner() {
     };
   }, [user]);
 
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1100px)");
-    const apply = () => setChatOpen(!mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-
   const stats = useMemo(() => computeLibraryStats(notes, jobs), [notes, jobs]);
   const folders = useMemo(() => folderBuckets(notes), [notes]);
   const tags = useMemo(() => tagBuckets(notes), [notes]);
