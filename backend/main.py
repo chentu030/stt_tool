@@ -1580,10 +1580,17 @@ def _fetch_dict_url(url: str, timeout: float = 15.0, proxy: Optional[str] = None
     return r.text
 
 
-def _fetch_dict_jina(url: str, timeout: float = 16.0) -> str:
+def _fetch_dict_jina(url: str, timeout: float = 20.0, target_selector: Optional[str] = None) -> str:
+    headers = {
+        "User-Agent": _DICT_UA,
+        "Accept": "text/plain",
+        "X-Retain-Images": "none",
+    }
+    if target_selector:
+        headers["X-Target-Selector"] = target_selector
     r = requests.get(
         "https://r.jina.ai/" + url,
-        headers={"User-Agent": _DICT_UA, "Accept": "text/plain"},
+        headers=headers,
         timeout=timeout,
     )
     r.raise_for_status()
@@ -1591,6 +1598,92 @@ def _fetch_dict_jina(url: str, timeout: float = 16.0) -> str:
     if _is_cf_challenge(text, r.status_code):
         raise RuntimeError("Jina also hit Cloudflare")
     return text
+
+
+def _strip_md_links(text: str) -> str:
+    t = text or ""
+    t = re.sub(r"!\[([^\]]*)\]\([^)]*\)", " ", t)
+    t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)
+    return t
+
+
+def _collins_looks_real(text: str, slug: str) -> bool:
+    """判斷是否為真正柯林斯釋義（而非 cookie／導覽噪音）。"""
+    t = (text or "").lower()
+    if len(t) < 80:
+        return False
+    junk = ("opt-out request", "manage your privacy", "do not share or sell", "agree and close")
+    junk_hits = sum(1 for j in junk if j in t)
+    has_word_forms = "word forms" in t
+    has_cobuild = bool(re.search(rf"\ba {re.escape(slug)} is\b|\ban {re.escape(slug)} is\b", t))
+    if junk_hits and not has_word_forms and not has_cobuild:
+        return False
+    if re.search(r"\b1\.\s*(countable|uncountable|verb|noun|adjective|adverb|phrase)", t):
+        return True
+    signals = (
+        "word forms", "countable noun", "uncountable noun", "transitive verb",
+        "in british english", "in american english", "synonyms:",
+        f"a {slug} is", f"an {slug} is", "cobuild",
+    )
+    return sum(1 for s in signals if s in t) >= 1
+
+
+def _extract_collins_body(raw: str, slug: str) -> str:
+    """從 HTML 或 Jina markdown 抽出柯林斯真正釋義。"""
+    raw = raw or ""
+    slug = (slug or "").lower()
+
+    # HTML：優先抓 definitions / dictentry / .def
+    if "<" in raw[:800] or "dictentry" in raw or 'class="def"' in raw or "class='def'" in raw:
+        chunks: list[str] = []
+        patterns = [
+            r'(?is)<div[^>]*class="[^"]*content\s+definitions[^"]*"[^>]*>([\s\S]*?)</div>',
+            r'(?is)<div[^>]*class="[^"]*dictentry[^"]*"[^>]*>([\s\S]*?)(?=<div[^>]*class="[^"]*dictentry|$)',
+            r'(?is)<div[^>]*class="[^"]*\bhom\b[^"]*"[^>]*>([\s\S]*?)</div>',
+            r'(?is)<span[^>]*class="[^"]*\bdef\b[^"]*"[^>]*>([\s\S]*?)</span>',
+            r'(?is)<div[^>]*class="[^"]*sense[^"]*"[^>]*>([\s\S]*?)</div>',
+        ]
+        for pat in patterns:
+            for m in re.finditer(pat, raw):
+                chunk = _html_to_text(m.group(1))
+                if len(chunk) > 40:
+                    chunks.append(chunk)
+            if len(chunks) >= 3:
+                break
+        if chunks:
+            body = "\n".join(chunks)
+            if _collins_looks_real(body, slug):
+                return body
+
+    t = _strip_md_links(raw)
+    # 砍掉隱私橫幅
+    t = re.sub(
+        r"(?is)Opt-Out Request Honored.*?(?=Word forms|##\s*\w|\b1\.\s*(?:countable|uncountable)|in British English|in American English)",
+        " ",
+        t,
+    )
+    anchors = [
+        r"(?i)Word forms\s*:",
+        rf"(?i)##\s*{re.escape(slug)}\b",
+        r"(?i)in British English",
+        r"(?i)in American English",
+        r"(?i)\b1\.\s*(?:countable|uncountable|verb|adjective|adverb|noun|phrase)",
+        rf"(?i)\bA {re.escape(slug)} is\b",
+        rf"(?i)\bAn {re.escape(slug)} is\b",
+    ]
+    best = t
+    for a in anchors:
+        m = re.search(a, t)
+        if m:
+            best = t[m.start():]
+            break
+    best = re.split(
+        r"(?i)\n(?:Browse alphabetically|Trends of |Source:\s*Collins|Get the latest|You may also like)",
+        best,
+        maxsplit=1,
+    )[0]
+    best = re.sub(r"\s+", " ", best).strip()
+    return best if _collins_looks_real(best, slug) else ""
 
 
 def _dict_sources(slug: str):
@@ -1609,6 +1702,9 @@ def _dict_sources(slug: str):
             "id": "collins",
             "name": "柯林斯 Collins",
             "cf": True,
+            # Cloud Run IP 幾乎必被 CF 擋；Jina + CSS 選擇器才能拿到真釋義
+            "prefer_jina": True,
+            "jina_selectors": [".content.definitions", ".dictentry", "main", "article"],
             "urls": [
                 f"https://www.collinsdictionary.com/dictionary/english/{q}",
                 f"https://www.collinsdictionary.com/dictionary/english-chinese/{q}",
@@ -1635,24 +1731,52 @@ def _dict_sources(slug: str):
     ]
 
 
+def _body_from_raw(src: dict, raw: str, slug: str) -> str:
+    """依來源把原始 HTML／markdown 收成可用正文。"""
+    if src.get("id") == "collins":
+        return _extract_collins_body(raw, slug)
+    return _focus_after_word(_html_to_text(raw) if "<" in (raw or "")[:500] else raw, slug or src.get("id", ""))
+
+
 def _fetch_one_dict_source(src: dict, slug: str = "") -> dict:
     last_err = ""
     need_proxy = False
+    slug = slug or ""
+
+    def _ok_text(raw: str, via: str, url: str):
+        body = _body_from_raw(src, raw, slug)
+        # Jina markdown 非 HTML 時 _body_from_raw 已處理；一般來源再走 focus
+        if src.get("id") != "collins" and (not body or len(body) < 60):
+            body = _focus_after_word(raw, slug)
+        max_len = 4500 if src.get("id") == "collins" else 3800
+        text = _clean_dict_chunk(src["name"], body, max_len)
+        if not text:
+            raise RuntimeError("empty after clean")
+        if src.get("id") == "collins" and not _collins_looks_real(body, slug):
+            raise RuntimeError("collins content looks like chrome/nav, not definitions")
+        return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": via}
+
+    # 0) 柯林斯：優先 Jina + CSS 選擇器（避開 CF，且不要抓到導覽噪音）
+    if src.get("prefer_jina") or src.get("jina_selectors"):
+        for url in src["urls"]:
+            for sel in (src.get("jina_selectors") or [None]):
+                try:
+                    md = _fetch_dict_jina(url, target_selector=sel)
+                    return _ok_text(md, f"jina:{sel or 'full'}", url)
+                except Exception as e:
+                    last_err = str(e)
 
     # 1) 直連（curl_cffi TLS 模擬）
     for url in src["urls"]:
         try:
             html_str = _fetch_dict_url(url)
-            body = _focus_after_word(_html_to_text(html_str), slug or src.get("id", ""))
-            text = _clean_dict_chunk(src["name"], body)
-            if text:
-                return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": "curl_cffi"}
+            return _ok_text(html_str, "curl_cffi", url)
         except Exception as e:
             last_err = str(e)
             if "Cloudflare" in last_err or "403" in last_err:
                 need_proxy = True
 
-    # 2) Cloudflare 站：並行試免費代理 + curl_cffi（比無頭瀏覽器輕；Turnstile 需「乾淨」出口 IP）
+    # 2) Cloudflare 站：並行試免費代理 + curl_cffi
     if src.get("cf") or need_proxy:
         try:
             cands = list(_fetch_free_proxies(limit=160))
@@ -1665,11 +1789,7 @@ def _fetch_one_dict_source(src: dict, slug: str = "") -> dict:
 
         def _try_proxy(p: str):
             html_str = _fetch_dict_url(url, proxy=p, timeout=11.0)
-            body = _focus_after_word(_html_to_text(html_str), slug or src.get("id", ""))
-            text = _clean_dict_chunk(src["name"], body)
-            if not text:
-                raise RuntimeError("empty after clean")
-            return text
+            return _ok_text(html_str, "curl_cffi+proxy", url)
 
         if cands:
             with ThreadPoolExecutor(max_workers=10) as pool:
@@ -1679,29 +1799,22 @@ def _fetch_one_dict_source(src: dict, slug: str = "") -> dict:
                     for fut in as_completed(futs, timeout=50):
                         p = futs[fut]
                         try:
-                            text = fut.result()
+                            out = fut.result()
                             print(f"[dict_fetch] {src['id']} via proxy {p}")
-                            # 取消其餘
                             for other in futs:
                                 other.cancel()
-                            return {
-                                "id": src["id"], "name": src["name"], "url": url,
-                                "text": text, "via": "curl_cffi+proxy",
-                            }
+                            return out
                         except Exception as e:
                             last_err = str(e)
                             continue
                 except Exception as e:
                     last_err = str(e)
 
-    # 3) Jina 可讀內容後備
+    # 3) Jina 可讀內容後備（無選擇器，再靠 extract 裁切）
     for url in src["urls"]:
         try:
             md = _fetch_dict_jina(url)
-            body = _focus_after_word(md, slug or src.get("id", ""))
-            text = _clean_dict_chunk(src["name"], body)
-            if text:
-                return {"id": src["id"], "name": src["name"], "url": url, "text": text, "via": "jina"}
+            return _ok_text(md, "jina", url)
         except Exception as e:
             last_err = str(e)
     return {"id": src["id"], "name": src["name"], "error": last_err or "failed"}
@@ -1718,11 +1831,21 @@ def _fetch_online_dicts_sync(word: str) -> dict:
         futs.append(pool.submit(_fetch_free_dict, slug))
         for f in futs:
             try:
-                results.append(f.result(timeout=25))
+                results.append(f.result(timeout=45))
             except Exception as e:
                 results.append({"id": "?", "name": "?", "error": str(e)})
-    ok = [r for r in results if r.get("text")]
-    text = "\n\n".join(r["text"] for r in ok)[:14000]
+    # 固定來源順序組裝，避免執行緒完成順序把柯林斯擠出 14k 上限
+    order = ["cambridge", "collins", "ldoce", "eudic", "etymonline", "freedict"]
+    by_id = {r.get("id"): r for r in results if r.get("text")}
+    parts = []
+    for oid in order:
+        if oid in by_id:
+            parts.append(by_id[oid]["text"])
+    for r in results:
+        rid = r.get("id")
+        if r.get("text") and rid not in order:
+            parts.append(r["text"])
+    text = "\n\n".join(parts)[:16000]
     return {
         "word": slug,
         "text": text,
