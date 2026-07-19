@@ -8360,6 +8360,139 @@ button, input, textarea, select {
   -webkit-box-orient: vertical;
 }
 
+/* v5: image lightbox */
+.tm-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  cursor: zoom-out;
+}
+.tm-lightbox img {
+  max-width: min(92vw, 1100px);
+  max-height: 90vh;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+/* v5: clickable message / thread author names */
+.tm-clickable-author { cursor: pointer; }
+.tm-clickable-author:hover { text-decoration: underline; }
+
+/* v5: member profile popover */
+.tm-member-pop-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  color: var(--text-main);
+  font: inherit;
+}
+.tm-member-pop {
+  position: fixed;
+  z-index: 260;
+  width: 220px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.tm-member-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.tm-member-pop-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.tm-member-pop-head strong {
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-member-pop-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.tm-member-pop-actions .btn { flex: 1; }
+
+/* v5: DM section label */
+.tm-dm-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+/* v5: richer empty-channel welcome state */
+.tm-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1.5rem 1rem;
+  max-width: 420px;
+}
+.tm-welcome-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+.tm-welcome-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.2rem 0;
+}
+
+/* v5: reply quote chip above thread composer */
+.tm-quote-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0.9rem 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.tm-quote-chip span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-quote-chip button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+.tm-quote-chip button:hover { color: var(--text-main); }
+
 /* Note presence (avatar stack + cursor dots) */
 .note-presence {
   display: inline-flex;

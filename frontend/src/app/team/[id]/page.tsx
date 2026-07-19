@@ -1,6 +1,14 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -24,6 +32,8 @@ import {
   leaveTeam,
   setMemberRole,
   markChannelRead,
+  markChannelUnread,
+  openOrCreateDm,
   channelIsUnread,
   toggleMessageReaction,
   pinNote,
@@ -86,6 +96,14 @@ function renderMentions(text: string): ReactNode {
 
 function memberLabel(m: Member): string {
   return m.display_name || m.uid.slice(0, 6);
+}
+
+function draftKey(teamId: string, channelId: string): string {
+  return `cadence:tm:${teamId}:ch:${channelId}:draft`;
+}
+
+function threadDraftKey(teamId: string, channelId: string, threadRootId: string): string {
+  return `cadence:tm:${teamId}:ch:${channelId}:threadDraft:${threadRootId}`;
 }
 
 type SlashCommand = { cmd: string; desc: string };
@@ -164,6 +182,16 @@ function TeamRoomInner() {
   const [teamSearchBusy, setTeamSearchBusy] = useState(false);
   const [teamSearchResults, setTeamSearchResults] = useState<{ channelId: string; message: Message }[]>([]);
 
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [emojiOpenId, setEmojiOpenId] = useState<string | null>(null);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [memberPopover, setMemberPopover] = useState<{ member: Member; x: number; y: number } | null>(null);
+  const memberPopRef = useRef<HTMLDivElement | null>(null);
+
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const threadDraftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftLoadedRef = useRef(false);
+
   const deepLinkRef = useRef(false);
 
   useEffect(() => {
@@ -238,6 +266,138 @@ function TeamRoomInner() {
     if (!user || !id || !activeChannel) return;
     void markChannelRead(user.uid, id, activeChannel);
   }, [user, id, activeChannel, messages.length]);
+
+  // Draft persistence: load whenever the active channel changes.
+  useEffect(() => {
+    if (!id || !activeChannel) return;
+    draftLoadedRef.current = false;
+    try {
+      const saved = window.localStorage.getItem(draftKey(id, activeChannel));
+      setDraft(saved || "");
+    } catch {
+      /* ignore */
+    } finally {
+      draftLoadedRef.current = true;
+    }
+  }, [id, activeChannel]);
+
+  // Draft persistence: debounce-save 300ms after each change.
+  useEffect(() => {
+    if (!id || !activeChannel || !draftLoadedRef.current) return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      try {
+        if (draft) window.localStorage.setItem(draftKey(id, activeChannel), draft);
+        else window.localStorage.removeItem(draftKey(id, activeChannel));
+      } catch {
+        /* ignore */
+      }
+    }, 300);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [draft, id, activeChannel]);
+
+  // Thread draft persistence: load whenever the open thread changes.
+  useEffect(() => {
+    if (!id || !activeChannel || !threadRoot) return;
+    try {
+      const saved = window.localStorage.getItem(threadDraftKey(id, activeChannel, threadRoot.id));
+      setThreadDraft(saved || "");
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadRoot?.id]);
+
+  // Thread draft persistence: debounce-save 300ms after each change.
+  useEffect(() => {
+    if (!id || !activeChannel || !threadRoot) return;
+    if (threadDraftSaveTimerRef.current) clearTimeout(threadDraftSaveTimerRef.current);
+    threadDraftSaveTimerRef.current = setTimeout(() => {
+      try {
+        if (threadDraft) window.localStorage.setItem(threadDraftKey(id, activeChannel, threadRoot.id), threadDraft);
+        else window.localStorage.removeItem(threadDraftKey(id, activeChannel, threadRoot.id));
+      } catch {
+        /* ignore */
+      }
+    }, 300);
+    return () => {
+      if (threadDraftSaveTimerRef.current) clearTimeout(threadDraftSaveTimerRef.current);
+    };
+  }, [threadDraft, id, activeChannel, threadRoot]);
+
+  // Esc closes overlays, in priority order (most specific/topmost first).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (lightboxUrl) {
+        setLightboxUrl(null);
+        return;
+      }
+      if (emojiOpenId) {
+        setEmojiOpenId(null);
+        return;
+      }
+      if (memberPopover) {
+        setMemberPopover(null);
+        return;
+      }
+      if (teamSearchOpen) {
+        setTeamSearchOpen(false);
+        return;
+      }
+      if (activityOpen) {
+        setActivityOpen(false);
+        return;
+      }
+      if (inviteOpen) {
+        setInviteOpen(false);
+        return;
+      }
+      if (settingsOpen) {
+        setSettingsOpen(false);
+        return;
+      }
+      if (membersDialogOpen) {
+        setMembersDialogOpen(false);
+        return;
+      }
+      if (threadRoot) {
+        setThreadRoot(null);
+        return;
+      }
+      if (sidebarOpen) {
+        setSidebarOpen(false);
+        return;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    lightboxUrl,
+    emojiOpenId,
+    memberPopover,
+    teamSearchOpen,
+    activityOpen,
+    inviteOpen,
+    settingsOpen,
+    membersDialogOpen,
+    threadRoot,
+    sidebarOpen,
+  ]);
+
+  // Close the member popover on an outside click.
+  useEffect(() => {
+    if (!memberPopover) return;
+    const onOutside = (e: MouseEvent) => {
+      if (memberPopRef.current && !memberPopRef.current.contains(e.target as Node)) {
+        setMemberPopover(null);
+      }
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [memberPopover]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -314,6 +474,9 @@ function TeamRoomInner() {
     () => messages.filter((m) => m.pinned && !m.deleted),
     [messages]
   );
+
+  const dms = useMemo(() => channels.filter((c) => c.dm_key), [channels]);
+  const rooms = useMemo(() => channels.filter((c) => !c.dm_key), [channels]);
 
   const filteredMessages = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -448,6 +611,11 @@ function TeamRoomInner() {
         const handled = await runSlashCommand(text.trim());
         if (handled) {
           setDraft("");
+          try {
+            window.localStorage.removeItem(draftKey(id, activeChannel));
+          } catch {
+            /* ignore */
+          }
           if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
           void clearTyping(id, activeChannel, user.uid);
           return;
@@ -460,9 +628,20 @@ function TeamRoomInner() {
         thread_id: threadId,
         members,
       });
-      if (threadId) setThreadDraft("");
-      else {
+      if (threadId) {
+        setThreadDraft("");
+        try {
+          window.localStorage.removeItem(threadDraftKey(id, activeChannel, threadId));
+        } catch {
+          /* ignore */
+        }
+      } else {
         setDraft("");
+        try {
+          window.localStorage.removeItem(draftKey(id, activeChannel));
+        } catch {
+          /* ignore */
+        }
         if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
         void clearTyping(id, activeChannel, user.uid);
       }
@@ -753,6 +932,65 @@ function TeamRoomInner() {
     setTimeout(() => el.classList.remove("is-flash"), 2200);
   };
 
+  const copyMessageLink = async (m: Message) => {
+    if (!id || !activeChannel) return;
+    const url = `${window.location.origin}/team/${id}?channel=${activeChannel}&msg=${m.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedLinkId(m.id);
+      setTimeout(() => setCopiedLinkId((cur) => (cur === m.id ? null : cur)), 1600);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const exportTranscript = () => {
+    if (!activeChannel || !activeChannelObj) return;
+    const lines = topMessages
+      .slice(-500)
+      .filter((m) => !m.deleted)
+      .map(
+        (m) =>
+          `**${m.author_name || "匿名"}** · ${m.created_at.toLocaleString("zh-TW")}\n${m.text}\n`
+      );
+    const content = `# ${activeChannelObj.name}\n\n${lines.join("\n")}`;
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${activeChannelObj.name || "channel"}-transcript.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const openMemberPopover = (uid: string, e: ReactMouseEvent) => {
+    const m = members.find((mm) => mm.uid === uid);
+    if (!m) return;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMemberPopover({ member: m, x: rect.left, y: rect.bottom + 6 });
+  };
+
+  const mentionFromPopover = () => {
+    if (!memberPopover) return;
+    insertMention(memberPopover.member);
+    setMemberPopover(null);
+  };
+
+  const startDm = async (other: Member) => {
+    if (!id || !member) return;
+    try {
+      const cid = await openOrCreateDm(id, member, other);
+      setActiveChannel(cid);
+      setSidebarOpen(false);
+      setMemberPopover(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "開啟私訊失敗");
+    }
+  };
+
+  const dmOtherMember = (c: Channel): Member | undefined =>
+    members.find((mm) => mm.uid !== user?.uid && c.member_ids?.includes(mm.uid));
+
   const pickFile = () => fileInputRef.current?.click();
 
   const onFileChosen = async (file: File | null) => {
@@ -851,8 +1089,39 @@ function TeamRoomInner() {
         </div>
 
         <div className="tm-channel-list">
+          <p className="tm-channel-label">私人訊息</p>
+          {dms.length === 0 ? (
+            <p className="tm-sidebar-muted">點成員大頭貼選「傳訊息」開始私訊</p>
+          ) : (
+            dms.map((c) => {
+              const unread = channelIsUnread(c, reads[c.id]);
+              const muted = !!mutedChannels[c.id];
+              const other = dmOtherMember(c);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`tm-channel-item${c.id === activeChannel ? " is-on" : ""}${unread && c.id !== activeChannel ? " is-unread" : ""}${muted ? " is-muted" : ""}`}
+                  onClick={() => selectChannel(c.id)}
+                >
+                  <span className="tm-dm-label">
+                    💬 {other ? memberLabel(other) : c.name}
+                    {muted && (
+                      <span className="tm-mute-icon" title="已靜音">
+                        🔕
+                      </span>
+                    )}
+                  </span>
+                  {unread && c.id !== activeChannel && <span className="tm-unread-dot" aria-hidden />}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="tm-channel-list">
           <p className="tm-channel-label">頻道</p>
-          {channels.map((c) => {
+          {rooms.map((c) => {
             const unread = channelIsUnread(c, reads[c.id]);
             const muted = !!mutedChannels[c.id];
             return (
@@ -914,11 +1183,17 @@ function TeamRoomInner() {
           <ul className="tm-member-list">
             {members.map((m) => (
               <li key={m.uid} className="tm-member-item">
-                <span className="tm-member-avatar">{(m.display_name || "?").slice(0, 1)}</span>
-                <span className="tm-member-name">
-                  {m.display_name || m.uid.slice(0, 6)}
-                  {m.uid === user.uid ? "（你）" : ""}
-                </span>
+                <button
+                  type="button"
+                  className="tm-member-pop-trigger"
+                  onClick={(e) => openMemberPopover(m.uid, e)}
+                >
+                  <span className="tm-member-avatar">{(m.display_name || "?").slice(0, 1)}</span>
+                  <span className="tm-member-name">
+                    {m.display_name || m.uid.slice(0, 6)}
+                    {m.uid === user.uid ? "（你）" : ""}
+                  </span>
+                </button>
                 {canAdmin && m.role !== "owner" && m.uid !== user.uid ? (
                   <select
                     className="tm-role-select"
@@ -983,9 +1258,13 @@ function TeamRoomInner() {
             ☰
           </button>
           <span className="tm-channel-title">
-            {activeChannelObj ? `# ${activeChannelObj.name}` : "選擇頻道"}
+            {activeChannelObj
+              ? activeChannelObj.dm_key
+                ? `💬 ${dmOtherMember(activeChannelObj) ? memberLabel(dmOtherMember(activeChannelObj)!) : activeChannelObj.name}`
+                : `# ${activeChannelObj.name}`
+              : "選擇頻道"}
           </span>
-          {activeChannelObj?.is_private && (
+          {activeChannelObj?.is_private && !activeChannelObj.dm_key && (
             <span className="tm-lock" title="私人頻道">
               🔒
             </span>
@@ -1065,6 +1344,32 @@ function TeamRoomInner() {
             >
               {activeChannelMuted ? "🔕 取消靜音" : "🔔 靜音"}
             </button>
+            {activeChannel && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => void markChannelRead(user.uid, id, activeChannel)}
+                >
+                  標為已讀
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => void markChannelUnread(user.uid, id, activeChannel)}
+                >
+                  標為未讀
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={exportTranscript}
+                  title="匯出此頻道的訊息記錄"
+                >
+                  匯出
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="btn btn-sm btn-soft"
@@ -1166,9 +1471,35 @@ function TeamRoomInner() {
 
         <div className="tm-messages" ref={scrollRef}>
           {filteredMessages.length === 0 ? (
-            <p className="note-aside-empty" style={{ padding: "1rem" }}>
-              {searchQuery.trim() ? "沒有符合的訊息。" : "還沒有訊息，開始聊聊吧。"}
-            </p>
+            searchQuery.trim() ? (
+              <p className="note-aside-empty" style={{ padding: "1rem" }}>沒有符合的訊息。</p>
+            ) : (
+              <div className="tm-welcome">
+                <p className="tm-welcome-title">
+                  這是 #{activeChannelObj?.name || "頻道"} 的開頭
+                </p>
+                <p className="tm-sidebar-muted">開始聊聊，或試試以下動作：</p>
+                <div className="tm-welcome-actions">
+                  {canInvite && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-soft"
+                      onClick={() => {
+                        setInviteOpen(true);
+                        setInviteLink("");
+                        void refreshInvites();
+                      }}
+                    >
+                      邀請成員
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => void editTopic()}>
+                    設定主題
+                  </button>
+                </div>
+                <p className="tm-sidebar-muted">分享筆記提示：從筆記按「分享」→「團隊」</p>
+              </div>
+            )
           ) : (
             filteredMessages.map((m) => (
               <MessageRow
@@ -1179,6 +1510,9 @@ function TeamRoomInner() {
                 replyCount={replyCounts[m.id] || 0}
                 converting={convertingId === m.id}
                 flashNoteId={noteFlash[m.id]}
+                copied={copiedLinkId === m.id}
+                emojiOpen={emojiOpenId === m.id}
+                onEmojiOpenChange={(open) => setEmojiOpenId(open ? m.id : null)}
                 onReply={() => {
                   setThreadRoot(m);
                   setActivityOpen(false);
@@ -1195,6 +1529,9 @@ function TeamRoomInner() {
                 onTogglePin={() => void doTogglePin(m)}
                 onEdit={() => void doEditMessage(m)}
                 onDelete={() => void doDeleteMessage(m)}
+                onCopyLink={() => void copyMessageLink(m)}
+                onImageClick={setLightboxUrl}
+                onAuthorClick={(uid, e) => openMemberPopover(uid, e)}
               />
             ))
           )}
@@ -1287,16 +1624,35 @@ function TeamRoomInner() {
             </div>
           </div>
           <div className="tm-thread-root">
-            <span className="tm-msg-author">{threadRoot.author_name || "匿名"}</span>
+            <span
+              className="tm-msg-author tm-clickable-author"
+              onClick={(e) => openMemberPopover(threadRoot.author_id, e)}
+            >
+              {threadRoot.author_name || "匿名"}
+            </span>
             <p>{renderMentions(threadRoot.text)}</p>
           </div>
           <div className="tm-thread-replies">
             {threadReplies.map((r) => (
               <div key={r.id} className="tm-msg">
-                <span className="tm-msg-author">{r.author_name || "匿名"}</span>
+                <span
+                  className="tm-msg-author tm-clickable-author"
+                  onClick={(e) => openMemberPopover(r.author_id, e)}
+                >
+                  {r.author_name || "匿名"}
+                </span>
                 <span className="tm-msg-text">{renderMentions(r.text)}</span>
               </div>
             ))}
+          </div>
+          <div className="tm-quote-chip">
+            <span>
+              回覆 {threadRoot.author_name || "匿名"}：{threadRoot.text.slice(0, 60)}
+              {threadRoot.text.length > 60 ? "…" : ""}
+            </span>
+            <button type="button" onClick={() => setThreadRoot(null)} title="關閉討論串" aria-label="關閉討論串">
+              ×
+            </button>
           </div>
           <div className="tm-composer">
             <input
@@ -1515,6 +1871,41 @@ function TeamRoomInner() {
           </div>
         </div>
       )}
+
+      {lightboxUrl && (
+        <div className="tm-lightbox" role="presentation" onClick={() => setLightboxUrl(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightboxUrl} alt="圖片預覽" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+
+      {memberPopover && (
+        <div
+          className="tm-member-pop"
+          ref={memberPopRef}
+          style={{ left: memberPopover.x, top: memberPopover.y }}
+        >
+          <div className="tm-member-pop-head">
+            <span className="tm-member-avatar">
+              {(memberPopover.member.display_name || "?").slice(0, 1)}
+            </span>
+            <div>
+              <strong>{memberLabel(memberPopover.member)}</strong>
+              <span className="tm-member-role">{ROLE_LABEL[memberPopover.member.role]}</span>
+            </div>
+          </div>
+          <div className="tm-member-pop-actions">
+            <button type="button" className="btn btn-sm btn-ghost" onClick={mentionFromPopover}>
+              提及
+            </button>
+            {memberPopover.member.uid !== user.uid && (
+              <button type="button" className="btn btn-sm btn-soft" onClick={() => void startDm(memberPopover.member)}>
+                傳訊息
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1534,6 +1925,9 @@ function MessageRow({
   replyCount,
   converting,
   flashNoteId,
+  copied,
+  emojiOpen,
+  onEmojiOpenChange,
   onReply,
   onReact,
   onPinNote,
@@ -1541,6 +1935,9 @@ function MessageRow({
   onTogglePin,
   onEdit,
   onDelete,
+  onCopyLink,
+  onImageClick,
+  onAuthorClick,
 }: {
   m: Message;
   mine: boolean;
@@ -1548,6 +1945,9 @@ function MessageRow({
   replyCount: number;
   converting?: boolean;
   flashNoteId?: string;
+  copied?: boolean;
+  emojiOpen: boolean;
+  onEmojiOpenChange: (open: boolean) => void;
   onReply: () => void;
   onReact: (emoji: string) => void;
   onPinNote?: () => void;
@@ -1555,6 +1955,9 @@ function MessageRow({
   onTogglePin: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCopyLink: () => void;
+  onImageClick: (url: string) => void;
+  onAuthorClick: (uid: string, e: ReactMouseEvent) => void;
 }) {
   const reactionGroups = useMemo(() => {
     const map: Record<string, number> = {};
@@ -1564,19 +1967,18 @@ function MessageRow({
     return Object.entries(map);
   }, [m.reactions]);
 
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const emojiWrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!emojiOpen) return;
     const onOutside = (e: MouseEvent) => {
       if (emojiWrapRef.current && !emojiWrapRef.current.contains(e.target as Node)) {
-        setEmojiOpen(false);
+        onEmojiOpenChange(false);
       }
     };
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
-  }, [emojiOpen]);
+  }, [emojiOpen, onEmojiOpenChange]);
 
   if (m.deleted) {
     return (
@@ -1601,7 +2003,12 @@ function MessageRow({
       data-msg-id={m.id}
     >
       <div className="tm-msg-meta">
-        <span className="tm-msg-author">{m.author_name || "匿名"}</span>
+        <span
+          className="tm-msg-author tm-clickable-author"
+          onClick={(e) => onAuthorClick(m.author_id, e)}
+        >
+          {m.author_name || "匿名"}
+        </span>
         <span className="tm-msg-time">
           {m.created_at.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
         </span>
@@ -1617,7 +2024,12 @@ function MessageRow({
         <div className="tm-file-msg">
           {(m.file_mime || "").startsWith("image/") ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={m.file_url} alt={m.file_name || "圖片"} className="tm-file-msg-img" />
+            <img
+              src={m.file_url}
+              alt={m.file_name || "圖片"}
+              className="tm-file-msg-img"
+              onClick={() => onImageClick(m.file_url!)}
+            />
           ) : (
             <a href={m.file_url} target="_blank" rel="noreferrer" className="tm-file-msg-link">
               📎 {m.file_name || "下載檔案"}
@@ -1652,7 +2064,7 @@ function MessageRow({
             type="button"
             className="tm-react-btn"
             title="更多表情"
-            onClick={() => setEmojiOpen((o) => !o)}
+            onClick={() => onEmojiOpenChange(!emojiOpen)}
           >
             ☺
           </button>
@@ -1666,7 +2078,7 @@ function MessageRow({
                   title="表情"
                   onClick={() => {
                     onReact(e);
-                    setEmojiOpen(false);
+                    onEmojiOpenChange(false);
                   }}
                 >
                   {e}
@@ -1680,6 +2092,9 @@ function MessageRow({
         </button>
         <button type="button" className="doc-cmd" onClick={onTogglePin}>
           {m.pinned ? "取消釘訊息" : "釘訊息"}
+        </button>
+        <button type="button" className="doc-cmd" onClick={onCopyLink}>
+          {copied ? "已複製" : "複製連結"}
         </button>
         {onPinNote && (
           <button type="button" className="doc-cmd" onClick={onPinNote}>

@@ -45,6 +45,8 @@ export type Channel = {
   is_private: boolean;
   /** For private channels: uids allowed (always includes creator). */
   member_ids?: string[];
+  /** Stable key for 1:1 DMs: dm:uidA_uidB */
+  dm_key?: string;
   created_by: string;
   created_at: Date;
   last_message_at?: Date;
@@ -201,6 +203,7 @@ function channelFromDoc(id: string, data: Record<string, unknown>): Channel {
     is_private: !!data.is_private,
     member_ids,
     created_by: String(data.created_by || ""),
+    dm_key: data.dm_key ? String(data.dm_key) : undefined,
     created_at: (data.created_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     last_message_at: (data.last_message_at as { toDate?: () => Date })?.toDate?.(),
     last_message_preview: data.last_message_preview
@@ -563,6 +566,48 @@ export async function markChannelRead(
     { merge: true }
   );
 }
+
+/** Force unread: set last_read before last message (or clear). */
+export async function markChannelUnread(
+  uid: string,
+  teamId: string,
+  channelId: string
+): Promise<void> {
+  await setDoc(
+    doc(channelReadsCol(uid, teamId), channelId),
+    { last_read_at: Timestamp.fromMillis(0) },
+    { merge: true }
+  );
+}
+
+/** Open or reuse a 1:1 private DM channel between two members. */
+export async function openOrCreateDm(
+  teamId: string,
+  me: Member,
+  other: Member
+): Promise<string> {
+  const pair = [me.uid, other.uid].sort();
+  const dmKey = `dm:${pair[0]}_${pair[1]}`;
+  // Look for existing channel with this dm_key
+  const snap = await getDocs(channelsCol(teamId));
+  for (const d of snap.docs) {
+    const data = d.data();
+    if (data.dm_key === dmKey) return d.id;
+  }
+  const otherName = other.display_name || other.uid.slice(0, 6);
+  const ref = doc(channelsCol(teamId));
+  await setDoc(ref, {
+    name: otherName,
+    topic: "私人訊息",
+    is_private: true,
+    member_ids: pair,
+    created_by: me.uid,
+    dm_key: dmKey,
+    created_at: Timestamp.now(),
+  });
+  return ref.id;
+}
+
 
 export function listenChannelReads(
   uid: string,
