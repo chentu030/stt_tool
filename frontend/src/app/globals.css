@@ -23,7 +23,7 @@
   --radius-xl: 28px;
   --sidebar-w: 240px;
   --bottom-h: 64px;
-  --page-max: 720px;
+  --page-max: 1100px;
 }
 
 [data-theme="light"] {
@@ -438,9 +438,10 @@ button, input, textarea, select {
 
 /* ── Document / block editor (immersive) ── */
 .doc-page {
-  max-width: var(--page-max);
+  max-width: min(var(--page-max), 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 2.5rem 3rem 6rem;
+  padding: 2rem 2.5rem 6rem;
 }
 .doc-topbar {
   display: flex;
