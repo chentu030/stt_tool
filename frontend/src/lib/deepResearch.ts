@@ -6,6 +6,7 @@
  */
 
 import { vertexGenerateContent, type VertexGroundingSource } from "@/lib/vertex";
+import { drainResearchGuidance } from "@/lib/researchRunStore";
 
 export type NoteSnippet = {
   id: string;
@@ -70,6 +71,15 @@ export type ResearchProgressEvent =
   | { type: "clarify"; questions: string[]; assumedIntent: string }
   | { type: "plan"; plan: ResearchPlan; intent?: string; awaitingApproval?: boolean }
   | { type: "question"; index: number; total: number; question: string }
+  | { type: "question_done"; index: number; total: number; adequate: boolean }
+  | {
+      type: "progress";
+      pct: number;
+      done: number;
+      total: number;
+      etaSec?: number;
+    }
+  | { type: "guidance_applied"; text: string }
   | { type: "sources"; web: number; notes: number }
   | { type: "done"; report: ResearchReport }
   | { type: "error"; message: string };
@@ -493,6 +503,49 @@ function mergeAllSources(findings: ResearchFinding[]): CitationSource[] {
   return out;
 }
 
+/** Simple concurrency pool */
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length || 1)) },
+    async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= items.length) break;
+        results[i] = await fn(items[i], i);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+function emitProgress(
+  emit: ((e: ResearchProgressEvent) => void) | undefined,
+  done: number,
+  total: number,
+  startedAt: number,
+  phaseWeight: "hunt" | "report"
+) {
+  if (!total) return;
+  const huntPct = Math.min(78, Math.round((done / total) * 70) + 12);
+  const pct = phaseWeight === "report" ? Math.min(95, huntPct + 12) : huntPct;
+  const elapsed = Date.now() - startedAt;
+  let etaSec: number | undefined;
+  if (done > 0 && done < total) {
+    const per = elapsed / done;
+    etaSec = Math.round(((total - done) * per + 25000) / 1000);
+  } else if (done >= total && phaseWeight === "hunt") {
+    etaSec = 25;
+  }
+  emit?.({ type: "progress", pct, done, total, etaSec });
+}
+
 export async function synthesizeReport(
   topic: string,
   plan: ResearchPlan,
@@ -590,6 +643,10 @@ export type RunDeepResearchOpts = {
   maxRetries?: number;
   /** Prefer these domains/sites when searching (OpenAI-style source focus) */
   preferredDomains?: string[];
+  /** Parallel hunt concurrency (1–3). Default 2 for standard, 3 for max. */
+  concurrency?: number;
+  /** Mid-run guidance store key */
+  runId?: string;
   onProgress?: (e: ResearchProgressEvent) => void;
 };
 
@@ -633,10 +690,15 @@ export async function runDeepResearch(
     .map((d) => d.trim())
     .filter(Boolean)
     .slice(0, 8);
+  const concurrency = Math.max(
+    1,
+    Math.min(3, opts?.concurrency ?? (depth === "max" ? 3 : 2))
+  );
+  const runId = opts?.runId;
 
   emit?.({
     type: "log",
-    message: `深度模式：${cfg.label}（最多 ${maxQuestions} 題、自我修正 ${maxRetries} 次）`,
+    message: `深度模式：${cfg.label}（最多 ${maxQuestions} 題、自我修正 ${maxRetries} 次、並行 ${concurrency}）`,
   });
   if (preferredDomains.length) {
     emit?.({
@@ -731,11 +793,11 @@ export async function runDeepResearch(
 
   const questions = plan.questions.slice(0, maxQuestions);
 
-  // ── 3–4. Hunt + Analyze (with retry) ────────────────────
+  // ── 3–4. Hunt + Analyze (parallel + mid-run guidance) ──
   emit?.({
     type: "phase",
     phase: "hunt",
-    detail: `混合搜尋：網路 + ${libraryNotes.length} 則筆記庫`,
+    detail: `混合搜尋：網路 + ${libraryNotes.length} 則筆記庫（並行 ${concurrency}）`,
   });
   if (libraryNotes.length) {
     emit?.({
@@ -744,11 +806,30 @@ export async function runDeepResearch(
     });
   }
 
-  const findings: ResearchFinding[] = [];
-  let citeCursor = 1;
+  const huntStarted = Date.now();
+  let doneCount = 0;
+  let extraKeywords = [...plan.keywords];
+  const extraContextBits: string[] = [];
+  emitProgress(emit, 0, questions.length, huntStarted, "hunt");
 
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i];
+  const findings = await mapPool(questions, concurrency, async (q, i) => {
+    if (runId) {
+      const tips = drainResearchGuidance(runId);
+      for (const t of tips) {
+        emit?.({ type: "guidance_applied", text: t });
+        emit?.({
+          type: "log",
+          level: "warn",
+          message: `已注入方向：${t.slice(0, 120)}`,
+        });
+        extraKeywords = [
+          ...extraKeywords,
+          ...t.split(/[\s,，]+/).filter(Boolean).slice(0, 4),
+        ];
+        extraContextBits.push(t);
+      }
+    }
+
     emit?.({ type: "question", index: i + 1, total: questions.length, question: q });
     emit?.({
       type: "phase",
@@ -759,21 +840,25 @@ export async function runDeepResearch(
     const finding = await gatherOnQuestion(topic, q, {
       model,
       libraryNotes,
-      keywordPool: plan.keywords,
-      citeStart: citeCursor,
+      keywordPool: extraKeywords,
+      citeStart: i * 50 + 1,
       maxRetries,
       preferredDomains,
       emit,
     });
-    citeCursor += finding.sources.length;
-    findings.push(finding);
 
-    const all = mergeAllSources(findings);
+    if (extraContextBits.length) {
+      finding.summary = `${finding.summary}\n\n（使用者中途補充：${extraContextBits.slice(-2).join("；")}）`;
+    }
+
+    doneCount += 1;
     emit?.({
-      type: "sources",
-      web: all.filter((s) => s.kind === "web").length,
-      notes: all.filter((s) => s.kind === "note").length,
+      type: "question_done",
+      index: i + 1,
+      total: questions.length,
+      adequate: finding.adequate,
     });
+    emitProgress(emit, doneCount, questions.length, huntStarted, "hunt");
     emit?.({
       type: "log",
       level: "ok",
@@ -781,11 +866,22 @@ export async function runDeepResearch(
         finding.retries ? `（含 ${finding.retries} 次自我修正）` : ""
       }`,
     });
+    return finding;
+  });
+
+  {
+    const all = mergeAllSources(findings);
+    emit?.({
+      type: "sources",
+      web: all.filter((s) => s.kind === "web").length,
+      notes: all.filter((s) => s.kind === "note").length,
+    });
   }
 
   // ── 5. Report ───────────────────────────────────────────
   emit?.({ type: "phase", phase: "report", detail: "撰寫完整引用報告…" });
   emit?.({ type: "log", message: "正在整合發現、對照筆記並加上腳註…" });
+  emitProgress(emit, questions.length, questions.length, huntStarted, "report");
 
   const sources = mergeAllSources(findings);
   const uriToIndex = new Map(
@@ -798,9 +894,18 @@ export async function runDeepResearch(
     }));
   }
 
+  const synthContext = [
+    opts?.context,
+    extraContextBits.length
+      ? `使用者中途補充方向：\n${extraContextBits.join("\n")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
   const { markdown, summary } = await synthesizeReport(topic, plan, findings, sources, {
     model,
-    context: opts?.context,
+    context: synthContext || undefined,
     intent,
   });
 
@@ -813,6 +918,7 @@ export async function runDeepResearch(
     level: "ok",
     message: `報告完成：${webSources.length} 個網路來源、${noteSources.length} 則筆記引用`,
   });
+  emit?.({ type: "progress", pct: 100, done: questions.length, total: questions.length });
 
   const report: ResearchReport = {
     title: plan.title,

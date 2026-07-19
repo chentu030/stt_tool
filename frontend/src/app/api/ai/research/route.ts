@@ -13,6 +13,11 @@ import {
   type ResearchPlan,
   type ResearchProgressEvent,
 } from "@/lib/deepResearch";
+import {
+  createResearchRunId,
+  ensureResearchRun,
+  endResearchRun,
+} from "@/lib/researchRunStore";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -39,7 +44,9 @@ export async function GET() {
 }
 
 function sseEncode(
-  event: ResearchProgressEvent | { type: "meta"; model: string; depth: string }
+  event:
+    | ResearchProgressEvent
+    | { type: "meta"; model: string; depth: string; runId?: string }
 ): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
@@ -119,12 +126,14 @@ export async function POST(req: NextRequest) {
       .map((n) => ({
         id: String(n.id),
         title: String(n.title).slice(0, 200),
-        excerpt: String(n.excerpt || "").slice(0, 1200),
+        excerpt: String(n.excerpt || "").slice(0, 1800),
         updatedAt: n.updatedAt ? String(n.updatedAt) : undefined,
       }));
 
     const mode = data.mode === "refine" ? "refine" : "research";
     const stream = data.stream !== false;
+    const runId = createResearchRunId();
+    ensureResearchRun(runId);
 
     const encoder = new TextEncoder();
 
@@ -138,19 +147,27 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const run = async (send?: (e: ResearchProgressEvent | { type: "meta"; model: string; depth: string }) => void) => {
-        send?.({ type: "meta", model: researchModel, depth });
-        return refineResearchReport(topic, plan, findings, {
-          model: researchModel,
-          context: data.context?.trim() || undefined,
-          intent: plan.angle,
-          libraryNotes,
-          preferredDomains,
-          maxRetries: cfg.maxRetries + 1,
-          questions: data.refineQuestions?.map(String).filter(Boolean),
-          addQuestions: data.addQuestions?.map(String).filter(Boolean),
-          onProgress: send,
-        });
+      const run = async (
+        send?: (
+          e: ResearchProgressEvent | { type: "meta"; model: string; depth: string; runId?: string }
+        ) => void
+      ) => {
+        send?.({ type: "meta", model: researchModel, depth, runId });
+        try {
+          return await refineResearchReport(topic, plan, findings, {
+            model: researchModel,
+            context: data.context?.trim() || undefined,
+            intent: plan.angle,
+            libraryNotes,
+            preferredDomains,
+            maxRetries: cfg.maxRetries + 1,
+            questions: data.refineQuestions?.map(String).filter(Boolean),
+            addQuestions: data.addQuestions?.map(String).filter(Boolean),
+            onProgress: send,
+          });
+        } finally {
+          endResearchRun(runId);
+        }
       };
 
       if (!stream) {
@@ -196,12 +213,14 @@ export async function POST(req: NextRequest) {
       maxQuestions: Math.min(8, Math.max(3, data.maxQuestions || cfg.maxQuestions)),
       maxRetries: cfg.maxRetries,
       preferredDomains,
+      runId,
+      concurrency: depth === "max" ? 3 : 2,
     };
 
     if (!stream) {
       try {
         const report = await runDeepResearch(topic, runOpts);
-        return NextResponse.json({ ...report, model: researchModel, depth });
+        return NextResponse.json({ ...report, model: researchModel, depth, runId });
       } catch (e) {
         if (e instanceof ClarifyNeededError) {
           return NextResponse.json({
@@ -210,6 +229,7 @@ export async function POST(req: NextRequest) {
             assumedIntent: e.assumedIntent,
             model: researchModel,
             depth,
+            runId,
           });
         }
         if (e instanceof PlanApprovalNeededError) {
@@ -219,22 +239,27 @@ export async function POST(req: NextRequest) {
             intent: e.intent,
             model: researchModel,
             depth,
+            runId,
           });
         }
         throw e;
+      } finally {
+        endResearchRun(runId);
       }
     }
 
     const readable = new ReadableStream({
       async start(controller) {
         const send = (
-          event: ResearchProgressEvent | { type: "meta"; model: string; depth: string }
+          event:
+            | ResearchProgressEvent
+            | { type: "meta"; model: string; depth: string; runId?: string }
         ) => {
           controller.enqueue(encoder.encode(sseEncode(event)));
         };
 
         try {
-          send({ type: "meta", model: researchModel, depth });
+          send({ type: "meta", model: researchModel, depth, runId });
           await runDeepResearch(topic, {
             ...runOpts,
             onProgress: (e) => send(e),
@@ -252,6 +277,7 @@ export async function POST(req: NextRequest) {
             });
           }
         } finally {
+          endResearchRun(runId);
           controller.close();
         }
       },

@@ -52,11 +52,18 @@ export default function LibraryRail({
       <section className="kb-rail-section">
         <h3>捷徑</h3>
         <div className="kb-shortcuts">
+          <Link
+            href={`/library?folder=${encodeURIComponent("深度研究")}`}
+            className="is-pin"
+          >
+            深度研究
+          </Link>
           <Link href="/journal">日誌</Link>
           <Link href="/board">看板</Link>
           <Link href="/graph">連結圖</Link>
           <Link href="/canvas">白板</Link>
           <Link href="/capture">捕捉</Link>
+          <Link href="/research">啟動研究</Link>
         </div>
       </section>
 
@@ -70,17 +77,22 @@ export default function LibraryRail({
           <span>全部</span>
           <em>{stats.noteCount}</em>
         </button>
-        {folders.map((f) => (
-          <button
-            key={f.name}
-            type="button"
-            className={`kb-rail-item${folderFilter === (f.name === "未分類" ? "__none__" : f.name) ? " is-active" : ""}`}
-            onClick={() => onFolder(f.name === "未分類" ? "__none__" : f.name)}
-          >
-            <span>{f.name}</span>
-            <em>{f.count}</em>
-          </button>
-        ))}
+        {(() => {
+          const pinned = folders.find((f) => f.name === "深度研究");
+          const rest = folders.filter((f) => f.name !== "深度研究");
+          const ordered = pinned ? [pinned, ...rest] : rest;
+          return ordered.map((f) => (
+            <button
+              key={f.name}
+              type="button"
+              className={`kb-rail-item${folderFilter === (f.name === "未分類" ? "__none__" : f.name) ? " is-active" : ""}${f.name === "深度研究" ? " is-pin" : ""}`}
+              onClick={() => onFolder(f.name === "未分類" ? "__none__" : f.name)}
+            >
+              <span>{f.name}</span>
+              <em>{f.count}</em>
+            </button>
+          ));
+        })()}
       </section>
 
       <section className="kb-rail-section">

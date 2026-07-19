@@ -231,8 +231,18 @@ function DeepResearchPageInner() {
   const [followBusy, setFollowBusy] = useState(false);
   const [transformBusy, setTransformBusy] = useState("");
   const [transformOut, setTransformOut] = useState("");
+  const [runId, setRunId] = useState("");
+  const [progressPct, setProgressPct] = useState(0);
+  const [etaSec, setEtaSec] = useState<number | undefined>();
+  const [checklist, setChecklist] = useState<
+    { q: string; status: "pending" | "active" | "done" | "weak" }[]
+  >([]);
+  const [guidance, setGuidance] = useState("");
+  const [guidanceBusy, setGuidanceBusy] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef("");
 
   useEffect(() => {
     if (!user) return;
@@ -294,6 +304,15 @@ function DeepResearchPageInner() {
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [fullscreen]);
 
   const libraryNotes = useMemo(() => toLibraryNotes(notes), [notes]);
 
@@ -391,7 +410,42 @@ function DeepResearchPageInner() {
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
+    setRunId("");
+    runIdRef.current = "";
     pushLog("已中止研究", "warn");
+  };
+
+  const copyShareLink = async () => {
+    if (!savedId) return;
+    const url = `${window.location.origin}/notes/${savedId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      pushLog("已複製筆記連結", "ok");
+    } catch {
+      setError("無法複製連結");
+    }
+  };
+
+  const injectGuidance = async () => {
+    const text = guidance.trim();
+    const id = runIdRef.current || runId;
+    if (!text || !id || guidanceBusy) return;
+    setGuidanceBusy(true);
+    try {
+      const res = await fetch("/api/ai/research/guidance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: id, text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "注入失敗");
+      pushLog(`已送出方向（下一輪搜尋會採用）：${text.slice(0, 80)}`, "warn");
+      setGuidance("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "注入失敗");
+    } finally {
+      setGuidanceBusy(false);
+    }
   };
 
   const persistReport = async (r: Report, topicText: string) => {
@@ -499,52 +553,86 @@ function DeepResearchPageInner() {
           continue;
         }
 
-        const type = event.type as string;
-        if (type === "meta" && typeof event.model === "string") {
-          streamModel = event.model;
-          setModelUsed(event.model);
-        } else if (type === "log") {
-          pushLog(String(event.message || ""), (event.level as LogItem["level"]) || "info");
-        } else if (type === "phase") {
-          setPhase((event.phase as Phase) || "");
-          if (event.detail) pushLog(String(event.detail));
-        } else if (type === "clarify") {
-          const qs = (event.questions as string[]) || [];
-          setClarifyQs(qs);
-          setClarifyAnswers(qs.map(() => ""));
-          setAssumedIntent(String(event.assumedIntent || ""));
-          pushLog("等待你回答澄清問題…", "warn");
-        } else if (type === "plan") {
-          const plan = event.plan as Plan;
-          if (event.awaitingApproval) {
-            setDraftPlan({
-              title: plan.title || topic.slice(0, 40),
-              angle: plan.angle || "",
-              questions: [...(plan.questions || [])],
-              keywords: [...(plan.keywords || [])],
+          const type = event.type as string;
+          if (type === "meta") {
+            if (typeof event.model === "string") {
+              streamModel = event.model;
+              setModelUsed(event.model);
+            }
+            if (typeof event.runId === "string") {
+              setRunId(event.runId);
+              runIdRef.current = event.runId;
+            }
+          } else if (type === "log") {
+            pushLog(String(event.message || ""), (event.level as LogItem["level"]) || "info");
+          } else if (type === "phase") {
+            setPhase((event.phase as Phase) || "");
+            if (event.detail) pushLog(String(event.detail));
+          } else if (type === "clarify") {
+            const qs = (event.questions as string[]) || [];
+            setClarifyQs(qs);
+            setClarifyAnswers(qs.map(() => ""));
+            setAssumedIntent(String(event.assumedIntent || ""));
+            pushLog("等待你回答澄清問題…", "warn");
+          } else if (type === "plan") {
+            const plan = event.plan as Plan;
+            if (event.awaitingApproval) {
+              setDraftPlan({
+                title: plan.title || topic.slice(0, 40),
+                angle: plan.angle || "",
+                questions: [...(plan.questions || [])],
+                keywords: [...(plan.keywords || [])],
+              });
+              setAssumedIntent(String(event.intent || ""));
+              pushLog("研究計畫已就緒，請審核後繼續", "warn");
+            }
+            if (plan?.questions?.length) {
+              setChecklist(
+                plan.questions.map((q) => ({ q, status: "pending" as const }))
+              );
+            }
+          } else if (type === "question") {
+            const idx = Number(event.index) || 0;
+            pushLog(`子問題 ${event.index}/${event.total}：${event.question}`, "info");
+            setChecklist((prev) =>
+              prev.map((row, i) =>
+                i === idx - 1 ? { ...row, status: "active", q: String(event.question || row.q) } : row
+              )
+            );
+          } else if (type === "question_done") {
+            const idx = Number(event.index) || 0;
+            setChecklist((prev) =>
+              prev.map((row, i) =>
+                i === idx - 1
+                  ? { ...row, status: event.adequate ? "done" : "weak" }
+                  : row
+              )
+            );
+          } else if (type === "progress") {
+            setProgressPct(Number(event.pct) || 0);
+            setEtaSec(
+              typeof event.etaSec === "number" ? event.etaSec : undefined
+            );
+          } else if (type === "guidance_applied") {
+            pushLog(`方向已套用：${event.text}`, "warn");
+          } else if (type === "sources") {
+            setSourceStats({
+              web: Number(event.web) || 0,
+              notes: Number(event.notes) || 0,
             });
-            setAssumedIntent(String(event.intent || ""));
-            pushLog("研究計畫已就緒，請審核後繼續", "warn");
+          } else if (type === "done") {
+            const r = { ...(event.report as Report), model: streamModel };
+            setReport(r);
+            setPhase("");
+            setDraftPlan(null);
+            setProgressPct(100);
+            setChat([]);
+            setTransformOut("");
+            pushLog("深度研究完成", "ok");
+            opts?.onDone?.(r);
+          } else if (type === "error") {
+            throw new Error(String(event.message || "研究失敗"));
           }
-        } else if (type === "question") {
-          pushLog(`子問題 ${event.index}/${event.total}：${event.question}`, "info");
-        } else if (type === "sources") {
-          setSourceStats({
-            web: Number(event.web) || 0,
-            notes: Number(event.notes) || 0,
-          });
-        } else if (type === "done") {
-          const r = { ...(event.report as Report), model: streamModel };
-          setReport(r);
-          setPhase("");
-          setDraftPlan(null);
-          setChat([]);
-          setTransformOut("");
-          pushLog("深度研究完成", "ok");
-          opts?.onDone?.(r);
-        } else if (type === "error") {
-          throw new Error(String(event.message || "研究失敗"));
-        }
       }
     }
   };
@@ -562,6 +650,11 @@ function DeepResearchPageInner() {
     setSavedId(null);
     setClarifyQs([]);
     setDraftPlan(null);
+    setProgressPct(0);
+    setEtaSec(undefined);
+    setChecklist([]);
+    setRunId("");
+    runIdRef.current = "";
     setPhase(opts?.approvedPlan ? "hunt" : "clarify");
     if (opts?.resetLogs !== false) {
       setLogs([]);
@@ -630,6 +723,8 @@ function DeepResearchPageInner() {
     } finally {
       abortRef.current = null;
       setBusy(false);
+      setRunId("");
+      runIdRef.current = "";
     }
   };
 
@@ -687,6 +782,8 @@ function DeepResearchPageInner() {
     } finally {
       abortRef.current = null;
       setBusy(false);
+      setRunId("");
+      runIdRef.current = "";
     }
   };
 
@@ -880,6 +977,8 @@ function DeepResearchPageInner() {
     } finally {
       abortRef.current = null;
       setBusy(false);
+      setRunId("");
+      runIdRef.current = "";
     }
   };
 
@@ -965,6 +1064,14 @@ function DeepResearchPageInner() {
           <p className="page-sub">
             與筆記本結合：從筆記啟動、指定研究範圍、存成子筆記或寫回原文。
           </p>
+        </div>
+        <div className="dr-head-actions">
+          <Link href={`/library?folder=${encodeURIComponent("深度研究")}`} className="btn btn-sm btn-soft">
+            知識庫 · 深度研究
+          </Link>
+          <Link href="/library" className="btn btn-sm btn-ghost">
+            知識庫
+          </Link>
         </div>
       </header>
 
@@ -1253,6 +1360,12 @@ function DeepResearchPageInner() {
           {history.length > 0 && (
             <div className="dr-history">
               <h3>最近報告</h3>
+              <p className="dr-hint">
+                自動存檔也在{" "}
+                <Link href={`/library?folder=${encodeURIComponent("深度研究")}`}>
+                  知識庫「深度研究」
+                </Link>
+              </p>
               <ul>
                 {history.slice(0, 6).map((h) => (
                   <li key={h.id}>
@@ -1292,9 +1405,58 @@ function DeepResearchPageInner() {
                 </div>
                 <span className="dr-src-stat">
                   網路 {sourceStats.web} · 筆記 {sourceStats.notes}
+                  {progressPct > 0 ? ` · ${progressPct}%` : ""}
+                  {etaSec != null && busy ? ` · 約 ${etaSec}s` : ""}
                 </span>
               </div>
-              {busy && <div className="dr-busy-bar" />}
+              {busy && (
+                <div className="dr-progress">
+                  <div
+                    className="dr-progress-fill"
+                    style={{ width: `${Math.max(4, progressPct)}%` }}
+                  />
+                </div>
+              )}
+              {checklist.length > 0 && (
+                <ul className="dr-checklist">
+                  {checklist.map((c, i) => (
+                    <li key={i} className={`is-${c.status}`}>
+                      <span>
+                        {c.status === "done"
+                          ? "✓"
+                          : c.status === "weak"
+                            ? "!"
+                            : c.status === "active"
+                              ? "…"
+                              : "○"}
+                      </span>
+                      {c.q}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {busy && (
+                <div className="dr-inject">
+                  <input
+                    className="input"
+                    placeholder="執行中注入方向，例如：多比較開源方案…"
+                    value={guidance}
+                    disabled={guidanceBusy || !runId}
+                    onChange={(e) => setGuidance(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void injectGuidance();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={guidanceBusy || !guidance.trim() || !runId}
+                    onClick={() => void injectGuidance()}
+                  >
+                    注入
+                  </button>
+                </div>
+              )}
               <ul className="dr-log">
                 {logs.map((l) => (
                   <li key={l.id} className={`dr-log-item is-${l.level}`}>
@@ -1368,10 +1530,26 @@ function DeepResearchPageInner() {
                     </button>
                   )}
                   {savedId && (
-                    <Link href={`/notes/${savedId}`} className="btn btn-sm btn-soft">
-                      開啟
-                    </Link>
+                    <>
+                      <Link href={`/notes/${savedId}`} className="btn btn-sm btn-soft">
+                        開啟
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => void copyShareLink()}
+                      >
+                        複製連結
+                      </button>
+                    </>
                   )}
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setFullscreen(true)}
+                  >
+                    全螢幕
+                  </button>
                   <button
                     type="button"
                     className="btn btn-sm btn-ghost"
@@ -1619,6 +1797,86 @@ function DeepResearchPageInner() {
           )}
         </section>
       </div>
+
+      {fullscreen && report && (
+        <div className="dr-fs" role="dialog" aria-modal="true" aria-label="全螢幕報告">
+          <div className="dr-fs-bar">
+            <strong>{report.title}</strong>
+            <div className="dr-fs-actions">
+              {savedId && (
+                <Link href={`/notes/${savedId}`} className="btn btn-sm btn-soft">
+                  開啟筆記
+                </Link>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setFullscreen(false)}
+              >
+                關閉 Esc
+              </button>
+            </div>
+          </div>
+          <div className="dr-fs-body">
+            {toc.length > 0 && (
+              <nav className="dr-fs-toc">
+                <h3>目錄</h3>
+                <ul>
+                  {toc.map((t) => (
+                    <li key={t.id} className={t.level === 3 ? "is-h3" : ""}>
+                      <a href={`#fs-${t.id}`} onClick={() => {}}>
+                        {t.text}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            )}
+            <div className="dr-fs-main">
+              <div className="dr-summary-card">
+                <h3>摘要</h3>
+                <p>{report.summary}</p>
+              </div>
+              <article
+                className="dr-markdown prose-dr"
+                dangerouslySetInnerHTML={{
+                  __html: (renderedHtml || `<pre>${report.markdown}</pre>`).replace(
+                    /id="([^"]+)"/g,
+                    'id="fs-$1"'
+                  ),
+                }}
+              />
+            </div>
+            <aside className="dr-fs-sources">
+              <h3>來源</h3>
+              <div className="dr-graph-col">
+                <h4>網路（{report.webSources?.length || 0}）</h4>
+                <ul>
+                  {(report.webSources || []).map((s) => (
+                    <li key={`fs-w-${s.index}`}>
+                      <span className="dr-cite">[{s.index}]</span>{" "}
+                      <a href={s.uri} target="_blank" rel="noreferrer">
+                        {s.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="dr-graph-col">
+                <h4>筆記（{report.noteSources?.length || 0}）</h4>
+                <ul>
+                  {(report.noteSources || []).map((s) => (
+                    <li key={`fs-n-${s.index}`}>
+                      <span className="dr-cite">[{s.index}]</span>{" "}
+                      <Link href={s.uri}>{s.title}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </aside>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
