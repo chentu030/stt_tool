@@ -115,6 +115,17 @@ service cloud.firestore {
     function isTeamAdmin(teamId) {
       return isTeamMember(teamId) && (teamRole(teamId) == 'owner' || teamRole(teamId) == 'admin');
     }
+    function channelData(teamId, channelId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)/channels/$(channelId)).data;
+    }
+    function canAccessChannel(teamId, channelId) {
+      let d = channelData(teamId, channelId);
+      return isTeamMember(teamId) && (
+        d.is_private != true
+        || d.created_by == request.auth.uid
+        || (d.keys().hasAll(['member_ids']) && request.auth.uid in d.member_ids)
+      );
+    }
 
     match /teams/{teamId} {
       allow create: if signedIn() && request.resource.data.created_by == request.auth.uid;
@@ -134,28 +145,42 @@ service cloud.firestore {
       }
 
       match /channels/{channelId} {
-        allow read, create: if isTeamMember(teamId);
+        // Metadata readable by all members so list queries work; client filters private.
+        // Message content is gated by canAccessChannel.
+        allow read: if isTeamMember(teamId);
+        allow create: if isTeamMember(teamId);
         allow update: if isTeamMember(teamId);
         allow delete: if isTeamAdmin(teamId);
 
         match /messages/{messageId} {
-          allow read: if isTeamMember(teamId);
-          allow create: if isTeamMember(teamId)
+          allow read: if canAccessChannel(teamId, channelId);
+          allow create: if canAccessChannel(teamId, channelId)
             && request.resource.data.author_id == request.auth.uid;
-          allow update: if isTeamMember(teamId)
+          allow update: if canAccessChannel(teamId, channelId)
             && (
               resource.data.author_id == request.auth.uid
               || isTeamAdmin(teamId)
               || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
             );
-          allow delete: if isTeamMember(teamId)
+          allow delete: if canAccessChannel(teamId, channelId)
             && (resource.data.author_id == request.auth.uid || isTeamAdmin(teamId));
+        }
+
+        match /typing/{typerId} {
+          allow read: if canAccessChannel(teamId, channelId);
+          allow write: if canAccessChannel(teamId, channelId)
+            && request.auth.uid == typerId;
         }
       }
 
       match /pins/{pinId} {
         allow read, create, delete: if isTeamMember(teamId);
         allow update: if isTeamMember(teamId);
+      }
+
+      match /activity/{activityId} {
+        allow read: if isTeamMember(teamId);
+        allow create: if isTeamMember(teamId);
       }
     }
 
@@ -175,6 +200,11 @@ service cloud.firestore {
       match /reads/{channelId} {
         allow read, write: if signedIn() && request.auth.uid == uid;
       }
+    }
+
+    match /users/{uid}/notifications/{notifId} {
+      allow read, update, delete: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn();
     }
 
     // ─── Live cursor presence on note pages ──────────────────

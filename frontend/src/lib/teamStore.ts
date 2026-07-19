@@ -43,6 +43,8 @@ export type Channel = {
   name: string;
   topic?: string;
   is_private: boolean;
+  /** For private channels: uids allowed (always includes creator). */
+  member_ids?: string[];
   created_by: string;
   created_at: Date;
   last_message_at?: Date;
@@ -62,6 +64,7 @@ export type Message = {
   note_id?: string;
   note_title?: string;
   reactions?: Record<string, string>;
+  mentions?: string[];
 };
 
 export type InviteStatus = "pending" | "accepted" | "revoked";
@@ -92,6 +95,30 @@ export type TeamPin = {
   title: string;
   pinned_by: string;
   pinned_at: Date;
+};
+
+export type TeamNotification = {
+  id: string;
+  type: "mention" | "invite" | "activity";
+  team_id: string;
+  channel_id?: string;
+  message_id?: string;
+  from_uid?: string;
+  from_name?: string;
+  text: string;
+  created_at: Date;
+  read: boolean;
+};
+
+export type TeamActivity = {
+  id: string;
+  kind: string;
+  text: string;
+  actor_id: string;
+  actor_name?: string;
+  channel_id?: string;
+  note_id?: string;
+  created_at: Date;
 };
 
 function slugify(name: string): string {
@@ -158,11 +185,15 @@ function memberFromDoc(uid: string, data: Record<string, unknown>): Member {
 }
 
 function channelFromDoc(id: string, data: Record<string, unknown>): Channel {
+  const member_ids = Array.isArray(data.member_ids)
+    ? data.member_ids.map(String)
+    : undefined;
   return {
     id,
     name: String(data.name || "頻道"),
     topic: data.topic ? String(data.topic) : undefined,
     is_private: !!data.is_private,
+    member_ids,
     created_by: String(data.created_by || ""),
     created_at: (data.created_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     last_message_at: (data.last_message_at as { toDate?: () => Date })?.toDate?.(),
@@ -188,6 +219,7 @@ function messageFromDoc(id: string, data: Record<string, unknown>): Message {
     note_id: data.note_id ? String(data.note_id) : undefined,
     note_title: data.note_title ? String(data.note_title) : undefined,
     reactions,
+    mentions: Array.isArray(data.mentions) ? data.mentions.map(String) : undefined,
   };
 }
 
@@ -243,6 +275,7 @@ export async function createTeam(
     name: "一般",
     topic: "",
     is_private: false,
+    member_ids: [],
     created_by: uid,
     created_at: now,
   });
@@ -302,11 +335,22 @@ export function listenMembers(teamId: string, cb: (members: Member[]) => void): 
   });
 }
 
-export function listenChannels(teamId: string, cb: (channels: Channel[]) => void): Unsubscribe {
+export function canAccessChannel(ch: Channel, uid: string): boolean {
+  if (!ch.is_private) return true;
+  if (ch.created_by === uid) return true;
+  return (ch.member_ids || []).includes(uid);
+}
+
+export function listenChannels(
+  teamId: string,
+  cb: (channels: Channel[]) => void,
+  uid?: string
+): Unsubscribe {
   return onSnapshot(
     channelsCol(teamId),
     (snap) => {
-      const list = snap.docs.map((d) => channelFromDoc(d.id, d.data()));
+      let list = snap.docs.map((d) => channelFromDoc(d.id, d.data()));
+      if (uid) list = list.filter((c) => canAccessChannel(c, uid));
       list.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
       cb(list);
     },
@@ -318,15 +362,26 @@ export async function createChannel(
   teamId: string,
   uid: string,
   name: string,
-  opts?: { topic?: string; is_private?: boolean }
+  opts?: { topic?: string; is_private?: boolean; member_ids?: string[] }
 ): Promise<string> {
   const ref = doc(channelsCol(teamId));
+  const isPrivate = !!opts?.is_private;
+  const member_ids = isPrivate
+    ? Array.from(new Set([uid, ...(opts?.member_ids || [])]))
+    : [];
   await setDoc(ref, {
     name: name.trim() || "新頻道",
     topic: opts?.topic || "",
-    is_private: !!opts?.is_private,
+    is_private: isPrivate,
+    member_ids,
     created_by: uid,
     created_at: Timestamp.now(),
+  });
+  await pushActivity(teamId, {
+    kind: "channel_created",
+    text: `建立頻道 #${name.trim() || "新頻道"}${isPrivate ? "（私人）" : ""}`,
+    actor_id: uid,
+    channel_id: ref.id,
   });
   return ref.id;
 }
@@ -361,6 +416,9 @@ export type SendMessageInput = {
   kind?: MessageKind;
   note_id?: string;
   note_title?: string;
+  mentions?: string[];
+  /** Used only to resolve @names → uids; not stored. */
+  members?: Member[];
 };
 
 export async function sendMessage(
@@ -371,6 +429,9 @@ export async function sendMessage(
   const ref = doc(messagesCol(teamId, channelId));
   const now = Timestamp.now();
   const kind = msg.kind || "text";
+  const mentions =
+    msg.mentions ||
+    extractMentionUids(msg.text, msg.members);
   await setDoc(ref, {
     author_id: msg.author_id,
     author_name: msg.author_name || "",
@@ -380,9 +441,9 @@ export async function sendMessage(
     note_id: msg.note_id || "",
     note_title: msg.note_title || "",
     reactions: {},
+    mentions,
     created_at: now,
   });
-  // Denormalize for unread badges (top-level channel feed only)
   if (!msg.thread_id) {
     const preview =
       kind === "note_share"
@@ -393,7 +454,52 @@ export async function sendMessage(
       last_message_preview: preview,
     }).catch(() => undefined);
   }
+  for (const uid of mentions) {
+    if (uid === msg.author_id) continue;
+    await pushNotification(uid, {
+      type: "mention",
+      team_id: teamId,
+      channel_id: channelId,
+      message_id: ref.id,
+      from_uid: msg.author_id,
+      from_name: msg.author_name || "",
+      text: msg.text.slice(0, 120),
+    }).catch(() => undefined);
+  }
+  if (!msg.thread_id && kind === "note_share") {
+    await pushActivity(teamId, {
+      kind: "note_share",
+      text: `分享了筆記「${msg.note_title || "筆記"}」`,
+      actor_id: msg.author_id,
+      actor_name: msg.author_name,
+      channel_id: channelId,
+      note_id: msg.note_id,
+    }).catch(() => undefined);
+  }
   return ref.id;
+}
+
+/** Match @DisplayName against members; also accept raw @uid. */
+export function extractMentionUids(text: string, members?: Member[]): string[] {
+  if (!text) return [];
+  const found = new Set<string>();
+  const re = /@([^\s@]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const token = m[1];
+    if (members?.length) {
+      const hit = members.find(
+        (x) =>
+          x.uid === token ||
+          x.display_name === token ||
+          (x.display_name && x.display_name.replace(/\s+/g, "") === token)
+      );
+      if (hit) found.add(hit.uid);
+    } else if (/^[a-zA-Z0-9_-]{6,}$/.test(token)) {
+      found.add(token);
+    }
+  }
+  return Array.from(found);
 }
 
 export async function toggleMessageReaction(
@@ -553,6 +659,12 @@ export async function pinNote(
     pinned_by: uid,
     pinned_at: Timestamp.now(),
   });
+  await pushActivity(teamId, {
+    kind: "pin",
+    text: `釘選筆記「${title || "筆記"}」`,
+    actor_id: uid,
+    note_id: noteId,
+  }).catch(() => undefined);
 }
 
 export async function unpinNote(teamId: string, noteId: string): Promise<void> {
@@ -594,3 +706,167 @@ export async function findMembershipsAcrossTeams(
 }
 
 export const REACTION_EMOJIS = ["👍", "🔥", "👀", "✅", "🎉", "❤️"] as const;
+
+function activityCol(teamId: string) {
+  return collection(db, "teams", teamId, "activity");
+}
+function typingCol(teamId: string, channelId: string) {
+  return collection(db, "teams", teamId, "channels", channelId, "typing");
+}
+function notificationsCol(uid: string) {
+  return collection(db, "users", uid, "notifications");
+}
+
+export async function pushActivity(
+  teamId: string,
+  entry: {
+    kind: string;
+    text: string;
+    actor_id: string;
+    actor_name?: string;
+    channel_id?: string;
+    note_id?: string;
+  }
+): Promise<void> {
+  await setDoc(doc(activityCol(teamId)), {
+    ...entry,
+    actor_name: entry.actor_name || "",
+    channel_id: entry.channel_id || "",
+    note_id: entry.note_id || "",
+    created_at: Timestamp.now(),
+  });
+}
+
+export function listenActivity(
+  teamId: string,
+  cb: (items: TeamActivity[]) => void,
+  limitCount = 40
+): Unsubscribe {
+  const q = query(activityCol(teamId), orderBy("created_at", "desc"), fsLimit(limitCount));
+  return onSnapshot(q, (snap) => {
+    cb(
+      snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          kind: String(data.kind || ""),
+          text: String(data.text || ""),
+          actor_id: String(data.actor_id || ""),
+          actor_name: data.actor_name ? String(data.actor_name) : undefined,
+          channel_id: data.channel_id ? String(data.channel_id) : undefined,
+          note_id: data.note_id ? String(data.note_id) : undefined,
+          created_at: data.created_at?.toDate?.() || new Date(),
+        };
+      })
+    );
+  });
+}
+
+export async function pushNotification(
+  uid: string,
+  n: Omit<TeamNotification, "id" | "created_at" | "read">
+): Promise<void> {
+  await setDoc(doc(notificationsCol(uid)), {
+    ...n,
+    channel_id: n.channel_id || "",
+    message_id: n.message_id || "",
+    from_uid: n.from_uid || "",
+    from_name: n.from_name || "",
+    read: false,
+    created_at: Timestamp.now(),
+  });
+}
+
+export function listenNotifications(
+  uid: string,
+  cb: (items: TeamNotification[]) => void,
+  limitCount = 30
+): Unsubscribe {
+  const q = query(notificationsCol(uid), orderBy("created_at", "desc"), fsLimit(limitCount));
+  return onSnapshot(
+    q,
+    (snap) => {
+      cb(
+        snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            type: (data.type as TeamNotification["type"]) || "activity",
+            team_id: String(data.team_id || ""),
+            channel_id: data.channel_id ? String(data.channel_id) : undefined,
+            message_id: data.message_id ? String(data.message_id) : undefined,
+            from_uid: data.from_uid ? String(data.from_uid) : undefined,
+            from_name: data.from_name ? String(data.from_name) : undefined,
+            text: String(data.text || ""),
+            created_at: data.created_at?.toDate?.() || new Date(),
+            read: !!data.read,
+          };
+        })
+      );
+    },
+    (err) => console.error("[listenNotifications]", err)
+  );
+}
+
+export async function markNotificationRead(uid: string, id: string): Promise<void> {
+  await updateDoc(doc(notificationsCol(uid), id), { read: true });
+}
+
+export async function markAllNotificationsRead(
+  uid: string,
+  items: TeamNotification[]
+): Promise<void> {
+  await Promise.all(
+    items.filter((n) => !n.read).map((n) => markNotificationRead(uid, n.id).catch(() => undefined))
+  );
+}
+
+export async function setTyping(
+  teamId: string,
+  channelId: string,
+  uid: string,
+  name: string
+): Promise<void> {
+  await setDoc(doc(typingCol(teamId, channelId), uid), {
+    uid,
+    name,
+    at: Timestamp.now(),
+  });
+}
+
+export async function clearTyping(
+  teamId: string,
+  channelId: string,
+  uid: string
+): Promise<void> {
+  await deleteDoc(doc(typingCol(teamId, channelId), uid)).catch(() => undefined);
+}
+
+export function listenTyping(
+  teamId: string,
+  channelId: string,
+  cb: (people: { uid: string; name: string }[]) => void
+): Unsubscribe {
+  return onSnapshot(typingCol(teamId, channelId), (snap) => {
+    const now = Date.now();
+    const people = snap.docs
+      .map((d) => {
+        const data = d.data();
+        const at = data.at?.toDate?.()?.getTime?.() || 0;
+        if (now - at > 5000) return null;
+        return { uid: String(data.uid || d.id), name: String(data.name || "某人") };
+      })
+      .filter(Boolean) as { uid: string; name: string }[];
+    cb(people);
+  });
+}
+
+export async function updateChannelMembers(
+  teamId: string,
+  channelId: string,
+  memberIds: string[]
+): Promise<void> {
+  await updateDoc(doc(channelsCol(teamId), channelId), {
+    member_ids: memberIds,
+  });
+}

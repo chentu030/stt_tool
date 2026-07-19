@@ -11,7 +11,15 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
 import GlobalAiDock from "@/components/shell/GlobalAiDock";
-import { listenUserTeams, listenChannels, listenChannelReads, channelIsUnread, type TeamMembership, type Channel } from "@/lib/teamStore";
+import {
+  listenUserTeams,
+  listenChannels,
+  listenChannelReads,
+  listenNotifications,
+  channelIsUnread,
+  type TeamMembership,
+  type Channel,
+} from "@/lib/teamStore";
 
 const NAV_APPS = [
   { href: "/library", label: "知識庫", icon: LibraryIcon },
@@ -141,6 +149,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [teamUnread, setTeamUnread] = useState(0);
+  const [mentionUnread, setMentionUnread] = useState(0);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
@@ -198,6 +207,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
       rootUnsub();
       teamUnsubs.forEach((u) => u());
     };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setMentionUnread(0);
+      return;
+    }
+    return listenNotifications(user.uid, (items) => {
+      setMentionUnread(items.filter((n) => n.type === "mention" && !n.read).length);
+    });
   }, [user]);
 
   useEffect(() => {
@@ -338,8 +357,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
             >
               <item.icon />
               <span>{item.label}</span>
-              {item.href === "/team" && teamUnread > 0 && (
-                <em className="sidebar-badge">{teamUnread > 9 ? "9+" : teamUnread}</em>
+              {item.href === "/team" && teamUnread + mentionUnread > 0 && (
+                <em className="sidebar-badge">
+                  {teamUnread + mentionUnread > 9 ? "9+" : teamUnread + mentionUnread}
+                </em>
               )}
             </Link>
           ))}

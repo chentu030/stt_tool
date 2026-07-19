@@ -7691,6 +7691,7 @@ button, input, textarea, select {
   flex-direction: column;
   gap: 0.35rem;
 }
+.tm-sidebar-foot .btn.is-on { background: var(--accent-soft); color: var(--accent); }
 .tm-room:has(.tm-thread-panel) {
   grid-template-columns: 220px 1fr min(320px, 36vw);
 }
@@ -7843,16 +7844,35 @@ button, input, textarea, select {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  position: relative;
 }
 .tm-main-head {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 0.6rem;
   padding: 0.85rem 1.1rem;
   border-bottom: 1px solid var(--border);
 }
 .tm-channel-title { font-weight: 700; font-size: 0.95rem; }
 .tm-channel-topic { font-size: 0.78rem; color: var(--text-muted); }
+.tm-lock { font-size: 0.72rem; margin-left: 0.15rem; }
+.tm-main-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.tm-search {
+  width: 180px;
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
+}
+.tm-search-count {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 .tm-messages {
   flex: 1;
   overflow-y: auto;
@@ -7882,6 +7902,115 @@ button, input, textarea, select {
   border-top: 1px solid var(--border);
 }
 .tm-composer .input { flex: 1; }
+.tm-composer-wrap { position: relative; flex: 1; display: flex; }
+.tm-composer-wrap .input { flex: 1; }
+
+.tm-typing {
+  padding: 0 1.1rem 0.35rem;
+  margin: 0;
+  font-size: 0.74rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.tm-mention {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.tm-mention-menu {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  left: 0;
+  min-width: 200px;
+  max-width: 280px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  z-index: 30;
+}
+.tm-mention-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+.tm-mention-menu-item:hover { background: var(--bg-muted); }
+
+.tm-ai-panel {
+  position: absolute;
+  top: 3.6rem;
+  right: 1rem;
+  width: min(380px, 92vw);
+  max-height: min(60vh, 480px);
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  z-index: 25;
+}
+.tm-ai-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tm-ai-panel-text {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: var(--text-main);
+  margin: 0;
+}
+.tm-ai-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.tm-activity-panel .tm-thread-replies { gap: 0.15rem; }
+.tm-activity-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.tm-activity-item:hover { background: var(--bg-muted); }
+.tm-activity-text { font-size: 0.82rem; line-height: 1.4; }
+.tm-activity-time { font-size: 0.68rem; color: var(--text-muted); }
+
+.tm-note-flash {
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-decoration: none;
+  align-self: flex-start;
+}
 
 .tm-invite-dialog { width: min(440px, 100%); }
 .tm-invite-roles {
