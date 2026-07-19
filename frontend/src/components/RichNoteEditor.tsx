@@ -71,6 +71,7 @@ export default function RichNoteEditor({
     if (typeof window === "undefined") return "#fde047";
     return localStorage.getItem("cadence_hl_color") || "#fde047";
   });
+  const [hlCustoms, setHlCustoms] = useState<string[]>(() => loadHlCustoms());
   const hlPanelRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const showFind = findOpen ?? false;
@@ -85,6 +86,14 @@ export default function RichNoteEditor({
       /* ignore */
     }
   }, [hlColor]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cadence_hl_customs", JSON.stringify(hlCustoms));
+    } catch {
+      /* ignore */
+    }
+  }, [hlCustoms]);
 
   useEffect(() => {
     if (!hlOpen) return;
@@ -118,6 +127,28 @@ export default function RichNoteEditor({
     if (ed.state.selection.empty) return;
     ed.chain().focus().setHighlight({ color: next }).run();
   };
+
+  const pickPreset = (c: string) => {
+    setHighlightColor(c);
+    applyHighlight(c);
+  };
+
+  const addCustomColor = () => {
+    const next = normalizeHex(hlColor);
+    if (!next) return;
+    if (HL_PRESETS.includes(next) || hlCustoms.includes(next)) return;
+    setHlCustoms((prev) => [next, ...prev].slice(0, 16));
+  };
+
+  const removeCustomColor = (c: string) => {
+    setHlCustoms((prev) => prev.filter((x) => x !== c));
+  };
+
+  const canAddCustom = (() => {
+    const next = normalizeHex(hlColor);
+    if (!next) return false;
+    return !HL_PRESETS.includes(next) && !hlCustoms.includes(next);
+  })();
 
   const rgb = hexToRgb(hlColor);
 
@@ -488,21 +519,63 @@ export default function RichNoteEditor({
           </button>
           {hlOpen && (
             <div className="hl-panel">
-              <div className="hl-presets">
-                {HL_PRESETS.map((c) => (
+              <div className="hl-section">
+                <p className="hl-section-label">預設</p>
+                <div className="hl-presets">
+                  {HL_PRESETS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      className={`hl-preset${hlColor === c ? " is-on" : ""}`}
+                      style={{ background: c }}
+                      title={c}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickPreset(c)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="hl-section">
+                <div className="hl-section-head">
+                  <p className="hl-section-label">我的顏色</p>
                   <button
-                    key={c}
                     type="button"
-                    className={`hl-preset${hlColor === c ? " is-on" : ""}`}
-                    style={{ background: c }}
-                    title={c}
+                    className="hl-add-btn"
+                    disabled={!canAddCustom}
+                    title={canAddCustom ? "把目前顏色加入常用" : "已在色盤中"}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      setHighlightColor(c);
-                      applyHighlight(c);
-                    }}
-                  />
-                ))}
+                    onClick={addCustomColor}
+                  >
+                    + 新增
+                  </button>
+                </div>
+                {hlCustoms.length === 0 ? (
+                  <p className="hl-empty">用下方色盤調色後按「+ 新增」</p>
+                ) : (
+                  <div className="hl-presets hl-presets--custom">
+                    {hlCustoms.map((c) => (
+                      <div key={c} className="hl-custom-slot">
+                        <button
+                          type="button"
+                          className={`hl-preset${hlColor === c ? " is-on" : ""}`}
+                          style={{ background: c }}
+                          title={c}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => pickPreset(c)}
+                        />
+                        <button
+                          type="button"
+                          className="hl-remove"
+                          title="移除"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => removeCustomColor(c)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <label className="hl-row">
                 <span>色盤</span>
@@ -694,6 +767,25 @@ const HL_PRESETS = [
   "#fca5a5",
   "#e2e8f0",
 ];
+
+const HL_CUSTOMS_KEY = "cadence_hl_customs";
+
+function loadHlCustoms(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(HL_CUSTOMS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x) => (typeof x === "string" ? normalizeHex(x) : null))
+      .filter((x): x is string => !!x)
+      .filter((c, i, arr) => arr.indexOf(c) === i && !HL_PRESETS.includes(c))
+      .slice(0, 16);
+  } catch {
+    return [];
+  }
+}
 
 function normalizeHex(c: string): string | null {
   const s = c.trim();

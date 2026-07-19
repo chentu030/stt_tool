@@ -2629,7 +2629,7 @@ button, input, textarea, select {
   top: calc(100% + 6px);
   left: 0;
   z-index: 80;
-  width: 220px;
+  width: 232px;
   padding: 0.55rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -2637,12 +2637,78 @@ button, input, textarea, select {
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.5rem;
+}
+.hl-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.hl-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+.hl-section-label {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.hl-add-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.hl-add-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.hl-empty {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.35;
 }
 .hl-presets {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 0.25rem;
+}
+.hl-presets--custom {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+.hl-custom-slot {
+  position: relative;
+}
+.hl-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.hl-remove:hover {
+  color: var(--text-main);
+  border-color: var(--text-muted);
 }
 .hl-preset {
   width: 100%;
