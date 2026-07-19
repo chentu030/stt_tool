@@ -18,6 +18,7 @@ import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ContinueChips, { jobContinueChips } from "@/components/shell/ContinueChips";
+import { toast } from "@/lib/toast";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -103,12 +104,17 @@ export default function JobPage() {
         </div>
         {showWorkspace && (
           <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", position: "relative" }}>
+            {linkedNoteId ? (
+              <Link href={`/notes/${linkedNoteId}`} className="btn btn-sm">
+                開啟筆記
+              </Link>
+            ) : null}
             <button
               className="btn btn-sm btn-ghost"
               disabled={busy}
               onClick={() => setTplOpen((v) => !v)}
             >
-              範本 ▾
+              {linkedNoteId ? "再建一則 ▾" : "範本 ▾"}
             </button>
             {tplOpen && (
               <div className="doc-more-menu" style={{ right: 0, top: "110%" }}>
@@ -138,6 +144,7 @@ export default function JobPage() {
                             t.tags
                           );
                           setLinkedNoteId(noteId);
+                          toast("已建立筆記");
                           router.push(`/notes/${noteId}`);
                         } finally {
                           setBusy(false);
@@ -200,9 +207,10 @@ export default function JobPage() {
                     ["會議", ...(meeting?.tags || [])]
                   );
                   setLinkedNoteId(noteId);
+                  toast("已建立會議筆記");
                   router.push(`/notes/${noteId}`);
                 } catch (e) {
-                  alert(e instanceof Error ? e.message : "會議整理失敗");
+                  toast(e instanceof Error ? e.message : "會議整理失敗");
                 } finally {
                   setBusy(false);
                 }
@@ -210,28 +218,31 @@ export default function JobPage() {
             >
               {busy ? "整理中…" : "AI 會議筆記"}
             </button>
-            <button
-              className="btn btn-sm"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
-                  const noteId = await createNote(
-                    user.uid,
-                    current.filename || "來自轉錄的筆記",
-                    plain,
-                    job.id
-                  );
-                  setLinkedNoteId(noteId);
-                  router.push(`/notes/${noteId}`);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {busy ? "建立中…" : "轉成筆記"}
-            </button>
+            {!linkedNoteId && (
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
+                    const noteId = await createNote(
+                      user.uid,
+                      current.filename || "來自轉錄的筆記",
+                      plain,
+                      job.id
+                    );
+                    setLinkedNoteId(noteId);
+                    toast("已轉成筆記");
+                    router.push(`/notes/${noteId}`);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "建立中…" : "轉成筆記"}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -247,7 +258,10 @@ export default function JobPage() {
 
       {job.status === "error" && (
         <div className="card tx-alert" style={{ color: "var(--danger)" }}>
-          {job.error_message || "處理失敗"}
+          <p style={{ margin: "0 0 0.65rem" }}>{job.error_message || "處理失敗"}</p>
+          <Link href="/capture" className="btn btn-sm">
+            再捕捉
+          </Link>
         </div>
       )}
 

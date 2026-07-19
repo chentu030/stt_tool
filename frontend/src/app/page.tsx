@@ -132,7 +132,19 @@ export default function HomePage() {
             <Link href="/library" style={{ color: "var(--accent-2)", fontSize: "0.85rem" }}>全部</Link>
           </div>
           {recentNotes.length === 0 ? (
-            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>還沒有筆記。轉錄完成後可一鍵轉成筆記。</p>
+            <div className="hub-empty">
+              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", margin: 0 }}>
+                還沒有筆記
+              </p>
+              <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                <Link href="/library" className="btn btn-ghost btn-sm">
+                  知識庫
+                </Link>
+                <Link href="/capture" className="btn btn-sm">
+                  去捕捉
+                </Link>
+              </div>
+            </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
               {recentNotes.map((n, i) => (
@@ -155,7 +167,14 @@ export default function HomePage() {
             <Link href="/library?tab=jobs" style={{ color: "var(--accent-2)", fontSize: "0.85rem" }}>全部</Link>
           </div>
           {recentJobs.length === 0 ? (
-            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>尚無轉錄紀錄。</p>
+            <div className="hub-empty">
+              <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", margin: 0 }}>
+                尚無轉錄紀錄
+              </p>
+              <Link href="/capture" className="btn btn-sm">
+                開始捕捉
+              </Link>
+            </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
               {recentJobs.map((j, i) => (

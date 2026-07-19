@@ -42,7 +42,7 @@ export default function DatabasesIndexPage() {
     return (
       <div>
         <ScrambleText words="資料庫" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後建立 Notion 式資料庫。</p>
+        <p className="page-sub">登入後建立屬性表格與多視圖資料庫。</p>
         <button type="button" className="btn" onClick={() => void loginWithGoogle()}>
           登入
         </button>
@@ -63,7 +63,12 @@ export default function DatabasesIndexPage() {
       </div>
       <ContinueChips className="cdb-continue" chips={siloContinueChips()} />
       {list.length === 0 ? (
-        <p className="cdb-empty">尚無資料庫。建立一個，或在筆記輸入 /database。</p>
+        <div className="cdb-empty cdb-empty--cta">
+          <p>尚無資料庫。建立一個，或在筆記輸入 /database。</p>
+          <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+            {busy ? "…" : "建立第一個資料庫"}
+          </button>
+        </div>
       ) : (
         <div className="cdb-index-grid">
           {list.map((d) => (

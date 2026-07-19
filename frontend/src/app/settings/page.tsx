@@ -24,6 +24,7 @@ import {
   resetPrefs,
 } from "@/lib/userPrefs";
 import { AI_TEXT_MODELS } from "@/lib/aiPrefs";
+import { toast } from "@/lib/toast";
 
 function Row({
   label,
@@ -97,7 +98,6 @@ export default function SettingsPage() {
   const { user, loading } = useAuth();
   const { prefs, setPrefs, replacePrefs } = usePrefs();
   const [section, setSection] = useState<SettingsSectionId>("appearance");
-  const [toast, setToast] = useState("");
   const [importText, setImportText] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -106,18 +106,13 @@ export default function SettingsPage() {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [section]);
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2400);
-  };
-
   const patch = (p: Partial<UserPrefs>) => setPrefs(p);
 
   const doReset = () => {
     void (async () => {
       if (!(await askConfirm({ title: "重設所有偏好？", message: "將恢復為預設值。", danger: true, confirmLabel: "重設" }))) return;
       replacePrefs(resetPrefs());
-      flash("已重設偏好");
+      toast("已重設偏好");
     })();
   };
 
@@ -129,7 +124,7 @@ export default function SettingsPage() {
     a.download = "cadence-prefs.json";
     a.click();
     URL.revokeObjectURL(url);
-    flash("已匯出偏好");
+    toast("已匯出偏好");
   };
 
   const doImportPaste = () => {
@@ -137,9 +132,9 @@ export default function SettingsPage() {
       const next = importPrefsJson(importText);
       replacePrefs(next);
       setImportText("");
-      flash("已匯入偏好");
+      toast("已匯入偏好");
     } catch {
-      flash("匯入失敗：JSON 格式不正確");
+      toast("匯入失敗：JSON 格式不正確");
     }
   };
 
@@ -147,9 +142,9 @@ export default function SettingsPage() {
     try {
       const text = await file.text();
       replacePrefs(importPrefsJson(text));
-      flash("已從檔案匯入");
+      toast("已從檔案匯入");
     } catch {
-      flash("匯入失敗");
+      toast("匯入失敗");
     }
   };
 
@@ -157,7 +152,7 @@ export default function SettingsPage() {
     void (async () => {
       if (!(await askConfirm({ title: "清除本機快取？", message: "清除白板／圖譜位置快取，不會刪除雲端筆記。", confirmLabel: "清除" }))) return;
       const n = clearLocalWorkspaceCaches(user?.uid);
-      flash(`已清除 ${n} 筆本機快取`);
+      toast(`已清除 ${n} 筆本機快取`);
     })();
   };
 
@@ -796,7 +791,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {toast && <div className="st-toast">{toast}</div>}
     </div>
   );
 }

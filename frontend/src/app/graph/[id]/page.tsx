@@ -28,6 +28,7 @@ import StageSelectionAi from "@/components/StageSelectionAi";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 import { downloadText } from "@/lib/libraryIndex";
+import { toast } from "@/lib/toast";
 import { askPrompt } from "@/lib/dialogs";
 import {
   createGraph,
@@ -106,7 +107,6 @@ export default function GraphDetailPage() {
   const [spaceDown, setSpaceDown] = useState(false);
   const [pathMode, setPathMode] = useState(false);
   const [pathEnds, setPathEnds] = useState<[string | null, string | null]>([null, null]);
-  const [toast, setToast] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiError, setAiError] = useState("");
@@ -356,18 +356,13 @@ export default function GraphDetailPage() {
     });
   }, [searchParams, painted, full, configReady]);
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2200);
-  };
-
   const patchFilters = (patch: Partial<GraphFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
   };
 
   const onRelayout = () => {
     setRelayoutNonce((t) => t + 1);
-    flash("已重算佈局");
+    toast("已重算佈局");
   };
 
   const onClearPositions = () => {
@@ -375,7 +370,7 @@ export default function GraphDetailPage() {
     positionsRef.current = {};
     void updateGraph(user.uid, graphId, { positions: {} });
     setRelayoutNonce((t) => t + 1);
-    flash("已清除記住的位置");
+    toast("已清除記住的位置");
   };
 
   const onFit = () => {
@@ -493,7 +488,7 @@ export default function GraphDetailPage() {
       setPathEnds(([a]) => {
         if (!a) return [id, null];
         if (id !== a) {
-          flash("已標記路徑兩端");
+          toast("已標記路徑兩端");
           return [a, id];
         }
         return [id, null];
@@ -595,7 +590,7 @@ export default function GraphDetailPage() {
         setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md: body } : nt)));
         setSelectedId(hit.id);
         setSelAiOpen(true);
-        flash(files.length > 1 ? `已附加 ${files.length} 個檔案到「${hit.title}」` : `已附加到「${hit.title}」`);
+        toast(files.length > 1 ? `已附加 ${files.length} 個檔案到「${hit.title}」` : `已附加到「${hit.title}」`);
       } else {
         let lastNodeId: string | null = null;
         for (let i = 0; i < files.length; i++) {
@@ -616,10 +611,10 @@ export default function GraphDetailPage() {
           setSelectedId(lastNodeId);
           setSelAiOpen(true);
         }
-        flash(files.length > 1 ? `已建立 ${files.length} 則筆記` : "已建立筆記並附加檔案");
+        toast(files.length > 1 ? `已建立 ${files.length} 則筆記` : "已建立筆記並附加檔案");
       }
     } catch (err) {
-      flash(err instanceof Error ? err.message : "拖放失敗");
+      toast(err instanceof Error ? err.message : "拖放失敗");
     }
   };
 
@@ -631,7 +626,7 @@ export default function GraphDetailPage() {
     const body_md = `${current}${sep}${trimmed}\n`;
     await updateNote(noteId, { body_md });
     setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md } : nt)));
-    flash("已加入筆記");
+    toast("已加入筆記");
   };
 
   const applySelAiImageToNote = async (noteId: string, file: File) => {
@@ -639,7 +634,7 @@ export default function GraphDetailPage() {
     const current = notes.find((nt) => nt.id === noteId)?.body_md || "";
     const res = await appendMediaToNote(user.uid, noteId, file, current);
     setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md: res.body_md } : nt)));
-    flash("已插入圖片到筆記");
+    toast("已插入圖片到筆記");
   };
 
   const askAi = async () => {
@@ -692,7 +687,7 @@ ${orphanLines || "（無）"}`;
   const createGhostNote = async (title: string) => {
     if (!user) return;
     const id = await createNote(user.uid, title, `# ${title}\n\n`, undefined, []);
-    flash(`已建立「${title}」`);
+    toast(`已建立「${title}」`);
     setSelectedId(nodeIdForNote(id));
   };
 
@@ -1023,8 +1018,6 @@ ${orphanLines || "（無）"}`;
           onCreateGhost={createGhostNote}
         />
       </div>
-
-      {toast && <div className="gp-toast">{toast}</div>}
 
       <StageSelectionAi
         open={showSelAi}

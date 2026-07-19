@@ -17,6 +17,8 @@ import {
   type TeamMembership,
   type Channel,
 } from "@/lib/teamStore";
+import { askConfirm } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 
 type Props = {
   open: boolean;
@@ -63,6 +65,15 @@ export default function ShareDialog({
       setTeamShared(false);
     }
   }, [open, share]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!open || !user) return;
@@ -115,11 +126,22 @@ export default function ShareDialog({
   };
 
   const disable = async () => {
+    if (
+      !(await askConfirm({
+        title: "停止分享？",
+        message: "連結將立即失效，已分享的人將無法再開啟。",
+        danger: true,
+        confirmLabel: "停止分享",
+      }))
+    ) {
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       await disableNoteShare(noteId, share?.token);
       onUpdated(null);
+      toast("已停止分享");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -132,6 +154,7 @@ export default function ShareDialog({
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);
+      toast("已複製連結");
       setTimeout(() => setCopied(false), 1600);
     } catch {
       setError("無法複製連結");
@@ -157,6 +180,7 @@ export default function ShareDialog({
         pin: pinToo,
       });
       setTeamShared(true);
+      toast("已送到頻道");
     } catch (e) {
       setError(e instanceof Error ? e.message : "分享到團隊失敗");
     } finally {

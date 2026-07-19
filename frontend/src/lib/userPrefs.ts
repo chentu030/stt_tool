@@ -439,6 +439,7 @@ export const SHORTCUT_HELP: { keys: string; action: string }[] = [
   { keys: "[[", action: "Wiki 連結建議" },
   { keys: "Space（圖譜／白板）", action: "暫時平移" },
   { keys: "⌘/Ctrl + S（日誌）", action: "儲存當日快速寫入" },
+  { keys: "⌘/Ctrl + S（逐字稿）", action: "儲存逐字稿編輯" },
   { keys: "⌘/Ctrl + Enter（捕捉）", action: "開始轉錄" },
   { keys: "貼上（捕捉）", action: "貼上影片連結" },
 ];

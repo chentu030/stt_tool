@@ -22,6 +22,7 @@ import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
+import { toast } from "@/lib/toast";
 import {
   type CanvasDoc,
   type CanvasEdge,
@@ -91,7 +92,6 @@ export default function CanvasIdPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingShape, setEditingShape] = useState<string | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
-  const [toast, setToast] = useState("");
   const [history, setHistory] = useState<CanvasDoc[]>([]);
   const [asideOpen, setAsideOpen] = useState(true);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
@@ -156,11 +156,6 @@ export default function CanvasIdPage() {
     return () => clearTimeout(t);
   }, [doc, user, canvasId, ready]);
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2000);
-  };
-
   const pushHistory = useCallback((prev: CanvasDoc) => {
     setHistory((h) => [...h.slice(-29), prev]);
   }, []);
@@ -182,7 +177,7 @@ export default function CanvasIdPage() {
       setDoc(prev);
       return h.slice(0, -1);
     });
-    flash("已復原");
+    toast("已復原");
   };
 
   const noteMap = useMemo(() => {
@@ -302,7 +297,7 @@ export default function CanvasIdPage() {
         ...d,
         stickies: d.stickies.map((s) => (s.id === id ? { ...s, text: clean } : s)),
       }));
-      flash("已更新便利貼");
+      toast("已更新便利貼");
       return;
     }
     const box = selectionInfo?.box;
@@ -317,7 +312,7 @@ export default function CanvasIdPage() {
     });
     updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
     setSelected([{ type: "sticky", id: sticky.id }]);
-    flash("已新增便利貼");
+    toast("已新增便利貼");
   };
 
   const applyStageAiInsert = (text: string) => {
@@ -337,7 +332,7 @@ export default function CanvasIdPage() {
     });
     updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
     setSelected([{ type: "sticky", id: sticky.id }]);
-    flash("已插入便利貼");
+    toast("已插入便利貼");
   };
 
   const applyStageAiImage = async (file: File) => {
@@ -364,7 +359,7 @@ export default function CanvasIdPage() {
         frameable: true,
       });
     } catch (e) {
-      flash(e instanceof Error ? e.message : "上傳失敗");
+      toast(e instanceof Error ? e.message : "上傳失敗");
     } finally {
       setUploadBusy(false);
     }
@@ -384,7 +379,7 @@ export default function CanvasIdPage() {
     updateDoc((d) => ({ ...d, media: [...(d.media || []), m] }));
     setSelected([{ type: "media", id: m.id }]);
     setTool("select");
-    flash(`已插入${item.title || "媒體"}`);
+    toast(`已插入${item.title || "媒體"}`);
   };
 
   const insertFiles = async (files: FileList | File[], at?: { x: number; y: number }) => {
@@ -424,7 +419,7 @@ export default function CanvasIdPage() {
         i += 1;
       }
     } catch (e) {
-      flash(e instanceof Error ? e.message : "上傳失敗");
+      toast(e instanceof Error ? e.message : "上傳失敗");
     } finally {
       setUploadBusy(false);
     }
@@ -439,7 +434,7 @@ export default function CanvasIdPage() {
     if (!raw?.trim()) return;
     const resolved = resolveEmbedUrl(raw.trim());
     if (!resolved) {
-      flash("無法解析網址");
+      toast("無法解析網址");
       return;
     }
     const mediaMap: Record<string, CanvasMediaKind> = {
@@ -504,7 +499,7 @@ export default function CanvasIdPage() {
       const ref = refIdForSelectable(hit);
       if (!connectFrom) {
         setConnectFrom(ref);
-        flash("已選起點，再點終點");
+        toast("已選起點，再點終點");
         return;
       }
       if (connectFrom === ref) {
@@ -514,7 +509,7 @@ export default function CanvasIdPage() {
       const edge: CanvasEdge = { id: uid("e"), kind: "edge", from: connectFrom, to: ref };
       updateDoc((d) => ({ ...d, edges: [...d.edges, edge] }));
       setConnectFrom(null);
-      flash("已建立連線");
+      toast("已建立連線");
       return;
     }
 
@@ -813,20 +808,20 @@ export default function CanvasIdPage() {
       };
     });
     setSelected([]);
-    flash("已刪除");
+    toast("已刪除");
   }, [selected, updateDoc]);
 
   const doCopy = useCallback(() => {
     if (!selected.length) return;
     setClipboard(copySelection(doc, selected));
-    flash("已複製");
+    toast("已複製");
   }, [doc, selected]);
 
   const doCut = useCallback(() => {
     if (!selected.length) return;
     setClipboard(copySelection(doc, selected));
     deleteSelected();
-    flash("已剪下");
+    toast("已剪下");
   }, [doc, selected, deleteSelected]);
 
   const doPaste = useCallback(() => {
@@ -834,7 +829,7 @@ export default function CanvasIdPage() {
     const { doc: next, selected: sel } = pasteClipboard(doc, clipboard);
     updateDoc(() => next);
     setSelected(sel);
-    flash("已貼上");
+    toast("已貼上");
   }, [clipboard, doc, updateDoc]);
 
   const startEdit = () => {
@@ -862,7 +857,7 @@ export default function CanvasIdPage() {
         ],
       };
     });
-    flash("已釘上畫布");
+    toast("已釘上畫布");
   };
 
   const focusNote = (noteId: string) => {
@@ -940,7 +935,7 @@ export default function CanvasIdPage() {
   const applyOps = (ops: CanvasAiOp[]) => {
     if (!ops.length) return;
     updateDoc((d) => applyCanvasOps(d, ops, new Set(notes.map((n) => n.id))));
-    flash(`已套用 ${ops.length} 項 AI 變更`);
+    toast(`已套用 ${ops.length} 項 AI 變更`);
   };
 
   const fitAll = useCallback(() => {
@@ -1146,7 +1141,7 @@ export default function CanvasIdPage() {
           }}
           onAutoLayout={() => {
             updateDoc((d) => ({ ...d, notes: autoLayoutNotes(d.notes) }));
-            flash("已自動排版");
+            toast("已自動排版");
           }}
           onExport={() => {
             const blob = new Blob([exportCanvasJson(doc)], { type: "application/json" });
@@ -1167,7 +1162,7 @@ export default function CanvasIdPage() {
               if (!raw) return;
               const next = importCanvasJson(raw);
               if (!next) {
-                flash("JSON 無效");
+                toast("JSON 無效");
                 return;
               }
               updateDoc(() => next);
@@ -1460,7 +1455,6 @@ export default function CanvasIdPage() {
         />
       )}
 
-      {toast && <p className="cv-toast">{toast}</p>}
       {connectFrom && <p className="cv-toast">連線中… 再點終點</p>}
     </div>
   );

@@ -590,7 +590,18 @@ function LibraryPageInner() {
           {tab === "jobs" && (
             <section className="kb-jobs">
               {filteredJobs.length === 0 ? (
-                <p className="kb-rail-muted">沒有符合的轉錄。</p>
+                <div className="kb-empty">
+                  {jobs.length === 0 ? (
+                    <>
+                      <p>還沒有轉錄</p>
+                      <Link href="/capture" className="btn btn-sm">
+                        去捕捉
+                      </Link>
+                    </>
+                  ) : (
+                    <p className="kb-rail-muted">沒有符合的轉錄。</p>
+                  )}
+                </div>
               ) : (
                 filteredJobs.map((j) => (
                   <div key={j.id} className="kb-job">
