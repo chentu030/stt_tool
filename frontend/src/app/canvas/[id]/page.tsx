@@ -12,17 +12,21 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
+import { listenToUserNotes, loginWithGoogle, uploadCanvasMedia, type Note } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
 import CanvasAside from "@/components/canvas/CanvasAside";
+import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
+import { resolveEmbedUrl } from "@/lib/embedUrls";
 import {
   type CanvasDoc,
   type CanvasEdge,
   type CanvasShape,
   type CanvasSticky,
+  type CanvasMedia,
+  type CanvasMediaKind,
   type Selectable,
   type StickyColor,
   type ToolId,
@@ -30,6 +34,7 @@ import {
   type CanvasAiOp,
   STICKY_COLORS,
   SHAPE_COLORS,
+  MEDIA_DEFAULT_SIZE,
   autoLayoutNotes,
   clampScale,
   edgePath,
@@ -45,6 +50,8 @@ import {
   serializeCanvasForAi,
   parseCanvasAiResponse,
   applyCanvasOps,
+  mediaKindFromFile,
+  createMediaItem,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture } from "@/lib/canvasNav";
 import {
@@ -87,6 +94,7 @@ export default function CanvasIdPage() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const skipCloud = useRef(false);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
@@ -190,6 +198,12 @@ export default function CanvasIdPage() {
     s.type === "note" ? `note:${s.id}` : s.id;
 
   const hitTest = (world: { x: number; y: number }): Selectable | null => {
+    const media = [...(doc.media || [])].sort((a, b) => b.z - a.z);
+    for (const m of media) {
+      if (world.x >= m.x && world.x <= m.x + m.w && world.y >= m.y && world.y <= m.y + m.h) {
+        return { type: "media", id: m.id };
+      }
+    }
     const stickies = [...doc.stickies].sort((a, b) => b.z - a.z);
     for (const s of stickies) {
       if (world.x >= s.x && world.x <= s.x + s.w && world.y >= s.y && world.y <= s.y + s.h) {
@@ -219,6 +233,10 @@ export default function CanvasIdPage() {
       const sh = doc.shapes.find((x) => x.id === s.id);
       return sh ? { x: sh.x, y: sh.y, w: sh.w, h: sh.h } : null;
     }
+    if (s.type === "media") {
+      const m = (doc.media || []).find((x) => x.id === s.id);
+      return m ? { x: m.x, y: m.y, w: m.w, h: m.h } : null;
+    }
     if (s.type === "note") {
       const n = doc.notes.find((x) => x.noteId === s.id);
       return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null;
@@ -226,8 +244,108 @@ export default function CanvasIdPage() {
     return null;
   };
 
+  const viewportCenterWorld = () => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 80, y: 80 };
+    return {
+      x: (rect.width / 2 - doc.pan.x) / doc.scale,
+      y: (rect.height / 2 - doc.pan.y) / doc.scale,
+    };
+  };
+
+  const placeMedia = (item: Omit<CanvasMedia, "id" | "kind" | "z">) => {
+    const m = createMediaItem(item);
+    updateDoc((d) => ({ ...d, media: [...(d.media || []), m] }));
+    setSelected([{ type: "media", id: m.id }]);
+    setTool("select");
+    flash(`已插入${item.title || "媒體"}`);
+  };
+
+  const insertFiles = async (files: FileList | File[]) => {
+    if (!user || !canvasId) return;
+    const list = Array.from(files);
+    if (!list.length) return;
+    setUploadBusy(true);
+    try {
+      const center = viewportCenterWorld();
+      let i = 0;
+      for (const file of list) {
+        const kind = mediaKindFromFile(file);
+        const size = MEDIA_DEFAULT_SIZE[kind];
+        const up = await uploadCanvasMedia(user.uid, canvasId, file);
+        let url = up.url;
+        let frameable = kind === "pdf" || kind === "image" || kind === "video" || kind === "audio";
+        if (kind === "ppt") {
+          frameable = false;
+        }
+        if (kind === "pdf") {
+          // native PDF URL works in most browsers inside iframe
+          frameable = true;
+        }
+        placeMedia({
+          media: kind,
+          x: snapVal(center.x - size.w / 2 + i * 28, 22, doc.snap),
+          y: snapVal(center.y - size.h / 2 + i * 28, 22, doc.snap),
+          w: size.w,
+          h: size.h,
+          url,
+          originalUrl: up.url,
+          title: up.name,
+          mime: up.contentType,
+          storagePath: up.path,
+          frameable,
+        });
+        i += 1;
+      }
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "上傳失敗");
+    } finally {
+      setUploadBusy(false);
+    }
+  };
+
+  const insertUrl = async () => {
+    const raw = await askPrompt({
+      title: "插入網址",
+      message: "YouTube、網頁、PDF 連結等",
+      placeholder: "https://…",
+    });
+    if (!raw?.trim()) return;
+    const resolved = resolveEmbedUrl(raw.trim());
+    if (!resolved) {
+      flash("無法解析網址");
+      return;
+    }
+    const mediaMap: Record<string, CanvasMediaKind> = {
+      youtube: "youtube",
+      vimeo: "video",
+      loom: "video",
+      pdf: "pdf",
+      ppt: "ppt",
+      web: "web",
+      drive: "web",
+      figma: "web",
+      office: "web",
+      link: "link",
+    };
+    const media = mediaMap[resolved.kind] || "link";
+    const size = MEDIA_DEFAULT_SIZE[media];
+    const center = viewportCenterWorld();
+    placeMedia({
+      media,
+      x: snapVal(center.x - size.w / 2, 22, doc.snap),
+      y: snapVal(center.y - size.h / 2, 22, doc.snap),
+      w: size.w,
+      h: size.h,
+      url: resolved.src,
+      originalUrl: resolved.original,
+      title: resolved.title || resolved.original,
+      frameable: resolved.frameable,
+    });
+  };
+
   const onPointerDown = (e: REPointerEvent) => {
-    if ((e.target as HTMLElement).closest("textarea,a,button,input,.cv-handle,.cv-ctx")) return;
+    if ((e.target as HTMLElement).closest("textarea,a,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) return;
     setCtxMenu(null);
     const world = screenToWorld(e.clientX, e.clientY);
     stageRef.current?.setPointerCapture?.(e.pointerId);
@@ -443,6 +561,12 @@ export default function CanvasIdPage() {
             shapes: prev.shapes.map((sh) => (sh.id === s.id ? { ...sh, x, y, w, h } : sh)),
           };
         }
+        if (s.type === "media") {
+          return {
+            ...prev,
+            media: (prev.media || []).map((m) => (m.id === s.id ? { ...m, x, y, w, h } : m)),
+          };
+        }
         if (s.type === "note") {
           return {
             ...prev,
@@ -478,6 +602,15 @@ export default function CanvasIdPage() {
             y: snapVal(o.y + dy, 22, prev.snap),
           };
         });
+        const media = (prev.media || []).map((m) => {
+          const o = d.origin![m.id];
+          if (!o || !d.ids!.some((i) => i.type === "media" && i.id === m.id)) return m;
+          return {
+            ...m,
+            x: snapVal(o.x + dx, 22, prev.snap),
+            y: snapVal(o.y + dy, 22, prev.snap),
+          };
+        });
         const notesPins = prev.notes.map((n) => {
           const o = d.origin![n.noteId];
           if (!o || !d.ids!.some((i) => i.type === "note" && i.id === n.noteId)) return n;
@@ -487,7 +620,7 @@ export default function CanvasIdPage() {
             y: snapVal(o.y + dy, 22, prev.snap),
           };
         });
-        return { ...prev, stickies, shapes, notes: notesPins };
+        return { ...prev, stickies, shapes, media, notes: notesPins };
       });
     }
   };
@@ -511,6 +644,11 @@ export default function CanvasIdPage() {
             hits.push({ type: "shape", id: s.id });
           }
         }
+        for (const m of doc.media || []) {
+          if (m.x + m.w >= x1 && m.x <= x2 && m.y + m.h >= y1 && m.y <= y2) {
+            hits.push({ type: "media", id: m.id });
+          }
+        }
         for (const n of doc.notes) {
           if (n.x + n.w >= x1 && n.x <= x2 && n.y + n.h >= y1 && n.y <= y2) {
             hits.push({ type: "note", id: n.noteId });
@@ -530,17 +668,20 @@ export default function CanvasIdPage() {
     updateDoc((d) => {
       const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
       const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
+      const mediaIds = new Set(selected.filter((s) => s.type === "media").map((s) => s.id));
       const noteIds = new Set(selected.filter((s) => s.type === "note").map((s) => s.id));
       const edgeIds = new Set(selected.filter((s) => s.type === "edge").map((s) => s.id));
       const removeRefs = new Set([
         ...Array.from(stickyIds),
         ...Array.from(shapeIds),
+        ...Array.from(mediaIds),
         ...Array.from(noteIds).map((id) => `note:${id}`),
       ]);
       return {
         ...d,
         stickies: d.stickies.filter((s) => !stickyIds.has(s.id)),
         shapes: d.shapes.filter((s) => !shapeIds.has(s.id)),
+        media: (d.media || []).filter((m) => !mediaIds.has(m.id)),
         notes: d.notes.filter((n) => !noteIds.has(n.noteId)),
         edges: d.edges.filter(
           (e) => !edgeIds.has(e.id) && !removeRefs.has(e.from) && !removeRefs.has(e.to)
@@ -818,6 +959,13 @@ export default function CanvasIdPage() {
             })();
           }}
           canEditSelection={selected.length > 0}
+          onInsertFiles={(files) => {
+            void insertFiles(files);
+          }}
+          onInsertUrl={() => {
+            void insertUrl();
+          }}
+          uploadBusy={uploadBusy}
         />
         <div className="cv-float-actions">
           <button type="button" className="btn btn-ghost btn-sm" onClick={undo} disabled={!history.length}>
@@ -872,6 +1020,16 @@ export default function CanvasIdPage() {
               const next = applyStageWheel(e, rect, { pan: d.pan, scale: d.scale }, clampScale);
               return { ...d, pan: next.pan, scale: next.scale };
             });
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files?.length) {
+              void insertFiles(e.dataTransfer.files);
+            }
           }}
         >
           <div
@@ -1001,6 +1159,10 @@ export default function CanvasIdPage() {
                 </div>
               );
             })}
+
+            {(doc.media || []).map((m) => (
+              <CanvasMediaCard key={m.id} item={m} selected={isSelected("media", m.id)} />
+            ))}
 
             {resizeBox && (
               <div

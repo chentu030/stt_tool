@@ -93,8 +93,8 @@ export default function CanvasAside({
               <span>便利貼</span>
             </div>
             <div>
-              <strong>{doc.shapes.length}</strong>
-              <span>圖形</span>
+              <strong>{(doc.media || []).length}</strong>
+              <span>媒體</span>
             </div>
             <div>
               <strong>{doc.edges.length}</strong>

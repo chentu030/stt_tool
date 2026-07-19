@@ -195,6 +195,24 @@ export async function uploadNoteMedia(
   };
 }
 
+/** Upload media for a whiteboard under uploads/{uid}/canvases/{canvasId}/… */
+export async function uploadCanvasMedia(
+  uid: string,
+  canvasId: string,
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<{ url: string; path: string; name: string; contentType: string }> {
+  const safe = file.name.replace(/[^\w.\u4e00-\u9fff-]+/g, "_").slice(0, 80);
+  const path = `uploads/${uid}/canvases/${canvasId}/${Date.now()}_${safe}`;
+  const url = await uploadFile(path, file, onProgress);
+  return {
+    url,
+    path,
+    name: file.name,
+    contentType: file.type || "application/octet-stream",
+  };
+}
+
 export type MediaKind = "image" | "audio" | "video" | "file";
 
 export function detectMediaKind(file: File): MediaKind {

@@ -47,6 +47,37 @@ export type NotePin = {
   h: number;
 };
 
+/** Embedded / uploaded media on the canvas */
+export type CanvasMediaKind =
+  | "image"
+  | "audio"
+  | "video"
+  | "youtube"
+  | "pdf"
+  | "ppt"
+  | "file"
+  | "link"
+  | "web";
+
+export type CanvasMedia = {
+  id: string;
+  kind: "media";
+  media: CanvasMediaKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Display / play / iframe URL */
+  url: string;
+  originalUrl?: string;
+  title: string;
+  mime?: string;
+  storagePath?: string;
+  /** false → show link card instead of iframe */
+  frameable?: boolean;
+  z: number;
+};
+
 export type CanvasDoc = {
   version: 2;
   name: string;
@@ -56,6 +87,7 @@ export type CanvasDoc = {
   shapes: CanvasShape[];
   edges: CanvasEdge[];
   notes: NotePin[];
+  media: CanvasMedia[];
   grid: boolean;
   snap: boolean;
 };
@@ -69,6 +101,18 @@ export type ToolId =
   | "frame"
   | "connect"
   | "text";
+
+export const MEDIA_DEFAULT_SIZE: Record<CanvasMediaKind, { w: number; h: number }> = {
+  image: { w: 280, h: 200 },
+  audio: { w: 300, h: 88 },
+  video: { w: 360, h: 220 },
+  youtube: { w: 360, h: 220 },
+  pdf: { w: 320, h: 400 },
+  ppt: { w: 320, h: 400 },
+  file: { w: 260, h: 96 },
+  link: { w: 280, h: 96 },
+  web: { w: 360, h: 280 },
+};
 
 export const STICKY_COLORS: { id: StickyColor; label: string; bg: string; border: string }[] = [
   { id: "yellow", label: "黃", bg: "#FEF3C7", border: "#F59E0B" },
@@ -97,6 +141,7 @@ export function emptyDoc(name = "主白板"): CanvasDoc {
     shapes: [],
     edges: [],
     notes: [],
+    media: [],
     grid: true,
     snap: true,
   };
@@ -123,7 +168,12 @@ export function loadDoc(uid: string): CanvasDoc {
     }
     const parsed = JSON.parse(raw) as CanvasDoc;
     if (!parsed.version) return emptyDoc();
-    return { ...emptyDoc(), ...parsed, version: 2 };
+    return {
+      ...emptyDoc(),
+      ...parsed,
+      version: 2,
+      media: Array.isArray(parsed.media) ? parsed.media : [],
+    };
   } catch {
     return emptyDoc();
   }
@@ -150,7 +200,8 @@ export type Selectable =
   | { type: "sticky"; id: string }
   | { type: "shape"; id: string }
   | { type: "note"; id: string }
-  | { type: "edge"; id: string };
+  | { type: "edge"; id: string }
+  | { type: "media"; id: string };
 
 export function nodeCenter(
   doc: CanvasDoc,
@@ -166,6 +217,8 @@ export function nodeCenter(
   if (sticky) return { x: sticky.x + sticky.w / 2, y: sticky.y + sticky.h / 2 };
   const shape = doc.shapes.find((s) => s.id === ref);
   if (shape) return { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 };
+  const media = doc.media?.find((m) => m.id === ref);
+  if (media) return { x: media.x + media.w / 2, y: media.y + media.h / 2 };
   return null;
 }
 
@@ -263,6 +316,14 @@ export function serializeCanvasForAi(
       x: Math.round(p.x),
       y: Math.round(p.y),
     })),
+    ...(doc.media || []).map((m) => ({
+      id: m.id,
+      type: "media",
+      media: m.media,
+      title: m.title.slice(0, 80),
+      x: Math.round(m.x),
+      y: Math.round(m.y),
+    })),
   ];
   const edges = doc.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, label: e.label || "" }));
   const catalog = notes.slice(0, 80).map((n) => ({ id: n.id, title: n.title || "未命名" }));
@@ -310,6 +371,7 @@ export function applyCanvasOps(
     shapes: [...doc.shapes],
     edges: [...doc.edges],
     notes: [...doc.notes],
+    media: [...(doc.media || [])],
   };
   let z = Date.now();
   for (const op of ops) {
@@ -372,6 +434,7 @@ export function applyCanvasOps(
       const id = op.id.startsWith("note:") ? op.id.slice(5) : op.id;
       next.stickies = next.stickies.filter((s) => s.id !== op.id);
       next.shapes = next.shapes.filter((s) => s.id !== op.id);
+      next.media = (next.media || []).filter((m) => m.id !== op.id);
       next.notes = next.notes.filter((n) => n.noteId !== id);
       next.edges = next.edges.filter((e) => e.id !== op.id && e.from !== op.id && e.to !== op.id && e.from !== `note:${id}` && e.to !== `note:${id}`);
     } else if (op.op === "connect" && op.from && op.to && op.from !== op.to) {
@@ -401,6 +464,7 @@ export type ClipboardPayload = {
   stickies: CanvasSticky[];
   shapes: CanvasShape[];
   notes: NotePin[];
+  media: CanvasMedia[];
   edges: CanvasEdge[];
 };
 
@@ -408,16 +472,19 @@ export function copySelection(doc: CanvasDoc, selected: Selectable[]): Clipboard
   const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
   const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
   const noteIds = new Set(selected.filter((s) => s.type === "note").map((s) => s.id));
+  const mediaIds = new Set(selected.filter((s) => s.type === "media").map((s) => s.id));
   const stickies = doc.stickies.filter((s) => stickyIds.has(s.id));
   const shapes = doc.shapes.filter((s) => shapeIds.has(s.id));
   const notes = doc.notes.filter((n) => noteIds.has(n.noteId));
+  const media = (doc.media || []).filter((m) => mediaIds.has(m.id));
   const refs = new Set<string>([
     ...stickies.map((s) => s.id),
     ...shapes.map((s) => s.id),
+    ...media.map((m) => m.id),
     ...notes.map((n) => `note:${n.noteId}`),
   ]);
   const edges = doc.edges.filter((e) => refs.has(e.from) && refs.has(e.to));
-  return { stickies, shapes, notes, edges };
+  return { stickies, shapes, notes, media, edges };
 }
 
 export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 28): { doc: CanvasDoc; selected: Selectable[] } {
@@ -431,6 +498,11 @@ export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 
     const id = uid("sh");
     idMap.set(s.id, id);
     return { ...s, id, x: s.x + offset, y: s.y + offset, z: Date.now() };
+  });
+  const media = (clip.media || []).map((m) => {
+    const id = uid("md");
+    idMap.set(m.id, id);
+    return { ...m, id, x: m.x + offset, y: m.y + offset, z: Date.now() };
   });
   const notes = clip.notes
     .filter((n) => !doc.notes.some((d) => d.noteId === n.noteId))
@@ -453,6 +525,7 @@ export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 
   const selected: Selectable[] = [
     ...stickies.map((s) => ({ type: "sticky" as const, id: s.id })),
     ...shapes.map((s) => ({ type: "shape" as const, id: s.id })),
+    ...media.map((m) => ({ type: "media" as const, id: m.id })),
     ...notes.map((n) => ({ type: "note" as const, id: n.noteId })),
   ];
   return {
@@ -460,10 +533,34 @@ export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 
       ...doc,
       stickies: [...doc.stickies, ...stickies],
       shapes: [...doc.shapes, ...shapes],
+      media: [...(doc.media || []), ...media],
       notes: [...doc.notes, ...notes],
       edges: [...doc.edges, ...edges],
     },
     selected,
+  };
+}
+
+export function mediaKindFromFile(file: File): CanvasMediaKind {
+  const t = file.type || "";
+  const name = file.name.toLowerCase();
+  if (t.startsWith("image/")) return "image";
+  if (t.startsWith("audio/")) return "audio";
+  if (t.startsWith("video/")) return "video";
+  if (t === "application/pdf" || name.endsWith(".pdf")) return "pdf";
+  if (/\.(ppt|pptx)$/i.test(name) || t.includes("powerpoint") || t.includes("presentation")) return "ppt";
+  return "file";
+}
+
+export function createMediaItem(
+  partial: Omit<CanvasMedia, "id" | "kind" | "z"> & { z?: number }
+): CanvasMedia {
+  return {
+    id: uid("md"),
+    kind: "media",
+    z: partial.z ?? Date.now(),
+    frameable: partial.frameable,
+    ...partial,
   };
 }
 
@@ -479,6 +576,7 @@ export function boundsOf(doc: CanvasDoc): { minX: number; minY: number; maxX: nu
   const boxes: { x: number; y: number; w: number; h: number }[] = [
     ...doc.stickies,
     ...doc.shapes,
+    ...(doc.media || []),
     ...doc.notes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
   ];
   if (!boxes.length) return null;
@@ -522,7 +620,12 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
   try {
     const parsed = JSON.parse(raw) as CanvasDoc;
     if (!parsed || typeof parsed !== "object") return null;
-    return { ...emptyDoc(), ...parsed, version: 2 };
+    return {
+      ...emptyDoc(),
+      ...parsed,
+      version: 2,
+      media: Array.isArray(parsed.media) ? parsed.media : [],
+    };
   } catch {
     return null;
   }
@@ -532,6 +635,6 @@ export const CANVAS_TIPS = [
   "雙指／滾輪平移；Ctrl+滾輪縮放；Shift+滾輪左右移。",
   "右鍵或中鍵拖曳、空白鍵拖曳皆可平移。",
   "Shift+1 看全部；Shift+0 恢復 100%。",
-  "雙擊編輯；選取後拖角落調大小；右鍵選單。",
-  "Ctrl+C/V/X/Z；右側 AI 可讀寫白板。",
+  "工具列可插入圖片／語音／影片／網址／PDF／PPT／檔案，也可拖放上傳。",
+  "雙擊編輯便利貼；Ctrl+C/V/X/Z；右側 AI 可讀寫白板。",
 ];

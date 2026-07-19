@@ -2239,6 +2239,100 @@ button, input, textarea, select {
   font: inherit;
   outline: none;
 }
+.cv-media {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  user-select: none;
+}
+.cv-media.is-on {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cv-media-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.45rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 28px;
+}
+.cv-media-kind {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+  flex-shrink: 0;
+}
+.cv-media-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.cv-media-open {
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.cv-media-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+.cv-media-body img,
+.cv-media-body video,
+.cv-media-body iframe {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border: none;
+  display: block;
+  background: #0f172a08;
+}
+.cv-media-body audio {
+  width: calc(100% - 1rem);
+  margin: 0.5rem;
+}
+.cv-media-file {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  width: 100%;
+  height: 100%;
+  text-decoration: none;
+  color: var(--text-main);
+  justify-content: center;
+}
+.cv-media-file strong {
+  font-size: 0.88rem;
+}
+.cv-media-file span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
 .ws-switch {
   position: relative;
 }

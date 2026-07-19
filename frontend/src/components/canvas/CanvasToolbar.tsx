@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { STICKY_COLORS, StickyColor, ToolId } from "@/lib/canvasStore";
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
@@ -33,6 +34,9 @@ type Props = {
   onExport: () => void;
   onImport: () => void;
   canEditSelection: boolean;
+  onInsertFiles?: (files: FileList | File[]) => void;
+  onInsertUrl?: () => void;
+  uploadBusy?: boolean;
 };
 
 export default function CanvasToolbar({
@@ -55,7 +59,21 @@ export default function CanvasToolbar({
   onExport,
   onImport,
   canEditSelection,
+  onInsertFiles,
+  onInsertUrl,
+  uploadBusy,
 }: Props) {
+  const imageRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
+  const pptRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const pick = (files: FileList | null) => {
+    if (files?.length) onInsertFiles?.(files);
+  };
+
   return (
     <div className="cv-toolbar">
       <div className="cv-tool-group">
@@ -84,6 +102,48 @@ export default function CanvasToolbar({
           />
         ))}
       </div>
+
+      <div className="cv-tool-group">
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => imageRef.current?.click()} title="插入圖片">
+          圖片
+        </button>
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => audioRef.current?.click()} title="插入語音">
+          語音
+        </button>
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => videoRef.current?.click()} title="插入影片">
+          影片
+        </button>
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => onInsertUrl?.()} title="網址／YouTube／網頁">
+          網址
+        </button>
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => pdfRef.current?.click()} title="插入 PDF">
+          PDF
+        </button>
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => pptRef.current?.click()} title="插入 PPT">
+          PPT
+        </button>
+        <button type="button" className="cv-tool" disabled={uploadBusy} onClick={() => fileRef.current?.click()} title="插入檔案">
+          檔案
+        </button>
+        {uploadBusy && <span className="cv-zoom">上傳中…</span>}
+      </div>
+
+      <input ref={imageRef} type="file" accept="image/*" hidden multiple onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      <input ref={audioRef} type="file" accept="audio/*" hidden multiple onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      <input ref={videoRef} type="file" accept="video/*" hidden multiple onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      <input ref={pdfRef} type="file" accept="application/pdf,.pdf" hidden multiple onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      <input
+        ref={pptRef}
+        type="file"
+        accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        hidden
+        multiple
+        onChange={(e) => {
+          pick(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      <input ref={fileRef} type="file" hidden multiple onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
 
       <div className="cv-tool-group">
         <button type="button" className="cv-tool" onClick={onZoomOut}>－</button>
