@@ -133,9 +133,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (prefsCtx?.prefs.enableShortcuts === false) return;
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      if (mod && (key === "k" || key === "p")) {
         e.preventDefault();
         setCmdOpen(true);
+      }
+      if (mod && e.key === "[") {
+        e.preventDefault();
+        window.history.back();
       }
     };
     window.addEventListener("keydown", onKey);

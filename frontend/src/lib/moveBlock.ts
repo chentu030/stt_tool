@@ -77,3 +77,19 @@ export function topLevelBlockAt(editor: Editor, pos: number): { index: number; f
   const node = doc.child(index);
   return { index, from, to: from + node.nodeSize };
 }
+
+/** Duplicate the top-level block under the cursor (Notion-style Ctrl/Cmd+D). */
+export function duplicateTopLevelBlock(editor: Editor): boolean {
+  const { state } = editor;
+  const { $from } = state.selection;
+  if ($from.depth < 1) return false;
+  const index = $from.index(0);
+  const node = state.doc.child(index);
+  const fromPos = $from.before(1);
+  const insertAt = fromPos + node.nodeSize;
+  const tr = state.tr.insert(insertAt, node.copy(node.content));
+  const sel = Math.min(insertAt + 1, tr.doc.content.size);
+  tr.setSelection(TextSelection.near(tr.doc.resolve(sel)));
+  editor.view.dispatch(tr.scrollIntoView());
+  return true;
+}

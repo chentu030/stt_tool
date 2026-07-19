@@ -33,11 +33,12 @@ import {
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
-import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt, duplicateTopLevelBlock } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
+import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
+import { useAuth } from "@/components/AuthProvider";
 import SelectionAiPanel from "@/components/SelectionAiPanel";
-
 const lowlight = createLowlight(common);
 
 type Props = {
@@ -68,6 +69,9 @@ type SlashItem = {
 const SLASH_ALIASES: Record<string, string[]> = {
   text: ["p"],
   paragraph: ["p"],
+  h1: ["h1"],
+  h2: ["h2"],
+  h3: ["h3"],
   "to-do": ["todo"],
   todo: ["todo"],
   number: ["numbered"],
@@ -94,6 +98,8 @@ const SLASH_ALIASES: Record<string, string[]> = {
   callout: ["callout"],
   toggle: ["toggle"],
   page: ["page"],
+  turn: ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote", "turn-callout"],
+  "turn into": ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote"],
 };
 
 function filterSlash(items: SlashItem[], q: string) {
@@ -130,19 +136,28 @@ export default function RichNoteEditor({
   onCreateSubpage,
 }: Props) {
   const prefsCtx = usePrefsOptional();
+  const { user } = useAuth();
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
   const slashEnabled = prefsCtx?.prefs.slashMenu !== false;
   const skip = useRef(false);
   const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
   const [wiki, setWiki] = useState<{ query: string; index: number } | null>(null);
+  const [atMenu, setAtMenu] = useState<{ query: string; index: number } | null>(null);
   const slashRef = useRef(slash);
   slashRef.current = slash;
   const wikiRef = useRef(wiki);
   wikiRef.current = wiki;
+  const atRef = useRef(atMenu);
+  atRef.current = atMenu;
   const applySlashRef = useRef<(item: SlashItem) => void>(() => {});
   const applyWikiRef = useRef<(title: string) => void>(() => {});
+  const applyAtRef = useRef<(item: AtItem) => void>(() => {});
   const wikiNotesRef = useRef(wikiNotes);
   wikiNotesRef.current = wikiNotes;
+  const personNameRef = useRef("");
+  personNameRef.current = user?.displayName || user?.email?.split("@")[0] || "";
+  const personEmailRef = useRef("");
+  personEmailRef.current = user?.email || "";
   const resolveWikiRef = useRef<(title: string) => string | null>(() => null);
   resolveWikiRef.current = (title: string) => {
     const hit = findNoteByTitle(wikiNotesRef.current, title);
@@ -368,9 +383,9 @@ export default function RichNoteEditor({
 
     const items: SlashItem[] = [
       { id: "p", label: "文字", hint: "/text 一般段落", run: (e) => e.chain().focus().setParagraph().run() },
-      { id: "h1", label: "標題 1", hint: "大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
-      { id: "h2", label: "標題 2", hint: "中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
-      { id: "h3", label: "標題 3", hint: "小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+      { id: "h1", label: "標題 1", hint: "/h1 大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+      { id: "h2", label: "標題 2", hint: "/h2 中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+      { id: "h3", label: "標題 3", hint: "/h3 小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
     ];
     if (onCreateSubpageRef.current) {
       items.push({
@@ -567,6 +582,70 @@ export default function RichNoteEditor({
           const f = window.prompt("行內 LaTeX", "x^2");
           if (f) e.chain().focus().setMathInline(f).run();
         },
+      },
+      {
+        id: "turn-p",
+        label: "轉成文字",
+        hint: "/turn into 段落",
+        run: (e) => e.chain().focus().setParagraph().run(),
+      },
+      {
+        id: "turn-h1",
+        label: "轉成標題 1",
+        hint: "/turn into H1",
+        run: (e) => e.chain().focus().setHeading({ level: 1 }).run(),
+      },
+      {
+        id: "turn-h2",
+        label: "轉成標題 2",
+        hint: "/turn into H2",
+        run: (e) => e.chain().focus().setHeading({ level: 2 }).run(),
+      },
+      {
+        id: "turn-h3",
+        label: "轉成標題 3",
+        hint: "/turn into H3",
+        run: (e) => e.chain().focus().setHeading({ level: 3 }).run(),
+      },
+      {
+        id: "turn-bullet",
+        label: "轉成項目清單",
+        hint: "/turn into bullet",
+        run: (e) => e.chain().focus().toggleBulletList().run(),
+      },
+      {
+        id: "turn-todo",
+        label: "轉成待辦",
+        hint: "/turn into todo",
+        run: (e) => e.chain().focus().toggleTaskList().run(),
+      },
+      {
+        id: "turn-quote",
+        label: "轉成引用",
+        hint: "/turn into quote",
+        run: (e) => e.chain().focus().toggleBlockquote().run(),
+      },
+      {
+        id: "turn-callout",
+        label: "轉成醒目提示",
+        hint: "/turn into callout",
+        run: (e) => {
+          const text = e.state.doc.textBetween(e.state.selection.from, e.state.selection.to, "\n").trim()
+            || e.state.doc.textBetween(
+              e.state.selection.$from.start(),
+              e.state.selection.$from.end(),
+              "\n"
+            ).trim()
+            || "提示";
+          e.chain()
+            .focus()
+            .insertContent({
+              type: "callout",
+              attrs: { tone: "info" },
+              content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+            })
+            .run();
+        },
       }
     );
     return items;
@@ -578,13 +657,14 @@ export default function RichNoteEditor({
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
+        undoRedo: { depth: 200 },
       }),
       CodeBlockLowlight.configure({
         lowlight,
         defaultLanguage: "plaintext",
       }),
       Placeholder.configure({
-        placeholder: placeholder || "輸入文字，或輸入 / 插入區塊…",
+        placeholder: placeholder || "輸入文字，或用 / 插入區塊、@ 提及頁面或日期…",
       }),
       Link.extend({
         parseHTML() {
@@ -678,20 +758,81 @@ export default function RichNoteEditor({
         return true;
       },
       handleKeyDown: (_view, event) => {
-        if ((event.altKey || event.metaKey) && !event.shiftKey && !event.ctrlKey) {
-          if (event.key === "ArrowUp" && editorRef.current) {
+        const ed = editorRef.current;
+        const mod = event.metaKey || event.ctrlKey;
+        const key = event.key.toLowerCase();
+
+        // Undo / Redo (explicit — ensure Ctrl+Z always works in the note editor)
+        if (mod && !event.altKey && key === "z" && !event.shiftKey && ed) {
+          event.preventDefault();
+          ed.commands.undo();
+          return true;
+        }
+        if (mod && !event.altKey && ((key === "z" && event.shiftKey) || key === "y") && ed) {
+          event.preventDefault();
+          ed.commands.redo();
+          return true;
+        }
+        // Duplicate block — Notion-style Ctrl/Cmd+D
+        if (mod && !event.shiftKey && !event.altKey && key === "d" && ed) {
+          event.preventDefault();
+          duplicateTopLevelBlock(ed);
+          return true;
+        }
+        // Move block — Ctrl/Cmd+Shift+↑↓ (also Alt+↑↓)
+        if (ed && event.shiftKey && mod && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+          event.preventDefault();
+          moveTopLevelBlock(ed, event.key === "ArrowUp" ? -1 : 1);
+          return true;
+        }
+        if ((event.altKey || (event.metaKey && !event.ctrlKey)) && !event.shiftKey && !event.ctrlKey) {
+          if (event.key === "ArrowUp" && ed) {
             event.preventDefault();
-            moveTopLevelBlock(editorRef.current, -1);
+            moveTopLevelBlock(ed, -1);
             return true;
           }
-          if (event.key === "ArrowDown" && editorRef.current) {
+          if (event.key === "ArrowDown" && ed) {
             event.preventDefault();
-            moveTopLevelBlock(editorRef.current, 1);
+            moveTopLevelBlock(ed, 1);
             return true;
           }
         }
+
+        const at = atRef.current;
+        if (at && ed) {
+          const items = suggestAtMentions({
+            query: at.query,
+            notes: wikiNotesRef.current,
+            personName: personNameRef.current,
+            personEmail: personEmailRef.current,
+          });
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setAtMenu({ ...at, index: (at.index + 1) % Math.max(items.length, 1) });
+            return true;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setAtMenu({
+              ...at,
+              index: (at.index - 1 + Math.max(items.length, 1)) % Math.max(items.length, 1),
+            });
+            return true;
+          }
+          if (event.key === "Enter" && items[at.index]) {
+            event.preventDefault();
+            applyAtRef.current(items[at.index]);
+            return true;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setAtMenu(null);
+            return true;
+          }
+        }
+
         const w = wikiRef.current;
-        if (w && editorRef.current) {
+        if (w && ed) {
           const items = suggestWikiTitles(wikiNotesRef.current, w.query);
           if (event.key === "ArrowDown") {
             event.preventDefault();
@@ -719,8 +860,8 @@ export default function RichNoteEditor({
           }
         }
         const cur = slashRef.current;
-        if (!cur || !editorRef.current) return false;
-        const items = filterSlash(buildSlash(editorRef.current), cur.query);
+        if (!cur || !ed) return false;
+        const items = filterSlash(buildSlash(ed), cur.query);
         if (event.key === "ArrowDown") {
           event.preventDefault();
           setSlash({ ...cur, index: (cur.index + 1) % Math.max(items.length, 1) });
@@ -749,7 +890,7 @@ export default function RichNoteEditor({
     },
     onUpdate: ({ editor: ed }) => {
       const text = ed.state.doc.textBetween(
-        Math.max(0, ed.state.selection.from - 40),
+        Math.max(0, ed.state.selection.from - 60),
         ed.state.selection.from,
         "\n"
       );
@@ -757,11 +898,19 @@ export default function RichNoteEditor({
       if (wikiMatch) {
         setWiki({ query: wikiMatch[1], index: 0 });
         setSlash(null);
+        setAtMenu(null);
       } else {
         setWiki(null);
-        const m = slashEnabled ? text.match(/(?:^|\n)\/([^\s/]*)$/) : null;
-        if (m) setSlash({ query: m[1], index: 0 });
-        else setSlash(null);
+        const atQ = wikiEnabled ? matchAtQuery(text) : null;
+        if (atQ !== null) {
+          setAtMenu({ query: atQ, index: 0 });
+          setSlash(null);
+        } else {
+          setAtMenu(null);
+          const m = slashEnabled ? text.match(/(?:^|\n)\/([^\s/]*)$/) : null;
+          if (m) setSlash({ query: m[1], index: 0 });
+          else setSlash(null);
+        }
       }
       skip.current = true;
       onChangeRef.current(htmlToMarkdown(ed.getHTML()));
@@ -806,6 +955,28 @@ export default function RichNoteEditor({
     [editor]
   );
   applyWikiRef.current = applyWiki;
+
+  const applyAt = useCallback(
+    (item: AtItem) => {
+      if (!editor) return;
+      const { from } = editor.state.selection;
+      const text = editor.state.doc.textBetween(Math.max(0, from - 80), from, "\n");
+      const m = text.match(/@[^\s@]*$/);
+      if (m) {
+        editor
+          .chain()
+          .focus()
+          .deleteRange({ from: from - m[0].length, to: from })
+          .insertContent(item.insert)
+          .run();
+      } else {
+        editor.chain().focus().insertContent(item.insert).run();
+      }
+      setAtMenu(null);
+    },
+    [editor]
+  );
+  applyAtRef.current = applyAt;
 
   useEffect(() => {
     if (!editor) return;
@@ -879,6 +1050,14 @@ export default function RichNoteEditor({
 
   const slashItems = slash ? filterSlash(buildSlash(editor), slash.query) : [];
   const wikiItems = wiki ? suggestWikiTitles(wikiNotes, wiki.query) : [];
+  const atItems = atMenu
+    ? suggestAtMentions({
+        query: atMenu.query,
+        notes: wikiNotes,
+        personName: personNameRef.current,
+        personEmail: personEmailRef.current,
+      })
+    : [];
   const isEmptyDoc = !(valueMd || "").trim();
 
   const hiddenInputs = (
@@ -1282,7 +1461,26 @@ export default function RichNoteEditor({
             )}
           </div>
         )}
-        {slash && slashItems.length > 0 && !wiki && (
+        {atMenu && atItems.length > 0 && !wiki && (
+          <div className="slash-menu rich-slash at-menu">
+            <p className="rich-slash-label">提及 @</p>
+            {atItems.map((item, idx) => (
+              <button
+                key={item.id}
+                type="button"
+                className={idx === atMenu.index ? "is-active" : ""}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applyAt(item);
+                }}
+              >
+                <strong>{item.label}</strong>
+                <span>{item.hint}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {slash && slashItems.length > 0 && !wiki && !atMenu && (
           <div className="slash-menu rich-slash">
             <p className="rich-slash-label">插入區塊</p>
             {slashItems.map((item, idx) => (

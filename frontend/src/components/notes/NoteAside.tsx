@@ -287,6 +287,14 @@ export default function NoteAside({
             <h4>快捷鍵</h4>
             <ul className="note-shortcuts">
               <li><kbd>/</kbd> 插入區塊</li>
+              <li><kbd>@</kbd> 提及頁面／日期／人名</li>
+              <li><kbd>[[</kbd> 連結筆記</li>
+              <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 復原　<kbd>Ctrl</kbd>+<kbd>Y</kbd> 重做</li>
+              <li><kbd>Ctrl</kbd>+<kbd>D</kbd> 複製區塊</li>
+              <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑↓</kbd> 移動區塊</li>
+              <li><kbd>Ctrl</kbd>+<kbd>B</kbd>／<kbd>I</kbd> 粗體／斜體</li>
+              <li><kbd>Ctrl</kbd>+<kbd>P</kbd>／<kbd>K</kbd> 快速搜尋</li>
+              <li><kbd>Ctrl</kbd>+<kbd>[</kbd> 回上一頁</li>
               <li><kbd>Ctrl</kbd>+<kbd>S</kbd> 手動儲存</li>
               <li><kbd>Ctrl</kbd>+<kbd>F</kbd> 尋找</li>
               <li><kbd>Ctrl</kbd>+<kbd>\\</kbd> 側欄</li>
