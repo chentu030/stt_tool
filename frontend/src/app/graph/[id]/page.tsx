@@ -56,6 +56,7 @@ import {
   tagBuckets,
   topHubs,
 } from "@/lib/graphModel";
+import { applyStageWheel, isDragGesture } from "@/lib/canvasNav";
 import { usePrefs } from "@/components/PrefsProvider";
 
 type DragState =
@@ -351,12 +352,34 @@ export default function GraphDetailPage() {
     });
   };
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === "1" || e.key === "!" || e.code === "Digit1")) {
+        e.preventDefault();
+        onFit();
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === "0" || e.key === ")" || e.code === "Digit0")) {
+        e.preventDefault();
+        setScale(1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [painted.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onZoom = (delta: number) => {
     setScale((s) => Math.min(2.5, Math.max(0.35, Math.round((s + delta) * 100) / 100)));
   };
 
+  const rightPanRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
+
   const onPointerDownStage = (e: ReactPointerEvent) => {
     if (e.button === 1 || spaceDown || e.button === 2) {
+      if (e.button === 2) {
+        e.preventDefault();
+        rightPanRef.current = { sx: e.clientX, sy: e.clientY, moved: false };
+      }
       dragRef.current = { kind: "pan", sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
       (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     }
@@ -364,7 +387,8 @@ export default function GraphDetailPage() {
 
   const onPointerDownNode = (e: ReactPointerEvent, id: string) => {
     e.stopPropagation();
-    if (spaceDown || e.button === 1) {
+    if (spaceDown || e.button === 1 || e.button === 2) {
+      if (e.button === 2) e.preventDefault();
       dragRef.current = { kind: "pan", sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y };
       return;
     }
@@ -400,6 +424,11 @@ export default function GraphDetailPage() {
     const d = dragRef.current;
     if (!d) return;
     if (d.kind === "pan") {
+      if (rightPanRef.current) {
+        if (isDragGesture(e.clientX - rightPanRef.current.sx, e.clientY - rightPanRef.current.sy)) {
+          rightPanRef.current.moved = true;
+        }
+      }
       setPan({ x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) });
       return;
     }
@@ -419,21 +448,17 @@ export default function GraphDetailPage() {
   const onPointerUp = () => {
     if (dragRef.current?.kind === "node") persistPositions();
     dragRef.current = null;
+    rightPanRef.current = null;
   };
 
   const onWheel = (e: ReactWheelEvent) => {
     e.preventDefault();
     const el = stageRef.current;
     if (!el) return;
-    const delta = e.deltaY > 0 ? -0.08 : 0.08;
-    const next = Math.min(2.5, Math.max(0.35, scale + delta));
     const r = el.getBoundingClientRect();
-    const mx = e.clientX - r.left;
-    const my = e.clientY - r.top;
-    const wx = (mx - pan.x) / scale;
-    const wy = (my - pan.y) / scale;
-    setScale(next);
-    setPan({ x: mx - wx * next, y: my - wy * next });
+    const next = applyStageWheel(e, r, { pan, scale });
+    setScale(next.scale);
+    setPan(next.pan);
   };
 
   const askAi = async () => {

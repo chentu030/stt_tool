@@ -89,8 +89,8 @@ export default function CanvasToolbar({
         <button type="button" className="cv-tool" onClick={onZoomOut}>－</button>
         <span className="cv-zoom">{Math.round(scale * 100)}%</span>
         <button type="button" className="cv-tool" onClick={onZoomIn}>＋</button>
-        <button type="button" className="cv-tool" onClick={onFit}>適中</button>
-        <button type="button" className="cv-tool" onClick={onReset}>重置視角</button>
+        <button type="button" className="cv-tool" onClick={onFit} title="Shift+1 · 看全部">適中</button>
+        <button type="button" className="cv-tool" onClick={onReset} title="Shift+0 · 100%">100%</button>
       </div>
 
       <div className="cv-tool-group">

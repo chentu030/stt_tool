@@ -46,6 +46,7 @@ import {
   parseCanvasAiResponse,
   applyCanvasOps,
 } from "@/lib/canvasStore";
+import { applyStageWheel, isDragGesture } from "@/lib/canvasNav";
 import {
   listenCanvases,
   listenCanvas,
@@ -85,8 +86,10 @@ export default function CanvasIdPage() {
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  const [spaceDown, setSpaceDown] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const skipCloud = useRef(false);
+  const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
   const drag = useRef<{
     mode: "move" | "pan" | "marquee" | "resize";
     ids?: Selectable[];
@@ -226,14 +229,27 @@ export default function CanvasIdPage() {
   const onPointerDown = (e: REPointerEvent) => {
     if ((e.target as HTMLElement).closest("textarea,a,button,input,.cv-handle,.cv-ctx")) return;
     setCtxMenu(null);
-    if (e.button === 2) return;
     const world = screenToWorld(e.clientX, e.clientY);
     stageRef.current?.setPointerCapture?.(e.pointerId);
 
-    if (tool === "pan" || e.button === 1 || (tool === "select" && e.altKey)) {
+    // Middle button, Space, Alt+select, or pan tool → pan
+    // Right button → pan (context menu only if little movement)
+    if (
+      tool === "pan" ||
+      e.button === 1 ||
+      e.button === 2 ||
+      spaceDown ||
+      (tool === "select" && e.altKey)
+    ) {
+      if (e.button === 2) {
+        rightPan.current = { sx: e.clientX, sy: e.clientY, moved: false };
+        e.preventDefault();
+      }
       drag.current = { mode: "pan", startX: e.clientX, startY: e.clientY, pan0: { ...doc.pan } };
       return;
     }
+
+    if (e.button !== 0) return;
 
     if (tool === "connect") {
       const hit = hitTest(world);
@@ -374,6 +390,11 @@ export default function CanvasIdPage() {
     const d = drag.current;
     if (!d) return;
     if (d.mode === "pan" && d.pan0) {
+      if (rightPan.current) {
+        if (isDragGesture(e.clientX - rightPan.current.sx, e.clientY - rightPan.current.sy)) {
+          rightPan.current.moved = true;
+        }
+      }
       setDoc((prev) => ({
         ...prev,
         pan: {
@@ -622,10 +643,38 @@ export default function CanvasIdPage() {
     flash(`已套用 ${ops.length} 項 AI 變更`);
   };
 
+  const fitAll = useCallback(() => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setDoc((d) => ({ ...d, ...fitView(d, { w: rect.width, h: rect.height }) }));
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setDoc((d) => ({ ...d, scale: 1 }));
+  }, []);
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "TEXTAREA" || tag === "INPUT") return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        setSpaceDown(true);
+      }
+      // Shift+1 fit all, Shift+0 = 100%
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && e.key === "!") {
+        // Shift+1 may come as "!" on some layouts
+        e.preventDefault();
+        fitAll();
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === "1" || e.code === "Digit1")) {
+        e.preventDefault();
+        fitAll();
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === ")" || e.key === "0" || e.code === "Digit0")) {
+        e.preventDefault();
+        resetZoom();
+      }
       const k = e.key.toLowerCase();
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) {
@@ -636,7 +685,7 @@ export default function CanvasIdPage() {
         if (k === "r") setTool("rect");
         if (k === "o") setTool("ellipse");
         if (k === "f") setTool("frame");
-        if (k === "c") setTool("connect");
+        if (k === "c" && !spaceDown) setTool("connect");
         if (k === "delete" || k === "backspace") {
           e.preventDefault();
           deleteSelected();
@@ -665,9 +714,16 @@ export default function CanvasIdPage() {
         doPaste();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelected, doCopy, doCut, doPaste]);
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") setSpaceDown(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [deleteSelected, doCopy, doCut, doPaste, fitAll, resetZoom, spaceDown]);
 
   if (loading) return <p style={{ color: "var(--text-muted)", padding: "1rem" }}>載入中…</p>;
   if (!user) {
@@ -723,12 +779,8 @@ export default function CanvasIdPage() {
           snap={doc.snap}
           onZoomIn={() => setDoc((d) => ({ ...d, scale: clampScale(d.scale + 0.1) }))}
           onZoomOut={() => setDoc((d) => ({ ...d, scale: clampScale(d.scale - 0.1) }))}
-          onReset={() => setDoc((d) => ({ ...d, scale: 1, pan: { x: 48, y: 48 } }))}
-          onFit={() => {
-            const rect = stageRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            setDoc((d) => ({ ...d, ...fitView(d, { w: rect.width, h: rect.height }) }));
-          }}
+          onFit={fitAll}
+          onReset={resetZoom}
           onToggleGrid={() => setDoc((d) => ({ ...d, grid: !d.grid }))}
           onToggleSnap={() => setDoc((d) => ({ ...d, snap: !d.snap }))}
           onDelete={deleteSelected}
@@ -780,13 +832,16 @@ export default function CanvasIdPage() {
       <div className={`cv-layout cv-layout--immersive${asideOpen ? "" : " cv-layout--wide"}`}>
         <div
           ref={stageRef}
-          className={`cv-stage${doc.grid ? " has-grid" : ""} tool-${tool}`}
+          className={`cv-stage${doc.grid ? " has-grid" : ""}${spaceDown || tool === "pan" ? " is-panning" : ""} tool-${tool}`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
           onContextMenu={(e) => {
             e.preventDefault();
+            const rp = rightPan.current;
+            rightPan.current = null;
+            if (rp?.moved) return;
             const world = screenToWorld(e.clientX, e.clientY);
             const hit = hitTest(world);
             if (hit) {
@@ -811,15 +866,20 @@ export default function CanvasIdPage() {
           }}
           onWheel={(e) => {
             e.preventDefault();
-            setDoc((d) => ({
-              ...d,
-              scale: clampScale(d.scale + (e.deltaY > 0 ? -0.06 : 0.06)),
-            }));
+            const rect = stageRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            setDoc((d) => {
+              const next = applyStageWheel(e, rect, { pan: d.pan, scale: d.scale }, clampScale);
+              return { ...d, pan: next.pan, scale: next.scale };
+            });
           }}
         >
           <div
             className="cv-world"
-            style={{ transform: `translate(${doc.pan.x}px, ${doc.pan.y}px) scale(${doc.scale})` }}
+            style={{
+              transform: `translate3d(${doc.pan.x}px, ${doc.pan.y}px, 0) scale(${doc.scale})`,
+              transformOrigin: "0 0",
+            }}
           >
             <svg className="cv-edges" width="8000" height="6000">
               {doc.edges.map((edge) => {

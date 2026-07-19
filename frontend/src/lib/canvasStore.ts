@@ -529,9 +529,9 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
 }
 
 export const CANVAS_TIPS = [
-  "空白處拖曳可框選；Alt+拖曳或按 H 平移；滾輪縮放。",
-  "雙擊便利貼／圖形可編輯；選取後拖角落可調整大小。",
-  "右鍵：編輯、剪下、複製、貼上、刪除。Ctrl+C/V/X/Z。",
-  "連線為直角圓角路徑；右側 AI 可讀寫整張白板。",
-  "可用切換器建立多個白板。",
+  "雙指／滾輪平移；Ctrl+滾輪縮放；Shift+滾輪左右移。",
+  "右鍵或中鍵拖曳、空白鍵拖曳皆可平移。",
+  "Shift+1 看全部；Shift+0 恢復 100%。",
+  "雙擊編輯；選取後拖角落調大小；右鍵選單。",
+  "Ctrl+C/V/X/Z；右側 AI 可讀寫白板。",
 ];
