@@ -1,5 +1,21 @@
 /** Local history of Deep Research reports (per user) */
 
+export type ResearchFindingSnap = {
+  question: string;
+  summary: string;
+  adequate: boolean;
+  retries: number;
+  searchQueries: string[];
+  noteHits: { id: string; title: string; excerpt?: string }[];
+  sources: Array<{
+    index: number;
+    kind: "web" | "note";
+    title: string;
+    uri: string;
+    noteId?: string;
+  }>;
+};
+
 export type ResearchHistoryItem = {
   id: string;
   topic: string;
@@ -10,7 +26,6 @@ export type ResearchHistoryItem = {
   model?: string;
   webCount?: number;
   noteCount?: number;
-  /** Compact report snapshot for reopen */
   report: {
     title: string;
     summary: string;
@@ -21,6 +36,7 @@ export type ResearchHistoryItem = {
       questions: string[];
       keywords: string[];
     };
+    findings?: ResearchFindingSnap[];
     sources: Array<{
       index: number;
       kind: "web" | "note";
@@ -50,13 +66,15 @@ export type ResearchHistoryItem = {
 const MAX = 12;
 
 function key(uid: string) {
-  return `cadence_research_history_v1_${uid}`;
+  return `cadence_research_history_v2_${uid}`;
 }
 
 export function loadResearchHistory(uid: string): ResearchHistoryItem[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(key(uid));
+    const raw =
+      localStorage.getItem(key(uid)) ||
+      localStorage.getItem(`cadence_research_history_v1_${uid}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ResearchHistoryItem[];
     return Array.isArray(parsed) ? parsed.slice(0, MAX) : [];
@@ -79,7 +97,22 @@ export function saveResearchHistoryItem(
   try {
     localStorage.setItem(key(uid), JSON.stringify(list));
   } catch {
-    /* quota */
+    /* quota — drop findings excerpts */
+    try {
+      const slim = {
+        ...next,
+        report: {
+          ...next.report,
+          findings: (next.report.findings || []).map((f) => ({
+            ...f,
+            summary: f.summary.slice(0, 600),
+          })),
+        },
+      };
+      localStorage.setItem(key(uid), JSON.stringify([slim, ...prev].slice(0, MAX)));
+    } catch {
+      /* ignore */
+    }
   }
   return list;
 }

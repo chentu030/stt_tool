@@ -9100,6 +9100,117 @@ button, input, textarea, select {
   line-height: 1.5;
   color: var(--text);
 }
+.dr-toc {
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+.dr-toc h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.dr-toc ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+.dr-toc li.is-h3 { padding-left: 0.75rem; }
+.dr-toc a { color: var(--accent); text-decoration: none; }
+.dr-toc a:hover { text-decoration: underline; }
+.dr-findings-panel {
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.dr-findings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.dr-findings-head h3,
+.dr-transforms h3 {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.dr-findings-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.dr-findings-panel li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+.dr-findings-panel li.is-weak {
+  border: 1px solid color-mix(in srgb, #c47a2c 45%, var(--border));
+}
+.dr-findings-panel li.is-ok {
+  border: 1px solid var(--border);
+}
+.dr-findings-panel li span {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.dr-transforms {
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.dr-transform-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+.dr-transform-out {
+  margin-top: 0.65rem;
+}
+.dr-transform-out pre,
+.dr-chat-bubble pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  margin: 0 0 0.4rem;
+}
+.dr-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 0.55rem;
+  max-height: 280px;
+  overflow: auto;
+}
+.dr-chat-bubble {
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.dr-chat-bubble.is-user {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.dr-chat-bubble.is-assistant {
+  background: var(--bg);
+}
 @media (max-width: 860px) {
   .dr-layout { grid-template-columns: 1fr; }
   .dr-graph-grid { grid-template-columns: 1fr; }

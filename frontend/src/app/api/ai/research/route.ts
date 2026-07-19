@@ -5,9 +5,11 @@ import {
   ClarifyNeededError,
   PlanApprovalNeededError,
   depthConfig,
+  refineResearchReport,
   runDeepResearch,
   type NoteSnippet,
   type ResearchDepth,
+  type ResearchFinding,
   type ResearchPlan,
   type ResearchProgressEvent,
 } from "@/lib/deepResearch";
@@ -15,7 +17,6 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-/** Prefer Gemini 3.1 Pro as the research "brain"; never fall back to 1.x. */
 function resolveResearchModel(preferred?: string | null): string {
   const model = resolveAiTextModel(preferred);
   if (model.includes("lite") || model.includes("flash")) {
@@ -31,7 +32,7 @@ export async function GET() {
   return NextResponse.json({
     ...vertexConfigStatus(),
     feature: "deep_research_agent",
-    pipeline: ["clarify", "plan_approval", "hunt", "analyze", "report"],
+    pipeline: ["clarify", "plan_approval", "hunt", "analyze", "report", "refine"],
     depths: ["standard", "max"],
     defaultModel: "gemini-3.1-pro-preview",
   });
@@ -53,10 +54,27 @@ function normalizePlan(raw?: ResearchPlan | null): ResearchPlan | undefined {
   };
 }
 
-/**
- * Deep Research agent (SSE stream).
- * Body supports plan approval gate + depth modes (Gemini-style standard/max).
- */
+function normalizeFindings(raw?: ResearchFinding[] | null): ResearchFinding[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 10).map((f) => ({
+    question: String(f.question || "").slice(0, 500),
+    summary: String(f.summary || "").slice(0, 8000),
+    sources: Array.isArray(f.sources) ? f.sources.slice(0, 20) : [],
+    searchQueries: Array.isArray(f.searchQueries)
+      ? f.searchQueries.map(String).slice(0, 12)
+      : [],
+    retries: Number(f.retries) || 0,
+    noteHits: Array.isArray(f.noteHits)
+      ? f.noteHits.slice(0, 6).map((n) => ({
+          id: String(n.id || ""),
+          title: String(n.title || ""),
+          excerpt: String(n.excerpt || "").slice(0, 400),
+        }))
+      : [],
+    adequate: !!f.adequate,
+  }));
+}
+
 export async function POST(req: NextRequest) {
   try {
     const data = (await req.json()) as {
@@ -71,6 +89,10 @@ export async function POST(req: NextRequest) {
       depth?: ResearchDepth;
       approvedPlan?: ResearchPlan;
       requirePlanApproval?: boolean;
+      preferredDomains?: string[];
+      mode?: "research" | "refine";
+      findings?: ResearchFinding[];
+      refineQuestions?: string[];
       assistant?: { model?: string };
     };
 
@@ -86,6 +108,10 @@ export async function POST(req: NextRequest) {
     const cfg = depthConfig(depth);
     const researchModel = resolveResearchModel(data.model || data.assistant?.model);
     const approvedPlan = normalizePlan(data.approvedPlan);
+    const preferredDomains = (data.preferredDomains || [])
+      .map((d) => String(d).trim())
+      .filter(Boolean)
+      .slice(0, 8);
     const libraryNotes = (data.libraryNotes || [])
       .filter((n) => n?.id && n?.title)
       .slice(0, 40)
@@ -96,6 +122,66 @@ export async function POST(req: NextRequest) {
         updatedAt: n.updatedAt ? String(n.updatedAt) : undefined,
       }));
 
+    const mode = data.mode === "refine" ? "refine" : "research";
+    const stream = data.stream !== false;
+
+    const encoder = new TextEncoder();
+
+    if (mode === "refine") {
+      const plan = approvedPlan;
+      const findings = normalizeFindings(data.findings);
+      if (!plan?.questions?.length || !findings.length) {
+        return NextResponse.json(
+          { error: "補強需要既有計畫與 findings" },
+          { status: 400 }
+        );
+      }
+
+      const run = async (send?: (e: ResearchProgressEvent | { type: "meta"; model: string; depth: string }) => void) => {
+        send?.({ type: "meta", model: researchModel, depth });
+        return refineResearchReport(topic, plan, findings, {
+          model: researchModel,
+          context: data.context?.trim() || undefined,
+          intent: plan.angle,
+          libraryNotes,
+          preferredDomains,
+          maxRetries: cfg.maxRetries + 1,
+          questions: data.refineQuestions?.map(String).filter(Boolean),
+          onProgress: send,
+        });
+      };
+
+      if (!stream) {
+        const report = await run();
+        return NextResponse.json({ ...report, model: researchModel, depth });
+      }
+
+      const readable = new ReadableStream({
+        async start(controller) {
+          const send = (
+            event: ResearchProgressEvent | { type: "meta"; model: string; depth: string }
+          ) => controller.enqueue(encoder.encode(sseEncode(event)));
+          try {
+            await run(send);
+          } catch (e) {
+            send({
+              type: "error",
+              message: e instanceof Error ? e.message : String(e),
+            });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+      return new Response(readable, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
     const runOpts = {
       model: researchModel,
       context: data.context?.trim() || undefined,
@@ -105,14 +191,10 @@ export async function POST(req: NextRequest) {
       approvedPlan,
       requirePlanApproval: approvedPlan ? false : data.requirePlanApproval !== false,
       depth,
-      maxQuestions: Math.min(
-        8,
-        Math.max(3, data.maxQuestions || cfg.maxQuestions)
-      ),
+      maxQuestions: Math.min(8, Math.max(3, data.maxQuestions || cfg.maxQuestions)),
       maxRetries: cfg.maxRetries,
+      preferredDomains,
     };
-
-    const stream = data.stream !== false;
 
     if (!stream) {
       try {
@@ -141,7 +223,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
         const send = (
@@ -161,10 +242,12 @@ export async function POST(req: NextRequest) {
             e instanceof ClarifyNeededError ||
             e instanceof PlanApprovalNeededError
           ) {
-            // already streamed via onProgress
+            // already streamed
           } else {
-            const message = e instanceof Error ? e.message : String(e);
-            send({ type: "error", message });
+            send({
+              type: "error",
+              message: e instanceof Error ? e.message : String(e),
+            });
           }
         } finally {
           controller.close();

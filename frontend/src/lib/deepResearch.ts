@@ -277,16 +277,21 @@ async function huntOnce(
   question: string,
   searchHint: string,
   noteHits: NoteSnippet[],
-  opts?: { model?: string }
+  opts?: { model?: string; preferredDomains?: string[] }
 ): Promise<{
   summary: string;
   webSources: VertexGroundingSource[];
   searchQueries: string[];
 }> {
+  const domains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
+  const domainLine = domains.length
+    ? `\n優先參考這些網站／網域（仍可使用其他可靠來源）：${domains.join("、")}`
+    : "";
+
   const res = await vertexGenerateContent(
     `總主題：${topic}
 子問題：${question}
-建議搜尋方向：${searchHint}
+建議搜尋方向：${searchHint}${domainLine}
 
 —— 使用者個人筆記（內部知識庫，可引用）——
 ${formatNoteBlock(noteHits)}
@@ -357,6 +362,7 @@ export async function gatherOnQuestion(
     keywordPool?: string[];
     citeStart?: number;
     maxRetries?: number;
+    preferredDomains?: string[];
     emit?: (e: ResearchProgressEvent) => void;
   }
 ): Promise<ResearchFinding> {
@@ -376,13 +382,23 @@ export async function gatherOnQuestion(
     emit?.({ type: "log", message: "筆記庫無直接命中，以網路搜尋為主" });
   }
 
+  if (opts?.preferredDomains?.length) {
+    emit?.({
+      type: "log",
+      message: `優先網域：${opts.preferredDomains.slice(0, 5).join("、")}`,
+    });
+  }
+
   emit?.({
     type: "log",
     message: `正在搜尋「${hint.slice(0, 60)}」…`,
   });
 
   let retries = 0;
-  let result = await huntOnce(topic, question, hint, noteHits, { model: opts?.model });
+  let result = await huntOnce(topic, question, hint, noteHits, {
+    model: opts?.model,
+    preferredDomains: opts?.preferredDomains,
+  });
   let allQueries = [...result.searchQueries];
   let evalResult = await evaluateFinding(
     question,
@@ -406,7 +422,7 @@ export async function gatherOnQuestion(
       question,
       hint,
       retryNotes.length ? retryNotes : noteHits,
-      { model: opts?.model }
+      { model: opts?.model, preferredDomains: opts?.preferredDomains }
     );
     allQueries = [...allQueries, ...retry.searchQueries];
     if (
@@ -566,6 +582,8 @@ export type RunDeepResearchOpts = {
   depth?: ResearchDepth;
   maxQuestions?: number;
   maxRetries?: number;
+  /** Prefer these domains/sites when searching (OpenAI-style source focus) */
+  preferredDomains?: string[];
   onProgress?: (e: ResearchProgressEvent) => void;
 };
 
@@ -605,11 +623,21 @@ export async function runDeepResearch(
   const cfg = depthConfig(depth);
   const maxQuestions = opts?.maxQuestions ?? cfg.maxQuestions;
   const maxRetries = opts?.maxRetries ?? cfg.maxRetries;
+  const preferredDomains = (opts?.preferredDomains || [])
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .slice(0, 8);
 
   emit?.({
     type: "log",
     message: `深度模式：${cfg.label}（最多 ${maxQuestions} 題、自我修正 ${maxRetries} 次）`,
   });
+  if (preferredDomains.length) {
+    emit?.({
+      type: "log",
+      message: `來源偏好：${preferredDomains.join("、")}`,
+    });
+  }
 
   // ── 1. Clarify ──────────────────────────────────────────
   let intent = topic;
@@ -728,6 +756,7 @@ export async function runDeepResearch(
       keywordPool: plan.keywords,
       citeStart: citeCursor,
       maxRetries,
+      preferredDomains,
       emit,
     });
     citeCursor += finding.sources.length;
@@ -790,6 +819,121 @@ export async function runDeepResearch(
     noteSources,
     searchQueries,
   };
+  emit?.({ type: "done", report });
+  return report;
+}
+
+/**
+ * Re-hunt weak (or selected) findings and rewrite the report — selective refine.
+ */
+export async function refineResearchReport(
+  topic: string,
+  plan: ResearchPlan,
+  findings: ResearchFinding[],
+  opts?: {
+    model?: string;
+    context?: string;
+    intent?: string;
+    libraryNotes?: NoteSnippet[];
+    preferredDomains?: string[];
+    maxRetries?: number;
+    /** If omitted, re-hunt all inadequate findings */
+    questions?: string[];
+    onProgress?: (e: ResearchProgressEvent) => void;
+  }
+): Promise<ResearchReport> {
+  const emit = opts?.onProgress;
+  const model = opts?.model;
+  const libraryNotes = opts?.libraryNotes || [];
+  const preferredDomains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
+  const maxRetries = opts?.maxRetries ?? 2;
+
+  const targets = new Set(
+    (opts?.questions?.length
+      ? opts.questions
+      : findings.filter((f) => !f.adequate).map((f) => f.question)
+    ).map((q) => q.trim())
+  );
+
+  if (!targets.size) {
+    throw new Error("沒有需要重跑的子問題");
+  }
+
+  emit?.({
+    type: "phase",
+    phase: "hunt",
+    detail: `重跑 ${targets.size} 個偏弱子問題…`,
+  });
+  emit?.({
+    type: "log",
+    level: "retry",
+    message: `選擇性補強：${Array.from(targets).join("；")}`,
+  });
+
+  const next: ResearchFinding[] = [];
+  let citeCursor = 1;
+
+  for (let i = 0; i < findings.length; i++) {
+    const f = findings[i];
+    if (!targets.has(f.question.trim())) {
+      // re-index later
+      next.push(f);
+      continue;
+    }
+    emit?.({
+      type: "question",
+      index: i + 1,
+      total: findings.length,
+      question: f.question,
+    });
+    const updated = await gatherOnQuestion(topic, f.question, {
+      model,
+      libraryNotes,
+      keywordPool: plan.keywords,
+      citeStart: citeCursor,
+      maxRetries,
+      preferredDomains,
+      emit,
+    });
+    citeCursor += updated.sources.length;
+    next.push(updated);
+  }
+
+  // Re-index all
+  const sources = mergeAllSources(next);
+  const uriToIndex = new Map(
+    sources.map((s) => [s.kind === "note" ? `note:${s.noteId}` : s.uri, s.index])
+  );
+  for (const f of next) {
+    f.sources = f.sources.map((s) => ({
+      ...s,
+      index: uriToIndex.get(s.kind === "note" ? `note:${s.noteId}` : s.uri) || s.index,
+    }));
+  }
+
+  emit?.({ type: "phase", phase: "report", detail: "依補強結果重寫報告…" });
+  const { markdown, summary } = await synthesizeReport(topic, plan, next, sources, {
+    model,
+    context: opts?.context,
+    intent: opts?.intent || plan.angle || topic,
+  });
+
+  const report: ResearchReport = {
+    title: plan.title,
+    summary,
+    markdown,
+    plan,
+    findings: next,
+    sources,
+    webSources: sources.filter((s) => s.kind === "web"),
+    noteSources: sources.filter((s) => s.kind === "note"),
+    searchQueries: Array.from(new Set(next.flatMap((f) => f.searchQueries))),
+  };
+  emit?.({
+    type: "log",
+    level: "ok",
+    message: `補強完成：仍偏弱 ${next.filter((f) => !f.adequate).length} 題`,
+  });
   emit?.({ type: "done", report });
   return report;
 }
