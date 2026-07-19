@@ -1,0 +1,251 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  HeadingItem,
+  NOTE_AI_ACTIONS,
+  NoteAiActionId,
+  NoteStats,
+  RelatedNote,
+} from "@/lib/noteMeta";
+
+type ChatMsg = { id: string; role: "user" | "assistant"; text: string };
+
+type Props = {
+  title: string;
+  body: string;
+  stats: NoteStats;
+  outline: HeadingItem[];
+  related: RelatedNote[];
+  aiBusy: boolean;
+  onAiAction: (action: NoteAiActionId) => void;
+  onInsertMarkdown: (md: string) => void;
+  onJumpHeading?: (item: HeadingItem) => void;
+  open: boolean;
+  tab: "outline" | "ai" | "info";
+  onTab: (t: "outline" | "ai" | "info") => void;
+};
+
+function uid() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export default function NoteAside({
+  title,
+  body,
+  stats,
+  outline,
+  related,
+  aiBusy,
+  onAiAction,
+  onInsertMarkdown,
+  onJumpHeading,
+  open,
+  tab,
+  onTab,
+}: Props) {
+  const [input, setInput] = useState("");
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [msgs, busy]);
+
+  if (!open) return null;
+
+  const send = async (text: string) => {
+    const prompt = text.trim();
+    if (!prompt || busy) return;
+    setBusy(true);
+    setError("");
+    setInput("");
+    const userMsg: ChatMsg = { id: uid(), role: "user", text: prompt };
+    setMsgs((p) => [...p, userMsg]);
+    try {
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "note",
+          title,
+          body: body.slice(0, 12000),
+          prompt,
+          messages: [...msgs, userMsg].slice(-8).map((m) => ({
+            role: m.role === "assistant" ? "model" : "user",
+            text: m.text,
+          })).slice(0, -1),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "失敗");
+      setMsgs((p) => [...p, { id: uid(), role: "assistant", text: data.text || "（無回覆）" }]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      setMsgs((p) => [...p, { id: uid(), role: "assistant", text: `無法回答：${msg}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+
+  return (
+    <aside className="note-aside">
+      <div className="note-aside-tabs">
+        {(
+          [
+            ["outline", "大綱"],
+            ["ai", "AI"],
+            ["info", "資訊"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={tab === id ? "is-active" : ""}
+            onClick={() => onTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "outline" && (
+        <div className="note-aside-body">
+          <p className="note-aside-hint">點標題可跳到對應段落（依 Markdown 標題）。</p>
+          {outline.length === 0 ? (
+            <p className="note-aside-empty">尚無標題。用 H1／H2 或輸入 # 建立結構。</p>
+          ) : (
+            <nav className="note-toc">
+              {outline.map((h) => (
+                <button
+                  key={h.id}
+                  type="button"
+                  className={`note-toc-item level-${h.level}`}
+                  onClick={() => onJumpHeading?.(h)}
+                >
+                  {h.text}
+                </button>
+              ))}
+            </nav>
+          )}
+          {related.length > 0 && (
+            <div className="note-aside-block">
+              <h4>相關筆記</h4>
+              <ul className="note-related">
+                {related.map((r) => (
+                  <li key={r.id}>
+                    <Link href={`/notes/${r.id}`}>
+                      <strong>{r.title}</strong>
+                      <span>{r.reason}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "ai" && (
+        <div className="note-aside-body note-aside-ai">
+          <div className="note-ai-actions">
+            {NOTE_AI_ACTIONS.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className="note-ai-chip"
+                disabled={aiBusy || !body.trim()}
+                onClick={() => onAiAction(a.id)}
+                title={a.hint}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="note-ai-msgs" ref={listRef}>
+            {msgs.length === 0 && (
+              <p className="note-aside-empty">針對這篇筆記提問，或用上方快捷動作。</p>
+            )}
+            {msgs.map((m) => (
+              <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
+                <span>{m.role === "user" ? "你" : "助手"}</span>
+                <p>{m.text}</p>
+              </div>
+            ))}
+            {busy && <p className="note-aside-hint">思考中…</p>}
+          </div>
+
+          {lastAssistant && (
+            <button
+              type="button"
+              className="btn btn-soft btn-sm"
+              style={{ width: "100%" }}
+              onClick={() => onInsertMarkdown(`\n\n---\n\n## AI 回覆\n\n${lastAssistant.text}\n`)}
+            >
+              插入最後回覆到筆記
+            </button>
+          )}
+
+          {error && <p className="note-aside-error">{error}</p>}
+
+          <form
+            className="note-ai-compose"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send(input);
+            }}
+          >
+            <textarea
+              className="input"
+              rows={3}
+              placeholder="問這篇筆記…"
+              value={input}
+              disabled={busy}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send(input);
+                }
+              }}
+            />
+            <button type="submit" className="btn btn-sm" disabled={busy || !input.trim()}>
+              送出
+            </button>
+          </form>
+        </div>
+      )}
+
+      {tab === "info" && (
+        <div className="note-aside-body">
+          <div className="note-stat-grid">
+            <div><strong>{stats.words}</strong><span>字詞</span></div>
+            <div><strong>{stats.chars}</strong><span>字元</span></div>
+            <div><strong>{stats.readingMins} 分</strong><span>閱讀</span></div>
+            <div><strong>{stats.headings}</strong><span>標題</span></div>
+            <div><strong>{stats.links}</strong><span>連結</span></div>
+            <div><strong>{stats.todosDone}/{stats.todos}</strong><span>待辦</span></div>
+          </div>
+          <div className="note-aside-block">
+            <h4>快捷鍵</h4>
+            <ul className="note-shortcuts">
+              <li><kbd>/</kbd> 插入區塊</li>
+              <li><kbd>Ctrl</kbd>+<kbd>S</kbd> 手動儲存</li>
+              <li><kbd>Ctrl</kbd>+<kbd>F</kbd> 尋找</li>
+              <li><kbd>Ctrl</kbd>+<kbd>\\</kbd> 側欄</li>
+            </ul>
+          </div>
+          <p className="note-aside-hint">自動儲存約每 1.2 秒；版本歷史可從上方選單還原。</p>
+        </div>
+      )}
+    </aside>
+  );
+}

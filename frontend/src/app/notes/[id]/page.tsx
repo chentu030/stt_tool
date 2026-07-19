@@ -3,13 +3,36 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
-import { getNote, updateNote, listenToUserNotes, pushNoteVersion, listNoteVersions, Note, NoteVersion } from "@/lib/firebase";
+import {
+  getNote,
+  updateNote,
+  listenToUserNotes,
+  pushNoteVersion,
+  listNoteVersions,
+  createNote,
+  deleteNote,
+  Note,
+  NoteVersion,
+} from "@/lib/firebase";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
-import { downloadDocx, downloadMarkdown, downloadPdfViaPrint, downloadPptOutline, bodyToSlides } from "@/lib/exportNote";
+import NoteAside from "@/components/notes/NoteAside";
+import {
+  downloadDocx,
+  downloadMarkdown,
+  downloadPdfViaPrint,
+  downloadPptOutline,
+  bodyToSlides,
+} from "@/lib/exportNote";
 import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle } from "@/lib/wiki";
+import {
+  NOTE_AI_ACTIONS,
+  NoteAiActionId,
+  computeNoteStats,
+  extractOutline,
+  findRelatedNotes,
+} from "@/lib/noteMeta";
 
 export default function NotePage() {
   const { id } = useParams<{ id: string }>();
@@ -23,7 +46,6 @@ export default function NotePage() {
   const [folder, setFolder] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [findOpen, setFindOpen] = useState(false);
@@ -35,6 +57,11 @@ export default function NotePage() {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
+  const [asideOpen, setAsideOpen] = useState(true);
+  const [asideTab, setAsideTab] = useState<"outline" | "ai" | "info">("outline");
+  const [focusMode, setFocusMode] = useState(false);
+  const [linkPicker, setLinkPicker] = useState("");
+  const [toast, setToast] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ title: "", body: "", tags: [] as string[], folder: "" });
 
@@ -60,9 +87,21 @@ export default function NotePage() {
     latest.current = { title, body, tags, folder };
   }, [title, body, tags, folder]);
 
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1100px)");
+    const apply = () => setAsideOpen(!mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2200);
+  };
+
   const save = async (silent = false) => {
     if (!note) return;
-    setSaving(true);
     setStatus("saving");
     try {
       const inlineTags = extractTagsFromText(latest.current.body);
@@ -83,8 +122,6 @@ export default function NotePage() {
     } catch (e) {
       setStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "儲存失敗");
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -99,10 +136,12 @@ export default function NotePage() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
   }, []);
 
-  const runAi = async (action: "summarize" | "rewrite" | "outline") => {
+  const runAi = async (action: NoteAiActionId) => {
     if (!body.trim() || aiBusy) return;
     setAiBusy(true);
     setAiError("");
+    setAsideTab("ai");
+    setAsideOpen(true);
     try {
       const res = await fetch("/api/ai/generate", {
         method: "POST",
@@ -111,15 +150,34 @@ export default function NotePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI 失敗");
-      const next = action === "rewrite" ? data.text : `${body.trim()}\n\n---\n\n## AI ${action === "summarize" ? "摘要" : "大綱"}\n\n${data.text}`;
+      const meta = NOTE_AI_ACTIONS.find((a) => a.id === action);
+      const next =
+        meta?.mode === "replace"
+          ? data.text
+          : `${body.trim()}\n\n---\n\n## AI ${meta?.label || action}\n\n${data.text}`;
       setBody(next);
       markDirty();
+      flash(`已套用：${meta?.label || action}`);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : "AI 失敗");
     } finally {
       setAiBusy(false);
     }
   };
+
+  const stats = useMemo(() => computeNoteStats(body), [body]);
+  const outline = useMemo(() => extractOutline(body), [body]);
+  const related = useMemo(
+    () =>
+      note
+        ? findRelatedNotes(
+            { id: note.id, title, body_md: body, tags, folder },
+            allNotes,
+            6
+          )
+        : [],
+    [note, title, body, tags, folder, allNotes]
+  );
 
   const backlinks = useMemo(() => {
     if (!note) return [];
@@ -128,6 +186,13 @@ export default function NotePage() {
 
   const outbound = useMemo(() => extractWikiLinks(body), [body]);
   const slides = useMemo(() => bodyToSlides(title, body), [title, body]);
+
+  const linkCandidates = useMemo(() => {
+    const q = linkPicker.trim().toLowerCase();
+    const list = allNotes.filter((n) => n.id !== note?.id);
+    if (!q) return list.slice(0, 8);
+    return list.filter((n) => n.title.toLowerCase().includes(q)).slice(0, 8);
+  }, [allNotes, linkPicker, note?.id]);
 
   useEffect(() => {
     if (!presenting) return;
@@ -140,6 +205,78 @@ export default function NotePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [presenting, slides.length]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void save(false);
+      }
+      if (mod && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFindOpen(true);
+      }
+      if (mod && e.key === "\\") {
+        e.preventDefault();
+        setAsideOpen((v) => !v);
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFocusMode((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note?.id]);
+
+  const insertWiki = (noteTitle: string) => {
+    setBody((b) => `${b.trim()}${b.trim() ? "\n\n" : ""}[[${noteTitle}]]\n`);
+    markDirty();
+    setLinkPicker("");
+    flash(`已插入 [[${noteTitle}]]`);
+  };
+
+  const duplicate = async () => {
+    if (!user || !note) return;
+    const newId = await createNote(
+      user.uid,
+      `${title || "未命名"}（副本）`,
+      body,
+      note.source_job_id,
+      tags,
+      { folder, status: note.status }
+    );
+    flash("已建立副本");
+    router.push(`/notes/${newId}`);
+  };
+
+  const remove = async () => {
+    if (!note) return;
+    if (!confirm("刪除此筆記？此操作無法復原。")) return;
+    await deleteNote(note.id);
+    router.push("/library");
+  };
+
+  const copyMd = async () => {
+    await navigator.clipboard.writeText(`# ${title}\n\n${body}`);
+    flash("已複製 Markdown");
+  };
+
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(window.location.href);
+    flash("已複製頁面連結");
+  };
+
+  const jumpHeading = (item: { text: string; level: number }) => {
+    const root = document.querySelector(".rich-prose");
+    if (!root) return;
+    const tag = `H${item.level}`;
+    const nodes = Array.from(root.querySelectorAll(tag));
+    const hit = nodes.find((n) => (n.textContent || "").trim() === item.text.trim());
+    hit?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   if (loading) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
   if (!note) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入筆記中或找不到。</p>;
@@ -148,7 +285,7 @@ export default function NotePage() {
   const statusLabel =
     status === "saving" ? "儲存中"
       : status === "saved" ? "已儲存"
-        : status === "dirty" ? "編輯中"
+        : status === "dirty" ? "未儲存變更"
           : status === "error" ? errorMsg
             : "";
 
@@ -160,41 +297,50 @@ export default function NotePage() {
     markDirty();
   };
 
-  const quietBtn: React.CSSProperties = {
-    border: "none",
-    background: "transparent",
-    color: "var(--text-muted)",
-    fontSize: "0.8rem",
-    padding: "0.35rem 0.5rem",
-    borderRadius: 4,
-    cursor: "pointer",
-  };
-
   return (
-    <div className="doc-workspace">
+    <div className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}`}>
       <div className="doc-ribbon" ref={setRibbonHost} />
 
-      <div className="doc-page">
-      <div className="doc-topbar">
-        <Link href="/library" style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>知識庫</Link>
-        <div className="doc-topbar-actions">
+      <div className="doc-command">
+        <div className="doc-command-left">
+          <Link href="/library" className="doc-crumb">知識庫</Link>
+          <span className="doc-crumb-sep">/</span>
+          <span className="doc-crumb-current">{title || "未命名"}</span>
           {statusLabel && (
-            <span style={{ fontSize: "0.75rem", color: status === "error" ? "var(--danger)" : "var(--text-muted)", marginRight: 4 }}>
-              {statusLabel}
-            </span>
+            <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>{statusLabel}</span>
           )}
-          <button type="button" style={quietBtn} onClick={() => setFindOpen(true)}>尋找</button>
-          <button type="button" style={quietBtn} disabled={aiBusy || !body.trim()} onClick={() => runAi("summarize")}>
-            {aiBusy ? "…" : "摘要"}
+        </div>
+        <div className="doc-command-actions">
+          <button type="button" className="doc-cmd" onClick={() => setFindOpen(true)}>尋找</button>
+          <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
+            {aiBusy ? "AI…" : "摘要"}
           </button>
-          <div style={{ position: "relative" }}>
-            <button type="button" style={quietBtn} onClick={() => { setMoreOpen((v) => !v); }}>⋯</button>
+          <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
+            抽待辦
+          </button>
+          <button
+            type="button"
+            className="doc-cmd"
+            onClick={() => { setSlideIdx(0); setPresenting(true); }}
+          >
+            簡報
+          </button>
+          <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
+            側欄
+          </button>
+          <button type="button" className={`doc-cmd${focusMode ? " is-on" : ""}`} onClick={() => setFocusMode((v) => !v)}>
+            專注
+          </button>
+          <div className="doc-more-wrap">
+            <button type="button" className="doc-cmd" onClick={() => setMoreOpen((v) => !v)}>更多</button>
             {moreOpen && (
-              <div className="card" style={{ position: "absolute", right: 0, top: "110%", zIndex: 30, padding: 6, minWidth: 168 }}>
+              <div className="doc-more-menu">
                 {[
                   { label: "改寫", fn: () => runAi("rewrite") },
+                  { label: "擴寫", fn: () => runAi("expand") },
                   { label: "產出大綱", fn: () => runAi("outline") },
-                  { label: "簡報模式", fn: () => { setSlideIdx(0); setPresenting(true); } },
+                  { label: "出測驗題", fn: () => runAi("quiz") },
+                  { label: "白話說明", fn: () => runAi("explain") },
                   {
                     label: "版本歷史",
                     fn: async () => {
@@ -202,17 +348,20 @@ export default function NotePage() {
                       setVersions(await listNoteVersions(note.id));
                     },
                   },
+                  { label: "複製 Markdown", fn: () => copyMd() },
+                  { label: "複製連結", fn: () => copyLink() },
+                  { label: "複製筆記", fn: () => duplicate() },
                   { label: "匯出 Markdown", fn: () => downloadMarkdown(title, body) },
                   { label: "匯出 PDF", fn: () => downloadPdfViaPrint(title, body) },
                   { label: "匯出 DOCX", fn: () => { void downloadDocx(title, body); } },
                   { label: "匯出簡報大綱", fn: () => downloadPptOutline(title, body) },
                   { label: "手動儲存", fn: () => save(false) },
+                  { label: "刪除筆記", fn: () => remove(), danger: true },
                 ].map((item) => (
                   <button
                     key={item.label}
                     type="button"
-                    className="btn btn-ghost btn-sm"
-                    style={{ width: "100%", justifyContent: "flex-start", marginBottom: 2, border: "none" }}
+                    className={`doc-more-item${item.danger ? " is-danger" : ""}`}
                     onClick={() => { void item.fn(); setMoreOpen(false); }}
                   >
                     {item.label}
@@ -224,145 +373,188 @@ export default function NotePage() {
         </div>
       </div>
 
-      {aiError && <p style={{ color: "var(--danger)", fontSize: "0.82rem", marginBottom: "0.75rem" }}>{aiError}</p>}
+      <div className="doc-body-row">
+        <div className="doc-page">
+          {aiError && <p className="doc-banner-error">{aiError}</p>}
+          {toast && <p className="doc-toast">{toast}</p>}
 
-      {versionsOpen && (
-        <div style={{ marginBottom: "1.25rem", padding: "0.85rem", background: "var(--bg-elevated)", borderRadius: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-            <strong style={{ fontSize: "0.85rem" }}>版本歷史</strong>
-            <button type="button" style={quietBtn} onClick={() => setVersionsOpen(false)}>關閉</button>
-          </div>
-          {versions.length === 0 ? (
-            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>尚無快照。</p>
-          ) : versions.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              style={{ ...quietBtn, display: "flex", width: "100%", justifyContent: "space-between", marginBottom: 4 }}
-              onClick={() => {
-                if (!confirm("還原此版本？")) return;
-                setTitle(v.title);
-                setBody(v.body_md);
-                markDirty();
-                setVersionsOpen(false);
-              }}
-            >
-              <span>{v.title || "（無標題）"}</span>
-              <span>{v.created_at.toLocaleString("zh-TW")}</span>
-            </button>
-          ))}
-        </div>
-      )}
+          {versionsOpen && (
+            <div className="doc-versions">
+              <div className="doc-versions-head">
+                <strong>版本歷史</strong>
+                <button type="button" className="doc-cmd" onClick={() => setVersionsOpen(false)}>關閉</button>
+              </div>
+              {versions.length === 0 ? (
+                <p className="note-aside-empty">尚無快照。</p>
+              ) : versions.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  className="doc-version-row"
+                  onClick={() => {
+                    if (!confirm("還原此版本？")) return;
+                    setTitle(v.title);
+                    setBody(v.body_md);
+                    markDirty();
+                    setVersionsOpen(false);
+                  }}
+                >
+                  <span>{v.title || "（無標題）"}</span>
+                  <span>{v.created_at.toLocaleString("zh-TW")}</span>
+                </button>
+              ))}
+            </div>
+          )}
 
-      <input
-        className="doc-title"
-        value={title}
-        onChange={(e) => { setTitle(e.target.value); markDirty(); }}
-        placeholder="無標題"
-      />
+          <input
+            className="doc-title"
+            value={title}
+            onChange={(e) => { setTitle(e.target.value); markDirty(); }}
+            placeholder="無標題"
+          />
 
-      <div className="doc-props">
-        <input
-          className="doc-prop-input"
-          placeholder="資料夾"
-          value={folder}
-          onChange={(e) => { setFolder(e.target.value); markDirty(); }}
-        />
-        {tags.map((t) => (
-          <button
-            key={t}
-            type="button"
-            className="badge"
-            style={{ cursor: "pointer", border: "none", fontWeight: 500 }}
-            onClick={() => { setTags(tags.filter((x) => x !== t)); markDirty(); }}
-          >
-            #{t}
-          </button>
-        ))}
-        <input
-          className="doc-prop-input"
-          placeholder="加標籤…"
-          value={tagInput}
-          onChange={(e) => setTagInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-        />
-        <MenuSelect
-          variant="pill"
-          ariaLabel="筆記狀態"
-          value={(note.status === "doing" || note.status === "done" ? note.status : "backlog")}
-          options={NOTE_STATUS_OPTIONS}
-          onChange={(s) => {
-            setNote({ ...note, status: s });
-            void updateNote(note.id, { status: s });
-          }}
-        />
-        {note.source_job_id && (
-          <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
-            來源逐字稿
-          </Link>
-        )}
-      </div>
-
-      <div className="doc-editor-shell">
-        <RichNoteEditor
-          valueMd={body}
-          onChangeMd={(md) => { setBody(md); markDirty(); }}
-          placeholder="輸入文字，或輸入 / 插入區塊…"
-          findOpen={findOpen}
-          onFindOpenChange={setFindOpen}
-          toolbarHost={ribbonHost}
-        />
-      </div>
-
-      <section className="doc-backlinks">
-        <h3>連結</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-          <div>
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 6 }}>此頁連出</p>
-            {outbound.length === 0 ? (
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>尚無 [[連結]]</p>
-            ) : outbound.map((t) => {
-              const hit = findNoteByTitle(allNotes, t);
-              return hit ? (
-                <div key={t}><Link href={`/notes/${hit.id}`} style={{ color: "var(--accent-2)", fontSize: "0.9rem" }}>{t}</Link></div>
-              ) : (
-                <div key={t} style={{ fontSize: "0.9rem", color: "var(--text-muted)" }}>{t}（未建立）</div>
-              );
-            })}
-          </div>
-          <div>
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 6 }}>連到此頁</p>
-            {backlinks.length === 0 ? (
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>尚無反向連結</p>
-            ) : backlinks.map((n) => (
-              <div key={n.id}><Link href={`/notes/${n.id}`} style={{ color: "var(--accent-2)", fontSize: "0.9rem" }}>{n.title}</Link></div>
+          <div className="doc-props">
+            <input
+              className="doc-prop-input"
+              placeholder="資料夾"
+              value={folder}
+              onChange={(e) => { setFolder(e.target.value); markDirty(); }}
+            />
+            {tags.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className="badge"
+                style={{ cursor: "pointer", border: "none", fontWeight: 500 }}
+                onClick={() => { setTags(tags.filter((x) => x !== t)); markDirty(); }}
+              >
+                #{t}
+              </button>
             ))}
+            <input
+              className="doc-prop-input"
+              placeholder="加標籤…"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+            />
+            <MenuSelect
+              variant="pill"
+              ariaLabel="筆記狀態"
+              value={note.status === "doing" || note.status === "done" ? note.status : "backlog"}
+              options={NOTE_STATUS_OPTIONS}
+              onChange={(s) => {
+                setNote({ ...note, status: s });
+                void updateNote(note.id, { status: s });
+              }}
+            />
+            <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+            {note.source_job_id && (
+              <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
+                來源逐字稿
+              </Link>
+            )}
           </div>
+
+          <div className="doc-link-insert">
+            <input
+              className="doc-prop-input"
+              style={{ flex: 1, minWidth: 160 }}
+              placeholder="插入雙向連結 [[筆記標題]]…"
+              value={linkPicker}
+              onChange={(e) => setLinkPicker(e.target.value)}
+            />
+            {linkPicker && (
+              <div className="doc-link-menu">
+                {linkCandidates.length === 0 ? (
+                  <button type="button" onClick={() => insertWiki(linkPicker.trim())}>
+                    {`建立 [[${linkPicker.trim()}]]`}
+                  </button>
+                ) : (
+                  linkCandidates.map((n) => (
+                    <button key={n.id} type="button" onClick={() => insertWiki(n.title)}>
+                      {n.title}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="doc-editor-shell">
+            <RichNoteEditor
+              valueMd={body}
+              onChangeMd={(md) => { setBody(md); markDirty(); }}
+              placeholder="輸入文字，或輸入 / 插入區塊…"
+              findOpen={findOpen}
+              onFindOpenChange={setFindOpen}
+              toolbarHost={ribbonHost}
+            />
+          </div>
+
+          <section className="doc-backlinks">
+            <h3>連結圖譜</h3>
+            <div className="doc-link-grid">
+              <div>
+                <p className="doc-link-label">此頁連出</p>
+                {outbound.length === 0 ? (
+                  <p className="note-aside-empty">尚無 [[連結]]</p>
+                ) : outbound.map((t) => {
+                  const hit = findNoteByTitle(allNotes, t);
+                  return hit ? (
+                    <div key={t}><Link href={`/notes/${hit.id}`} className="doc-link-item">{t}</Link></div>
+                  ) : (
+                    <div key={t} className="doc-link-missing">{t}（未建立）</div>
+                  );
+                })}
+              </div>
+              <div>
+                <p className="doc-link-label">連到此頁</p>
+                {backlinks.length === 0 ? (
+                  <p className="note-aside-empty">尚無反向連結</p>
+                ) : backlinks.map((n) => (
+                  <div key={n.id}><Link href={`/notes/${n.id}`} className="doc-link-item">{n.title}</Link></div>
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
-      </section>
+
+        <NoteAside
+          open={asideOpen && !focusMode}
+          tab={asideTab}
+          onTab={setAsideTab}
+          title={title}
+          body={body}
+          stats={stats}
+          outline={outline}
+          related={related}
+          aiBusy={aiBusy}
+          onAiAction={(a) => { void runAi(a); }}
+          onInsertMarkdown={(md) => { setBody((b) => b + md); markDirty(); flash("已插入 AI 內容"); }}
+          onJumpHeading={jumpHeading}
+        />
+      </div>
 
       {presenting && (
         <div
-          style={{
-            position: "fixed", inset: 0, zIndex: 100,
-            background: "#FFFFFF",
-            color: "#37352F",
-            display: "flex", flexDirection: "column",
-            padding: "4rem 10vw",
-          }}
+          className="doc-present"
           onClick={() => setSlideIdx((i) => Math.min(i + 1, slides.length - 1))}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2.5rem", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+          <div className="doc-present-bar">
             <span>{slideIdx + 1} / {slides.length}</span>
-            <button type="button" style={quietBtn} onClick={(e) => { e.stopPropagation(); setPresenting(false); }}>離開</button>
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={(e) => { e.stopPropagation(); setPresenting(false); }}
+            >
+              離開
+            </button>
           </div>
-          <h1 className="font-display" style={{ fontSize: "clamp(2rem, 5vw, 3rem)", marginBottom: "1.25rem" }}>{slides[slideIdx]?.title}</h1>
-          <pre style={{ whiteSpace: "pre-wrap", fontFamily: "Outfit, sans-serif", fontSize: "1.2rem", lineHeight: 1.7, flex: 1 }}>
-            {slides[slideIdx]?.content}
-          </pre>
+          <h1 className="font-display">{slides[slideIdx]?.title}</h1>
+          <pre>{slides[slideIdx]?.content}</pre>
         </div>
       )}
-      </div>
     </div>
   );
 }
