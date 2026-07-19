@@ -22,13 +22,13 @@ import {
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
-import KnowledgeChat from "@/components/library/KnowledgeChat";
 import LibraryRail from "@/components/library/LibraryRail";
 import MenuSelect, { noteStatusLabel } from "@/components/MenuSelect";
 import { usePrefs } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
 import { buildResearchUrl } from "@/lib/researchBridge";
 import ContinueChips, { libraryContinueChips } from "@/components/shell/ContinueChips";
+import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import {
   SortKey,
@@ -70,7 +70,6 @@ function LibraryPageInner() {
   const [createError, setCreateError] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
-  const [chatOpen, setChatOpen] = useState(true);
   const [bulkFolder, setBulkFolder] = useState("");
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -250,10 +249,11 @@ function LibraryPageInner() {
         <div className="kb-hero-actions">
           <button
             type="button"
-            className={`btn btn-sm ${chatOpen ? "" : "btn-ghost"}`}
-            onClick={() => setChatOpen((v) => !v)}
+            className="btn btn-sm btn-ghost"
+            title="Cadence AI（Ctrl+Shift+A）"
+            onClick={() => openGlobalAiRail()}
           >
-            {chatOpen ? "收合助手" : "知識助手"}
+            AI
           </button>
           <button
             type="button"
@@ -282,7 +282,7 @@ function LibraryPageInner() {
         })}
       />
 
-      <div className={`kb-layout${chatOpen ? " kb-layout--chat" : ""}`}>
+      <div className="kb-layout">
         <LibraryRail
           stats={stats}
           folders={folders}
@@ -669,15 +669,6 @@ function LibraryPageInner() {
           )}
           </div>
         </main>
-
-        {chatOpen && (
-          <KnowledgeChat
-            notes={notes}
-            selectedIds={selected}
-            onClearSelection={() => setSelected([])}
-            storageKey={`cadence-kb-chat-${user.uid}`}
-          />
-        )}
       </div>
     </div>
   );
