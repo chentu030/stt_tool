@@ -20,6 +20,8 @@ export default function NotePage() {
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [findOpen, setFindOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ title: "", body: "" });
 
@@ -81,6 +83,28 @@ export default function NotePage() {
     URL.revokeObjectURL(url);
   };
 
+  const runAi = async (action: "summarize" | "rewrite" | "outline") => {
+    if (!body.trim() || aiBusy) return;
+    setAiBusy(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, title, body }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI 失敗");
+      const next = action === "rewrite" ? data.text : `${body.trim()}\n\n---\n\n## AI ${action === "summarize" ? "摘要" : "大綱"}\n\n${data.text}`;
+      setBody(next);
+      markDirty();
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "AI 失敗");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
   if (!user) return <p>請先登入。</p>;
   if (!note) return <p style={{ color: "var(--text-muted)" }}>載入筆記中或找不到。</p>;
@@ -114,11 +138,24 @@ export default function NotePage() {
           </AnimatePresence>
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => setFindOpen(true)}>尋找</button>
           <button className="btn btn-ghost btn-sm" type="button" onClick={exportMd}>匯出 MD</button>
+          <button className="btn btn-soft btn-sm" type="button" disabled={aiBusy || !body.trim()} onClick={() => runAi("summarize")}>
+            {aiBusy ? "AI…" : "摘要"}
+          </button>
+          <button className="btn btn-soft btn-sm" type="button" disabled={aiBusy || !body.trim()} onClick={() => runAi("rewrite")}>
+            改寫
+          </button>
+          <button className="btn btn-soft btn-sm" type="button" disabled={aiBusy || !body.trim()} onClick={() => runAi("outline")}>
+            大綱
+          </button>
           <button className="btn btn-sm" type="button" onClick={() => save(false)} disabled={!dirty || saving}>
             {saving ? "…" : "儲存"}
           </button>
         </div>
       </div>
+
+      {aiError && (
+        <p style={{ color: "var(--danger)", fontSize: "0.82rem", marginTop: "0.55rem" }}>{aiError}</p>
+      )}
 
       <div style={{ marginTop: "0.85rem", marginBottom: "0.55rem" }}>
         <ScrambleText

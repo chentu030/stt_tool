@@ -56,7 +56,7 @@ export default function SettingsPage() {
           <li>之後：白板、簡報、協作／AI；Capacitor iOS／Android</li>
         </ul>
         <p style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          完整清單見 repo 根目錄 <code>ROADMAP.md</code>
+          完整清單見 repo 根目錄 <code>ROADMAP.md</code>；Vertex AI 環境變數見 <code>frontend/ENV.md</code>
         </p>
         <p style={{ marginTop: "0.8rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
           舊版歷史頁仍可用：<Link href="/history" style={{ color: "var(--accent-2)" }}>/history</Link>
