@@ -9,9 +9,22 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import { buildResearchUrl } from "@/lib/researchBridge";
 
 type Msg = { id: string; role: "user" | "assistant"; text: string };
+type RailMode = "dock" | "float";
+type ChatThread = {
+  id: string;
+  title: string;
+  updatedAt: number;
+  msgs: Msg[];
+  pinnedIds: string[];
+};
 
 const OPEN_KEY = "cadence_ai_rail_open";
+const MODE_KEY = "cadence_ai_rail_mode";
+const THREADS_KEY = "cadence_ai_threads_v1";
+const ACTIVE_KEY = "cadence_ai_active_thread";
+
 const DOCK_SUGGESTIONS = [
+  { label: "總結此頁面", prompt: "請總結目前對焦或知識庫裡最相關的筆記重點" },
   { label: "本週重點", prompt: "根據我的知識庫，整理本週最值得關注的 5 件事" },
   { label: "找相關筆記", prompt: "幫我找出彼此相關的筆記主題，並說明可如何串起來" },
   { label: "靈感草稿", prompt: "從最近筆記抽出靈感，寫一段可發展的草稿開頭" },
@@ -50,6 +63,85 @@ function saveOpen(open: boolean) {
   }
 }
 
+function loadMode(): RailMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "float" ? "float" : "dock";
+  } catch {
+    return "dock";
+  }
+}
+
+function saveMode(mode: RailMode) {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
+function threadTitleFromMsgs(msgs: Msg[]): string {
+  const first = msgs.find((m) => m.role === "user")?.text?.trim();
+  if (!first) return "新 AI 對話";
+  return first.length > 28 ? `${first.slice(0, 28)}…` : first;
+}
+
+function loadThreads(): { threads: ChatThread[]; activeId: string } {
+  try {
+    const raw = localStorage.getItem(THREADS_KEY);
+    let threads: ChatThread[] = [];
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatThread[];
+      if (Array.isArray(parsed)) {
+        threads = parsed
+          .filter((t) => t && typeof t.id === "string" && Array.isArray(t.msgs))
+          .map((t) => ({
+            id: t.id,
+            title: t.title || "對話",
+            updatedAt: t.updatedAt || Date.now(),
+            msgs: t.msgs.slice(-60),
+            pinnedIds: Array.isArray(t.pinnedIds) ? t.pinnedIds.slice(0, 8) : [],
+          }));
+      }
+    }
+    // migrate legacy session
+    if (!threads.length) {
+      const legacy = sessionStorage.getItem("cadence-ai-dock");
+      if (legacy) {
+        const parsed = JSON.parse(legacy) as { msgs?: Msg[]; pinned?: string[] };
+        if (Array.isArray(parsed.msgs) && parsed.msgs.length) {
+          const id = uid();
+          threads = [
+            {
+              id,
+              title: threadTitleFromMsgs(parsed.msgs),
+              updatedAt: Date.now(),
+              msgs: parsed.msgs.slice(-40),
+              pinnedIds: Array.isArray(parsed.pinned) ? parsed.pinned.slice(0, 8) : [],
+            },
+          ];
+        }
+      }
+    }
+    const activeStored = localStorage.getItem(ACTIVE_KEY);
+    const activeId =
+      (activeStored && threads.some((t) => t.id === activeStored) && activeStored) ||
+      threads[0]?.id ||
+      "";
+    return { threads, activeId };
+  } catch {
+    return { threads: [], activeId: "" };
+  }
+}
+
+function persistThreads(threads: ChatThread[], activeId: string) {
+  try {
+    localStorage.setItem(THREADS_KEY, JSON.stringify(threads.slice(0, 40)));
+    localStorage.setItem(ACTIVE_KEY, activeId);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Open/toggle the global AI right rail from anywhere */
 export function openGlobalAiRail() {
   if (typeof window === "undefined") return;
@@ -67,14 +159,16 @@ export default function GlobalAiDock() {
   const router = useRouter();
   const prefsCtx = usePrefsOptional();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<RailMode>("dock");
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [activeId, setActiveId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
-  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [atOpen, setAtOpen] = useState(false);
   const [atQ, setAtQ] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [focusNoteId, setFocusNoteId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -88,13 +182,79 @@ export default function GlobalAiDock() {
   );
   const assistantName = prefsCtx?.prefs.aiAssistantName || "Cadence AI";
 
+  const active = useMemo(
+    () => threads.find((t) => t.id === activeId) || null,
+    [threads, activeId]
+  );
+  const msgs = active?.msgs || [];
+  const pinnedIds = active?.pinnedIds || [];
+
+  const patchActive = (fn: (t: ChatThread) => ChatThread, idOverride?: string) => {
+    setThreads((prev) => {
+      const want = idOverride || activeId;
+      let idx = want ? prev.findIndex((t) => t.id === want) : -1;
+      if (idx < 0) {
+        idx = prev.findIndex((t) => t.msgs.length === 0);
+      }
+      if (idx < 0) {
+        const created = fn({
+          id: want || uid(),
+          title: "新 AI 對話",
+          updatedAt: Date.now(),
+          msgs: [],
+          pinnedIds: [],
+        });
+        setActiveId(created.id);
+        return [created, ...prev];
+      }
+      const next = [...prev];
+      next[idx] = fn({ ...next[idx], updatedAt: Date.now() });
+      if (!activeId) setActiveId(next[idx].id);
+      return next;
+    });
+  };
+
+  const ensureActive = (): string => {
+    if (activeId && threads.some((t) => t.id === activeId)) return activeId;
+    const id = uid();
+    setActiveId(id);
+    setThreads((prev) => {
+      if (prev.some((t) => t.id === id)) return prev;
+      return [
+        {
+          id,
+          title: "新 AI 對話",
+          updatedAt: Date.now(),
+          msgs: [],
+          pinnedIds: [],
+        },
+        ...prev,
+      ];
+    });
+    return id;
+  };
+
   useEffect(() => {
     setOpen(loadOpen());
+    setMode(loadMode());
+    const loaded = loadThreads();
+    setThreads(loaded.threads);
+    setActiveId(loaded.activeId);
+    hydrated.current = true;
   }, []);
 
   useEffect(() => {
     saveOpen(open);
   }, [open]);
+
+  useEffect(() => {
+    saveMode(mode);
+  }, [mode]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    persistThreads(threads, activeId);
+  }, [threads, activeId]);
 
   useEffect(() => {
     const onEvt = (e: Event) => {
@@ -119,38 +279,16 @@ export default function GlobalAiDock() {
   }, [user]);
 
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem("cadence-ai-dock");
-      if (raw) {
-        const parsed = JSON.parse(raw) as { msgs?: Msg[]; pinned?: string[] };
-        if (Array.isArray(parsed.msgs)) setMsgs(parsed.msgs.slice(-40));
-        if (Array.isArray(parsed.pinned)) setPinnedIds(parsed.pinned.slice(0, 8));
-      }
-    } catch {
-      /* ignore */
-    }
-    hydrated.current = true;
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
-    try {
-      sessionStorage.setItem(
-        "cadence-ai-dock",
-        JSON.stringify({ msgs: msgs.slice(-40), pinned: pinnedIds })
-      );
-    } catch {
-      /* ignore */
-    }
-  }, [msgs, pinnedIds]);
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
         setOpen((v) => !v);
       }
       if (e.key === "Escape" && open) {
+        if (historyOpen) {
+          setHistoryOpen(false);
+          return;
+        }
         const tag = (document.activeElement as HTMLElement | null)?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
         setOpen(false);
@@ -158,7 +296,7 @@ export default function GlobalAiDock() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [open, historyOpen]);
 
   useEffect(() => {
     setWebSearch(!!prefsCtx?.prefs.aiGrounding);
@@ -171,7 +309,15 @@ export default function GlobalAiDock() {
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs, busy, open]);
+  }, [msgs, busy, open, activeId]);
+
+  useEffect(() => {
+    document.documentElement.dataset.aiRail =
+      open && mode === "dock" ? "dock-open" : open && mode === "float" ? "float-open" : "closed";
+    return () => {
+      delete document.documentElement.dataset.aiRail;
+    };
+  }, [open, mode]);
 
   const pinnedNotes = useMemo(
     () => pinnedIds.map((id) => notes.find((n) => n.id === id)).filter(Boolean) as Note[],
@@ -187,26 +333,98 @@ export default function GlobalAiDock() {
 
   const scopeLabel = useMemo(() => {
     if (pinnedNotes.length) return `已 @ ${pinnedNotes.length} 篇`;
-    if (focusNote) return `對焦 · ${focusNote.title || "筆記"}`;
+    if (focusNote) return focusNote.title || "筆記";
     if (onNotePage) return "跨庫提問 · 本篇可用 Ctrl+J";
     return `知識庫 ${notes.length} 篇`;
   }, [onNotePage, notes.length, pinnedNotes.length, focusNote]);
 
+  const historySorted = useMemo(
+    () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
+    [threads]
+  );
+
+  const startNewChat = () => {
+    setHistoryOpen(false);
+    setError("");
+    const id = uid();
+    const blank: ChatThread = {
+      id,
+      title: "新 AI 對話",
+      updatedAt: Date.now(),
+      msgs: [],
+      pinnedIds: focusNoteId ? [focusNoteId] : [],
+    };
+    setThreads((prev) => {
+      // drop empty drafts except keep history with content
+      const kept = prev.filter((t) => t.msgs.length > 0 || t.id === activeId);
+      return [blank, ...kept.filter((t) => t.msgs.length > 0)].slice(0, 40);
+    });
+    setActiveId(id);
+    setInput("");
+    setTimeout(() => inputRef.current?.focus(), 40);
+  };
+
+  const loadThread = (id: string) => {
+    setActiveId(id);
+    setHistoryOpen(false);
+    setError("");
+    setTimeout(() => inputRef.current?.focus(), 40);
+  };
+
+  const deleteThread = (id: string) => {
+    setThreads((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      if (id === activeId) {
+        const fallback = next[0];
+        if (fallback) setActiveId(fallback.id);
+        else {
+          const blankId = uid();
+          setActiveId(blankId);
+          return [
+            {
+              id: blankId,
+              title: "新 AI 對話",
+              updatedAt: Date.now(),
+              msgs: [],
+              pinnedIds: [],
+            },
+          ];
+        }
+      }
+      return next;
+    });
+  };
+
   const togglePin = (id: string) => {
-    setPinnedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(0, 8)
-    );
+    ensureActive();
+    patchActive((t) => ({
+      ...t,
+      pinnedIds: t.pinnedIds.includes(id)
+        ? t.pinnedIds.filter((x) => x !== id)
+        : [...t.pinnedIds, id].slice(0, 8),
+    }));
   };
 
   const send = async (text: string) => {
     const prompt = text.trim();
     if (!prompt || busy) return;
+    const tid = ensureActive();
     setBusy(true);
     setError("");
     setInput("");
     setAtOpen(false);
     const userMsg: Msg = { id: uid(), role: "user", text: prompt };
-    setMsgs((p) => [...p, userMsg]);
+    let snapshotMsgs: Msg[] = [];
+    let snapshotPins: string[] = [];
+    patchActive((t) => {
+      snapshotPins = t.pinnedIds;
+      snapshotMsgs = [...t.msgs, userMsg];
+      return {
+        ...t,
+        msgs: snapshotMsgs,
+        title: t.msgs.length === 0 ? threadTitleFromMsgs(snapshotMsgs) : t.title,
+      };
+    }, tid);
     try {
       const libNotes = notes.map((n) => ({
         id: n.id,
@@ -218,8 +436,8 @@ export default function GlobalAiDock() {
         created_at: n.created_at,
       }));
       const packed = packLibraryContext(libNotes, prompt, {
-        selectedIds: pinnedIds.length ? pinnedIds : undefined,
-        maxNotes: pinnedIds.length ? Math.min(pinnedIds.length, 12) : 10,
+        selectedIds: snapshotPins.length ? snapshotPins : undefined,
+        maxNotes: snapshotPins.length ? Math.min(snapshotPins.length, 12) : 10,
         maxChars: 14000,
       });
       const res = await fetch("/api/ai/generate", {
@@ -235,7 +453,7 @@ export default function GlobalAiDock() {
             model: prefsCtx?.prefs.aiModel,
             grounding: webSearch,
           },
-          messages: [...msgs, userMsg]
+          messages: snapshotMsgs
             .slice(-8)
             .map((m) => ({
               role: m.role === "assistant" ? "model" : "user",
@@ -246,11 +464,17 @@ export default function GlobalAiDock() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "失敗");
-      setMsgs((p) => [...p, { id: uid(), role: "assistant", text: data.text || "（無回覆）" }]);
+      patchActive((t) => ({
+        ...t,
+        msgs: [...t.msgs, { id: uid(), role: "assistant", text: data.text || "（無回覆）" }],
+      }), tid);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
-      setMsgs((p) => [...p, { id: uid(), role: "assistant", text: `無法回答：${msg}` }]);
+      patchActive((t) => ({
+        ...t,
+        msgs: [...t.msgs, { id: uid(), role: "assistant", text: `無法回答：${msg}` }],
+      }), tid);
     } finally {
       setBusy(false);
     }
@@ -258,18 +482,20 @@ export default function GlobalAiDock() {
 
   if (!user) return null;
 
+  const headTitle = active?.title || "新 AI 對話";
+
   return (
     <>
       {open && (
         <button
           type="button"
-          className="cadence-ai-rail-backdrop"
-          aria-label="關閉 AI 側欄"
+          className={`cadence-ai-rail-backdrop${mode === "float" ? " is-visible" : ""}`}
+          aria-label="關閉 AI"
           onClick={() => setOpen(false)}
         />
       )}
       <aside
-        className={`cadence-ai-rail${open ? " is-open" : " is-collapsed"}`}
+        className={`cadence-ai-rail${open ? " is-open" : " is-collapsed"} is-${mode}`}
         aria-label={assistantName}
       >
         {!open ? (
@@ -284,16 +510,99 @@ export default function GlobalAiDock() {
         ) : (
           <div className="cadence-ai-rail-inner">
             <div className="cadence-ai-dock-head">
-              <strong>{assistantName}</strong>
-              <span className="cadence-ai-dock-scope">{scopeLabel}</span>
               <button
                 type="button"
-                className="doc-cmd"
-                title="清空對話"
-                onClick={() => setMsgs([])}
+                className="cadence-ai-title-btn"
+                title="對話標題"
+                onClick={() => setHistoryOpen((v) => !v)}
               >
-                清空
+                <strong>{headTitle}</strong>
+                <span className="cadence-ai-title-caret">▾</span>
               </button>
+              <button
+                type="button"
+                className="doc-cmd cadence-ai-ico"
+                title="新對話"
+                onClick={startNewChat}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className={`doc-cmd cadence-ai-ico${historyOpen ? " is-on" : ""}`}
+                title="歷史紀錄"
+                onClick={() => setHistoryOpen((v) => !v)}
+              >
+                ⏱
+              </button>
+              <button
+                type="button"
+                className={`doc-cmd cadence-ai-ico${mode === "float" ? " is-on" : ""}`}
+                title={mode === "dock" ? "改為浮動視窗" : "釘選到右側"}
+                onClick={() => setMode((m) => (m === "dock" ? "float" : "dock"))}
+              >
+                {mode === "dock" ? "⧉" : "▥"}
+              </button>
+              <button
+                type="button"
+                className="doc-cmd cadence-ai-ico"
+                title="關閉"
+                onClick={() => setOpen(false)}
+              >
+                ››
+              </button>
+            </div>
+
+            {historyOpen && (
+              <div className="cadence-ai-history">
+                <div className="cadence-ai-history-head">
+                  <span>歷史紀錄</span>
+                  <button type="button" className="doc-cmd" onClick={startNewChat}>
+                    新對話
+                  </button>
+                </div>
+                {historySorted.length === 0 ? (
+                  <p className="note-aside-empty">尚無對話</p>
+                ) : (
+                  historySorted.map((t) => (
+                    <div
+                      key={t.id}
+                      className={`cadence-ai-history-item${t.id === activeId ? " is-on" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        className="cadence-ai-history-main"
+                        onClick={() => loadThread(t.id)}
+                      >
+                        <strong>{t.title || "對話"}</strong>
+                        <span>
+                          {t.msgs.length} 則 ·{" "}
+                          {new Date(t.updatedAt).toLocaleString("zh-TW", {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="doc-cmd"
+                        title="刪除"
+                        onClick={() => deleteThread(t.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            <div className="cadence-ai-dock-scope-row">
+              <span className="cadence-ai-dock-scope" title={scopeLabel}>
+                {scopeLabel}
+              </span>
               <button
                 type="button"
                 className="doc-cmd"
@@ -323,14 +632,6 @@ export default function GlobalAiDock() {
               >
                 研究
               </button>
-              <button
-                type="button"
-                className="doc-cmd"
-                title="關閉側欄"
-                onClick={() => setOpen(false)}
-              >
-                ››
-              </button>
             </div>
 
             <div className="cadence-ai-dock-pins">
@@ -344,6 +645,17 @@ export default function GlobalAiDock() {
               >
                 @ 筆記
               </button>
+              {focusNote && !pinnedIds.includes(focusNote.id) && (
+                <button
+                  type="button"
+                  className="cadence-ai-pin cadence-ai-pin--ctx"
+                  title="加入目前頁面"
+                  onClick={() => togglePin(focusNote.id)}
+                >
+                  {focusNote.title.slice(0, 14) || "此頁"}
+                  {(focusNote.title.length || 2) > 14 ? "…" : ""} +
+                </button>
+              )}
               {pinnedNotes.map((n) => (
                 <button
                   key={n.id}
@@ -387,28 +699,26 @@ export default function GlobalAiDock() {
               </div>
             )}
 
-            {msgs.length === 0 && (
-              <div className="cadence-ai-dock-suggest">
-                {DOCK_SUGGESTIONS.map((s) => (
-                  <button
-                    key={s.label}
-                    type="button"
-                    className="note-ai-chip"
-                    disabled={busy}
-                    onClick={() => void send(s.prompt)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+            {msgs.length === 0 && !historyOpen && (
+              <div className="cadence-ai-dock-empty">
+                <p className="cadence-ai-greet">想做些什麼？</p>
+                <div className="cadence-ai-dock-suggest">
+                  {DOCK_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      className="note-ai-chip"
+                      disabled={busy}
+                      onClick={() => void send(s.prompt)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
             <div className="cadence-ai-dock-msgs" ref={listRef}>
-              {msgs.length === 0 && (
-                <p className="note-aside-empty">
-                  用 @ 指定筆記當脈絡，或直接問整個知識庫。
-                </p>
-              )}
               {msgs.map((m) => (
                 <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
                   <span>{m.role === "user" ? "你" : assistantName}</span>
@@ -425,11 +735,16 @@ export default function GlobalAiDock() {
                 void send(input);
               }}
             >
+              {(focusNote || pinnedNotes[0]) && (
+                <div className="cadence-ai-ctx-chip">
+                  {pinnedNotes[0]?.title || focusNote?.title || "筆記"}
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 className="input"
                 rows={3}
-                placeholder={`問 ${assistantName}…（可用 @ 指定筆記）`}
+                placeholder="使用 AI 完成任何事情…"
                 value={input}
                 disabled={busy}
                 onChange={(e) => setInput(e.target.value)}
