@@ -5758,3 +5758,79 @@ button, input, textarea, select {
 .doc-workspace.is-slides .doc-page {
   min-width: 0;
 }
+
+/* Selection Ask AI panel */
+.rich-tool-btn.is-ai {
+  background: var(--accent-soft, rgba(13, 148, 136, 0.14));
+  color: var(--accent, #0d9488);
+  font-weight: 750;
+}
+.sel-ai-panel {
+  position: fixed;
+  z-index: 90;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  padding: 0.65rem 0.7rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sel-ai-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.sel-ai-head strong { font-size: 0.88rem; }
+.sel-ai-snip {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  max-height: 3.2em;
+  overflow: hidden;
+}
+.sel-ai-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.sel-ai-ask {
+  display: flex;
+  gap: 0.35rem;
+}
+.sel-ai-ask input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.82rem;
+  background: var(--bg-muted, #f4f4f5);
+  color: var(--text-main);
+}
+.sel-ai-error { margin: 0; color: var(--danger); font-size: 0.78rem; }
+.sel-ai-busy { margin: 0; color: var(--text-muted); font-size: 0.78rem; }
+.sel-ai-result pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.55rem;
+  background: var(--bg-muted, #f4f4f5);
+  border-radius: 8px;
+}
+.sel-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}

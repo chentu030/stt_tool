@@ -997,6 +997,7 @@ export default function NotePage() {
               noteId={note.id}
               wikiNotes={allNotes}
               pageMode={pageMode}
+              noteTitle={title}
               showEmptyTemplates
               onEmptyTemplate={(tid) => {
                 const tpl = NOTE_TEMPLATES.find((t) => t.id === tid);

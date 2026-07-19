@@ -27,6 +27,7 @@ import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
+import SelectionAiPanel from "@/components/SelectionAiPanel";
 
 const lowlight = createLowlight(common);
 
@@ -43,6 +44,7 @@ type Props = {
   onEmptyTemplate?: (templateId: string) => void;
   showEmptyTemplates?: boolean;
   pageMode?: boolean;
+  noteTitle?: string;
   /** Create a nested page under the current note; return created title for wiki link */
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
 };
@@ -79,6 +81,7 @@ export default function RichNoteEditor({
   onEmptyTemplate,
   showEmptyTemplates,
   pageMode = false,
+  noteTitle = "",
   onCreateSubpage,
 }: Props) {
   const prefsCtx = usePrefsOptional();
@@ -110,6 +113,7 @@ export default function RichNoteEditor({
   const [txColor, setTxColor] = useState(() => loadStoredColor("cadence_tx_color", "#dc2626"));
   const [hlCustoms, setHlCustoms] = useState<string[]>(() => loadCustomColors("cadence_hl_customs", HL_PRESETS));
   const [txCustoms, setTxCustoms] = useState<string[]>(() => loadCustomColors("cadence_tx_customs", TX_PRESETS));
+  const [selAi, setSelAi] = useState<{ from: number; to: number; text: string } | null>(null);
   const hlPanelRef = useRef<HTMLDivElement>(null);
   const txPanelRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -945,7 +949,26 @@ export default function RichNoteEditor({
       {hiddenInputs}
       {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
 
-      <BubbleMenu editor={editor} className="rich-bubble">
+      <BubbleMenu
+        editor={editor}
+        className="rich-bubble"
+        shouldShow={({ editor: ed, state }) => {
+          const { from, to } = state.selection;
+          return from !== to && !ed.isActive("codeBlock");
+        }}
+      >
+        <ToolbarBtn
+          title="詢問 AI"
+          accent
+          onClick={() => {
+            const { from, to } = editor.state.selection;
+            const text = editor.state.doc.textBetween(from, to, "\n");
+            if (!text.trim()) return;
+            setSelAi({ from, to, text });
+          }}
+        >
+          AI
+        </ToolbarBtn>
         <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>B</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</ToolbarBtn>
@@ -986,6 +1009,19 @@ export default function RichNoteEditor({
         </ToolbarBtn>
         <ToolbarBtn onClick={setLink}>連結</ToolbarBtn>
       </BubbleMenu>
+
+      {selAi && (
+        <SelectionAiPanel
+          open
+          editor={editor}
+          noteTitle={noteTitle}
+          noteBody={valueMd}
+          selectionText={selAi.text}
+          from={selAi.from}
+          to={selAi.to}
+          onClose={() => setSelAi(null)}
+        />
+      )}
 
       <div className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
         <div className={pageMode ? "rich-page-sheet" : undefined}>
@@ -1079,17 +1115,19 @@ function ToolbarBtn({
   onClick,
   active,
   title,
+  accent,
 }: {
   children: ReactNode;
   onClick: () => void;
   active?: boolean;
   title?: string;
+  accent?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
-      className={`rich-tool-btn${active ? " is-active" : ""}`}
+      className={`rich-tool-btn${active ? " is-active" : ""}${accent ? " is-ai" : ""}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >

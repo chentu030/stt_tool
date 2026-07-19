@@ -16,10 +16,16 @@ type Body = {
     | "custom"
     | "chat"
     | "library"
-    | "note";
+    | "note"
+    | "improve"
+    | "shorten"
+    | "continue"
+    | "translate"
+    | "ask_selection";
   title?: string;
   body?: string;
   context?: string;
+  selection?: string;
   messages?: VertexChatMessage[];
 };
 
@@ -33,6 +39,39 @@ function buildPrompt(data: Body): {
   const note = data.body?.trim() || "";
   const action = data.action || "custom";
   const context = data.context?.trim() || "";
+  const selection = data.selection?.trim() || note;
+
+  if (action === "improve") {
+    return {
+      system: "你是寫作助手。用繁體中文改寫選取文字，更清晰流暢，保留原意與語氣。只輸出改寫後文字，不要解釋。",
+      prompt: `請改善以下文字：\n\n${selection}`,
+    };
+  }
+  if (action === "shorten") {
+    return {
+      system: "你是寫作助手。用繁體中文精簡選取文字，保留關鍵資訊。只輸出精簡後文字。",
+      prompt: `請精簡：\n\n${selection}`,
+    };
+  }
+  if (action === "continue") {
+    return {
+      system: "你是寫作助手。用繁體中文延續選取文字的風格與思路，自然接續。只輸出延續內容，不要重複原文。",
+      prompt: `請延續寫下去：\n\n${selection}`,
+    };
+  }
+  if (action === "translate") {
+    return {
+      system: "你是翻譯助手。若原文是中文則譯成流暢英文；若是其他語言則譯成繁體中文。只輸出譯文。",
+      prompt: `請翻譯：\n\n${selection}`,
+    };
+  }
+  if (action === "ask_selection") {
+    return {
+      system: "你是 Cadence 筆記助手。依使用者問題，針對框選文字作答，使用繁體中文。可給出可直接貼回筆記的 Markdown。",
+      prompt: `筆記標題：${title}\n\n框選文字：\n${selection}\n\n${context ? `周圍脈絡：\n${context.slice(0, 2000)}\n\n` : ""}使用者問題：\n${data.prompt?.trim() || "請說明這段在說什麼"}`,
+      temperature: 0.55,
+    };
+  }
 
   if (action === "summarize") {
     return {
