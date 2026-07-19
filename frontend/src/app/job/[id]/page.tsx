@@ -137,6 +137,59 @@ export default function JobPage() {
               </div>
             )}
             <button
+              className="btn btn-sm btn-ghost"
+              disabled={busy}
+              title="AI 產出摘要、決議、待辦並寫入會議筆記"
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
+                  const res = await fetch("/api/ai/generate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      action: "meeting_pack",
+                      title: current.filename || title,
+                      body: plain.slice(0, 14000),
+                    }),
+                  });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || "AI 失敗");
+                  const pack = String(data.text || "").trim();
+                  const meeting = NOTE_TEMPLATES.find((t) => t.id === "meeting");
+                  const body = [
+                    meeting?.body?.trim() || "## 會議",
+                    "",
+                    "---",
+                    "",
+                    "## AI 會議整理",
+                    "",
+                    pack || "（無內容）",
+                    "",
+                    "---",
+                    "",
+                    "## 逐字稿",
+                    "",
+                    plain,
+                  ].join("\n");
+                  const noteId = await createNote(
+                    user.uid,
+                    `會議 — ${current.filename || title}`,
+                    body,
+                    job.id,
+                    ["會議", ...(meeting?.tags || [])]
+                  );
+                  router.push(`/notes/${noteId}`);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : "會議整理失敗");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "整理中…" : "AI 會議筆記"}
+            </button>
+            <button
               className="btn btn-sm"
               disabled={busy}
               onClick={async () => {
