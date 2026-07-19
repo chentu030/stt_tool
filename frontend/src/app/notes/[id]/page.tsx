@@ -3,7 +3,7 @@
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -22,6 +22,8 @@ import ShareDialog from "@/components/ShareDialog";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
 import NoteAside, { type NoteAsideAiHandle } from "@/components/notes/NoteAside";
+import NoteSplitPane from "@/components/notes/NoteSplitPane";
+import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 import {
   downloadDocx,
   downloadMarkdown,
@@ -60,6 +62,9 @@ const PAGE_ICONS = ["📄", "📝", "💡", "📌", "🎯", "📚", "🔬", "�
 export default function NotePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabs = useNoteTabsOptional();
+  const splitId = tabs?.splitId || searchParams.get("split") || null;
   const { user, loading } = useAuth();
   const prefsCtx = usePrefsOptional();
   const [note, setNote] = useState<Note | null>(null);
@@ -576,7 +581,7 @@ export default function NotePage() {
 
   return (
     <div
-      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}`}
+      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${splitId && splitId !== id ? " has-split" : ""}`}
       style={{ ["--note-aside-w" as string]: `${asideWidth}px` }}
     >
       <div className="doc-chrome">
@@ -816,6 +821,7 @@ export default function NotePage() {
       </div>
 
       <div className="doc-body-row">
+        <div className={`doc-main-stack${splitId && splitId !== id ? " is-split" : ""}`}>
         <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
           {toast && <p className="doc-toast">{toast}</p>}
@@ -1173,6 +1179,14 @@ export default function NotePage() {
               <p className="slide-loading">正在準備投影片…</p>
             )}
           </div>
+        </div>
+
+        {splitId && splitId !== id && (
+          <NoteSplitPane
+            noteId={splitId}
+            onClose={() => tabs?.setSplit(null)}
+          />
+        )}
         </div>
 
         <NoteAside

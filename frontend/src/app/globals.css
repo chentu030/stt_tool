@@ -695,6 +695,9 @@ button, input, textarea, select {
 
 .app-main--doc {
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .mobile-shell {
@@ -2634,8 +2637,229 @@ button, input, textarea, select {
 }
 .editor-area:focus { border-color: var(--accent); }
 
+/* Note multi-tabs + split */
+.note-tabs-shell {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.note-tabs-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.note-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem 0;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 45;
+  position: sticky;
+  top: 0;
+}
+.note-tabs-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  gap: 0.25rem;
+  padding-bottom: 0.35rem;
+}
+.note-tab {
+  display: inline-flex;
+  align-items: center;
+  max-width: 200px;
+  background: var(--bg-muted);
+  border: 1px solid transparent;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+.note-tab.is-active {
+  background: var(--bg-primary);
+  border-color: var(--border);
+  border-bottom-color: var(--bg-primary);
+}
+.note-tab.is-split .note-tab-badge {
+  font-size: 0.62rem;
+  color: var(--accent);
+  margin-left: 0.25rem;
+}
+.note-tab-main {
+  border: none;
+  background: transparent;
+  padding: 0.4rem 0.35rem 0.4rem 0.65rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-main);
+  font-size: 0.78rem;
+}
+.note-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-tab-close {
+  border: none;
+  background: transparent;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  margin-right: 0.2rem;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.note-tab-close:hover {
+  background: var(--bg-card);
+  color: var(--danger);
+}
+.note-tabs-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding-bottom: 0.35rem;
+}
+.note-tabs-split-wrap {
+  position: relative;
+}
+.note-tabs-action {
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  border-radius: 8px;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.note-tabs-action.is-on {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  font-weight: 650;
+}
+.note-tabs-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 200px;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 0.35rem;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.note-tabs-menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.4rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-main);
+}
+.note-tabs-menu button:hover,
+.note-tabs-menu button.is-on {
+  background: var(--accent-soft);
+}
+.note-tabs-menu-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 0.35rem 0.55rem 0.15rem;
+  margin: 0;
+}
+.note-tabs-menu-empty {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 0.4rem 0.55rem;
+  margin: 0;
+}
+.note-split-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+.note-split-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
+}
+.note-split-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+  font-size: 0.85rem;
+  color: var(--text-main);
+  text-decoration: none;
+}
+.note-split-status {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.note-split-swap,
+.note-split-close {
+  border: none;
+  background: transparent;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.note-split-swap:hover,
+.note-split-close:hover {
+  background: var(--bg-muted);
+}
+.note-split-title-input {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 0.85rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  background: transparent;
+  color: var(--text-main);
+  outline: none;
+}
+.note-split-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem 0.75rem 2rem;
+}
+.note-split-error,
+.note-split-loading {
+  padding: 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 /* ?? Document / block editor (immersive) ?? */
 .doc-workspace {
+  --page-max: 780px;
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -2761,6 +2985,25 @@ button, input, textarea, select {
 .doc-workspace.has-aside:not(.is-focus) .doc-body-row {
   grid-template-columns: minmax(0, 1fr) var(--note-aside-w, 300px);
   min-height: calc(100vh - 5.6rem);
+}
+.doc-main-stack {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.doc-main-stack.is-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+}
+.doc-main-stack.is-split > .doc-page {
+  overflow: auto;
+  max-width: none;
+  margin: 0;
+  border-right: 1px solid var(--border);
+  padding: 1rem 1.25rem 4rem;
 }
 .doc-page {
   max-width: min(var(--page-max), 100%);
