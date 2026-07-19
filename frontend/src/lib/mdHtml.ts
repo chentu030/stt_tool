@@ -131,6 +131,37 @@ turndown.addRule("toggleBlock", {
   },
 });
 
+turndown.addRule("toggleHeading", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-note-toggle-heading") === "1",
+  replacement: (content, node) => {
+    const el = node as HTMLElement;
+    const title = el.getAttribute("data-title") || "摺疊標題";
+    const level = el.getAttribute("data-level") || "1";
+    const open = el.getAttribute("data-open") !== "0" ? " open" : "";
+    const body = content.trim();
+    return `\n\n:::toggle-h${level}${open} ${title}\n${body}\n:::\n\n`;
+  },
+});
+
+turndown.addRule("columns", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-note-columns") === "1",
+  replacement: (content, node) => {
+    const count = (node as HTMLElement).getAttribute("data-count") || "2";
+    return `\n\n:::columns ${count}\n${content.trim()}\n:::\n\n`;
+  },
+});
+
+turndown.addRule("column", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-note-column") === "1",
+  replacement: (content) => `\n:::column\n${content.trim()}\n:::\n`,
+});
+
 turndown.addRule("tocBlock", {
   filter: (node) =>
     (node.nodeName === "NAV" || node.nodeName === "DIV") &&
@@ -388,11 +419,33 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<nav class="rich-toc" data-note-toc="1"><p class="rich-toc-label">目錄</p></nav>`;
   });
 
+  // Toggle heading first (before plain :::toggle)
+  s = s.replace(
+    /:::toggle-h([1-4])(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g,
+    (_m, level, openFlag, title, body) => {
+      const open = openFlag ? "1" : "0";
+      const inner = String(body).trim();
+      return `<div class="rich-toggle-heading rich-toggle-heading--h${level}" data-note-toggle-heading="1" data-level="${level}" data-title="${escapeAttr(String(title).trim())}" data-open="${open}"><p>${escapeHtml(inner)}</p></div>`;
+    }
+  );
+
   // Toggle fence: :::toggle open Title\n...\n:::
-  s = s.replace(/:::toggle(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g, (_m, openFlag, title, body) => {
+  s = s.replace(/:::toggle(?!-h)(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g, (_m, openFlag, title, body) => {
     const open = openFlag ? "1" : "0";
     const inner = String(body).trim();
     return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}"><p>${escapeHtml(inner)}</p></div>`;
+  });
+
+  // Columns: :::columns 2\n:::column\n...\n:::\n:::
+  s = s.replace(/:::columns\s+([2-5])\n([\s\S]*?):::/g, (_m, count, inner) => {
+    const cols = String(inner).match(/:::column\n([\s\S]*?):::/g) || [];
+    const htmlCols = cols
+      .map((c) => {
+        const body = c.replace(/^:::column\n/, "").replace(/:::$/, "").trim();
+        return `<div class="rich-column" data-note-column="1"><p>${escapeHtml(body)}</p></div>`;
+      })
+      .join("");
+    return `<div class="rich-columns rich-columns--${count}" data-note-columns="1" data-count="${count}">${htmlCols}</div>`;
   });
 
   // Callout: > [!tone] text  (single line; multiline becomes blockquote after marked — also catch raw)
@@ -413,7 +466,7 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   });
 
   // Heading align markers: ## Title <!--align:center-->
-  s = s.replace(/^(#{1,3})\s+(.+?)\s*<!--align:(left|center|right|justify)-->\s*$/gm, (_m, hashes, title, align) => {
+  s = s.replace(/^(#{1,4})\s+(.+?)\s*<!--align:(left|center|right|justify)-->\s*$/gm, (_m, hashes, title, align) => {
     const level = String(hashes).length;
     return `<h${level} style="text-align:${align}">${title}</h${level}>`;
   });

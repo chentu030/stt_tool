@@ -3971,6 +3971,285 @@ button, input, textarea, select {
   box-shadow: var(--shadow);
   z-index: 50;
 }
+
+/* Notion-style selection bubble */
+.sel-bubble {
+  z-index: 60;
+  max-width: min(520px, calc(100vw - 24px));
+}
+.sel-bubble-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+}
+.sel-bubble-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 0.3rem 0.35rem;
+}
+.sel-bub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  border-radius: 7px;
+  padding: 0.35rem 0.4rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1;
+  min-height: 1.85rem;
+}
+.sel-bub-btn:hover,
+.sel-bub-btn.is-active {
+  background: var(--accent-soft);
+}
+.sel-bub-btn.is-accent {
+  color: var(--accent);
+}
+.sel-bub-ico {
+  font-size: 1.05rem !important;
+  line-height: 1;
+}
+.sel-bub-txt {
+  font-size: 0.78rem;
+}
+.sel-bub-sep {
+  width: 1px;
+  height: 1.2rem;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+.sel-bub-turn-label {
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sel-bub-caret {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+.sel-bub-a {
+  font-weight: 700;
+  border-bottom: 2px solid currentColor;
+  line-height: 1.1;
+  padding-bottom: 1px;
+}
+.sel-bub-clear {
+  font-size: 0.78rem;
+}
+.sel-bub-clear sub {
+  font-size: 0.65em;
+}
+.sel-bub-turn-wrap,
+.sel-bub-color-wrap,
+.sel-bub-emoji-wrap {
+  position: relative;
+}
+.sel-bub-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 70;
+  min-width: 220px;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  padding: 0.35rem;
+}
+.sel-bub-panel-label {
+  margin: 0;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.sel-bub-turn-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  padding: 0.4rem 0.45rem;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.sel-bub-turn-item .material-symbols-outlined {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+.sel-bub-turn-item:hover,
+.sel-bub-turn-item.is-on {
+  background: var(--accent-soft);
+}
+.sel-bub-check {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.sel-bub-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.2rem 0.4rem 0.45rem;
+}
+.sel-bub-swatch {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+.sel-bub-swatch--clear {
+  background:
+    linear-gradient(to top right, transparent calc(50% - 1px), #ef4444 calc(50% - 1px), #ef4444 calc(50% + 1px), transparent calc(50% + 1px)),
+    var(--bg-muted);
+}
+.sel-bub-emoji-panel {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.15rem;
+  min-width: 200px;
+}
+.sel-bub-emoji {
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 1.15rem;
+  padding: 0.3rem;
+  cursor: pointer;
+}
+.sel-bub-emoji:hover {
+  background: var(--accent-soft);
+}
+.sel-bubble-skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-muted);
+}
+.sel-bub-skills-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-right: 0.2rem;
+}
+.sel-bub-skill {
+  border: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.sel-bub-skill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.sel-bubble-ai-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-main);
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  text-align: left;
+}
+.sel-bubble-ai-footer:hover {
+  background: var(--accent-soft);
+}
+.sel-bubble-ai-footer kbd {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+.rich-columns {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.35rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+}
+.rich-columns--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rich-columns--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rich-columns--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.rich-columns--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.rich-column {
+  min-width: 0;
+  padding: 0.25rem 0.4rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-muted) 70%, transparent);
+}
+.rich-column-inner {
+  min-height: 1.5rem;
+}
+@media (max-width: 720px) {
+  .rich-columns--3,
+  .rich-columns--4,
+  .rich-columns--5 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rich-toggle-heading {
+  margin: 0.6rem 0;
+  border-left: 2px solid var(--border);
+  padding-left: 0.35rem;
+}
+.rich-toggle-heading-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.rich-toggle-heading-title {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font-weight: 700;
+  outline: none;
+  padding: 0.15rem 0;
+}
+.rich-toggle-heading-title--h1 { font-size: 1.55rem; }
+.rich-toggle-heading-title--h2 { font-size: 1.3rem; }
+.rich-toggle-heading-title--h3 { font-size: 1.12rem; }
+.rich-toggle-heading-title--h4 { font-size: 1rem; }
+.rich-toggle-heading-body {
+  padding: 0.25rem 0 0.35rem 1.4rem;
+}
+
+.rich-prose h4 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 1rem 0 0.4rem;
+}
 .rich-canvas {
   position: relative;
   min-height: 40vh;

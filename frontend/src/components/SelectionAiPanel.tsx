@@ -12,13 +12,17 @@ export type SelectionAiAction =
   | "explain"
   | "continue"
   | "translate"
-  | "ask_selection";
+  | "ask_selection"
+  | "proofread"
+  | "reformat";
 
 const QUICK: { id: SelectionAiAction; label: string }[] = [
-  { id: "improve", label: "改善寫作" },
+  { id: "improve", label: "提升寫作" },
+  { id: "proofread", label: "校對" },
+  { id: "explain", label: "解釋" },
+  { id: "reformat", label: "重新格式化" },
   { id: "shorten", label: "精簡" },
   { id: "expand", label: "擴寫" },
-  { id: "explain", label: "解釋" },
   { id: "continue", label: "繼續寫" },
   { id: "translate", label: "翻譯" },
 ];
@@ -34,6 +38,8 @@ type Props = {
   selectionText: string;
   from: number;
   to: number;
+  /** Auto-run this skill when panel opens */
+  autoAction?: SelectionAiAction;
   onSendToAside?: (selection: string, question?: string) => void;
   onDeepResearch?: (selection: string) => void;
 };
@@ -48,6 +54,7 @@ export default function SelectionAiPanel({
   selectionText,
   from,
   to,
+  autoAction,
   onSendToAside,
   onDeepResearch,
 }: Props) {
@@ -59,13 +66,17 @@ export default function SelectionAiPanel({
   const [pos, setPos] = useState({ top: 120, left: 80 });
   const inputRef = useRef<HTMLInputElement>(null);
   const rangeRef = useRef({ from, to, text: selectionText });
+  const autoRan = useRef(false);
 
   useEffect(() => {
     rangeRef.current = { from, to, text: selectionText };
   }, [from, to, selectionText]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      autoRan.current = false;
+      return;
+    }
     setPrompt("");
     setError("");
     setResult("");
@@ -79,8 +90,6 @@ export default function SelectionAiPanel({
     }
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [open, editor, to]);
-
-  if (!open) return null;
 
   const hasSelection = !!rangeRef.current.text.trim();
   const contextFallback = (noteBody || "").trim().slice(0, 4000) || noteTitle || "空白筆記";
@@ -96,8 +105,23 @@ export default function SelectionAiPanel({
     setError("");
     setResult("");
     try {
+      let apiAction: string = action;
+      let askPrompt = ask;
+      if (action === "proofread") {
+        apiAction = "ask_selection";
+        askPrompt = "請校對這段文字：修正錯字、標點與文法，保留原意，只輸出修正後全文。";
+      } else if (action === "reformat") {
+        apiAction = "ask_selection";
+        askPrompt = "請重新格式化這段文字：整理段落與條列，讓結構更清晰，只輸出結果。";
+      }
+
       const payload: Record<string, unknown> = {
-        action: action === "expand" ? "expand" : action === "explain" ? "explain" : action,
+        action:
+          apiAction === "expand"
+            ? "expand"
+            : apiAction === "explain"
+              ? "explain"
+              : apiAction,
         title: noteTitle || "未命名筆記",
         selection: sel,
         body: sel,
@@ -109,10 +133,13 @@ export default function SelectionAiPanel({
         },
       };
       if (noteBody) payload.context = aiContext || noteBody.slice(0, 6000);
-      if (action === "ask_selection") {
-        payload.prompt = ask?.trim() || prompt.trim() || (hasSelection ? "請說明這段在說什麼" : "根據這篇筆記幫我整理重點");
+      if (apiAction === "ask_selection") {
+        payload.prompt =
+          askPrompt?.trim() ||
+          prompt.trim() ||
+          (hasSelection ? "請說明這段在說什麼" : "根據這篇筆記幫我整理重點");
       }
-      if (action === "expand" || action === "explain") {
+      if (apiAction === "expand" || apiAction === "explain") {
         payload.body = noteBody?.slice(0, 8000) || sel;
       }
       const res = await fetch("/api/ai/generate", {
@@ -129,6 +156,16 @@ export default function SelectionAiPanel({
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!open || !autoAction || autoRan.current) return;
+    autoRan.current = true;
+    const t = window.setTimeout(() => void run(autoAction), 80);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open with autoAction
+  }, [open, autoAction]);
+
+  if (!open) return null;
 
   const replaceSelection = () => {
     if (!result) return;

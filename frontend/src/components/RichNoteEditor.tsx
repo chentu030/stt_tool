@@ -7,7 +7,6 @@ import { createPortal } from "react-dom";
 import { HexColorPicker } from "react-colorful";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
-import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
@@ -48,6 +47,9 @@ import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
 import { useAuth } from "@/components/AuthProvider";
 import SelectionAiPanel from "@/components/SelectionAiPanel";
+import SelectionBubbleMenu from "@/components/SelectionBubbleMenu";
+import type { SelectionAiAction } from "@/components/SelectionAiPanel";
+import { Columns, Column, ToggleHeading } from "@/lib/tiptapLayout";
 const lowlight = createLowlight(common);
 
 type Props = {
@@ -102,6 +104,7 @@ const SLASH_ALIASES: Record<string, string[]> = {
   h1: ["h1"],
   h2: ["h2"],
   h3: ["h3"],
+  h4: ["h4"],
   "to-do": ["todo"],
   todo: ["todo"],
   number: ["numbered"],
@@ -132,6 +135,19 @@ const SLASH_ALIASES: Record<string, string[]> = {
   button: ["button", "template"],
   callout: ["callout"],
   toggle: ["toggle"],
+  "toggle-h1": ["toggle-h1"],
+  "toggle-h2": ["toggle-h2"],
+  "toggle-h3": ["toggle-h3"],
+  "toggle-h4": ["toggle-h4"],
+  col2: ["col2"],
+  col3: ["col3"],
+  col4: ["col4"],
+  col5: ["col5"],
+  "2欄": ["col2"],
+  "3欄": ["col3"],
+  "4欄": ["col4"],
+  "5欄": ["col5"],
+  columns: ["col2", "col3", "col4", "col5"],
   page: ["page"],
   subpage: ["page"],
   child: ["page"],
@@ -262,7 +278,12 @@ export default function RichNoteEditor({
   const [txColor, setTxColor] = useState(() => loadStoredColor("cadence_tx_color", "#dc2626"));
   const [hlCustoms, setHlCustoms] = useState<string[]>(() => loadCustomColors("cadence_hl_customs", HL_PRESETS));
   const [txCustoms, setTxCustoms] = useState<string[]>(() => loadCustomColors("cadence_tx_customs", TX_PRESETS));
-  const [selAi, setSelAi] = useState<{ from: number; to: number; text: string } | null>(null);
+  const [selAi, setSelAi] = useState<{
+    from: number;
+    to: number;
+    text: string;
+    autoAction?: SelectionAiAction;
+  } | null>(null);
   const hlPanelRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
@@ -545,6 +566,7 @@ export default function RichNoteEditor({
       { id: "h1", label: "標題 1", hint: "/h1 大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
       { id: "h2", label: "標題 2", hint: "/h2 中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
       { id: "h3", label: "標題 3", hint: "/h3 小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+      { id: "h4", label: "標題 4", hint: "/h4", run: (e) => e.chain().focus().toggleHeading({ level: 4 }).run() },
     ];
     if (onCreateSubpageRef.current) {
       items.push({
@@ -572,6 +594,54 @@ export default function RichNoteEditor({
         label: "折疊清單",
         hint: "/toggle 可收合",
         run: (e) => e.chain().focus().setToggleBlock("詳細內容").run(),
+      },
+      {
+        id: "toggle-h1",
+        label: "摺疊標題 1",
+        hint: "/toggle-h1",
+        run: (e) => e.chain().focus().setToggleHeading(1).run(),
+      },
+      {
+        id: "toggle-h2",
+        label: "摺疊標題 2",
+        hint: "/toggle-h2",
+        run: (e) => e.chain().focus().setToggleHeading(2).run(),
+      },
+      {
+        id: "toggle-h3",
+        label: "摺疊標題 3",
+        hint: "/toggle-h3",
+        run: (e) => e.chain().focus().setToggleHeading(3).run(),
+      },
+      {
+        id: "toggle-h4",
+        label: "摺疊標題 4",
+        hint: "/toggle-h4",
+        run: (e) => e.chain().focus().setToggleHeading(4).run(),
+      },
+      {
+        id: "col2",
+        label: "2 欄",
+        hint: "/2欄 /col2",
+        run: (e) => e.chain().focus().setColumns(2).run(),
+      },
+      {
+        id: "col3",
+        label: "3 欄",
+        hint: "/3欄 /col3",
+        run: (e) => e.chain().focus().setColumns(3).run(),
+      },
+      {
+        id: "col4",
+        label: "4 欄",
+        hint: "/4欄 /col4",
+        run: (e) => e.chain().focus().setColumns(4).run(),
+      },
+      {
+        id: "col5",
+        label: "5 欄",
+        hint: "/5欄 /col5",
+        run: (e) => e.chain().focus().setColumns(5).run(),
       },
       { id: "hr", label: "分隔線", hint: "/divider 水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
       { id: "quote", label: "引用", hint: "/quote 引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
@@ -886,7 +956,7 @@ export default function RichNoteEditor({
     editable: !readOnly,
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        heading: { levels: [1, 2, 3, 4] },
         codeBlock: false,
         undoRedo: { depth: 200 },
       }),
@@ -935,6 +1005,9 @@ export default function RichNoteEditor({
       CadenceDatabase,
       Callout,
       ToggleBlock,
+      ToggleHeading,
+      Columns,
+      Column,
       TocBlock,
       Bookmark,
       AppCard,
@@ -1063,6 +1136,16 @@ export default function RichNoteEditor({
           event.preventDefault();
           duplicateTopLevelBlock(ed);
           return true;
+        }
+        // Notion-style: Alt+Shift+E → edit selection with AI
+        if (event.altKey && event.shiftKey && !mod && key === "e" && ed) {
+          const { from, to } = ed.state.selection;
+          const text = ed.state.doc.textBetween(from, to, "\n");
+          if (text.trim()) {
+            event.preventDefault();
+            setSelAi({ from, to, text });
+            return true;
+          }
         }
         // Move block — Ctrl/Cmd+Shift+↑↓ (also Alt+↑↓)
         if (ed && event.shiftKey && mod && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
@@ -1600,6 +1683,7 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</ToolbarBtn>
+        <ToolbarBtn active={editor.isActive("heading", { level: 4 })} onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}>H4</ToolbarBtn>
         <span className="rich-toolbar-sep" />
         <ToolbarBtn active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>• 清單</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1. 編號</ToolbarBtn>
@@ -1698,81 +1782,28 @@ export default function RichNoteEditor({
       {hiddenInputs}
       {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
 
-      <BubbleMenu
+      <SelectionBubbleMenu
         editor={editor}
-        className="rich-bubble"
-        shouldShow={({ editor: ed, state }) => {
-          const { from, to } = state.selection;
-          return from !== to && !ed.isActive("codeBlock");
+        onCreateSubpage={onCreateSubpage}
+        onOpenThread={onOpenThread}
+        onSetLink={setLink}
+        applyTextColor={applyTextColor}
+        applyHighlight={applyHighlight}
+        clearTextColor={clearTextColor}
+        txColor={txColor}
+        hlColor={hlColor}
+        onOpenAi={(opts) => {
+          const { from, to } = editor.state.selection;
+          const text = editor.state.doc.textBetween(from, to, "\n");
+          if (!text.trim()) return;
+          setSelAi({
+            from,
+            to,
+            text,
+            autoAction: opts?.action,
+          });
         }}
-      >
-        <ToolbarBtn
-          title="詢問 AI"
-          accent
-          onClick={() => {
-            const { from, to } = editor.state.selection;
-            const text = editor.state.doc.textBetween(from, to, "\n");
-            if (!text.trim()) return;
-            setSelAi({ from, to, text });
-          }}
-        >
-          AI
-        </ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>B</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</ToolbarBtn>
-        <ToolbarBtn
-          title="置中"
-          active={editor.isActive({ textAlign: "center" })}
-          onClick={() => editor.chain().focus().setTextAlign("center").run()}
-        >
-          中
-        </ToolbarBtn>
-        <ToolbarBtn
-          active={editor.isActive("highlight")}
-          onClick={() => applyHighlight()}
-          title="螢光筆"
-        >
-          <span className="hl-swatch" style={{ background: hlColor }} />
-          螢
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="上移段落"
-          onClick={() => moveTopLevelBlock(editor, -1)}
-        >
-          ↑
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="下移段落"
-          onClick={() => moveTopLevelBlock(editor, 1)}
-        >
-          ↓
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => {
-            void (async () => {
-              const f = await askPrompt("行內 LaTeX", "x^2");
-              if (f) editor.chain().focus().setMathInline(f).run();
-            })();
-          }}
-        >
-          ∑
-        </ToolbarBtn>
-        <ToolbarBtn onClick={setLink}>連結</ToolbarBtn>
-        {onOpenThread && (
-          <ToolbarBtn
-            title="開啟討論串"
-            onClick={() => {
-              const { from, to } = editor.state.selection;
-              const text = editor.state.doc.textBetween(from, to, "\n");
-              if (!text.trim()) return;
-              onOpenThread(text);
-            }}
-          >
-            討論
-          </ToolbarBtn>
-        )}
-      </BubbleMenu>
+      />
 
       {selAi && (
         <SelectionAiPanel
@@ -1784,6 +1815,7 @@ export default function RichNoteEditor({
           selectionText={selAi.text}
           from={selAi.from}
           to={selAi.to}
+          autoAction={selAi.autoAction}
           onClose={() => setSelAi(null)}
           onSendToAside={
             onOpenAiAssistant
