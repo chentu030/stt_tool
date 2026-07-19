@@ -19,6 +19,17 @@ import {
   uid,
 } from "@/lib/slideDeck";
 
+export type SlideStudioActions = {
+  idx: number;
+  total: number;
+  stale: boolean;
+  busy: string;
+  play: () => void;
+  sync: () => void;
+  exportPng: () => Promise<void>;
+  exportPdf: () => void;
+};
+
 type Props = {
   open: boolean;
   noteId: string;
@@ -28,6 +39,8 @@ type Props = {
   onChange: (deck: SlideDeck) => void;
   onBackToWrite: () => void;
   onSynced?: () => void;
+  /** Lift primary actions into parent command bar */
+  onActionsChange?: (actions: SlideStudioActions | null) => void;
 };
 
 export default function SlideStudio({
@@ -39,6 +52,7 @@ export default function SlideStudio({
   onChange,
   onBackToWrite,
   onSynced,
+  onActionsChange,
 }: Props) {
   const [idx, setIdx] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -47,6 +61,7 @@ export default function SlideStudio({
   const [busy, setBusy] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [syncDismissed, setSyncDismissed] = useState(false);
+  const [propsOpen, setPropsOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -324,66 +339,102 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, presenting, deck.slides.length, selectedId, editingId, onBackToWrite]);
 
+  useEffect(() => {
+    if (!open) {
+      onActionsChange?.(null);
+      return;
+    }
+    onActionsChange?.({
+      idx,
+      total: deck.slides.length,
+      stale: isDeckStale(deck, noteTitle, noteBody) && !syncDismissed,
+      busy,
+      play: () => setPresenting(true),
+      sync: syncFromNote,
+      exportPng,
+      exportPdf,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, idx, deck, noteTitle, noteBody, syncDismissed, busy]);
+
+  useEffect(() => {
+    return () => onActionsChange?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const thumbs = useMemo(() => deck.slides, [deck.slides]);
 
   if (!open || !slide) return null;
 
+  const liftChrome = !!onActionsChange;
+
   return (
-    <div className="slide-studio slide-studio--embedded">
+    <div className={`slide-studio slide-studio--embedded${propsOpen ? "" : " is-props-collapsed"}`}>
       {stale && (
-        <div className="slide-sync-banner">
-          <span>筆記內容有更新，投影片可能已過時。</span>
-          <div className="slide-sync-actions">
-            <button type="button" className="doc-cmd is-on" onClick={syncFromNote}>
-              更新投影片
-            </button>
-            <button type="button" className="doc-cmd" onClick={() => setSyncDismissed(true)}>
-              略過
-            </button>
-          </div>
+        <div className="slide-sync-chip">
+          <span>筆記有更新</span>
+          <button type="button" className="doc-cmd is-on" onClick={syncFromNote}>
+            同步
+          </button>
+          <button type="button" className="doc-cmd" onClick={() => setSyncDismissed(true)}>
+            略過
+          </button>
         </div>
       )}
 
-      <header className="slide-studio-bar">
-        <div className="slide-studio-title">
-          <strong>簡報</strong>
-          <span>
-            {idx + 1}/{deck.slides.length} · 雙擊編輯 · Esc 回寫作
-          </span>
-        </div>
-        <div className="slide-studio-actions">
-          {busy && <span className="slide-busy">{busy}</span>}
-          <button type="button" className="doc-cmd" onClick={syncFromNote} title="用筆記重新套版">
-            同步筆記
-          </button>
-          <div className="slide-export-wrap" ref={exportMenuRef}>
-            <button
-              type="button"
-              className={`doc-cmd${exportOpen ? " is-on" : ""}`}
-              onClick={() => setExportOpen((v) => !v)}
-            >
-              匯出
-            </button>
-            {exportOpen && (
-              <div className="slide-export-menu">
-                <button type="button" onClick={() => void exportPng()}>
-                  目前頁 PNG
-                </button>
-                <button type="button" onClick={exportPdf}>
-                  全部 PDF
-                </button>
-              </div>
-            )}
+      {!liftChrome && (
+        <header className="slide-studio-bar">
+          <div className="slide-studio-title">
+            <strong>簡報</strong>
+            <span>
+              {idx + 1}/{deck.slides.length}
+            </span>
           </div>
+          <div className="slide-studio-actions">
+            {busy && <span className="slide-busy">{busy}</span>}
+            <button type="button" className="doc-cmd" onClick={syncFromNote}>
+              同步筆記
+            </button>
+            <div className="slide-export-wrap" ref={exportMenuRef}>
+              <button
+                type="button"
+                className={`doc-cmd${exportOpen ? " is-on" : ""}`}
+                onClick={() => setExportOpen((v) => !v)}
+              >
+                匯出
+              </button>
+              {exportOpen && (
+                <div className="slide-export-menu">
+                  <button type="button" onClick={() => void exportPng()}>
+                    目前頁 PNG
+                  </button>
+                  <button type="button" onClick={exportPdf}>
+                    全部 PDF
+                  </button>
+                </div>
+              )}
+            </div>
+            <button type="button" className="doc-cmd slide-play-btn" onClick={() => setPresenting(true)}>
+              播放
+            </button>
+          </div>
+        </header>
+      )}
+
+      {liftChrome && (
+        <div className="slide-studio-subbar">
+          <span>
+            第 {idx + 1} / {deck.slides.length} 頁
+          </span>
           <button
             type="button"
-            className="doc-cmd slide-play-btn"
-            onClick={() => setPresenting(true)}
+            className={`doc-cmd${propsOpen ? " is-on" : ""}`}
+            onClick={() => setPropsOpen((v) => !v)}
           >
-            播放
+            {propsOpen ? "收合設定" : "版型設定"}
           </button>
         </div>
-      </header>
+      )}
 
       <div className="slide-studio-body">
         <aside className="slide-thumbs">
@@ -434,76 +485,58 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
           </div>
         </main>
 
-        <aside className="slide-props">
-          <p className="slide-props-label">主題</p>
-          <div className="slide-theme-row">
-            {SLIDE_THEMES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`slide-theme-btn${deck.theme === t.id ? " is-on" : ""}`}
-                style={{ background: t.bg, color: t.fg, borderColor: t.accent }}
-                onClick={() => patchDeck((d) => ({ ...d, theme: t.id }))}
-                title={t.label}
-              >
-                {t.label}
-              </button>
-            ))}
+        <aside className={`slide-props${propsOpen || !liftChrome ? " is-open" : ""}`}>
+          <div className="slide-props-inner">
+            <p className="slide-props-label">主題</p>
+            <div className="slide-theme-row">
+              {SLIDE_THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`slide-theme-btn${deck.theme === t.id ? " is-on" : ""}`}
+                  style={{ background: t.bg, color: t.fg, borderColor: t.accent }}
+                  onClick={() => patchDeck((d) => ({ ...d, theme: t.id }))}
+                  title={t.label}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <p className="slide-props-label">版型</p>
+            <div className="slide-layout-grid">
+              {SLIDE_LAYOUTS.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  className={`slide-layout-btn${slide.layout === l.id ? " is-on" : ""}`}
+                  onClick={() => setLayout(l.id)}
+                  title={l.hint}
+                >
+                  <strong>{l.label}</strong>
+                  <span>{l.hint}</span>
+                </button>
+              ))}
+            </div>
+
+            <p className="slide-props-label">區塊</p>
+            <div className="slide-prop-actions">
+              <button type="button" className="doc-cmd" onClick={addTextBlock}>＋ 文字</button>
+              <button type="button" className="doc-cmd" onClick={addImageBlock}>＋ 圖片</button>
+              <button type="button" className="doc-cmd" onClick={duplicateSlide}>複製頁</button>
+              <button type="button" className="doc-cmd" onClick={deleteSlide} disabled={deck.slides.length <= 1}>刪頁</button>
+              <button type="button" className="doc-cmd" onClick={deleteSelected} disabled={!selectedId}>刪區塊</button>
+            </div>
+
+            {selectedId && (
+              <SelectedBlockProps
+                block={slide.blocks.find((b) => b.id === selectedId) || null}
+                onChange={(patch) => onChangeBlock(selectedId, patch)}
+              />
+            )}
+
+            <p className="slide-tip">雙擊編輯 · 拖曳移動 · Esc 回寫作</p>
           </div>
-
-          <p className="slide-props-label">版型</p>
-          <div className="slide-layout-grid">
-            {SLIDE_LAYOUTS.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                className={`slide-layout-btn${slide.layout === l.id ? " is-on" : ""}`}
-                onClick={() => setLayout(l.id)}
-                title={l.hint}
-              >
-                <strong>{l.label}</strong>
-                <span>{l.hint}</span>
-              </button>
-            ))}
-          </div>
-
-          <p className="slide-props-label">區塊</p>
-          <div className="slide-prop-actions">
-            <button type="button" className="doc-cmd" onClick={addTextBlock}>
-              ＋ 文字
-            </button>
-            <button type="button" className="doc-cmd" onClick={addImageBlock}>
-              ＋ 圖片
-            </button>
-            <button type="button" className="doc-cmd" onClick={duplicateSlide}>
-              複製頁
-            </button>
-            <button
-              type="button"
-              className="doc-cmd"
-              onClick={deleteSlide}
-              disabled={deck.slides.length <= 1}
-            >
-              刪頁
-            </button>
-            <button
-              type="button"
-              className="doc-cmd"
-              onClick={deleteSelected}
-              disabled={!selectedId}
-            >
-              刪區塊
-            </button>
-          </div>
-
-          {selectedId && (
-            <SelectedBlockProps
-              block={slide.blocks.find((b) => b.id === selectedId) || null}
-              onChange={(patch) => onChangeBlock(selectedId, patch)}
-            />
-          )}
-
-          <p className="slide-tip">拖曳移動 · 右下角縮放 · 播放才會全螢幕</p>
         </aside>
       </div>
 

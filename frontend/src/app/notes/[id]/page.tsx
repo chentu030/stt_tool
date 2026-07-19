@@ -24,13 +24,15 @@ import {
   downloadPdfViaPrint,
   downloadPptOutline,
 } from "@/lib/exportNote";
-import SlideStudio from "@/components/slides/SlideStudio";
+import SlideStudio, { SlideStudioActions } from "@/components/slides/SlideStudio";
 import {
   SlideDeck,
   deckFromMarkdown,
+  isDeckStale,
   loadDeckLocal,
   normalizeDeck,
   saveDeckLocal,
+  splitMarkdownSections,
 } from "@/lib/slideDeck";
 import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle } from "@/lib/wiki";
 import {
@@ -71,6 +73,8 @@ export default function NotePage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"write" | "slides">("write");
   const [deck, setDeck] = useState<SlideDeck | null>(null);
+  const [slideActions, setSlideActions] = useState<SlideStudioActions | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
@@ -328,11 +332,17 @@ export default function NotePage() {
         e.preventDefault();
         setFocusMode((v) => !v);
       }
+      // Toggle write / slides
+      if (mod && e.key === ".") {
+        e.preventDefault();
+        if (viewMode === "slides") enterWrite();
+        else enterSlides();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note?.id]);
+  }, [note?.id, viewMode, deck, title, body]);
 
   const insertWiki = (noteTitle: string) => {
     setBody((b) => `${b.trim()}${b.trim() ? "\n\n" : ""}[[${noteTitle}]]\n`);
@@ -393,6 +403,11 @@ export default function NotePage() {
           : status === "error" ? errorMsg
             : "";
 
+  const slideCountHint =
+    deck?.slides?.length ||
+    Math.max(1, splitMarkdownSections(title, body).length);
+  const deckStale = isDeckStale(deck, title, body);
+
   const addTag = () => {
     const t = tagInput.trim().replace(/^#/, "");
     if (!t || tags.includes(t)) return;
@@ -438,8 +453,6 @@ export default function NotePage() {
           {statusLabel && (
             <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>{statusLabel}</span>
           )}
-        </div>
-        <div className="doc-command-actions">
           <div className="doc-view-switch" role="tablist" aria-label="檢視模式">
             <button
               type="button"
@@ -447,6 +460,7 @@ export default function NotePage() {
               aria-selected={viewMode === "write"}
               className={viewMode === "write" ? "is-on" : ""}
               onClick={enterWrite}
+              title="寫作 ⌘."
             >
               寫作
             </button>
@@ -456,10 +470,57 @@ export default function NotePage() {
               aria-selected={viewMode === "slides"}
               className={viewMode === "slides" ? "is-on" : ""}
               onClick={enterSlides}
+              title="簡報 ⌘."
             >
               簡報
             </button>
           </div>
+        </div>
+        <div className="doc-command-actions">
+          {viewMode === "slides" && slideActions && (
+            <>
+              {slideActions.busy && <span className="slide-busy">{slideActions.busy}</span>}
+              {slideActions.stale && (
+                <button type="button" className="doc-cmd is-on" onClick={() => slideActions.sync()}>
+                  同步筆記
+                </button>
+              )}
+              <div className="slide-export-wrap">
+                <button
+                  type="button"
+                  className={`doc-cmd${exportMenuOpen ? " is-on" : ""}`}
+                  onClick={() => setExportMenuOpen((v) => !v)}
+                >
+                  匯出
+                </button>
+                {exportMenuOpen && (
+                  <div className="slide-export-menu">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        void slideActions.exportPng();
+                      }}
+                    >
+                      目前頁 PNG
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExportMenuOpen(false);
+                        slideActions.exportPdf();
+                      }}
+                    >
+                      全部 PDF
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button type="button" className="doc-cmd slide-play-btn" onClick={() => slideActions.play()}>
+                播放
+              </button>
+            </>
+          )}
           <button
             type="button"
             className={`doc-cmd${(prefsCtx?.prefs.favoriteNoteIds || []).includes(note.id) ? " is-on" : ""}`}
@@ -563,31 +624,11 @@ export default function NotePage() {
       </div>
 
       <div className="doc-body-row">
-        {viewMode === "slides" ? (
-          <div className="doc-page doc-page--slides">
-            {toast && <p className="doc-toast">{toast}</p>}
-            {deck ? (
-              <SlideStudio
-                open
-                noteId={note.id}
-                noteTitle={title}
-                noteBody={body}
-                deck={deck}
-                onChange={onDeckChange}
-                onBackToWrite={enterWrite}
-                onSynced={() => flash("已依筆記更新投影片")}
-              />
-            ) : (
-              <p className="slide-loading">正在準備投影片…</p>
-            )}
-          </div>
-        ) : (
-          <>
-        <div className="doc-page">
-          {aiError && <p className="doc-banner-error">{aiError}</p>}
+        <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
+          {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
           {toast && <p className="doc-toast">{toast}</p>}
 
-          {versionsOpen && (
+          {viewMode === "write" && versionsOpen && (
             <div className="doc-versions">
               <div className="doc-versions-head">
                 <strong>版本歷史</strong>
@@ -615,7 +656,7 @@ export default function NotePage() {
             </div>
           )}
 
-          {cover && (
+          {viewMode === "write" && cover && (
             <div
               className="doc-cover"
               style={{ backgroundImage: `url(${cover})` }}
@@ -634,17 +675,17 @@ export default function NotePage() {
             </div>
           )}
 
-          <div className="doc-title-row">
+          <div className={`doc-title-row${viewMode === "slides" ? " is-compact" : ""}`}>
             <div className="doc-icon-wrap">
               <button
                 type="button"
                 className="doc-icon-btn"
-                onClick={() => setIconOpen((v) => !v)}
+                onClick={() => viewMode === "write" && setIconOpen((v) => !v)}
                 title="頁面圖示"
               >
                 {icon || "📄"}
               </button>
-              {iconOpen && (
+              {iconOpen && viewMode === "write" && (
                 <div className="doc-icon-menu">
                   <button
                     type="button"
@@ -680,67 +721,86 @@ export default function NotePage() {
             />
           </div>
 
-          <div className="doc-chrome-actions">
-            {!cover && (
+          {viewMode === "write" && (
+            <>
+              <div className="doc-chrome-actions">
+                {!cover && (
+                  <button
+                    type="button"
+                    className="doc-cmd"
+                    onClick={() => {
+                      const url = window.prompt("封面圖片網址", "https://");
+                      if (!url) return;
+                      setCover(url.trim());
+                      markDirty();
+                    }}
+                  >
+                    加封面
+                  </button>
+                )}
+              </div>
+
+              <div className="doc-props">
+                <input
+                  className="doc-prop-input"
+                  placeholder="資料夾"
+                  value={folder}
+                  onChange={(e) => { setFolder(e.target.value); markDirty(); }}
+                />
+                {tags.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className="badge"
+                    style={{ cursor: "pointer", border: "none", fontWeight: 500 }}
+                    onClick={() => { setTags(tags.filter((x) => x !== t)); markDirty(); }}
+                  >
+                    #{t}
+                  </button>
+                ))}
+                <input
+                  className="doc-prop-input"
+                  placeholder="加標籤…"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                />
+                <MenuSelect
+                  variant="pill"
+                  ariaLabel="筆記狀態"
+                  value={note.status === "doing" || note.status === "done" ? note.status : "backlog"}
+                  options={NOTE_STATUS_OPTIONS}
+                  onChange={(v) => {
+                    void updateNote(note.id, { status: v as Note["status"] });
+                    setNote({ ...note, status: v as Note["status"] });
+                  }}
+                />
+                <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+                {note.source_job_id && (
+                  <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
+                    來源逐字稿
+                  </Link>
+                )}
+              </div>
+
               <button
                 type="button"
-                className="doc-cmd"
-                onClick={() => {
-                  const url = window.prompt("封面圖片網址", "https://");
-                  if (!url) return;
-                  setCover(url.trim());
-                  markDirty();
-                }}
+                className={`doc-slide-bridge${deckStale ? " is-stale" : ""}`}
+                onClick={enterSlides}
               >
-                加封面
+                <span className="doc-slide-bridge-main">
+                  {deck?.slides?.length ? `開啟簡報 · ${slideCountHint} 頁` : `產生簡報 · 約 ${slideCountHint} 頁`}
+                </span>
+                <span className="doc-slide-bridge-hint">
+                  {deckStale && deck?.slides?.length ? "筆記有更新 · " : ""}
+                  依 ## 標題分頁 · ⌘.
+                </span>
               </button>
-            )}
-          </div>
+            </>
+          )}
 
-          <div className="doc-props">
-            <input
-              className="doc-prop-input"
-              placeholder="資料夾"
-              value={folder}
-              onChange={(e) => { setFolder(e.target.value); markDirty(); }}
-            />
-            {tags.map((t) => (
-              <button
-                key={t}
-                type="button"
-                className="badge"
-                style={{ cursor: "pointer", border: "none", fontWeight: 500 }}
-                onClick={() => { setTags(tags.filter((x) => x !== t)); markDirty(); }}
-              >
-                #{t}
-              </button>
-            ))}
-            <input
-              className="doc-prop-input"
-              placeholder="加標籤…"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-            />
-            <MenuSelect
-              variant="pill"
-              ariaLabel="筆記狀態"
-              value={note.status === "doing" || note.status === "done" ? note.status : "backlog"}
-              options={NOTE_STATUS_OPTIONS}
-              onChange={(s) => {
-                setNote({ ...note, status: s });
-                void updateNote(note.id, { status: s });
-              }}
-            />
-            <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
-            {note.source_job_id && (
-              <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
-                來源逐字稿
-              </Link>
-            )}
-          </div>
-
-          <div className="doc-link-insert">
+          <div className={`doc-pane doc-pane--write${viewMode === "write" ? " is-active" : ""}`} aria-hidden={viewMode !== "write"}>
+            <div className="doc-link-insert">
             <input
               className="doc-prop-input"
               style={{ flex: 1, minWidth: 160 }}
@@ -816,10 +876,29 @@ export default function NotePage() {
               </div>
             </div>
           </section>
+          </div>
+
+          <div className={`doc-pane doc-pane--slides${viewMode === "slides" ? " is-active" : ""}`} aria-hidden={viewMode !== "slides"}>
+            {deck ? (
+              <SlideStudio
+                open={viewMode === "slides"}
+                noteId={note.id}
+                noteTitle={title}
+                noteBody={body}
+                deck={deck}
+                onChange={onDeckChange}
+                onBackToWrite={enterWrite}
+                onSynced={() => flash("已依筆記更新投影片")}
+                onActionsChange={setSlideActions}
+              />
+            ) : (
+              <p className="slide-loading">正在準備投影片…</p>
+            )}
+          </div>
         </div>
 
         <NoteAside
-          open={asideOpen && !focusMode}
+          open={asideOpen && !focusMode && viewMode === "write"}
           tab={asideTab}
           onTab={setAsideTab}
           title={title}
@@ -832,8 +911,6 @@ export default function NotePage() {
           onInsertMarkdown={(md) => { setBody((b) => b + md); markDirty(); flash("已插入 AI 內容"); }}
           onJumpHeading={jumpHeading}
         />
-          </>
-        )}
       </div>
     </div>
   );
