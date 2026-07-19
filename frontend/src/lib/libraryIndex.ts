@@ -210,8 +210,10 @@ export function searchNotes(
       }
       if (folder === "__none__") {
         if (n.folder?.trim()) return false;
-      } else if (folder && (n.folder || "") !== folder) {
-        return false;
+      } else if (folder) {
+        const nf = (n.folder || "").trim().replace(/\\/g, "/");
+        const f = folder.trim().replace(/\\/g, "/");
+        if (nf !== f && !nf.startsWith(`${f}/`)) return false;
       }
       if (status && (n.status || "") !== status) return false;
       if (!tokens.length) return true;

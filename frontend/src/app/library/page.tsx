@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
@@ -44,16 +44,18 @@ const SORT_OPTIONS = [
   { value: "relevance" as const, label: "相關度" },
 ];
 
-export default function LibraryPage() {
+function LibraryPageInner() {
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const folderFromUrl = searchParams.get("folder") || "";
   const [jobs, setJobs] = useState<Job[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"notes" | "jobs">("notes");
   const [tagFilter, setTagFilter] = useState("");
-  const [folderFilter, setFolderFilter] = useState("");
+  const [folderFilter, setFolderFilter] = useState(folderFromUrl);
   const [statusFilter, setStatusFilter] = useState("");
   const [sort, setSort] = useState<SortKey>(prefs.librarySort);
   const [view, setView] = useState<ViewMode>(prefs.libraryView);
@@ -64,6 +66,10 @@ export default function LibraryPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [chatOpen, setChatOpen] = useState(true);
   const [bulkFolder, setBulkFolder] = useState("");
+
+  useEffect(() => {
+    setFolderFilter(folderFromUrl);
+  }, [folderFromUrl]);
 
   useEffect(() => {
     if (prefsReady) return;
@@ -232,7 +238,14 @@ export default function LibraryPage() {
           folderFilter={folderFilter}
           tagFilter={tagFilter}
           statusFilter={statusFilter}
-          onFolder={setFolderFilter}
+          onFolder={(v) => {
+            setFolderFilter(v);
+            const params = new URLSearchParams(searchParams.toString());
+            if (v) params.set("folder", v);
+            else params.delete("folder");
+            const qs = params.toString();
+            router.replace(qs ? `/library?${qs}` : "/library");
+          }}
           onTag={setTagFilter}
           onStatus={setStatusFilter}
         />
@@ -301,6 +314,7 @@ export default function LibraryPage() {
                   setTagFilter("");
                   setFolderFilter("");
                   setStatusFilter("");
+                  router.replace("/library");
                 }}
               >
                 清除篩選
@@ -500,5 +514,13 @@ export default function LibraryPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function LibraryPage() {
+  return (
+    <Suspense fallback={<p style={{ color: "var(--text-muted)" }}>載入中…</p>}>
+      <LibraryPageInner />
+    </Suspense>
   );
 }
