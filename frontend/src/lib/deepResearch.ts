@@ -58,6 +58,8 @@ export type ClarifyResult = {
   assumedIntent: string;
 };
 
+export type ResearchDepth = "standard" | "max";
+
 export type ResearchProgressEvent =
   | { type: "log"; message: string; level?: "info" | "ok" | "warn" | "retry" }
   | {
@@ -66,11 +68,18 @@ export type ResearchProgressEvent =
       detail: string;
     }
   | { type: "clarify"; questions: string[]; assumedIntent: string }
-  | { type: "plan"; plan: ResearchPlan }
+  | { type: "plan"; plan: ResearchPlan; intent?: string; awaitingApproval?: boolean }
   | { type: "question"; index: number; total: number; question: string }
   | { type: "sources"; web: number; notes: number }
   | { type: "done"; report: ResearchReport }
   | { type: "error"; message: string };
+
+export function depthConfig(depth: ResearchDepth = "standard") {
+  if (depth === "max") {
+    return { maxQuestions: 7, maxRetries: 2, label: "深度 Max" };
+  }
+  return { maxQuestions: 5, maxRetries: 1, label: "標準" };
+}
 
 function parseJsonLoose<T>(text: string): T | null {
   const trimmed = text.trim();
@@ -347,14 +356,15 @@ export async function gatherOnQuestion(
     libraryNotes?: NoteSnippet[];
     keywordPool?: string[];
     citeStart?: number;
+    maxRetries?: number;
     emit?: (e: ResearchProgressEvent) => void;
   }
 ): Promise<ResearchFinding> {
   const emit = opts?.emit;
   const library = opts?.libraryNotes || [];
-  const noteHits = pickNotesForQuery(library, question, 4);
-  const hint =
-    opts?.keywordPool?.slice(0, 3).join(" / ") || question;
+  const maxRetries = Math.max(0, opts?.maxRetries ?? 1);
+  let noteHits = pickNotesForQuery(library, question, 4);
+  let hint = opts?.keywordPool?.slice(0, 3).join(" / ") || question;
 
   if (noteHits.length) {
     emit?.({
@@ -373,6 +383,7 @@ export async function gatherOnQuestion(
 
   let retries = 0;
   let result = await huntOnce(topic, question, hint, noteHits, { model: opts?.model });
+  let allQueries = [...result.searchQueries];
   let evalResult = await evaluateFinding(
     question,
     result.summary,
@@ -381,32 +392,33 @@ export async function gatherOnQuestion(
     { model: opts?.model }
   );
 
-  if (!evalResult.adequate && evalResult.retryQuery) {
-    retries = 1;
+  while (!evalResult.adequate && evalResult.retryQuery && retries < maxRetries) {
+    retries += 1;
+    hint = evalResult.retryQuery;
     emit?.({
       type: "log",
       level: "retry",
-      message: `資料不足（${evalResult.reason}），切換關鍵字再搜：「${evalResult.retryQuery}」`,
+      message: `資料不足（${evalResult.reason}），第 ${retries} 次自我修正：「${hint}」`,
     });
-    const retryNotes = pickNotesForQuery(
-      library,
-      `${question} ${evalResult.retryQuery}`,
-      4
-    );
+    const retryNotes = pickNotesForQuery(library, `${question} ${hint}`, 4);
     const retry = await huntOnce(
       topic,
       question,
-      evalResult.retryQuery,
+      hint,
       retryNotes.length ? retryNotes : noteHits,
       { model: opts?.model }
     );
-    // Prefer richer retry
+    allQueries = [...allQueries, ...retry.searchQueries];
     if (
-      retry.summary.length >= result.summary.length * 0.8 ||
-      retry.webSources.length > result.webSources.length
+      retry.summary.length >= result.summary.length * 0.75 ||
+      retry.webSources.length >= result.webSources.length
     ) {
-      result = retry;
-      if (retryNotes.length) noteHits.splice(0, noteHits.length, ...retryNotes);
+      result = {
+        summary: `${result.summary}\n\n—— 補充調查 ——\n${retry.summary}`,
+        webSources: [...result.webSources, ...retry.webSources],
+        searchQueries: allQueries,
+      };
+      if (retryNotes.length) noteHits = retryNotes;
     }
     evalResult = await evaluateFinding(
       question,
@@ -415,20 +427,17 @@ export async function gatherOnQuestion(
       noteHits.length,
       { model: opts?.model }
     );
-    emit?.({
-      type: "log",
-      level: evalResult.adequate ? "ok" : "warn",
-      message: evalResult.adequate
-        ? "重試後資料足夠，繼續下一題"
-        : `仍偏弱（${evalResult.reason}），先保留現有發現`,
-    });
-  } else {
-    emit?.({
-      type: "log",
-      level: "ok",
-      message: evalResult.reason || "本子問題資料足夠",
-    });
   }
+
+  emit?.({
+    type: "log",
+    level: evalResult.adequate ? "ok" : "warn",
+    message: evalResult.adequate
+      ? retries
+        ? `重試後資料足夠（修正 ${retries} 次）`
+        : evalResult.reason || "本子問題資料足夠"
+      : `仍偏弱（${evalResult.reason}），先保留現有發現`,
+  });
 
   const { citations } = toCitations(
     result.webSources,
@@ -440,7 +449,7 @@ export async function gatherOnQuestion(
     question,
     summary: result.summary,
     sources: citations,
-    searchQueries: result.searchQueries,
+    searchQueries: Array.from(new Set(allQueries.length ? allQueries : result.searchQueries)),
     retries,
     noteHits: [...noteHits],
     adequate: evalResult.adequate,
@@ -547,13 +556,21 @@ export type RunDeepResearchOpts = {
   skipClarify?: boolean;
   /** Answers to clarifying questions */
   clarifyAnswers?: string;
+  /** User-approved / edited plan — skips plan generation */
+  approvedPlan?: ResearchPlan;
+  /**
+   * Pause after plan for user review (OpenAI/Gemini style).
+   * Default true unless approvedPlan is provided.
+   */
+  requirePlanApproval?: boolean;
+  depth?: ResearchDepth;
   maxQuestions?: number;
+  maxRetries?: number;
   onProgress?: (e: ResearchProgressEvent) => void;
 };
 
 /**
- * Full agent pipeline. May emit `clarify` and return early (report=null via throw path).
- * When clarification needed, throws ClarifyNeededError.
+ * Full agent pipeline. May emit `clarify` / `plan` and pause via thrown errors.
  */
 export class ClarifyNeededError extends Error {
   questions: string[];
@@ -566,6 +583,17 @@ export class ClarifyNeededError extends Error {
   }
 }
 
+export class PlanApprovalNeededError extends Error {
+  plan: ResearchPlan;
+  intent: string;
+  constructor(plan: ResearchPlan, intent: string) {
+    super("NEED_PLAN_APPROVAL");
+    this.name = "PlanApprovalNeededError";
+    this.plan = plan;
+    this.intent = intent;
+  }
+}
+
 export async function runDeepResearch(
   topic: string,
   opts?: RunDeepResearchOpts
@@ -573,58 +601,101 @@ export async function runDeepResearch(
   const emit = opts?.onProgress;
   const model = opts?.model;
   const libraryNotes = opts?.libraryNotes || [];
+  const depth = opts?.depth || "standard";
+  const cfg = depthConfig(depth);
+  const maxQuestions = opts?.maxQuestions ?? cfg.maxQuestions;
+  const maxRetries = opts?.maxRetries ?? cfg.maxRetries;
+
+  emit?.({
+    type: "log",
+    message: `深度模式：${cfg.label}（最多 ${maxQuestions} 題、自我修正 ${maxRetries} 次）`,
+  });
 
   // ── 1. Clarify ──────────────────────────────────────────
-  emit?.({ type: "phase", phase: "clarify", detail: "釐清研究意圖…" });
-  emit?.({ type: "log", message: "正在判斷主題是否夠清楚…" });
-
   let intent = topic;
-  if (!opts?.skipClarify) {
-    const clarified = await clarifyTopic(topic, {
-      model,
-      context: opts?.context,
-      answers: opts?.clarifyAnswers,
-    });
-    intent = clarified.assumedIntent || topic;
+  if (opts?.approvedPlan) {
+    intent = opts.approvedPlan.angle || topic;
+    emit?.({ type: "log", level: "ok", message: "使用你核准的研究計畫，略過釐清／規劃" });
+  } else {
+    emit?.({ type: "phase", phase: "clarify", detail: "釐清研究意圖…" });
+    emit?.({ type: "log", message: "正在判斷主題是否夠清楚…" });
 
-    if (!clarified.clear && clarified.clarifyingQuestions.length && !opts?.clarifyAnswers) {
-      emit?.({
-        type: "clarify",
-        questions: clarified.clarifyingQuestions,
-        assumedIntent: clarified.assumedIntent,
+    if (!opts?.skipClarify) {
+      const clarified = await clarifyTopic(topic, {
+        model,
+        context: opts?.context,
+        answers: opts?.clarifyAnswers,
       });
+      intent = clarified.assumedIntent || topic;
+
+      if (!clarified.clear && clarified.clarifyingQuestions.length && !opts?.clarifyAnswers) {
+        emit?.({
+          type: "clarify",
+          questions: clarified.clarifyingQuestions,
+          assumedIntent: clarified.assumedIntent,
+        });
+        emit?.({
+          type: "log",
+          level: "warn",
+          message: "主題不夠清楚，需要你補充幾點再繼續",
+        });
+        throw new ClarifyNeededError(clarified.clarifyingQuestions, clarified.assumedIntent);
+      }
       emit?.({
         type: "log",
-        level: "warn",
-        message: "主題不夠清楚，需要你補充幾點再繼續",
+        level: "ok",
+        message: `意圖確認：${intent}`,
       });
-      throw new ClarifyNeededError(clarified.clarifyingQuestions, clarified.assumedIntent);
+    } else if (opts?.clarifyAnswers) {
+      intent = `${topic}（補充：${opts.clarifyAnswers.slice(0, 300)}）`;
+      emit?.({ type: "log", level: "ok", message: `已套用你的補充說明` });
     }
-    emit?.({
-      type: "log",
-      level: "ok",
-      message: `意圖確認：${intent}`,
-    });
-  } else if (opts?.clarifyAnswers) {
-    intent = `${topic}（補充：${opts.clarifyAnswers.slice(0, 300)}）`;
-    emit?.({ type: "log", level: "ok", message: `已套用你的補充說明` });
   }
 
   // ── 2. Plan ─────────────────────────────────────────────
-  emit?.({ type: "phase", phase: "plan", detail: "擬定研究計畫書…" });
-  emit?.({ type: "log", message: "正在規劃研究路徑與關鍵字組合…" });
-  const plan = await buildResearchPlan(topic, {
-    model,
-    context: opts?.context,
-    intent,
-  });
-  const questions = plan.questions.slice(0, opts?.maxQuestions ?? 6);
-  emit?.({ type: "plan", plan: { ...plan, questions } });
-  emit?.({
-    type: "log",
-    level: "ok",
-    message: `計畫完成：${questions.length} 個子問題、${plan.keywords.length} 組關鍵字`,
-  });
+  let plan: ResearchPlan;
+  if (opts?.approvedPlan?.questions?.length) {
+    plan = {
+      title: opts.approvedPlan.title || topic.slice(0, 40),
+      angle: opts.approvedPlan.angle || "",
+      questions: opts.approvedPlan.questions.map(String).filter(Boolean).slice(0, maxQuestions),
+      keywords: (opts.approvedPlan.keywords || []).map(String).filter(Boolean).slice(0, 12),
+    };
+  } else {
+    emit?.({ type: "phase", phase: "plan", detail: "擬定研究計畫書…" });
+    emit?.({ type: "log", message: "正在規劃研究路徑與關鍵字組合…" });
+    plan = await buildResearchPlan(topic, {
+      model,
+      context: opts?.context,
+      intent,
+    });
+    plan = {
+      ...plan,
+      questions: plan.questions.slice(0, maxQuestions),
+    };
+    const needApproval = opts?.requirePlanApproval !== false;
+    emit?.({
+      type: "plan",
+      plan,
+      intent,
+      awaitingApproval: needApproval,
+    });
+    emit?.({
+      type: "log",
+      level: "ok",
+      message: `計畫完成：${plan.questions.length} 個子問題、${plan.keywords.length} 組關鍵字`,
+    });
+    if (needApproval) {
+      emit?.({
+        type: "log",
+        level: "warn",
+        message: "請檢視／編輯研究計畫後再繼續（可增刪子問題）",
+      });
+      throw new PlanApprovalNeededError(plan, intent);
+    }
+  }
+
+  const questions = plan.questions.slice(0, maxQuestions);
 
   // ── 3–4. Hunt + Analyze (with retry) ────────────────────
   emit?.({
@@ -656,6 +727,7 @@ export async function runDeepResearch(
       libraryNotes,
       keywordPool: plan.keywords,
       citeStart: citeCursor,
+      maxRetries,
       emit,
     });
     citeCursor += finding.sources.length;
@@ -681,8 +753,9 @@ export async function runDeepResearch(
   emit?.({ type: "log", message: "正在整合發現、對照筆記並加上腳註…" });
 
   const sources = mergeAllSources(findings);
-  // Re-index findings to match merged list
-  const uriToIndex = new Map(sources.map((s) => [s.kind === "note" ? `note:${s.noteId}` : s.uri, s.index]));
+  const uriToIndex = new Map(
+    sources.map((s) => [s.kind === "note" ? `note:${s.noteId}` : s.uri, s.index])
+  );
   for (const f of findings) {
     f.sources = f.sources.map((s) => ({
       ...s,

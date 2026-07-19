@@ -7,6 +7,14 @@ import { createNote, listenToUserNotes, loginWithGoogle, type Note } from "@/lib
 import { searchNotes, type LibraryNote } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
+import { markdownToHtml } from "@/lib/mdHtml";
+import {
+  RESEARCH_STARTERS,
+  deleteResearchHistoryItem,
+  loadResearchHistory,
+  saveResearchHistoryItem,
+  type ResearchHistoryItem,
+} from "@/lib/researchHistory";
 
 type Citation = {
   index: number;
@@ -14,6 +22,13 @@ type Citation = {
   title: string;
   uri: string;
   noteId?: string;
+};
+
+type Plan = {
+  title: string;
+  angle: string;
+  questions: string[];
+  keywords: string[];
 };
 
 type Finding = {
@@ -30,13 +45,8 @@ type Report = {
   title: string;
   summary: string;
   markdown: string;
-  plan: {
-    title: string;
-    angle: string;
-    questions: string[];
-    keywords: string[];
-  };
-  findings: Finding[];
+  plan: Plan;
+  findings?: Finding[];
   sources: Citation[];
   webSources: Citation[];
   noteSources: Citation[];
@@ -52,6 +62,7 @@ type LogItem = {
 };
 
 type Phase = "clarify" | "plan" | "hunt" | "analyze" | "report" | "";
+type Depth = "standard" | "max";
 
 const PHASE_LABEL: Record<string, string> = {
   clarify: "釐清意圖",
@@ -88,12 +99,24 @@ function buildLibraryPayload(notes: LibraryNote[], topic: string) {
   }));
 }
 
+function linkCitations(html: string, sources: Citation[]): string {
+  const map = new Map(sources.map((s) => [s.index, s]));
+  return html.replace(/\[(\d+)\]/g, (full, num) => {
+    const s = map.get(Number(num));
+    if (!s) return full;
+    const external = s.kind === "web";
+    const rel = external ? ' target="_blank" rel="noreferrer"' : "";
+    return `<a class="dr-fn" href="${s.uri.replace(/"/g, "")}"${rel} title="${(s.title || "").replace(/"/g, "&quot;")}">[${num}]</a>`;
+  });
+}
+
 export default function DeepResearchPage() {
   const { user, loading } = useAuth();
   const prefs = usePrefsOptional();
   const [notes, setNotes] = useState<Note[]>([]);
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
+  const [depth, setDepth] = useState<Depth>("standard");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("");
   const [logs, setLogs] = useState<LogItem[]>([]);
@@ -103,13 +126,24 @@ export default function DeepResearchPage() {
   const [clarifyQs, setClarifyQs] = useState<string[]>([]);
   const [clarifyAnswers, setClarifyAnswers] = useState<string[]>([]);
   const [assumedIntent, setAssumedIntent] = useState("");
+  const [draftPlan, setDraftPlan] = useState<Plan | null>(null);
   const [sourceStats, setSourceStats] = useState({ web: 0, notes: 0 });
   const [modelUsed, setModelUsed] = useState("");
+  const [history, setHistory] = useState<ResearchHistoryItem[]>([]);
+  const [followUp, setFollowUp] = useState("");
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followAnswer, setFollowAnswer] = useState("");
   const logEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!user) return;
     return listenToUserNotes(user.uid, setNotes);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    setHistory(loadResearchHistory(user.uid));
   }, [user]);
 
   useEffect(() => {
@@ -122,16 +156,65 @@ export default function DeepResearchPage() {
     return searchNotes(libraryNotes, topic, { sort: "relevance" }).slice(0, 5);
   }, [libraryNotes, topic]);
 
+  const renderedHtml = useMemo(() => {
+    if (!report?.markdown) return "";
+    try {
+      const html = markdownToHtml(report.markdown);
+      return linkCitations(html, report.sources || []);
+    } catch {
+      return "";
+    }
+  }, [report]);
+
   const pushLog = (message: string, level: LogItem["level"] = "info") => {
     setLogs((prev) => [
       ...prev,
-      { id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, message, level, at: Date.now() },
+      {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        message,
+        level,
+        at: Date.now(),
+      },
     ]);
+  };
+
+  const cancelRun = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setBusy(false);
+    pushLog("已中止研究", "warn");
+  };
+
+  const persistReport = (r: Report, topicText: string) => {
+    if (!user) return;
+    const list = saveResearchHistoryItem(user.uid, {
+      topic: topicText,
+      title: r.title,
+      summary: r.summary,
+      depth,
+      model: r.model,
+      webCount: r.webSources?.length || 0,
+      noteCount: r.noteSources?.length || 0,
+      report: {
+        title: r.title,
+        summary: r.summary,
+        markdown: r.markdown,
+        plan: r.plan,
+        sources: r.sources || [],
+        webSources: r.webSources || [],
+        noteSources: r.noteSources || [],
+        searchQueries: r.searchQueries || [],
+        model: r.model,
+      },
+    });
+    setHistory(list);
   };
 
   const runResearch = async (opts?: {
     skipClarify?: boolean;
     answers?: string;
+    approvedPlan?: Plan;
+    resetLogs?: boolean;
   }) => {
     if (!topic.trim() || busy) return;
     setBusy(true);
@@ -139,28 +222,42 @@ export default function DeepResearchPage() {
     setReport(null);
     setSavedId(null);
     setClarifyQs([]);
-    setPhase("clarify");
-    setLogs([]);
-    setSourceStats({ web: 0, notes: 0 });
-    pushLog("啟動深度研究代理人…");
-    pushLog(`模型：Gemini 3.1 Pro（Vertex）· 筆記庫 ${notes.length} 則`);
+    setDraftPlan(null);
+    setFollowAnswer("");
+    setPhase(opts?.approvedPlan ? "hunt" : "clarify");
+    if (opts?.resetLogs !== false) {
+      setLogs([]);
+      setSourceStats({ web: 0, notes: 0 });
+      pushLog("啟動深度研究代理人…");
+      pushLog(
+        `模型：Gemini 3.1 Pro · 模式 ${depth === "max" ? "Max" : "標準"} · 筆記庫 ${notes.length} 則`
+      );
+    } else {
+      pushLog("依核准計畫繼續執行搜尋與報告…", "ok");
+    }
 
     const libraryPayload = buildLibraryPayload(libraryNotes, topic.trim());
-    if (libraryPayload.length) {
+    if (libraryPayload.length && opts?.resetLogs !== false) {
       pushLog(`已打包 ${libraryPayload.length} 則相關筆記供內部檢索`, "ok");
     }
+
+    const ac = new AbortController();
+    abortRef.current = ac;
 
     try {
       const res = await fetch("/api/ai/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
         body: JSON.stringify({
           topic: topic.trim(),
           context: context.trim() || undefined,
           model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
-          maxQuestions: 6,
-          skipClarify: !!opts?.skipClarify,
+          depth,
+          skipClarify: !!opts?.skipClarify || !!opts?.approvedPlan,
           clarifyAnswers: opts?.answers || undefined,
+          approvedPlan: opts?.approvedPlan || undefined,
+          requirePlanApproval: !opts?.approvedPlan,
           libraryNotes: libraryPayload,
           stream: true,
         }),
@@ -205,10 +302,7 @@ export default function DeepResearchPage() {
             streamModel = event.model;
             setModelUsed(event.model);
           } else if (type === "log") {
-            pushLog(
-              String(event.message || ""),
-              (event.level as LogItem["level"]) || "info"
-            );
+            pushLog(String(event.message || ""), (event.level as LogItem["level"]) || "info");
           } else if (type === "phase") {
             setPhase((event.phase as Phase) || "");
             if (event.detail) pushLog(String(event.detail));
@@ -219,33 +313,47 @@ export default function DeepResearchPage() {
             setAssumedIntent(String(event.assumedIntent || ""));
             pushLog("等待你回答澄清問題…", "warn");
           } else if (type === "plan") {
-            const plan = event.plan as Report["plan"];
-            if (plan?.keywords?.length) {
+            const plan = event.plan as Plan;
+            if (event.awaitingApproval) {
+              setDraftPlan({
+                title: plan.title || topic.slice(0, 40),
+                angle: plan.angle || "",
+                questions: [...(plan.questions || [])],
+                keywords: [...(plan.keywords || [])],
+              });
+              setAssumedIntent(String(event.intent || assumedIntent || ""));
+              pushLog("研究計畫已就緒，請審核後繼續", "warn");
+            } else if (plan?.keywords?.length) {
               pushLog(`關鍵字：${plan.keywords.slice(0, 6).join(" · ")}`, "ok");
             }
           } else if (type === "question") {
-            pushLog(
-              `子問題 ${event.index}/${event.total}：${event.question}`,
-              "info"
-            );
+            pushLog(`子問題 ${event.index}/${event.total}：${event.question}`, "info");
           } else if (type === "sources") {
             setSourceStats({
               web: Number(event.web) || 0,
               notes: Number(event.notes) || 0,
             });
           } else if (type === "done") {
-            setReport({ ...(event.report as Report), model: streamModel });
+            const r = { ...(event.report as Report), model: streamModel };
+            setReport(r);
             setPhase("");
+            setDraftPlan(null);
             pushLog("深度研究完成", "ok");
+            persistReport(r, topic.trim());
           } else if (type === "error") {
             throw new Error(String(event.message || "研究失敗"));
           }
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "研究失敗");
-      pushLog(e instanceof Error ? e.message : "研究失敗", "warn");
+      if (e instanceof DOMException && e.name === "AbortError") {
+        /* cancelled */
+      } else {
+        setError(e instanceof Error ? e.message : "研究失敗");
+        pushLog(e instanceof Error ? e.message : "研究失敗", "warn");
+      }
     } finally {
+      abortRef.current = null;
       setBusy(false);
     }
   };
@@ -257,8 +365,19 @@ export default function DeepResearchPage() {
     void runResearch({ answers });
   };
 
-  const skipClarify = () => {
-    void runResearch({ skipClarify: true });
+  const approvePlan = () => {
+    if (!draftPlan) return;
+    const cleaned: Plan = {
+      title: draftPlan.title.trim() || topic.slice(0, 40),
+      angle: draftPlan.angle.trim(),
+      questions: draftPlan.questions.map((q) => q.trim()).filter(Boolean).slice(0, 8),
+      keywords: draftPlan.keywords.map((k) => k.trim()).filter(Boolean).slice(0, 12),
+    };
+    if (!cleaned.questions.length) {
+      setError("至少保留一個子問題");
+      return;
+    }
+    void runResearch({ approvedPlan: cleaned, skipClarify: true, resetLogs: false });
   };
 
   const saveNote = async () => {
@@ -293,13 +412,56 @@ ${noteList || "（無）"}
     setSavedId(id);
   };
 
+  const askFollowUp = async () => {
+    if (!report || !followUp.trim() || followBusy) return;
+    setFollowBusy(true);
+    setFollowAnswer("");
+    try {
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "chat",
+          prompt: followUp.trim(),
+          context: `—— 深度研究報告脈絡 ——\n研究主題：${topic}\n報告標題：${report.title}\n\n摘要：\n${report.summary}\n\n報告正文（節錄）：\n${report.markdown.slice(0, 12000)}\n\n來源：\n${(report.sources || [])
+            .map((s) => `[${s.index}] ${s.title} ${s.uri}`)
+            .join("\n")}\n—— 結束 ——`,
+          assistant: {
+            name: prefs?.prefs.aiAssistantName,
+            style: prefs?.prefs.aiStyle,
+            model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
+            grounding: true,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "追問失敗");
+      setFollowAnswer(data.text || "（沒有回覆）");
+    } catch (e) {
+      setFollowAnswer(e instanceof Error ? e.message : "追問失敗");
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+
+  const openHistory = (item: ResearchHistoryItem) => {
+    setTopic(item.topic);
+    setReport({ ...item.report, findings: [] });
+    setModelUsed(item.model || item.report.model || "");
+    setSavedId(null);
+    setClarifyQs([]);
+    setDraftPlan(null);
+    setLogs([]);
+    setFollowAnswer("");
+  };
+
   if (loading) return <p style={{ padding: "2rem", color: "var(--text-muted)" }}>載入中…</p>;
 
   if (!user) {
     return (
       <div className="dr-page">
         <ScrambleText words="深度研究" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後使用代理人工作流：釐清 → 規劃 → 內外搜尋 → 自我修正 → 引用報告。</p>
+        <p className="page-sub">登入後使用代理人工作流：釐清 → 審核計畫 → 內外搜尋 → 自我修正 → 引用報告。</p>
         <button type="button" className="btn" onClick={() => loginWithGoogle()}>
           登入
         </button>
@@ -307,13 +469,16 @@ ${noteList || "（無）"}
     );
   }
 
+  const showStart =
+    !busy && clarifyQs.length === 0 && !draftPlan;
+
   return (
     <div className="dr-page">
       <header className="dr-head">
         <div>
           <ScrambleText words="深度研究" as="h1" className="page-title font-display" />
           <p className="page-sub">
-            自主代理人：先釐清意圖，再混合搜尋網路與你的筆記庫，資料不足會自我修正，最後產出帶腳註的長文報告。
+            對齊 OpenAI／Gemini：可審核計畫、標準／Max 深度、即時思考、筆記混合搜尋、可點引用與追問。
           </p>
         </div>
       </header>
@@ -325,12 +490,27 @@ ${noteList || "（無）"}
             <textarea
               className="input"
               rows={3}
-              placeholder="例如：2025–2026 生成式 AI 企業導入趨勢，對筆記／知識工作產品的啟示"
+              placeholder="例如：2026 遠端團隊協作工具趨勢…"
               value={topic}
               disabled={busy}
               onChange={(e) => setTopic(e.target.value)}
             />
           </label>
+
+          <div className="dr-starters">
+            {RESEARCH_STARTERS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="dr-starter"
+                disabled={busy}
+                onClick={() => setTopic(s)}
+              >
+                {s.length > 28 ? `${s.slice(0, 28)}…` : s}
+              </button>
+            ))}
+          </div>
+
           <label className="dr-label">
             補充脈絡（選填）
             <textarea
@@ -342,6 +522,33 @@ ${noteList || "（無）"}
               onChange={(e) => setContext(e.target.value)}
             />
           </label>
+
+          <div className="dr-depth">
+            <span className="dr-depth-label">研究深度</span>
+            <div className="dr-depth-btns">
+              <button
+                type="button"
+                className={`btn btn-sm${depth === "standard" ? "" : " btn-ghost"}`}
+                disabled={busy}
+                onClick={() => setDepth("standard")}
+              >
+                標準 · 較快
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm${depth === "max" ? "" : " btn-ghost"}`}
+                disabled={busy}
+                onClick={() => setDepth("max")}
+              >
+                Max · 更完整
+              </button>
+            </div>
+            <p className="dr-hint">
+              {depth === "max"
+                ? "最多 7 子問題、自我修正 2 次（約 3～6 分鐘）"
+                : "最多 5 子問題、自我修正 1 次（約 2～4 分鐘）"}
+            </p>
+          </div>
 
           {notePreview.length > 0 && (
             <div className="dr-note-preview">
@@ -377,58 +584,156 @@ ${noteList || "（無）"}
               ))}
               <div className="dr-actions">
                 <button type="button" className="btn" onClick={submitClarify}>
-                  確認並開始研究
+                  確認並規劃
                 </button>
-                <button type="button" className="btn btn-ghost" onClick={skipClarify}>
-                  跳過，直接研究
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => void runResearch({ skipClarify: true })}
+                >
+                  跳過
                 </button>
               </div>
             </div>
           )}
 
-          {clarifyQs.length === 0 && (
+          {draftPlan && !busy && (
+            <div className="dr-plan-edit">
+              <h3>審核研究計畫</h3>
+              {assumedIntent && <p className="dr-angle">意圖：{assumedIntent}</p>}
+              <label className="dr-label">
+                報告標題
+                <input
+                  className="input"
+                  value={draftPlan.title}
+                  onChange={(e) => setDraftPlan({ ...draftPlan, title: e.target.value })}
+                />
+              </label>
+              <label className="dr-label">
+                切入角度
+                <input
+                  className="input"
+                  value={draftPlan.angle}
+                  onChange={(e) => setDraftPlan({ ...draftPlan, angle: e.target.value })}
+                />
+              </label>
+              <label className="dr-label">
+                子問題（每行一題）
+                <textarea
+                  className="input"
+                  rows={6}
+                  value={draftPlan.questions.join("\n")}
+                  onChange={(e) =>
+                    setDraftPlan({
+                      ...draftPlan,
+                      questions: e.target.value.split("\n"),
+                    })
+                  }
+                />
+              </label>
+              <label className="dr-label">
+                關鍵字（逗號分隔）
+                <input
+                  className="input"
+                  value={draftPlan.keywords.join(", ")}
+                  onChange={(e) =>
+                    setDraftPlan({
+                      ...draftPlan,
+                      keywords: e.target.value.split(/[,，]/).map((s) => s.trim()),
+                    })
+                  }
+                />
+              </label>
+              <div className="dr-actions">
+                <button type="button" className="btn" onClick={approvePlan}>
+                  核准並開始搜尋
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setDraftPlan(null);
+                    setLogs([]);
+                  }}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showStart && (
             <div className="dr-actions">
               <button
                 type="button"
                 className="btn"
-                disabled={busy || !topic.trim()}
+                disabled={!topic.trim()}
                 onClick={() => void runResearch()}
               >
-                {busy ? "代理人工作中…" : "開始深度研究"}
+                開始深度研究
               </button>
+            </div>
+          )}
+
+          {busy && (
+            <div className="dr-actions">
+              <button type="button" className="btn btn-ghost" onClick={cancelRun}>
+                中止
+              </button>
+              <span className="dr-status">代理人工作中…</span>
             </div>
           )}
 
           {error && <p className="note-aside-error">{error}</p>}
 
+          {history.length > 0 && (
+            <div className="dr-history">
+              <h3>最近報告</h3>
+              <ul>
+                {history.slice(0, 6).map((h) => (
+                  <li key={h.id}>
+                    <button type="button" className="dr-history-open" onClick={() => openHistory(h)}>
+                      <strong>{h.title}</strong>
+                      <span>{new Date(h.at).toLocaleString("zh-TW")}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="dr-history-del"
+                      title="刪除"
+                      onClick={() => setHistory(deleteResearchHistoryItem(user.uid, h.id))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="dr-howto">
-            <h3>代理人四階段</h3>
+            <h3>流程</h3>
             <ol>
               <li>
-                <strong>釐清</strong>：不夠清楚會反問你
+                <strong>釐清</strong> → <strong>審核計畫</strong>
               </li>
               <li>
-                <strong>規劃</strong>：產出計畫書與關鍵字
+                <strong>混合獵人</strong>（網路 + 筆記）
               </li>
               <li>
-                <strong>混合獵人</strong>：Google 搜尋 + 筆記庫 RAG
-              </li>
-              <li>
-                <strong>分析／報告</strong>：不足則換詞重搜，最後加 [n] 腳註
+                <strong>自我修正</strong> → <strong>引用報告</strong>
               </li>
             </ol>
-            <p className="dr-hint">大腦模型：Gemini 3.1 Pro（Vertex）· 約需 2～5 分鐘</p>
           </div>
         </section>
 
         <section className="dr-result">
-          {!report && !busy && clarifyQs.length === 0 && (
+          {!report && !busy && !draftPlan && clarifyQs.length === 0 && logs.length === 0 && (
             <div className="dr-empty">
-              <p>輸入主題後開始。過程會即時顯示思考步驟；完成後可一鍵存成筆記。</p>
+              <p>選一個範例主題，或自己輸入。開始後可審核計畫，過程會即時顯示思考步驟。</p>
             </div>
           )}
 
-          {(busy || logs.length > 0) && !report && (
+          {(busy || (logs.length > 0 && !report)) && (
             <div className="dr-thinking">
               <div className="dr-thinking-head">
                 <div>
@@ -522,34 +827,36 @@ ${noteList || "（無）"}
                     </ul>
                   </div>
                 </div>
-                <svg className="dr-graph-svg" viewBox="0 0 320 80" aria-hidden>
-                  <circle cx="160" cy="40" r="18" className="dr-node-core" />
-                  <text x="160" y="44" textAnchor="middle" className="dr-node-label">
-                    報告
-                  </text>
-                  {(report.webSources || []).slice(0, 4).map((_, i) => {
-                    const a = (-50 + i * 28) * (Math.PI / 180);
-                    const x = 160 + Math.cos(a) * 90;
-                    const y = 40 + Math.sin(a) * 28;
-                    return (
-                      <g key={`wg-${i}`}>
-                        <line x1="160" y1="40" x2={x} y2={y} className="dr-edge-web" />
-                        <circle cx={x} cy={y} r="5" className="dr-node-web" />
-                      </g>
-                    );
-                  })}
-                  {(report.noteSources || []).slice(0, 4).map((_, i) => {
-                    const a = (130 + i * 28) * (Math.PI / 180);
-                    const x = 160 + Math.cos(a) * 90;
-                    const y = 40 + Math.sin(a) * 28;
-                    return (
-                      <g key={`ng-${i}`}>
-                        <line x1="160" y1="40" x2={x} y2={y} className="dr-edge-note" />
-                        <circle cx={x} cy={y} r="5" className="dr-node-note" />
-                      </g>
-                    );
-                  })}
-                </svg>
+              </div>
+
+              <article
+                className="dr-markdown prose-dr"
+                dangerouslySetInnerHTML={{ __html: renderedHtml || `<pre>${report.markdown}</pre>` }}
+              />
+
+              <div className="dr-follow">
+                <h3>追問這份報告</h3>
+                <div className="dr-follow-row">
+                  <input
+                    className="input"
+                    placeholder="例如：把結論改成給產品經理的三點行動…"
+                    value={followUp}
+                    disabled={followBusy}
+                    onChange={(e) => setFollowUp(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void askFollowUp();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={followBusy || !followUp.trim()}
+                    onClick={() => void askFollowUp()}
+                  >
+                    {followBusy ? "…" : "追問"}
+                  </button>
+                </div>
+                {followAnswer && <pre className="dr-follow-ans">{followAnswer}</pre>}
               </div>
 
               {logs.length > 0 && (
@@ -563,29 +870,9 @@ ${noteList || "（無）"}
                 </details>
               )}
 
-              <article className="dr-markdown">
-                <pre className="dr-md-pre">{report.markdown}</pre>
-              </article>
-
-              {report.findings?.length > 0 && (
-                <details className="dr-findings">
-                  <summary>子問題筆記（{report.findings.length}）</summary>
-                  {report.findings.map((f, i) => (
-                    <div key={i} className="dr-finding">
-                      <strong>
-                        {i + 1}. {f.question}
-                        {f.retries ? ` · 修正 ${f.retries} 次` : ""}
-                        {!f.adequate ? " · 資料偏弱" : ""}
-                      </strong>
-                      <pre>{f.summary}</pre>
-                    </div>
-                  ))}
-                </details>
-              )}
-
               <p className="dr-queries">
                 {report.searchQueries?.length
-                  ? `搜尋詞：${report.searchQueries.join(" · ")}`
+                  ? `搜尋詞：${report.searchQueries.slice(0, 8).join(" · ")}`
                   : ""}
                 {report.model || modelUsed
                   ? ` · 模型 ${report.model || modelUsed}`

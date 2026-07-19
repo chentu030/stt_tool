@@ -3,8 +3,12 @@ import { vertexConfigStatus } from "@/lib/vertex";
 import { resolveAiTextModel } from "@/lib/aiPrefs";
 import {
   ClarifyNeededError,
+  PlanApprovalNeededError,
+  depthConfig,
   runDeepResearch,
   type NoteSnippet,
+  type ResearchDepth,
+  type ResearchPlan,
   type ResearchProgressEvent,
 } from "@/lib/deepResearch";
 
@@ -27,23 +31,31 @@ export async function GET() {
   return NextResponse.json({
     ...vertexConfigStatus(),
     feature: "deep_research_agent",
-    pipeline: ["clarify", "plan", "hunt", "analyze", "report"],
+    pipeline: ["clarify", "plan_approval", "hunt", "analyze", "report"],
+    depths: ["standard", "max"],
     defaultModel: "gemini-3.1-pro-preview",
   });
 }
 
-function sseEncode(event: ResearchProgressEvent | { type: "meta"; model: string }): string {
+function sseEncode(
+  event: ResearchProgressEvent | { type: "meta"; model: string; depth: string }
+): string {
   return `data: ${JSON.stringify(event)}\n\n`;
+}
+
+function normalizePlan(raw?: ResearchPlan | null): ResearchPlan | undefined {
+  if (!raw?.questions?.length) return undefined;
+  return {
+    title: String(raw.title || "").slice(0, 120),
+    angle: String(raw.angle || "").slice(0, 300),
+    questions: raw.questions.map(String).filter(Boolean).slice(0, 8),
+    keywords: (raw.keywords || []).map(String).filter(Boolean).slice(0, 12),
+  };
 }
 
 /**
  * Deep Research agent (SSE stream).
- * Body: {
- *   topic, context?, model?, maxQuestions?,
- *   skipClarify?, clarifyAnswers?,
- *   libraryNotes?: NoteSnippet[],
- *   stream?: boolean  // default true
- * }
+ * Body supports plan approval gate + depth modes (Gemini-style standard/max).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -56,6 +68,9 @@ export async function POST(req: NextRequest) {
       clarifyAnswers?: string;
       libraryNotes?: NoteSnippet[];
       stream?: boolean;
+      depth?: ResearchDepth;
+      approvedPlan?: ResearchPlan;
+      requirePlanApproval?: boolean;
       assistant?: { model?: string };
     };
 
@@ -67,7 +82,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "主題過長（最多 2000 字）" }, { status: 400 });
     }
 
+    const depth: ResearchDepth = data.depth === "max" ? "max" : "standard";
+    const cfg = depthConfig(depth);
     const researchModel = resolveResearchModel(data.model || data.assistant?.model);
+    const approvedPlan = normalizePlan(data.approvedPlan);
     const libraryNotes = (data.libraryNotes || [])
       .filter((n) => n?.id && n?.title)
       .slice(0, 40)
@@ -78,19 +96,28 @@ export async function POST(req: NextRequest) {
         updatedAt: n.updatedAt ? String(n.updatedAt) : undefined,
       }));
 
+    const runOpts = {
+      model: researchModel,
+      context: data.context?.trim() || undefined,
+      libraryNotes,
+      skipClarify: !!data.skipClarify || !!approvedPlan,
+      clarifyAnswers: data.clarifyAnswers?.trim() || undefined,
+      approvedPlan,
+      requirePlanApproval: approvedPlan ? false : data.requirePlanApproval !== false,
+      depth,
+      maxQuestions: Math.min(
+        8,
+        Math.max(3, data.maxQuestions || cfg.maxQuestions)
+      ),
+      maxRetries: cfg.maxRetries,
+    };
+
     const stream = data.stream !== false;
 
     if (!stream) {
       try {
-        const report = await runDeepResearch(topic, {
-          model: researchModel,
-          context: data.context?.trim() || undefined,
-          libraryNotes,
-          skipClarify: !!data.skipClarify,
-          clarifyAnswers: data.clarifyAnswers?.trim() || undefined,
-          maxQuestions: Math.min(7, Math.max(3, data.maxQuestions || 6)),
-        });
-        return NextResponse.json({ ...report, model: researchModel });
+        const report = await runDeepResearch(topic, runOpts);
+        return NextResponse.json({ ...report, model: researchModel, depth });
       } catch (e) {
         if (e instanceof ClarifyNeededError) {
           return NextResponse.json({
@@ -98,6 +125,16 @@ export async function POST(req: NextRequest) {
             questions: e.questions,
             assumedIntent: e.assumedIntent,
             model: researchModel,
+            depth,
+          });
+        }
+        if (e instanceof PlanApprovalNeededError) {
+          return NextResponse.json({
+            needPlanApproval: true,
+            plan: e.plan,
+            intent: e.intent,
+            model: researchModel,
+            depth,
           });
         }
         throw e;
@@ -107,24 +144,24 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
-        const send = (event: ResearchProgressEvent | { type: "meta"; model: string }) => {
+        const send = (
+          event: ResearchProgressEvent | { type: "meta"; model: string; depth: string }
+        ) => {
           controller.enqueue(encoder.encode(sseEncode(event)));
         };
 
         try {
-          send({ type: "meta", model: researchModel });
+          send({ type: "meta", model: researchModel, depth });
           await runDeepResearch(topic, {
-            model: researchModel,
-            context: data.context?.trim() || undefined,
-            libraryNotes,
-            skipClarify: !!data.skipClarify,
-            clarifyAnswers: data.clarifyAnswers?.trim() || undefined,
-            maxQuestions: Math.min(7, Math.max(3, data.maxQuestions || 6)),
+            ...runOpts,
             onProgress: (e) => send(e),
           });
         } catch (e) {
-          if (e instanceof ClarifyNeededError) {
-            // clarify event already streamed via onProgress
+          if (
+            e instanceof ClarifyNeededError ||
+            e instanceof PlanApprovalNeededError
+          ) {
+            // already streamed via onProgress
           } else {
             const message = e instanceof Error ? e.message : String(e);
             send({ type: "error", message });
