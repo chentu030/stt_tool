@@ -572,6 +572,7 @@ export default function NotePage() {
       className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}`}
       style={{ ["--note-aside-w" as string]: `${asideWidth}px` }}
     >
+      <div className="doc-chrome">
       <div className={`doc-ribbon${viewMode === "slides" ? " is-hidden" : ""}`} ref={setRibbonHost} />
 
       <div className="doc-command">
@@ -796,6 +797,7 @@ export default function NotePage() {
             )}
           </div>
         </div>
+      </div>
       </div>
 
       <div className="doc-body-row">

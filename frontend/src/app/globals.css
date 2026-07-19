@@ -314,6 +314,18 @@ button, input, textarea, select {
 .app-main--doc {
   padding: 0;
   overflow: auto;
+  min-height: 0;
+}
+
+/* Keep note chrome sticky by making the main column the scrollport */
+.app-shell:has(.app-main--doc) {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.mobile-shell:has(.app-main--doc) {
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .mobile-shell {
@@ -1788,14 +1800,19 @@ button, input, textarea, select {
   display: flex;
   flex-direction: column;
 }
-.doc-ribbon {
+.doc-chrome {
   position: sticky;
   top: 0;
   z-index: 40;
+  background: var(--bg-primary);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+}
+.doc-ribbon {
+  position: relative;
+  z-index: 1;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   min-height: 2.75rem;
-  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
 .doc-ribbon-inner {
   display: flex;
@@ -1805,9 +1822,8 @@ button, input, textarea, select {
   max-width: 100%;
 }
 .doc-command {
-  position: sticky;
-  top: 2.75rem;
-  z-index: 35;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
