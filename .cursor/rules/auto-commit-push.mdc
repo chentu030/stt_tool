@@ -1,0 +1,14 @@
+---
+description: After finishing code changes, commit and push without asking
+alwaysApply: true
+---
+
+# Auto commit and push
+
+When implementation work for a task is done (feature, fix, or agreed deliverable):
+
+1. **Commit and push immediately** — do not ask the user for confirmation first.
+2. Follow the repo git safety protocol (no force push to main/master, no amending unless conditions met, no secrets in commits).
+3. Stage only relevant project files; exclude secrets (`.env`, `env.yaml`, credentials) and unrelated backups (`.bak`, `_watch.html`) unless the user explicitly wants them.
+4. Use a concise commit message focused on why; then `git push` to the tracked remote branch.
+5. Only skip commit/push if there is nothing to commit, or if push would require unsafe/destructive git operations the user has not authorized.

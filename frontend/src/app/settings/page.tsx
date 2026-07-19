@@ -51,9 +51,13 @@ export default function SettingsPage() {
         <h2 className="font-display" style={{ fontSize: "1.05rem", marginBottom: "0.7rem" }}>路線圖</h2>
         <ul style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.8, paddingLeft: "1.1rem" }}>
           <li>已完成：知識庫、逐字稿編輯、筆記、捕捉、藍綠黑白分版</li>
-          <li>下一階段：[[wikilink]]、標籤圖譜、範本</li>
-          <li>之後：Capacitor 包成 iOS／Android App</li>
+          <li>進行中（Phase A）：區塊編輯器、/ 指令、拖曳排序</li>
+          <li>下一階段：樣式列、圖片、匯出；再來 [[wikilink]]、標籤、範本</li>
+          <li>之後：白板、簡報、協作／AI；Capacitor iOS／Android</li>
         </ul>
+        <p style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          完整清單見 repo 根目錄 <code>ROADMAP.md</code>
+        </p>
         <p style={{ marginTop: "0.8rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
           舊版歷史頁仍可用：<Link href="/history" style={{ color: "var(--accent-2)" }}>/history</Link>
         </p>

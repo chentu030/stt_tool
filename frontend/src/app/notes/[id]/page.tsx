@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { getNote, updateNote, Note } from "@/lib/firebase";
+import BlockEditor from "@/components/BlockEditor";
 
 export default function NotePage() {
   const { id } = useParams<{ id: string }>();
@@ -64,13 +65,20 @@ export default function NotePage() {
         </p>
       )}
       {status && <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>{status}</p>}
-      <textarea
+      <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+        輸入 <kbd style={{ fontFamily: "inherit", border: "1px solid var(--border)", borderRadius: 4, padding: "0 4px" }}>/</kbd> 插入區塊；
+        拖曳左側 ⋮⋮ 排序；空白行 Backspace 刪除區塊
+      </p>
+      <div
         className="editor-area"
-        style={{ minHeight: "60vh" }}
-        value={body}
-        placeholder="在這裡寫筆記（支援 Markdown 純文字）…"
-        onChange={(e) => { setBody(e.target.value); setDirty(true); }}
-      />
+        style={{ minHeight: "60vh", padding: "1rem 0.85rem" }}
+      >
+        <BlockEditor
+          valueMd={body}
+          onChangeMd={(md) => { setBody(md); setDirty(true); setStatus(""); }}
+          placeholder="開始寫筆記，或輸入 / 插入標題、清單、待辦…"
+        />
+      </div>
     </div>
   );
 }
