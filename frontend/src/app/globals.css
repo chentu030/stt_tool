@@ -4149,7 +4149,7 @@ button, input, textarea, select {
   top: calc(100% + 6px);
   left: 0;
   z-index: 80;
-  width: 232px;
+  width: 248px;
   padding: 0.55rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -4249,14 +4249,22 @@ button, input, textarea, select {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
-.hl-row input[type="color"] {
-  width: 42px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
+.hl-wheel {
+  width: 100% !important;
+  height: 148px !important;
+  border-radius: 8px;
+}
+.hl-wheel .react-colorful__saturation {
+  border-radius: 8px 8px 0 0;
+}
+.hl-wheel .react-colorful__hue {
+  height: 12px;
+  border-radius: 0 0 8px 8px;
+  margin-top: 8px;
+}
+.hl-wheel .react-colorful__pointer {
+  width: 16px;
+  height: 16px;
 }
 .hl-rgb {
   display: grid;

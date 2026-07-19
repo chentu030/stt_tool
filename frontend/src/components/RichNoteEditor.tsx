@@ -4,6 +4,7 @@ import { askPrompt } from "@/lib/dialogs";
 
 import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
+import { HexColorPicker } from "react-colorful";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -1391,9 +1392,12 @@ export default function RichNoteEditor({
         </ToolbarBtn>
         <div className="hl-wrap" ref={hlPanelRef}>
           <ToolbarBtn
-            active={editor.isActive("highlight")}
-            onClick={() => applyHighlight()}
-            title="螢光筆"
+            active={editor.isActive("highlight") || hlOpen}
+            onClick={() => {
+              setTxOpen(false);
+              setHlOpen((v) => !v);
+            }}
+            title="螢光筆顏色"
           >
             <span className="hl-swatch" style={{ background: hlColor }} />
             螢
@@ -2085,14 +2089,14 @@ function ColorPickerPanel({
           </div>
         )}
       </div>
-      <label className="hl-row">
-        <span>色盤</span>
-        <input
-          type="color"
-          value={normalized || presets[0]}
-          onChange={(e) => onColorChange(e.target.value)}
+      <div className="hl-section" onMouseDown={(e) => e.preventDefault()}>
+        <p className="hl-section-label">色盤</p>
+        <HexColorPicker
+          color={normalized || presets[0]}
+          onChange={onColorChange}
+          className="hl-wheel"
         />
-      </label>
+      </div>
       <div className="hl-rgb">
         {(["r", "g", "b"] as const).map((ch) => (
           <label key={ch}>
