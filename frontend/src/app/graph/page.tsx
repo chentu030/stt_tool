@@ -47,6 +47,7 @@ import {
   tagBuckets,
   topHubs,
 } from "@/lib/graphModel";
+import { usePrefs } from "@/components/PrefsProvider";
 
 type DragState =
   | { kind: "pan"; sx: number; sy: number; ox: number; oy: number }
@@ -55,9 +56,15 @@ type DragState =
 
 export default function GraphPage() {
   const { user, loading } = useAuth();
+  const { prefs } = usePrefs();
   const [notes, setNotes] = useState<Note[]>([]);
-  const [filters, setFilters] = useState<GraphFilters>(DEFAULT_FILTERS);
-  const [layout, setLayout] = useState<LayoutMode>("force");
+  const [filters, setFilters] = useState<GraphFilters>({
+    ...DEFAULT_FILTERS,
+    showGhosts: prefs.graphShowGhosts,
+    showTagEdges: prefs.graphShowTagEdges,
+  });
+  const [layout, setLayout] = useState<LayoutMode>(prefs.graphDefaultLayout);
+  const [prefsSeeded, setPrefsSeeded] = useState(false);
   /** Bump to force a full relayout once (not on every notes refresh). */
   const [relayoutNonce, setRelayoutNonce] = useState(0);
   const appliedRelayout = useRef(0);
@@ -81,6 +88,17 @@ export default function GraphPage() {
     if (!user) return;
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
+
+  useEffect(() => {
+    if (prefsSeeded) return;
+    setLayout(prefs.graphDefaultLayout);
+    setFilters((f) => ({
+      ...f,
+      showGhosts: prefs.graphShowGhosts,
+      showTagEdges: prefs.graphShowTagEdges,
+    }));
+    setPrefsSeeded(true);
+  }, [prefs.graphDefaultLayout, prefs.graphShowGhosts, prefs.graphShowTagEdges, prefsSeeded]);
 
   useEffect(() => {
     if (!user) return;

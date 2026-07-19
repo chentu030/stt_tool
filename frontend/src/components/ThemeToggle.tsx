@@ -1,15 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePrefsOptional } from "@/components/PrefsProvider";
+import { resolveTheme, type ThemeMode } from "@/lib/userPrefs";
 
 type Props = {
   className?: string;
 };
 
 export default function ThemeToggle({ className }: Props) {
+  const prefsCtx = usePrefsOptional();
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
+    if (prefsCtx) {
+      setTheme(prefsCtx.resolvedTheme);
+      return;
+    }
     const saved = localStorage.getItem("theme") as "light" | "dark" | null;
     if (saved) {
       setTheme(saved);
@@ -20,9 +27,15 @@ export default function ThemeToggle({ className }: Props) {
     } else {
       document.documentElement.setAttribute("data-theme", "light");
     }
-  }, []);
+  }, [prefsCtx, prefsCtx?.resolvedTheme]);
 
   const toggleTheme = () => {
+    if (prefsCtx) {
+      const next: ThemeMode = prefsCtx.resolvedTheme === "light" ? "dark" : "light";
+      prefsCtx.setPrefs({ theme: next });
+      setTheme(resolveTheme(next));
+      return;
+    }
     const next = theme === "light" ? "dark" : "light";
     setTheme(next);
     document.documentElement.setAttribute("data-theme", next);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
+import { PrefsProvider } from "@/components/PrefsProvider";
 import AppShell from "@/components/shell/AppShell";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-TW" data-theme="light">
+    <html lang="zh-TW" data-theme="light" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -28,10 +29,17 @@ export default function RootLayout({
           crossOrigin="anonymous"
         />
         <link rel="icon" href="/brand/logo-mark.svg" type="image/svg+xml" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var r=localStorage.getItem('cadence_prefs_v1');var t=localStorage.getItem('theme');var theme='light';if(r){var p=JSON.parse(r);if(p.theme==='dark'||p.theme==='light')theme=p.theme;else if(p.theme==='system'&&matchMedia('(prefers-color-scheme:dark)').matches)theme='dark';}else if(t==='dark'||t==='light')theme=t;document.documentElement.setAttribute('data-theme',theme);}catch(e){}})();`,
+          }}
+        />
       </head>
       <body>
         <AuthProvider>
-          <AppShell>{children}</AppShell>
+          <PrefsProvider>
+            <AppShell>{children}</AppShell>
+          </PrefsProvider>
         </AuthProvider>
       </body>
     </html>

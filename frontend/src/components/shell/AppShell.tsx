@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle, logout } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
 import CadenceLogo from "@/components/CadenceLogo";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 const NAV_PRIMARY = [
   { href: "/library", label: "知識庫", icon: LibraryIcon },
@@ -121,6 +122,8 @@ function NavGroup({
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading } = useAuth();
+  const prefsCtx = usePrefsOptional();
+  const homeHref = prefsCtx?.prefs.homePage || "/";
   const isMobile = useIsMobile();
   const isDoc = pathname.startsWith("/notes/");
   const isActive = (href: string) =>
@@ -130,7 +133,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <div className="mobile-shell">
         <header className="mobile-top">
-          <Link href="/"><CadenceLogo height={24} /></Link>
+          <Link href={homeHref}><CadenceLogo height={24} /></Link>
           <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
             <ThemeToggle />
             {!loading && !user && (
@@ -167,7 +170,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="desktop-sidebar">
-        <Link href="/" style={{ padding: "0.45rem 0.55rem 0.85rem", display: "block" }}>
+        <Link href={homeHref} style={{ padding: "0.45rem 0.55rem 0.85rem", display: "block" }}>
           <CadenceLogo height={26} />
         </Link>
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: "0.15rem" }}>

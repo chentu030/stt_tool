@@ -22,6 +22,8 @@ import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
 import KnowledgeChat from "@/components/library/KnowledgeChat";
 import LibraryRail from "@/components/library/LibraryRail";
 import MenuSelect, { noteStatusLabel } from "@/components/MenuSelect";
+import { usePrefs } from "@/components/PrefsProvider";
+import { parseDefaultTags } from "@/lib/userPrefs";
 import {
   SortKey,
   ViewMode,
@@ -44,6 +46,7 @@ const SORT_OPTIONS = [
 
 export default function LibraryPage() {
   const { user, loading } = useAuth();
+  const { prefs } = usePrefs();
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -52,14 +55,22 @@ export default function LibraryPage() {
   const [tagFilter, setTagFilter] = useState("");
   const [folderFilter, setFolderFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [sort, setSort] = useState<SortKey>("updated");
-  const [view, setView] = useState<ViewMode>("list");
+  const [sort, setSort] = useState<SortKey>(prefs.librarySort);
+  const [view, setView] = useState<ViewMode>(prefs.libraryView);
+  const [prefsReady, setPrefsReady] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [showTemplates, setShowTemplates] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [chatOpen, setChatOpen] = useState(true);
   const [bulkFolder, setBulkFolder] = useState("");
+
+  useEffect(() => {
+    if (prefsReady) return;
+    setSort(prefs.librarySort);
+    setView(prefs.libraryView);
+    setPrefsReady(true);
+  }, [prefs.librarySort, prefs.libraryView, prefsReady]);
 
   useEffect(() => {
     if (!user) return;
@@ -84,16 +95,18 @@ export default function LibraryPage() {
   const tags = useMemo(() => tagBuckets(notes), [notes]);
   const activity = useMemo(() => recentActivity(notes, jobs, 10), [notes, jobs]);
 
-  const filteredNotes = useMemo(
-    () =>
-      searchNotes(notes, q, {
-        tag: tagFilter,
-        folder: folderFilter,
-        status: statusFilter,
-        sort: q.trim() && sort === "updated" ? "relevance" : sort,
-      }),
-    [notes, q, tagFilter, folderFilter, statusFilter, sort]
-  );
+  const filteredNotes = useMemo(() => {
+    let list = searchNotes(notes, q, {
+      tag: tagFilter,
+      folder: folderFilter,
+      status: statusFilter,
+      sort: q.trim() && sort === "updated" ? "relevance" : sort,
+    });
+    if (!prefs.libraryShowEmpty) {
+      list = list.filter((n) => (n.body_md || "").trim().length > 0);
+    }
+    return list;
+  }, [notes, q, tagFilter, folderFilter, statusFilter, sort, prefs.libraryShowEmpty]);
 
   const filteredJobs = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -113,8 +126,11 @@ export default function LibraryPage() {
     try {
       const t = NOTE_TEMPLATES.find((x) => x.id === templateId) || NOTE_TEMPLATES[0];
       const title = t.id === "daily" ? journalTitle() : t.title;
-      const id = await createNote(user.uid, title || "新筆記", t.body, undefined, t.tags, {
+      const tags = [...new Set([...t.tags, ...parseDefaultTags(prefs.defaultTags)])];
+      const id = await createNote(user.uid, title || "新筆記", t.body, undefined, tags, {
         journal_date: t.id === "daily" ? journalTitle() : undefined,
+        folder: prefs.defaultFolder || undefined,
+        status: prefs.defaultStatus || "backlog",
       });
       setShowTemplates(false);
       router.push(`/notes/${id}`);
@@ -147,7 +163,7 @@ export default function LibraryPage() {
 
   const runBulkDelete = async () => {
     if (!selected.length) return;
-    if (!confirm(`刪除選取的 ${selected.length} 篇筆記？`)) return;
+    if (prefs.askBeforeDelete && !window.confirm(`確定刪除選取的 ${selected.length} 篇筆記？`)) return;
     await Promise.all(selected.map((id) => deleteNote(id)));
     setSelected([]);
   };
@@ -224,8 +240,7 @@ export default function LibraryPage() {
         <main className="kb-main">
           <div className="kb-toolbar">
             <input
-              className="input"
-              style={{ flex: 1, minWidth: 160 }}
+              className="input kb-ctrl"
               placeholder="搜尋標題、內文、標籤、資料夾…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -238,16 +253,19 @@ export default function LibraryPage() {
               >
                 筆記 {filteredNotes.length}
               </button>
-              <button
-                type="button"
-                className={tab === "jobs" ? "is-active" : ""}
-                onClick={() => setTab("jobs")}
-              >
-                轉錄 {filteredJobs.length}
-              </button>
+              {prefs.libraryShowJobs && (
+                <button
+                  type="button"
+                  className={tab === "jobs" ? "is-active" : ""}
+                  onClick={() => setTab("jobs")}
+                >
+                  轉錄 {filteredJobs.length}
+                </button>
+              )}
             </div>
             <MenuSelect
               variant="soft"
+              className="kb-menu"
               ariaLabel="排序"
               value={sort}
               options={SORT_OPTIONS}
@@ -292,27 +310,26 @@ export default function LibraryPage() {
 
           {tab === "notes" && (
             <div className="kb-bulk">
-              <button type="button" className="btn btn-ghost btn-sm" onClick={selectVisible}>
+              <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={selectVisible}>
                 全選可見
               </button>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
+                className="btn btn-ghost btn-sm kb-ctrl-btn"
                 onClick={() => setSelected([])}
                 disabled={!selected.length}
               >
                 取消選取 ({selected.length})
               </button>
               <input
-                className="input"
-                style={{ width: 140 }}
+                className="input kb-ctrl kb-ctrl--folder"
                 placeholder="批量資料夾"
                 value={bulkFolder}
                 onChange={(e) => setBulkFolder(e.target.value)}
               />
               <button
                 type="button"
-                className="btn btn-soft btn-sm"
+                className="btn btn-ghost btn-sm kb-ctrl-btn"
                 disabled={!selected.length || !bulkFolder.trim()}
                 onClick={() => {
                   void runBulkFolder();
@@ -320,12 +337,12 @@ export default function LibraryPage() {
               >
                 套用資料夾
               </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={exportSelectedOrFiltered}>
+              <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
                 匯出 MD
               </button>
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
+                className="btn btn-ghost btn-sm kb-ctrl-btn kb-ctrl-btn--danger"
                 disabled={!selected.length}
                 onClick={() => {
                   void runBulkDelete();

@@ -33,6 +33,7 @@ import {
   parseBoardMeta,
 } from "@/lib/boardMeta";
 import { downloadText } from "@/lib/libraryIndex";
+import { usePrefs } from "@/components/PrefsProvider";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -44,13 +45,14 @@ const SORT_OPTIONS = [
 
 export default function BoardPage() {
   const { user, loading } = useAuth();
+  const { prefs } = usePrefs();
   const router = useRouter();
   const [notes, setNotes] = useState<Note[]>([]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<BoardStatus | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [sort, setSort] = useState<BoardSort>("updated");
-  const [swimlanes, setSwimlanes] = useState(false);
+  const [sort, setSort] = useState<BoardSort>(prefs.boardSort);
+  const [swimlanes, setSwimlanes] = useState(prefs.boardSwimlanes);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const [filters, setFilters] = useState<BoardFilters>({
@@ -58,7 +60,7 @@ export default function BoardPage() {
     folder: "",
     tag: "",
     priority: "",
-    hideDone: false,
+    hideDone: prefs.boardHideDone,
     onlyOverdue: false,
     onlyStale: false,
   });
@@ -68,6 +70,15 @@ export default function BoardPage() {
   const [quickOpen, setQuickOpen] = useState<BoardStatus | null>(null);
   const [quickTitle, setQuickTitle] = useState("");
   const [quickTpl, setQuickTpl] = useState(BOARD_QUICK_TEMPLATES[0].id);
+  const [prefsSeeded, setPrefsSeeded] = useState(false);
+
+  useEffect(() => {
+    if (prefsSeeded) return;
+    setSort(prefs.boardSort);
+    setSwimlanes(prefs.boardSwimlanes);
+    setFilters((f) => ({ ...f, hideDone: prefs.boardHideDone }));
+    setPrefsSeeded(true);
+  }, [prefs.boardSort, prefs.boardSwimlanes, prefs.boardHideDone, prefsSeeded]);
 
   useEffect(() => {
     if (!user) return;

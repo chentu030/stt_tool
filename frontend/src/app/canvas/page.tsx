@@ -31,18 +31,21 @@ import {
   snapVal,
   uid,
 } from "@/lib/canvasStore";
+import { usePrefs } from "@/components/PrefsProvider";
 
 export default function CanvasPage() {
   const { user, loading } = useAuth();
+  const { prefs } = usePrefs();
   const [notes, setNotes] = useState<Note[]>([]);
   const [doc, setDoc] = useState<CanvasDoc>(() => emptyDoc());
-  const [tool, setTool] = useState<ToolId>("select");
+  const [tool, setTool] = useState<ToolId>(prefs.canvasDefaultTool);
   const [stickyColor, setStickyColor] = useState<StickyColor>("yellow");
   const [selected, setSelected] = useState<Selectable[]>([]);
   const [editingSticky, setEditingSticky] = useState<string | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [toast, setToast] = useState("");
   const [history, setHistory] = useState<CanvasDoc[]>([]);
+  const [prefsSeeded, setPrefsSeeded] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{
     mode: "move" | "pan" | "draw";
@@ -57,9 +60,24 @@ export default function CanvasPage() {
 
   useEffect(() => {
     if (!user) return;
-    setDoc(loadDoc(user.uid));
+    const loaded = loadDoc(user.uid);
+    // Apply prefs defaults only when canvas is still pristine / first open feel
+    if (
+      loaded.stickies.length === 0 &&
+      loaded.shapes.length === 0 &&
+      loaded.notes.length === 0 &&
+      loaded.edges.length === 0
+    ) {
+      loaded.grid = prefs.canvasGrid;
+      loaded.snap = prefs.canvasSnap;
+    }
+    setDoc(loaded);
+    if (!prefsSeeded) {
+      setTool(prefs.canvasDefaultTool);
+      setPrefsSeeded(true);
+    }
     return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;
