@@ -457,7 +457,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       >
         <div className="sidebar-brand">
           {!sidebarCollapsed ? (
-            <Link href={homeHref}>
+            <Link href={homeHref} className="sidebar-brand-logo">
               <CadenceLogo height={24} />
             </Link>
           ) : (
@@ -475,47 +475,31 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <>
                 <button
                   type="button"
-                  className="sidebar-brand-links a"
+                  className="sidebar-icon-btn"
                   title="Cadence AI ⌘⇧A"
                   onClick={() => toggleGlobalAiRail()}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    color: "var(--text-muted)",
-                    padding: "0.35rem",
-                    fontWeight: 700,
-                    fontSize: "0.72rem",
-                  }}
                 >
                   AI
                 </button>
-                <button
-                  type="button"
-                  className="sidebar-brand-links a"
-                  title="搜尋 ⌘K"
-                  onClick={() => setCmdOpen(true)}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    color: "var(--text-muted)",
-                    padding: "0.35rem",
-                  }}
+                <Link
+                  href="/"
+                  className={`sidebar-icon-btn${isActive("/") ? " is-on" : ""}`}
+                  title="總覽"
                 >
-                  ⌕
-                </button>
-                <Link href="/" className={isActive("/") ? "is-on" : ""} title="總覽">
                   <HomeIcon />
                 </Link>
-                <Link href="/settings" className={isActive("/settings") ? "is-on" : ""} title="設定">
+                <Link
+                  href="/settings"
+                  className={`sidebar-icon-btn${isActive("/settings") ? " is-on" : ""}`}
+                  title="設定"
+                >
                   <SettingsIcon />
                 </Link>
               </>
             )}
             <button
               type="button"
-              className="sidebar-collapse-btn"
+              className="sidebar-icon-btn"
               title={sidebarCollapsed ? "展開側欄 ⌘\\" : "收合側欄 ⌘\\"}
               aria-label={sidebarCollapsed ? "展開側欄" : "收合側欄"}
               aria-pressed={sidebarCollapsed}
@@ -525,6 +509,34 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </div>
+
+        {!sidebarCollapsed ? (
+          <button
+            type="button"
+            className="sidebar-search"
+            onClick={() => setCmdOpen(true)}
+            title="搜尋 ⌘K"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+            <span>搜尋筆記、指令…</span>
+            <kbd>⌘K</kbd>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="sidebar-icon-btn sidebar-search-collapsed"
+            title="搜尋 ⌘K"
+            onClick={() => setCmdOpen(true)}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+          </button>
+        )}
 
         <nav className={`sidebar-apps${sidebarCollapsed ? " is-collapsed" : ""}`} aria-label="應用">
           {NAV_APPS.map((item) => {
