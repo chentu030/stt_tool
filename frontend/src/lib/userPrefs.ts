@@ -22,6 +22,7 @@ export type CaptureSourcePref = "file" | "youtube" | "record";
 export type WeekStart = "monday" | "sunday";
 export type DateFormat = "ymd" | "mdy" | "dmy";
 export type EditorWidth = "narrow" | "medium" | "wide" | "full";
+export type MediaIngestDefault = "ask" | "embed" | "transcribe" | "transcribe_summarize";
 
 export type UserPrefs = {
   version: 1;
@@ -60,6 +61,8 @@ export type UserPrefs = {
   editorVimHints: boolean;
   autosaveSeconds: number;
   wikiSuggest: boolean;
+  /** After inserting audio/video/YouTube in a note */
+  mediaIngestDefault: MediaIngestDefault;
   /** Capture */
   captureDefaultSource: CaptureSourcePref;
   captureAutoOpenJob: boolean;
@@ -216,6 +219,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   editorVimHints: false,
   autosaveSeconds: 2,
   wikiSuggest: true,
+  mediaIngestDefault: "ask",
   captureDefaultSource: "file",
   captureAutoOpenJob: true,
   captureMaxFiles: 8,

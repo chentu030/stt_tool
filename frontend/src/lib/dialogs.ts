@@ -31,12 +31,19 @@ export type ChoiceDialogOptions<T extends string = string> = {
   message?: string;
   options: ChoiceOption<T>[];
   cancelLabel?: string;
+  /** Optional "remember this choice" checkbox */
+  rememberLabel?: string;
+};
+
+export type ChoiceResult<T extends string = string> = {
+  choice: T;
+  remember: boolean;
 };
 
 type DialogApi = {
   prompt: (opts: PromptDialogOptions) => Promise<string | null>;
   confirm: (opts: ConfirmDialogOptions) => Promise<boolean>;
-  choice: <T extends string>(opts: ChoiceDialogOptions<T>) => Promise<T | null>;
+  choice: <T extends string>(opts: ChoiceDialogOptions<T>) => Promise<ChoiceResult<T> | null>;
 };
 
 let api: DialogApi | null = null;
@@ -76,9 +83,9 @@ export function askConfirm(
   return ensureApi().confirm(opts);
 }
 
-/** Pick one option. Returns option id, or null if cancelled. */
+/** Pick one option. Returns { choice, remember }, or null if cancelled. */
 export function askChoice<T extends string>(
   opts: ChoiceDialogOptions<T>
-): Promise<T | null> {
+): Promise<ChoiceResult<T> | null> {
   return ensureApi().choice(opts);
 }

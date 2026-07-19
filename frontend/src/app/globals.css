@@ -238,6 +238,47 @@ button, input, textarea, select {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
 }
+.doc-banner-ingest.is-error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+}
+.doc-banner-ingest-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.doc-banner-ingest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.doc-banner-ingest-link {
+  font-size: 0.78rem;
+  color: var(--accent-2);
+  text-decoration: none;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.doc-banner-ingest-link:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.cadence-dialog-remember {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.15rem 0 0.55rem;
+  cursor: pointer;
+}
+.cadence-dialog-remember input {
+  accent-color: var(--accent);
+}
 @keyframes cadence-dialog-fade {
   from { opacity: 0; }
   to { opacity: 1; }

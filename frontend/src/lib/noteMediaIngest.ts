@@ -1,4 +1,4 @@
-/** Start a transcription job from note-embedded media (file or YouTube). */
+/** Note media → transcription → optional summary (resumable). */
 
 import {
   createJob,
@@ -6,12 +6,16 @@ import {
   uploadFile,
   listenToJob,
   getResultText,
+  getNote,
+  updateNote,
   type Job,
 } from "@/lib/firebase";
 import { askChoice } from "@/lib/dialogs";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
+import type { MediaIngestDefault } from "@/lib/userPrefs";
 
 const API = () => process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+const PENDING_KEY = "cadence_media_ingest_pending_v1";
 
 export type MediaIngestChoice = "embed" | "transcribe" | "transcribe_summarize";
 
@@ -19,11 +23,33 @@ export type TranscribableMedia =
   | { kind: "file"; file: File; label: string }
   | { kind: "youtube"; youtubeUrl: string; label: string };
 
-export async function askMediaIngestChoice(label: string): Promise<MediaIngestChoice | null> {
-  return askChoice<MediaIngestChoice>({
-    title: "媒體已插入筆記",
-    message: `「${label}」要一併做語音轉錄嗎？可選擇完成後自動寫入 AI 摘要。`,
-    cancelLabel: "關閉",
+export type PendingIngest = {
+  noteId: string;
+  jobId: string;
+  choice: Exclude<MediaIngestChoice, "embed">;
+  label: string;
+  title?: string;
+  createdAt: number;
+};
+
+export async function resolveMediaIngestChoice(opts: {
+  label: string;
+  count?: number;
+  defaultPref?: MediaIngestDefault;
+}): Promise<{ choice: MediaIngestChoice; remember: boolean } | null> {
+  const pref = opts.defaultPref || "ask";
+  if (pref !== "ask") {
+    return { choice: pref, remember: false };
+  }
+
+  const count = opts.count && opts.count > 1 ? opts.count : 0;
+  const result = await askChoice<MediaIngestChoice>({
+    title: count ? `已插入 ${count} 個媒體` : "媒體已插入筆記",
+    message: count
+      ? `要對這 ${count} 個音訊／影片／YouTube 一併轉錄嗎？可離開本頁，完成後會自動寫回。`
+      : `「${opts.label}」要一併做語音轉錄嗎？可離開本頁，完成後會自動寫回。`,
+    cancelLabel: "僅嵌入",
+    rememberLabel: "記住此選擇（可在設定更改）",
     options: [
       {
         id: "embed",
@@ -43,6 +69,8 @@ export async function askMediaIngestChoice(label: string): Promise<MediaIngestCh
       },
     ],
   });
+  if (!result) return { choice: "embed", remember: false };
+  return result;
 }
 
 export async function startTranscriptionJob(opts: {
@@ -91,22 +119,96 @@ export async function startTranscriptionJob(opts: {
   return jobId;
 }
 
-export async function waitForJobDone(
+export function ingestMarker(jobId: string) {
+  return `<!-- cadence-ingest:${jobId} -->`;
+}
+
+export function bodyHasIngestResult(body: string, jobId: string) {
+  return (
+    body.includes(`[開啟工作](/job/${jobId})`) ||
+    body.includes(`](/job/${jobId})`)
+  );
+}
+
+export function replaceIngestMarker(body: string, jobId: string, block: string): string {
+  const marker = ingestMarker(jobId);
+  if (body.includes(marker)) {
+    return body.replace(marker, block.trim());
+  }
+  if (body.includes(`/job/${jobId}`)) return body;
+  const trimmed = body.trimEnd();
+  return `${trimmed}${trimmed ? "\n\n" : ""}${block.trim()}\n`;
+}
+
+export function loadPendingIngests(noteId?: string): PendingIngest[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as PendingIngest[];
+    if (!Array.isArray(list)) return [];
+    const fresh = list.filter((p) => Date.now() - p.createdAt < 1000 * 60 * 60 * 12);
+    if (fresh.length !== list.length) savePendingIngests(fresh);
+    return noteId ? fresh.filter((p) => p.noteId === noteId) : fresh;
+  } catch {
+    return [];
+  }
+}
+
+function savePendingIngests(list: PendingIngest[]) {
+  try {
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(list.slice(-20)));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function upsertPendingIngest(pending: PendingIngest) {
+  const list = loadPendingIngests().filter((p) => p.jobId !== pending.jobId);
+  list.push(pending);
+  savePendingIngests(list);
+}
+
+export function removePendingIngest(jobId: string) {
+  savePendingIngests(loadPendingIngests().filter((p) => p.jobId !== jobId));
+}
+
+export function watchJob(
   jobId: string,
   onProgress?: (job: Job) => void
-): Promise<Job> {
-  return new Promise((resolve, reject) => {
-    const unsub = listenToJob(jobId, (job) => {
+): { promise: Promise<Job>; cancel: () => void } {
+  let unsub: (() => void) | null = null;
+  let settled = false;
+  const promise = new Promise<Job>((resolve, reject) => {
+    unsub = listenToJob(jobId, (job) => {
       onProgress?.(job);
+      if (settled) return;
       if (job.status === "done") {
-        unsub();
+        settled = true;
+        unsub?.();
         resolve(job);
       } else if (job.status === "error") {
-        unsub();
+        settled = true;
+        unsub?.();
         reject(new Error(job.error_message || "轉錄失敗"));
       }
     });
   });
+  return {
+    promise,
+    cancel: () => {
+      settled = true;
+      unsub?.();
+    },
+  };
+}
+
+/** @deprecated use watchJob */
+export async function waitForJobDone(
+  jobId: string,
+  onProgress?: (job: Job) => void
+): Promise<Job> {
+  return watchJob(jobId, onProgress).promise;
 }
 
 export async function loadJobPlainTranscript(job: Job): Promise<string> {
@@ -160,9 +262,6 @@ export function formatIngestBlock(opts: {
   jobId: string;
 }): string {
   const parts = [
-    "",
-    "---",
-    "",
     `## 逐字稿（${opts.label}）`,
     "",
     opts.transcript || "（無內容）",
@@ -172,4 +271,60 @@ export function formatIngestBlock(opts: {
   }
   parts.push("", `> 來源轉錄：[開啟工作](/job/${opts.jobId})`, "");
   return parts.join("\n");
+}
+
+export async function finalizePendingIngest(
+  pending: PendingIngest,
+  opts?: {
+    assistant?: {
+      name?: string;
+      style?: string;
+      model?: string;
+      grounding?: boolean;
+    };
+    onProgress?: (label: string) => void;
+  }
+): Promise<{ body: string; summary?: string } | null> {
+  const note = await getNote(pending.noteId);
+  if (!note) {
+    removePendingIngest(pending.jobId);
+    return null;
+  }
+  if (bodyHasIngestResult(note.body_md, pending.jobId)) {
+    removePendingIngest(pending.jobId);
+    return null;
+  }
+
+  opts?.onProgress?.("等待轉錄完成…");
+  const job = await watchJob(pending.jobId, (j) => {
+    if (j.status === "processing") {
+      opts?.onProgress?.(`轉錄中 ${j.progress || 0}%`);
+    } else if (j.status === "queued") {
+      opts?.onProgress?.("排隊中…");
+    }
+  }).promise;
+  const transcript = await loadJobPlainTranscript(job);
+  let summary = "";
+  if (pending.choice === "transcribe_summarize" && transcript) {
+    opts?.onProgress?.("產生 AI 摘要…");
+    summary = await summarizeTranscript({
+      title: pending.title || pending.label,
+      transcript,
+      assistant: opts?.assistant,
+    });
+  }
+
+  const block = formatIngestBlock({
+    label: pending.label,
+    transcript: transcript || "（無內容）",
+    summary: summary || undefined,
+    jobId: pending.jobId,
+  });
+  const nextBody = replaceIngestMarker(note.body_md, pending.jobId, block);
+  await updateNote(pending.noteId, {
+    body_md: nextBody,
+    source_job_id: pending.jobId,
+  });
+  removePendingIngest(pending.jobId);
+  return { body: nextBody, summary: summary || undefined };
 }

@@ -483,6 +483,22 @@ export default function SettingsPage() {
                 onChange={(wikiSuggest) => patch({ wikiSuggest })}
               />
             </Row>
+            <Row label="插入音訊／影片／YouTube 後" hint="可記住選擇，之後不再詢問">
+              <MenuSelect
+                value={prefs.mediaIngestDefault || "ask"}
+                onChange={(mediaIngestDefault) =>
+                  patch({
+                    mediaIngestDefault: mediaIngestDefault as UserPrefs["mediaIngestDefault"],
+                  })
+                }
+                options={[
+                  { value: "ask", label: "每次詢問" },
+                  { value: "embed", label: "僅嵌入" },
+                  { value: "transcribe", label: "自動轉錄" },
+                  { value: "transcribe_summarize", label: "自動轉錄 + 摘要" },
+                ]}
+              />
+            </Row>
           </section>
 
           <section id="st-ai" className="st-card">

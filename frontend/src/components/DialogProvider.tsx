@@ -15,6 +15,7 @@ import {
   registerDialogApi,
   type ChoiceDialogOptions,
   type ChoiceOption,
+  type ChoiceResult,
   type ConfirmDialogOptions,
   type PromptDialogOptions,
 } from "@/lib/dialogs";
@@ -28,7 +29,7 @@ type ConfirmState = ConfirmDialogOptions & {
 };
 
 type ChoiceState = ChoiceDialogOptions<string> & {
-  resolve: (value: string | null) => void;
+  resolve: (value: ChoiceResult<string> | null) => void;
 };
 
 export default function DialogProvider({ children }: { children: ReactNode }) {
@@ -44,7 +45,10 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
   const prompt = useCallback((opts: PromptDialogOptions) => {
     return new Promise<string | null>((resolve) => {
       setConfirmState(null);
-      setChoiceState(null);
+      setChoiceState((prev) => {
+        prev?.resolve(null);
+        return null;
+      });
       setPromptState({ ...opts, resolve });
     });
   }, []);
@@ -52,18 +56,24 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
   const confirm = useCallback((opts: ConfirmDialogOptions) => {
     return new Promise<boolean>((resolve) => {
       setPromptState(null);
-      setChoiceState(null);
+      setChoiceState((prev) => {
+        prev?.resolve(null);
+        return null;
+      });
       setConfirmState({ ...opts, resolve });
     });
   }, []);
 
   const choice = useCallback(<T extends string>(opts: ChoiceDialogOptions<T>) => {
-    return new Promise<T | null>((resolve) => {
+    return new Promise<ChoiceResult<T> | null>((resolve) => {
       setPromptState(null);
       setConfirmState(null);
-      setChoiceState({
-        ...opts,
-        resolve: (v) => resolve((v as T | null) ?? null),
+      setChoiceState((prev) => {
+        prev?.resolve(null);
+        return {
+          ...opts,
+          resolve: (v) => resolve(v as ChoiceResult<T> | null),
+        };
       });
     });
   }, []);
@@ -269,10 +279,11 @@ function ChoiceModal({
   onClose,
 }: {
   state: ChoiceState;
-  onClose: (value: string | null) => void;
+  onClose: (value: ChoiceResult<string> | null) => void;
 }) {
   const firstRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
+  const [remember, setRemember] = useState(false);
 
   useEffect(() => {
     const t = window.setTimeout(() => firstRef.current?.focus(), 20);
@@ -315,13 +326,23 @@ function ChoiceModal({
               ref={i === 0 ? firstRef : undefined}
               type="button"
               className={`cadence-dialog-choice${opt.primary ? " is-primary" : ""}`}
-              onClick={() => onClose(opt.id)}
+              onClick={() => onClose({ choice: opt.id, remember })}
             >
               <strong>{opt.label}</strong>
               {opt.description && <span>{opt.description}</span>}
             </button>
           ))}
         </div>
+        {state.rememberLabel && (
+          <label className="cadence-dialog-remember">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
+            <span>{state.rememberLabel}</span>
+          </label>
+        )}
         <div className="cadence-dialog-actions">
           <button type="button" className="btn btn-ghost" onClick={() => onClose(null)}>
             {state.cancelLabel || "取消"}

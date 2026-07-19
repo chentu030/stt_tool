@@ -2,13 +2,20 @@
 
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 import {
-  askMediaIngestChoice,
+  resolveMediaIngestChoice,
   formatIngestBlock,
-  loadJobPlainTranscript,
+  loadPendingIngests,
+  removePendingIngest,
+  replaceIngestMarker,
   startTranscriptionJob,
   summarizeTranscript,
-  waitForJobDone,
+  upsertPendingIngest,
+  watchJob,
+  loadJobPlainTranscript,
+  finalizePendingIngest,
   type TranscribableMedia,
+  type MediaIngestChoice,
+  type PendingIngest,
 } from "@/lib/noteMediaIngest";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -147,7 +154,13 @@ function NotePageInner() {
   const [linkPicker, setLinkPicker] = useState("");
   const [toast, setToast] = useState("");
   const [ingestStatus, setIngestStatus] = useState("");
+  const [ingestJobId, setIngestJobId] = useState<string | null>(null);
+  const [ingestError, setIngestError] = useState("");
   const ingestBusy = useRef(false);
+  const ingestQueue = useRef<TranscribableMedia[]>([]);
+  const ingestAskTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ingestCancel = useRef<(() => void) | null>(null);
+  const ingestWatching = useRef<Set<string>>(new Set());
   const [iconOpen, setIconOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
@@ -293,88 +306,193 @@ function NotePageInner() {
     saveTimer.current = setTimeout(() => { void save(true); }, 1200);
   };
 
-  const handleTranscribableMedia = useCallback(
-    async (media: TranscribableMedia) => {
-      if (!user || !note) return;
-      if (ingestBusy.current) {
-        flash("已有媒體轉錄進行中，請稍候");
-        return;
-      }
-      const choice = await askMediaIngestChoice(media.label);
-      if (!choice || choice === "embed") return;
+  const applyIngestBody = useCallback(
+    (nextBody: string, jobId: string) => {
+      setBody(nextBody);
+      latest.current = { ...latest.current, body: nextBody };
+      setNote((n) => (n ? { ...n, source_job_id: jobId, body_md: nextBody } : n));
+      markDirty();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
+  const runIngestPipeline = useCallback(
+    async (
+      mediaList: TranscribableMedia[],
+      choice: Exclude<MediaIngestChoice, "embed">
+    ) => {
+      if (!user || !note || !mediaList.length) return;
       ingestBusy.current = true;
-      try {
-        setIngestStatus("啟動轉錄…");
-        const jobId = await startTranscriptionJob({
-          uid: user.uid,
-          getIdToken: () => user.getIdToken(),
-          media,
-          onProgress: (label, pct) =>
-            setIngestStatus(pct != null ? `${label} ${pct}%` : label),
-        });
-        flash("轉錄已在背景啟動，可繼續編輯");
-        setIngestStatus("轉錄處理中…");
+      setIngestError("");
 
-        const job = await waitForJobDone(jobId, (j) => {
-          if (j.status === "processing") {
-            setIngestStatus(`轉錄中 ${j.progress || 0}%`);
-          } else if (j.status === "queued") {
-            const ahead = j.queue_ahead ?? 0;
-            setIngestStatus(ahead > 0 ? `排隊中 · 前面 ${ahead}` : "排隊中…");
-          } else {
-            setIngestStatus(`轉錄：${j.status}`);
+      for (let i = 0; i < mediaList.length; i++) {
+        const media = mediaList[i];
+        const label =
+          mediaList.length > 1 ? `${media.label}（${i + 1}/${mediaList.length}）` : media.label;
+        try {
+          setIngestStatus(`啟動轉錄：${label}`);
+          const jobId = await startTranscriptionJob({
+            uid: user.uid,
+            getIdToken: () => user.getIdToken(),
+            media,
+            onProgress: (msg, pct) =>
+              setIngestStatus(pct != null ? `${msg} ${pct}%` : msg),
+          });
+          setIngestJobId(jobId);
+          setNote((n) => (n ? { ...n, source_job_id: jobId } : n));
+          try {
+            await updateNote(note.id, { source_job_id: jobId });
+          } catch {
+            /* ignore */
           }
-        });
 
-        setIngestStatus("整理逐字稿…");
-        const transcript = await loadJobPlainTranscript(job);
-        let summary = "";
-        if (choice === "transcribe_summarize" && transcript) {
-          setIngestStatus("產生 AI 摘要…");
-          summary = await summarizeTranscript({
+          const pending: PendingIngest = {
+            noteId: note.id,
+            jobId,
+            choice,
+            label: media.label,
             title: title || media.label,
-            transcript,
+            createdAt: Date.now(),
+          };
+          upsertPendingIngest(pending);
+          flash("轉錄已在背景進行，可離開本頁，完成後會自動寫回");
+
+          if (ingestWatching.current.has(jobId)) continue;
+          ingestWatching.current.add(jobId);
+
+          const { promise, cancel } = watchJob(jobId, (j) => {
+            if (j.status === "processing") {
+              setIngestStatus(`轉錄中 ${j.progress || 0}% · ${media.label}`);
+            } else if (j.status === "queued") {
+              const ahead = j.queue_ahead ?? 0;
+              setIngestStatus(
+                ahead > 0 ? `排隊中 · 前面 ${ahead} · ${media.label}` : `排隊中 · ${media.label}`
+              );
+            }
+          });
+          ingestCancel.current = cancel;
+          setIngestStatus(`轉錄處理中 · ${media.label}`);
+
+          try {
+            const job = await promise;
+            setIngestStatus("整理逐字稿…");
+            const transcript = await loadJobPlainTranscript(job);
+            let summary = "";
+            if (choice === "transcribe_summarize" && transcript) {
+              setIngestStatus("產生 AI 摘要…");
+              summary = await summarizeTranscript({
+                title: title || media.label,
+                transcript,
+                assistant: {
+                  name: prefsCtx?.prefs.aiAssistantName,
+                  style: prefsCtx?.prefs.aiStyle,
+                  model: prefsCtx?.prefs.aiModel,
+                  grounding: prefsCtx?.prefs.aiGrounding,
+                },
+              });
+            }
+            const block = formatIngestBlock({
+              label: media.label,
+              transcript: transcript || "（無內容）",
+              summary: summary || undefined,
+              jobId,
+            });
+            const currentBody = latest.current.body;
+            const nextBody = replaceIngestMarker(currentBody, jobId, block);
+            applyIngestBody(nextBody, jobId);
+            removePendingIngest(jobId);
+            flash(summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+          } catch (e) {
+            setIngestError(e instanceof Error ? e.message : "轉錄失敗");
+            setIngestStatus("");
+            flash(e instanceof Error ? e.message : "媒體轉錄失敗");
+          } finally {
+            ingestWatching.current.delete(jobId);
+            if (ingestCancel.current === cancel) ingestCancel.current = null;
+          }
+        } catch (e) {
+          setIngestError(e instanceof Error ? e.message : "啟動轉錄失敗");
+          flash(e instanceof Error ? e.message : "啟動轉錄失敗");
+        }
+      }
+
+      ingestBusy.current = false;
+      setIngestStatus((s) => (s.startsWith("轉錄") || s.includes("整理") || s.includes("摘要") ? "" : s));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, note, title, prefsCtx, applyIngestBody]
+  );
+
+  const handleTranscribableMedia = useCallback(
+    (media: TranscribableMedia) => {
+      if (!user || !note) return;
+      ingestQueue.current.push(media);
+      if (ingestAskTimer.current) clearTimeout(ingestAskTimer.current);
+      ingestAskTimer.current = setTimeout(() => {
+        void (async () => {
+          const batch = ingestQueue.current.splice(0);
+          if (!batch.length) return;
+          if (ingestBusy.current) {
+            ingestQueue.current.push(...batch);
+            flash("已排入下一批轉錄");
+            return;
+          }
+          const resolved = await resolveMediaIngestChoice({
+            label: batch[0].label,
+            count: batch.length,
+            defaultPref: prefsCtx?.prefs.mediaIngestDefault || "ask",
+          });
+          if (!resolved || resolved.choice === "embed") return;
+          if (resolved.remember && prefsCtx) {
+            prefsCtx.setPrefs({ mediaIngestDefault: resolved.choice });
+          }
+          await runIngestPipeline(batch, resolved.choice);
+        })();
+      }, 180);
+    },
+    [user, note, prefsCtx, runIngestPipeline]
+  );
+
+  useEffect(() => {
+    if (!user || !note) return;
+    const pendings = loadPendingIngests(note.id);
+    for (const p of pendings) {
+      if (ingestWatching.current.has(p.jobId)) continue;
+      ingestWatching.current.add(p.jobId);
+      setIngestJobId(p.jobId);
+      setIngestStatus(`恢復轉錄追蹤 · ${p.label}`);
+      void (async () => {
+        try {
+          const result = await finalizePendingIngest(p, {
             assistant: {
               name: prefsCtx?.prefs.aiAssistantName,
               style: prefsCtx?.prefs.aiStyle,
               model: prefsCtx?.prefs.aiModel,
               grounding: prefsCtx?.prefs.aiGrounding,
             },
+            onProgress: (label) => setIngestStatus(`${label} · ${p.label}`),
           });
+          if (result) {
+            applyIngestBody(result.body, p.jobId);
+            flash(result.summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+          }
+          setIngestStatus("");
+          setIngestJobId(null);
+        } catch (e) {
+          setIngestError(e instanceof Error ? e.message : "轉錄失敗");
+          setIngestStatus("");
+        } finally {
+          ingestWatching.current.delete(p.jobId);
         }
-
-        const block = formatIngestBlock({
-          label: media.label,
-          transcript: transcript || "（無內容）",
-          summary: summary || undefined,
-          jobId,
-        });
-        if (insertMdRef.current) {
-          insertMdRef.current(block);
-        } else {
-          setBody((prev) => `${prev.trim()}${prev.trim() ? "\n" : ""}${block}`);
-          markDirty();
-        }
-        try {
-          await updateNote(note.id, { source_job_id: jobId });
-        } catch {
-          /* ignore link failure */
-        }
-        flash(summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
-      } catch (e) {
-        flash(e instanceof Error ? e.message : "媒體轉錄失敗");
-      } finally {
-        ingestBusy.current = false;
-        setIngestStatus("");
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- markDirty/flash are stable enough for this session
-    [user, note, title, prefsCtx]
-  );
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, note?.id]);
 
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (ingestAskTimer.current) clearTimeout(ingestAskTimer.current);
   }, []);
 
   const runAi = async (action: NoteAiActionId | string, prompt?: string) => {
@@ -992,8 +1110,77 @@ function NotePageInner() {
         <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
           {viewMode === "write" && <NotePageLog noteId={note.id} />}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
-          {ingestStatus && viewMode === "write" && (
-            <p className="doc-banner-ingest">{ingestStatus}</p>
+          {(ingestStatus || ingestError || ingestJobId) && viewMode === "write" && (
+            <div className={`doc-banner-ingest${ingestError ? " is-error" : ""}`}>
+              <div className="doc-banner-ingest-main">
+                <span>{ingestError || ingestStatus || "媒體轉錄進行中"}</span>
+                <div className="doc-banner-ingest-actions">
+                  {ingestJobId && (
+                    <Link href={`/job/${ingestJobId}`} className="doc-banner-ingest-link">
+                      開啟工作
+                    </Link>
+                  )}
+                  {ingestError && ingestJobId && (
+                    <button
+                      type="button"
+                      className="doc-cmd"
+                      onClick={() => {
+                        const pendings = loadPendingIngests(note.id).filter(
+                          (p) => p.jobId === ingestJobId
+                        );
+                        setIngestError("");
+                        for (const p of pendings) {
+                          if (ingestWatching.current.has(p.jobId)) continue;
+                          ingestWatching.current.add(p.jobId);
+                          void (async () => {
+                            try {
+                              setIngestStatus(`重試 · ${p.label}`);
+                              const result = await finalizePendingIngest(p, {
+                                assistant: {
+                                  name: prefsCtx?.prefs.aiAssistantName,
+                                  style: prefsCtx?.prefs.aiStyle,
+                                  model: prefsCtx?.prefs.aiModel,
+                                  grounding: prefsCtx?.prefs.aiGrounding,
+                                },
+                                onProgress: (label) => setIngestStatus(`${label} · ${p.label}`),
+                              });
+                              if (result) {
+                                applyIngestBody(result.body, p.jobId);
+                                flash(result.summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+                              }
+                              setIngestStatus("");
+                              setIngestJobId(null);
+                            } catch (e) {
+                              setIngestError(e instanceof Error ? e.message : "轉錄失敗");
+                              setIngestStatus("");
+                            } finally {
+                              ingestWatching.current.delete(p.jobId);
+                            }
+                          })();
+                        }
+                      }}
+                    >
+                      重試
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="doc-cmd"
+                    onClick={() => {
+                      ingestCancel.current?.();
+                      ingestCancel.current = null;
+                      setIngestStatus("");
+                      setIngestError("");
+                      if (!ingestError) {
+                        flash("已改為背景寫入，可繼續編輯或離開本頁");
+                      }
+                    }}
+                  >
+                    {ingestError ? "關閉" : "背景繼續"}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
           {toast && <p className="doc-toast">{toast}</p>}
 
