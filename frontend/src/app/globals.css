@@ -6318,6 +6318,82 @@ body.is-sidebar-resizing iframe {
   color: var(--accent);
   font-weight: 600;
 }
+.sb-row--note.is-selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: -1px;
+}
+.sb-row--note.is-active.is-selected {
+  background: var(--accent-soft);
+}
+.sb-sel-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.35rem;
+  margin: 0 0 0.35rem;
+  border-radius: 8px;
+  background: var(--bg-muted);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.sb-sel-bar span {
+  margin-right: 0.15rem;
+}
+.sb-sel-bar button {
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 5px;
+}
+.sb-sel-bar button:hover {
+  background: var(--bg-card);
+}
+.sb-sel-bar button.is-danger {
+  color: var(--danger);
+}
+.sb-ctx {
+  position: fixed;
+  z-index: 400;
+  min-width: 168px;
+  max-width: 240px;
+  padding: 0.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+.sb-ctx button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-main);
+}
+.sb-ctx button:hover:not(:disabled) {
+  background: var(--bg-muted);
+}
+.sb-ctx button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sb-ctx button.is-danger {
+  color: var(--danger);
+}
+.sb-ctx-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.2rem 0.35rem;
+}
 .sb-twist {
   width: 18px;
   height: 18px;

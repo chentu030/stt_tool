@@ -197,3 +197,40 @@ export function filterNotesByFolderQuery(
     return p === target || p.startsWith(`${target}/`);
   });
 }
+
+/** Remap a note's folder when renaming/moving a folder path (including descendants). */
+export function remapFolderPath(
+  folder: string | undefined,
+  oldPath: string,
+  newPath: string
+): string | null {
+  const f = normalizeFolderPath(folder);
+  const old = normalizeFolderPath(oldPath);
+  const neu = normalizeFolderPath(newPath);
+  if (!old) return null;
+  if (f === old) return neu;
+  if (f.startsWith(`${old}/`)) return `${neu}${f.slice(old.length)}`;
+  return null;
+}
+
+/** Whether note belongs to folder path (exact or nested). Empty/未分類 = no folder. */
+export function noteInFolderPath(
+  folder: string | undefined,
+  folderPath: string
+): boolean {
+  const f = normalizeFolderPath(folder);
+  if (!folderPath || folderPath === UNCATEGORIZED || folderPath === "__none__") {
+    return !f;
+  }
+  const target = normalizeFolderPath(folderPath);
+  return f === target || f.startsWith(`${target}/`);
+}
+
+/** Rename only the leaf segment of a folder path. */
+export function renameFolderLeaf(path: string, newLeaf: string): string {
+  const parts = splitFolderPath(path);
+  if (!parts.length) return normalizeFolderPath(newLeaf);
+  const leaf = normalizeFolderPath(newLeaf).split("/").filter(Boolean).pop() || parts[parts.length - 1];
+  parts[parts.length - 1] = leaf;
+  return parts.join("/");
+}

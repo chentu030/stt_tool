@@ -1,16 +1,36 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as REMouseEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { createNote, listenToUserNotes, updateNote, Note } from "@/lib/firebase";
+import {
+  createNote,
+  deleteNote,
+  listenToUserNotes,
+  updateNote,
+  Note,
+} from "@/lib/firebase";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
+import { askConfirm, askPrompt } from "@/lib/dialogs";
 import {
   UNCATEGORIZED,
   buildNoteTree,
   flattenVisibleNotes,
+  noteInFolderPath,
+  normalizeFolderPath,
+  remapFolderPath,
+  renameFolderLeaf,
 } from "@/lib/noteTree";
 
 const EXPAND_KEY = "cadence_sidebar_expand_v1";
@@ -33,17 +53,48 @@ function saveExpanded(set: Set<string>) {
   }
 }
 
+type CtxTarget =
+  | { kind: "note"; noteId: string }
+  | { kind: "folder"; path: string }
+  | { kind: "blank" };
+
+type CtxMenu = {
+  x: number;
+  y: number;
+  target: CtxTarget;
+};
+
+type MenuItem =
+  | {
+      type: "item";
+      label: string;
+      danger?: boolean;
+      disabled?: boolean;
+      action: () => void | Promise<void>;
+    }
+  | { type: "sep" };
+
+function clampMenuPos(x: number, y: number, w = 200, h = 280) {
+  const pad = 8;
+  const maxX = Math.max(pad, window.innerWidth - w - pad);
+  const maxY = Math.max(pad, window.innerHeight - h - pad);
+  return { x: Math.min(Math.max(pad, x), maxX), y: Math.min(Math.max(pad, y), maxY) };
+}
+
 export default function SidebarNotesTree() {
   const { user } = useAuth();
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
   const pathname = usePathname();
   const router = useRouter();
+  const rootRef = useRef<HTMLDivElement>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([UNCATEGORIZED]));
   const [creating, setCreating] = useState(false);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [ctx, setCtx] = useState<CtxMenu | null>(null);
 
   useEffect(() => {
     setExpanded(loadExpanded());
@@ -80,6 +131,28 @@ export default function SidebarNotesTree() {
     () => flattenVisibleNotes(tree.roots, tree.uncategorized, expanded, q),
     [tree, expanded, q]
   );
+
+  const visibleNoteIds = useMemo(() => {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    const pushKids = (id: string) => {
+      const kids = childrenByParent.get(id) || [];
+      for (const c of kids) {
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        ids.push(c.id);
+        if (expanded.has(`note:${c.id}`)) pushKids(c.id);
+      }
+    };
+    for (const row of rows) {
+      if (row.kind !== "note" || !row.note) continue;
+      if (seen.has(row.note.id)) continue;
+      seen.add(row.note.id);
+      ids.push(row.note.id);
+      if (expanded.has(`note:${row.note.id}`)) pushKids(row.note.id);
+    }
+    return ids;
+  }, [rows, childrenByParent, expanded]);
 
   const favNotes = useMemo(() => {
     const ids = prefs?.favoriteNoteIds || [];
@@ -119,6 +192,47 @@ export default function SidebarNotesTree() {
       return next;
     });
   }, [activeNoteId, notes]);
+
+  useEffect(() => {
+    setSelected((prev) => {
+      if (!prev.size) return prev;
+      const alive = new Set(notes.map((n) => n.id));
+      const next = new Set([...prev].filter((id) => alive.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [notes]);
+
+  useEffect(() => {
+    if (!ctx) return;
+    const close = () => setCtx(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [ctx]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "a") return;
+      const root = rootRef.current;
+      if (!root?.contains(document.activeElement)) return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      setSelected(new Set(visibleNoteIds));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [visibleNoteIds]);
 
   const toggle = (path: string) => {
     setExpanded((prev) => {
@@ -180,21 +294,367 @@ export default function SidebarNotesTree() {
     prefsCtx.setPrefs((prev) => toggleFavoriteId(prev, noteId));
   };
 
+  const toggleSelect = useCallback((noteId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(noteId)) next.delete(noteId);
+      else next.add(noteId);
+      return next;
+    });
+  }, []);
+
+  const selectAllVisible = useCallback(() => {
+    setSelected(new Set(visibleNoteIds));
+  }, [visibleNoteIds]);
+
+  const clearSelection = useCallback(() => setSelected(new Set()), []);
+
+  const openCtx = (e: REMouseEvent, target: CtxTarget) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (target.kind === "note") {
+      setSelected((prev) => {
+        if (prev.has(target.noteId)) return prev;
+        return new Set([target.noteId]);
+      });
+    }
+    const pos = clampMenuPos(e.clientX, e.clientY);
+    setCtx({ ...pos, target });
+  };
+
+  const closeCtx = () => setCtx(null);
+
+  const renameNote = async (note: Note) => {
+    const next = await askPrompt({
+      title: "重新命名筆記",
+      defaultValue: note.title || "未命名",
+      placeholder: "筆記標題",
+      confirmLabel: "重新命名",
+    });
+    if (next == null) return;
+    await updateNote(note.id, { title: next || "未命名" });
+  };
+
+  const moveNotes = async (ids: string[]) => {
+    if (!ids.length) return;
+    const first = notes.find((n) => n.id === ids[0]);
+    const next = await askPrompt({
+      title: ids.length > 1 ? `移動 ${ids.length} 篇筆記` : "移動筆記",
+      message: "輸入資料夾路徑（空白＝未分類；可用 / 建立子資料夾）",
+      defaultValue: normalizeFolderPath(first?.folder) || "",
+      placeholder: "例如：專案/客戶A",
+      confirmLabel: "移動",
+    });
+    if (next == null) return;
+    const folder = normalizeFolderPath(next);
+    await Promise.all(ids.map((id) => updateNote(id, { folder, parent_id: "" })));
+  };
+
+  const duplicateNote = async (note: Note) => {
+    if (!user) return;
+    const newId = await createNote(
+      user.uid,
+      `${note.title || "未命名"}（副本）`,
+      note.body_md || "",
+      note.source_job_id,
+      note.tags || [],
+      {
+        folder: note.folder || "",
+        status: note.status || "backlog",
+        icon: note.icon || "",
+        parent_id: note.parent_id || "",
+      }
+    );
+    router.push(`/notes/${newId}`);
+  };
+
+  const copyNoteLink = async (noteId: string) => {
+    const url = `${window.location.origin}/notes/${noteId}`;
+    await navigator.clipboard.writeText(url);
+  };
+
+  const deleteNotes = async (ids: string[]) => {
+    if (!ids.length) return;
+    const ask = prefs?.askBeforeDelete !== false;
+    if (
+      ask &&
+      !(await askConfirm({
+        title: ids.length > 1 ? `刪除選取的 ${ids.length} 篇筆記？` : "刪除此筆記？",
+        message: "此操作無法復原。",
+        danger: true,
+        confirmLabel: "刪除",
+      }))
+    ) {
+      return;
+    }
+    const wasActive = ids.includes(activeNoteId);
+    await Promise.all(ids.map((id) => deleteNote(id)));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    if (wasActive) router.push("/library");
+  };
+
+  const renameFolder = async (path: string) => {
+    if (!path || path === UNCATEGORIZED) return;
+    const leaf = path.split("/").pop() || path;
+    const nextLeaf = await askPrompt({
+      title: "重新命名資料夾",
+      message: `目前路徑：${path}`,
+      defaultValue: leaf,
+      placeholder: "資料夾名稱",
+      confirmLabel: "重新命名",
+    });
+    if (nextLeaf == null) return;
+    const newPath = renameFolderLeaf(path, nextLeaf);
+    if (newPath === path) return;
+    const updates = notes
+      .map((n) => {
+        const remapped = remapFolderPath(n.folder, path, newPath);
+        return remapped == null ? null : { id: n.id, folder: remapped };
+      })
+      .filter(Boolean) as { id: string; folder: string }[];
+    await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+        next.add(newPath);
+      }
+      for (const p of [...next]) {
+        if (p.startsWith(`${path}/`)) {
+          next.delete(p);
+          next.add(`${newPath}${p.slice(path.length)}`);
+        }
+      }
+      saveExpanded(next);
+      return next;
+    });
+  };
+
+  const moveFolder = async (path: string) => {
+    if (!path || path === UNCATEGORIZED) return;
+    const next = await askPrompt({
+      title: "移動資料夾",
+      message: `將「${path}」及其子資料夾移到新路徑`,
+      defaultValue: path,
+      placeholder: "例如：歸檔/專案",
+      confirmLabel: "移動",
+    });
+    if (next == null) return;
+    const newPath = normalizeFolderPath(next);
+    if (!newPath || newPath === path) return;
+    if (newPath.startsWith(`${path}/`)) {
+      await askConfirm({
+        title: "無法移動",
+        message: "不能把資料夾移到自己的子路徑下。",
+        confirmLabel: "知道了",
+        cancelLabel: "關閉",
+      });
+      return;
+    }
+    const updates = notes
+      .map((n) => {
+        const remapped = remapFolderPath(n.folder, path, newPath);
+        return remapped == null ? null : { id: n.id, folder: remapped };
+      })
+      .filter(Boolean) as { id: string; folder: string }[];
+    await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
+    setExpanded((prev) => {
+      const nextSet = new Set(prev);
+      if (nextSet.has(path)) {
+        nextSet.delete(path);
+        nextSet.add(newPath);
+      }
+      for (const p of [...nextSet]) {
+        if (p.startsWith(`${path}/`)) {
+          nextSet.delete(p);
+          nextSet.add(`${newPath}${p.slice(path.length)}`);
+        }
+      }
+      saveExpanded(nextSet);
+      return nextSet;
+    });
+  };
+
+  const selectFolderNotes = (path: string) => {
+    const ids = notes
+      .filter((n) => !(n.parent_id || "").trim() && noteInFolderPath(n.folder, path))
+      .map((n) => n.id);
+    setSelected(new Set(ids));
+  };
+
+  const deleteFolderNotes = async (path: string) => {
+    if (!path || path === UNCATEGORIZED) return;
+    const ids = notes.filter((n) => noteInFolderPath(n.folder, path)).map((n) => n.id);
+    if (!ids.length) return;
+    if (
+      !(await askConfirm({
+        title: `刪除「${path}」內的 ${ids.length} 篇筆記？`,
+        message: "含子資料夾中的筆記。此操作無法復原。",
+        danger: true,
+        confirmLabel: "全部刪除",
+      }))
+    ) {
+      return;
+    }
+    await Promise.all(ids.map((id) => deleteNote(id)));
+    clearSelection();
+  };
+
+  const buildMenuItems = (): MenuItem[] => {
+    if (!ctx) return [];
+    const { target } = ctx;
+    const items: MenuItem[] = [];
+
+    if (selected.size > 1 && (target.kind === "note" || target.kind === "blank")) {
+      items.push(
+        {
+          type: "item",
+          label: `移動選取（${selected.size}）…`,
+          action: () => moveNotes([...selected]),
+        },
+        {
+          type: "item",
+          label: `刪除選取（${selected.size}）`,
+          danger: true,
+          action: () => deleteNotes([...selected]),
+        },
+        { type: "item", label: "取消選取", action: clearSelection },
+        { type: "sep" }
+      );
+    }
+
+    if (target.kind === "note") {
+      const note = notes.find((n) => n.id === target.noteId);
+      if (!note) return items;
+      const isSel = selected.has(note.id);
+      items.push(
+        { type: "item", label: "開啟", action: () => router.push(`/notes/${note.id}`) },
+        { type: "item", label: "重新命名", action: () => renameNote(note) },
+        { type: "item", label: "移動至…", action: () => moveNotes([note.id]) },
+        {
+          type: "item",
+          label: isSel ? "取消選取" : "選取",
+          action: () => toggleSelect(note.id),
+        },
+        { type: "sep" },
+        { type: "item", label: "複製筆記", action: () => duplicateNote(note) },
+        { type: "item", label: "複製連結", action: () => copyNoteLink(note.id) },
+        { type: "item", label: "新增子頁面", action: () => newNote("", note.id) },
+        { type: "sep" },
+        {
+          type: "item",
+          label: "刪除",
+          danger: true,
+          action: () => deleteNotes([note.id]),
+        },
+        { type: "sep" },
+        { type: "item", label: "全選可見", action: selectAllVisible }
+      );
+      return items;
+    }
+
+    if (target.kind === "folder") {
+      const isVirtual = target.path === UNCATEGORIZED;
+      if (!isVirtual) {
+        items.push(
+          { type: "item", label: "重新命名", action: () => renameFolder(target.path) },
+          { type: "item", label: "移動至…", action: () => moveFolder(target.path) }
+        );
+      }
+      items.push(
+        {
+          type: "item",
+          label: "選取此夾全部",
+          action: () => selectFolderNotes(target.path),
+        },
+        {
+          type: "item",
+          label: "新增筆記",
+          action: () => newNote(target.path === UNCATEGORIZED ? "" : target.path),
+        },
+        { type: "sep" },
+        { type: "item", label: "全選可見", action: selectAllVisible }
+      );
+      if (!isVirtual) {
+        items.push(
+          { type: "sep" },
+          {
+            type: "item",
+            label: "刪除此夾筆記…",
+            danger: true,
+            action: () => deleteFolderNotes(target.path),
+          }
+        );
+      }
+      return items;
+    }
+
+    items.push(
+      { type: "item", label: "全選可見", action: selectAllVisible },
+      {
+        type: "item",
+        label: "取消選取",
+        disabled: !selected.size,
+        action: clearSelection,
+      },
+      { type: "sep" },
+      { type: "item", label: "新增筆記", action: () => newNote() }
+    );
+    return items;
+  };
+
+  const onNoteClick = (e: REMouseEvent, noteId: string) => {
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      toggleSelect(noteId);
+      return;
+    }
+    if (e.shiftKey && selected.size) {
+      e.preventDefault();
+      const ids = visibleNoteIds;
+      const anchor = [...selected].pop() || ids[0];
+      const a = ids.indexOf(anchor);
+      const b = ids.indexOf(noteId);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        setSelected(new Set(ids.slice(lo, hi + 1)));
+      } else {
+        toggleSelect(noteId);
+      }
+    }
+  };
+
+  const runMenuAction = async (fn: () => void | Promise<void>) => {
+    closeCtx();
+    try {
+      await fn();
+    } catch {
+      /* ignore */
+    }
+  };
+
   const renderNoteLink = (note: Note, depth: number) => {
     const active = note.id === activeNoteId;
+    const isSelected = selected.has(note.id);
     const kids = childrenByParent.get(note.id) || [];
     const open = expanded.has(`note:${note.id}`);
     const isFav = (prefs?.favoriteNoteIds || []).includes(note.id);
     return (
       <div key={`n:${note.id}`}>
         <div
-          className={`sb-row sb-row--note${active ? " is-active" : ""}`}
+          className={`sb-row sb-row--note${active ? " is-active" : ""}${isSelected ? " is-selected" : ""}`}
           style={{ paddingLeft: 12 + depth * 12 }}
           draggable
           onDragStart={(e) => {
             e.dataTransfer.setData("text/note-id", note.id);
             e.dataTransfer.effectAllowed = "move";
           }}
+          onContextMenu={(e) => openCtx(e, { kind: "note", noteId: note.id })}
+          onClick={(e) => onNoteClick(e, note.id)}
         >
           {kids.length > 0 ? (
             <button
@@ -211,6 +671,9 @@ export default function SidebarNotesTree() {
             href={`/notes/${note.id}`}
             className="sb-note-main"
             title={note.title || "未命名"}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault();
+            }}
           >
             <span className="sb-note-icon" aria-hidden>
               {note.icon || "▢"}
@@ -229,11 +692,40 @@ export default function SidebarNotesTree() {
             ★
           </button>
         </div>
-        {open &&
-          kids.map((c) => renderNoteLink(c, depth + 1))}
+        {open && kids.map((c) => renderNoteLink(c, depth + 1))}
       </div>
     );
   };
+
+  const menuPortal: ReactNode =
+    ctx && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            className="sb-ctx"
+            role="menu"
+            style={{ left: ctx.x, top: ctx.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {buildMenuItems().map((item, i) =>
+              item.type === "sep" ? (
+                <hr key={`sep-${i}`} className="sb-ctx-sep" />
+              ) : (
+                <button
+                  key={`${item.label}-${i}`}
+                  type="button"
+                  role="menuitem"
+                  className={item.danger ? "is-danger" : undefined}
+                  disabled={item.disabled}
+                  onClick={() => void runMenuAction(item.action)}
+                >
+                  {item.label}
+                </button>
+              )
+            )}
+          </div>,
+          document.body
+        )
+      : null;
 
   if (!user) {
     return (
@@ -244,7 +736,15 @@ export default function SidebarNotesTree() {
   }
 
   return (
-    <div className="sb-tree">
+    <div
+      ref={rootRef}
+      className="sb-tree"
+      tabIndex={0}
+      onContextMenu={(e) => {
+        if ((e.target as HTMLElement).closest(".sb-row")) return;
+        openCtx(e, { kind: "blank" });
+      }}
+    >
       <div className="sb-tree-head">
         <span className="sb-tree-label">筆記</span>
         <div className="sb-tree-actions">
@@ -275,6 +775,21 @@ export default function SidebarNotesTree() {
         onChange={(e) => setQ(e.target.value)}
       />
 
+      {selected.size > 0 && (
+        <div className="sb-sel-bar">
+          <span>已選 {selected.size}</span>
+          <button type="button" onClick={() => void moveNotes([...selected])}>
+            移動
+          </button>
+          <button type="button" className="is-danger" onClick={() => void deleteNotes([...selected])}>
+            刪除
+          </button>
+          <button type="button" onClick={clearSelection}>
+            取消
+          </button>
+        </div>
+      )}
+
       {!q && favNotes.length > 0 && (
         <div className="sb-section">
           <p className="sb-section-label">收藏</p>
@@ -291,9 +806,7 @@ export default function SidebarNotesTree() {
 
       <div className="sb-tree-list">
         {rows.length === 0 ? (
-          <p className="sb-tree-empty">
-            {notes.length === 0 ? "無筆記" : "無結果"}
-          </p>
+          <p className="sb-tree-empty">{notes.length === 0 ? "無筆記" : "無結果"}</p>
         ) : (
           rows.map((row) => {
             if (row.kind === "folder" && row.folder) {
@@ -316,6 +829,7 @@ export default function SidebarNotesTree() {
                       const id = e.dataTransfer.getData("text/note-id");
                       if (id) void onDropToFolder(dropKey, id);
                     }}
+                    onContextMenu={(e) => openCtx(e, { kind: "folder", path: dropKey })}
                   >
                     <button
                       type="button"
@@ -365,6 +879,8 @@ export default function SidebarNotesTree() {
           知識庫 · {tree.total}
         </Link>
       </div>
+
+      {menuPortal}
     </div>
   );
 }
