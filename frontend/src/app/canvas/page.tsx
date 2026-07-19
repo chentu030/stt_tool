@@ -1,5 +1,7 @@
 "use client";
 
+import { askPrompt } from "@/lib/dialogs";
+
 import { useCallback, useEffect, useMemo, useRef, useState, PointerEvent as REPointerEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -459,15 +461,17 @@ export default function CanvasPage() {
   };
 
   const onImport = () => {
-    const raw = window.prompt("貼上白板 JSON");
-    if (!raw) return;
-    const next = importCanvasJson(raw);
-    if (!next) {
-      flash("JSON 無效");
-      return;
-    }
-    updateDoc(() => next);
-    flash("已匯入");
+    void (async () => {
+      const raw = await askPrompt({ title: "匯入白板", message: "貼上白板 JSON", multiline: true, placeholder: "{ ... }" });
+      if (!raw) return;
+      const next = importCanvasJson(raw);
+      if (!next) {
+        flash("JSON 無效");
+        return;
+      }
+      updateDoc(() => next);
+      flash("已匯入");
+    })();
   };
 
   useEffect(() => {

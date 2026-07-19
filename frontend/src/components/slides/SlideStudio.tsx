@@ -1,5 +1,7 @@
 "use client";
 
+import { askPrompt, askConfirm } from "@/lib/dialogs";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { saveAs } from "file-saver";
@@ -197,13 +199,15 @@ export default function SlideStudio({
 
   const deleteSlide = () => {
     if (deck.slides.length <= 1) return;
-    if (!confirm("刪除此投影片？")) return;
-    patchDeck((d) => ({
-      ...d,
-      slides: d.slides.filter((_, i) => i !== idx),
-    }));
-    setIdx((i) => Math.max(0, i - 1));
-    setSelectedId(null);
+    void (async () => {
+      if (!(await askConfirm({ title: "刪除此投影片？", danger: true, confirmLabel: "刪除" }))) return;
+      patchDeck((d) => ({
+        ...d,
+        slides: d.slides.filter((_, i) => i !== idx),
+      }));
+      setIdx((i) => Math.max(0, i - 1));
+      setSelectedId(null);
+    })();
   };
 
   const addTextBlock = () => {
@@ -226,19 +230,21 @@ export default function SlideStudio({
 
   const addImageBlock = () => {
     if (!slide) return;
-    const url = window.prompt("圖片網址", "https://");
-    if (!url) return;
-    const b: SlideBlock = {
-      id: uid("img"),
-      type: "image",
-      x: 55,
-      y: 28,
-      w: 38,
-      h: 50,
-      src: url,
-    };
-    updateSlideBlocks(slide.id, [...slide.blocks, b]);
-    setSelectedId(b.id);
+    void (async () => {
+      const url = await askPrompt("圖片網址", "https://");
+      if (!url) return;
+      const b: SlideBlock = {
+        id: uid("img"),
+        type: "image",
+        x: 55,
+        y: 28,
+        w: 38,
+        h: 50,
+        src: url,
+      };
+      updateSlideBlocks(slide.id, [...slide.blocks, b]);
+      setSelectedId(b.id);
+    })();
   };
 
   const deleteSelected = () => {

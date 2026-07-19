@@ -1,3 +1,4 @@
+import { askPrompt } from "@/lib/dialogs";
 import { Node, mergeAttributes } from "@tiptap/core";
 import katex from "katex";
 
@@ -77,15 +78,16 @@ export const MathInline = Node.create({
       dom.innerHTML = renderKatex(node.attrs.formula || "", false);
       dom.title = "雙擊編輯公式";
       dom.addEventListener("dblclick", () => {
-        const next = window.prompt("LaTeX 行內公式", node.attrs.formula || "");
-        if (next === null) return;
-        // handled via editor command from outside is hard in nodeView; use custom event
-        dom.dispatchEvent(
-          new CustomEvent("cadence-edit-math", {
-            bubbles: true,
-            detail: { type: "mathInline", formula: next, pos: null },
-          })
-        );
+        void (async () => {
+          const next = await askPrompt("LaTeX 行內公式", node.attrs.formula || "");
+          if (next === null) return;
+          dom.dispatchEvent(
+            new CustomEvent("cadence-edit-math", {
+              bubbles: true,
+              detail: { type: "mathInline", formula: next, pos: null },
+            })
+          );
+        })();
       });
       return {
         dom,

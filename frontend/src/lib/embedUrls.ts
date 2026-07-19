@@ -1,5 +1,7 @@
 /** Normalize URLs into embeddable preview sources */
 
+import { askPrompt } from "@/lib/dialogs";
+
 export type EmbedKind = "youtube" | "drive" | "pdf" | "ppt" | "web" | "office";
 
 export type EmbedResolved = {
@@ -121,9 +123,14 @@ export function resolveEmbedUrl(raw: string, nameHint = ""): EmbedResolved | nul
   return null;
 }
 
-export function promptInsertUrl(label: string): string | null {
-  const url = window.prompt(label, "https://");
-  if (url === null) return null;
-  const t = url.trim();
-  return t || null;
+export function promptInsertUrl(label: string): Promise<string | null> {
+  return askPrompt({
+    title: label,
+    defaultValue: "https://",
+    placeholder: "https://",
+  }).then((url) => {
+    if (url === null) return null;
+    const t = url.trim();
+    return t || null;
+  });
 }

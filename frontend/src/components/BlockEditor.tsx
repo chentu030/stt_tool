@@ -1,5 +1,7 @@
 "use client";
 
+import { askPrompt } from "@/lib/dialogs";
+
 import { useEffect, useRef, useState, KeyboardEvent, DragEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import {
@@ -155,13 +157,16 @@ export default function BlockEditor({
       commit(next);
       focusBlock(nb.id);
     } else if (item.type === "image") {
-      const url = window.prompt("圖片網址（https://…）", "https://");
-      const nb = createBlock();
-      const next = [...blocks];
-      next[i] = { ...b, type: "image", text: "image", src: url || "", checked: undefined };
-      next.splice(i + 1, 0, nb);
-      commit(next);
-      focusBlock(nb.id);
+      void (async () => {
+        const url = await askPrompt("圖片網址", "https://");
+        if (url === null) return;
+        const nb = createBlock();
+        const next = [...blocks];
+        next[i] = { ...b, type: "image", text: "image", src: url || "", checked: undefined };
+        next.splice(i + 1, 0, nb);
+        commit(next);
+        focusBlock(nb.id);
+      })();
     } else if (item.type === "table") {
       const next = [...blocks];
       next[i] = { ...b, type: "table", text: DEFAULT_TABLE, src: undefined, checked: undefined };
@@ -230,7 +235,8 @@ export default function BlockEditor({
   };
 
   const applyLink = () => {
-    const url = window.prompt("連結網址", "https://");
+    void (async () => {
+    const url = await askPrompt("連結網址", "https://");
     if (!url) return;
     const sel = selRef.current;
     const id = sel?.id || focusId;
@@ -244,6 +250,7 @@ export default function BlockEditor({
     const next =
       block.text.slice(0, start) + `[${label}](${url})` + block.text.slice(end);
     updateBlock(id, { text: next });
+    })();
   };
 
   const onTextChange = (id: string, text: string) => {
@@ -433,16 +440,18 @@ export default function BlockEditor({
         {toolBtn("圖", () => {
           const id = focusId || blocks[blocks.length - 1]?.id;
           if (!id) return;
-          const url = window.prompt("圖片網址（https://…）", "https://");
-          if (url === null) return;
-          const img = createBlock({ type: "image", text: "image", src: url || "" });
-          const nb = createBlock();
-          const i = blocks.findIndex((b) => b.id === id);
-          if (i < 0) return;
-          const next = [...blocks];
-          next.splice(i + 1, 0, img, nb);
-          commit(next);
-          focusBlock(nb.id);
+          void (async () => {
+            const url = await askPrompt("圖片網址", "https://");
+            if (url === null) return;
+            const img = createBlock({ type: "image", text: "image", src: url || "" });
+            const nb = createBlock();
+            const i = blocks.findIndex((b) => b.id === id);
+            if (i < 0) return;
+            const next = [...blocks];
+            next.splice(i + 1, 0, img, nb);
+            commit(next);
+            focusBlock(nb.id);
+          })();
         }, "插入圖片")}
       </div>
 

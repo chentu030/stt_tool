@@ -1,5 +1,7 @@
 "use client";
 
+import { askConfirm } from "@/lib/dialogs";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -112,9 +114,11 @@ export default function SettingsPage() {
   const patch = (p: Partial<UserPrefs>) => setPrefs(p);
 
   const doReset = () => {
-    if (!window.confirm("確定重設所有偏好為預設值？")) return;
-    replacePrefs(resetPrefs());
-    flash("已重設偏好");
+    void (async () => {
+      if (!(await askConfirm({ title: "重設所有偏好？", message: "將恢復為預設值。", danger: true, confirmLabel: "重設" }))) return;
+      replacePrefs(resetPrefs());
+      flash("已重設偏好");
+    })();
   };
 
   const doExport = () => {
@@ -150,9 +154,11 @@ export default function SettingsPage() {
   };
 
   const doClearCaches = () => {
-    if (!window.confirm("清除本機白板／圖譜位置快取？（不會刪除雲端筆記）")) return;
-    const n = clearLocalWorkspaceCaches(user?.uid);
-    flash(`已清除 ${n} 筆本機快取`);
+    void (async () => {
+      if (!(await askConfirm({ title: "清除本機快取？", message: "清除白板／圖譜位置快取，不會刪除雲端筆記。", confirmLabel: "清除" }))) return;
+      const n = clearLocalWorkspaceCaches(user?.uid);
+      flash(`已清除 ${n} 筆本機快取`);
+    })();
   };
 
   return (

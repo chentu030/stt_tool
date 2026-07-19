@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { PrefsProvider } from "@/components/PrefsProvider";
+import DialogProvider from "@/components/DialogProvider";
 import AppShell from "@/components/shell/AppShell";
 
 export const metadata: Metadata = {
@@ -62,7 +63,9 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <PrefsProvider>
-            <AppShell>{children}</AppShell>
+            <DialogProvider>
+              <AppShell>{children}</AppShell>
+            </DialogProvider>
           </PrefsProvider>
         </AuthProvider>
       </body>

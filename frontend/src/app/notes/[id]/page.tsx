@@ -1,5 +1,7 @@
 "use client";
 
+import { askPrompt, askConfirm } from "@/lib/dialogs";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -486,7 +488,7 @@ export default function NotePage() {
 
   const remove = async () => {
     if (!note) return;
-    if (!confirm("刪除此筆記？此操作無法復原。")) return;
+    if (!(await askConfirm({ title: "刪除此筆記？", message: "此操作無法復原。", danger: true, confirmLabel: "刪除" }))) return;
     await deleteNote(note.id);
     router.push("/library");
   };
@@ -693,7 +695,7 @@ export default function NotePage() {
                 onClick={() => {
                   if (!user) return;
                   void (async () => {
-                    const name = window.prompt("子頁面標題", "未命名子頁");
+                    const name = await askPrompt("子頁面標題", "未命名子頁");
                     if (name == null) return;
                     const t = name.trim() || "未命名子頁";
                     const id = await createNote(user.uid, t, "", undefined, [], {
@@ -819,11 +821,13 @@ export default function NotePage() {
                   type="button"
                   className="doc-version-row"
                   onClick={() => {
-                    if (!confirm("還原此版本？")) return;
-                    setTitle(v.title);
-                    setBody(v.body_md);
-                    markDirty();
-                    setVersionsOpen(false);
+                    void (async () => {
+                      if (!(await askConfirm("還原此版本？"))) return;
+                      setTitle(v.title);
+                      setBody(v.body_md);
+                      markDirty();
+                      setVersionsOpen(false);
+                    })();
                   }}
                 >
                   <span>{v.title || "（無標題）"}</span>
@@ -906,10 +910,12 @@ export default function NotePage() {
                     type="button"
                     className="doc-cmd"
                     onClick={() => {
-                      const url = window.prompt("封面圖片網址", "https://");
-                      if (!url) return;
-                      setCover(url.trim());
-                      markDirty();
+                      void (async () => {
+                        const url = await askPrompt("封面圖片網址", "https://");
+                        if (!url) return;
+                        setCover(url.trim());
+                        markDirty();
+                      })();
                     }}
                   >
                     加封面

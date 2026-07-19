@@ -1,5 +1,7 @@
 "use client";
 
+import { askPrompt } from "@/lib/dialogs";
+
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -150,7 +152,7 @@ export default function BoardPage() {
 
   const setDueOnSelected = async () => {
     if (!selected.length) return;
-    const due = window.prompt("截止日期 YYYY-MM-DD（空白清除）", "");
+    const due = await askPrompt({ title: "截止日期", message: "格式 YYYY-MM-DD，留空則清除", defaultValue: "" });
     if (due === null) return;
     const val = due.trim();
     if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) {

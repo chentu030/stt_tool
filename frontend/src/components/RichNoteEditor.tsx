@@ -1,5 +1,7 @@
 "use client";
 
+import { askPrompt } from "@/lib/dialogs";
+
 import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
@@ -371,16 +373,19 @@ export default function RichNoteEditor({
       setUploadError("請先開啟已儲存的筆記再生成圖片");
       return;
     }
-    const desc = window.prompt(
-      "描述要生成的圖片（可用中文）",
-      "溫暖的書房裡，桌上有一杯咖啡與打開的筆記本，柔和自然光"
-    );
+    const desc = await askPrompt({
+      title: "描述要生成的圖片",
+      message: "可用中文描述畫面內容與風格",
+      defaultValue: "溫暖的書房裡，桌上有一杯咖啡與打開的筆記本，柔和自然光",
+      multiline: true,
+    });
     if (desc == null || !desc.trim()) return;
     const ratio =
-      window.prompt(
-        "畫面比例（1:1 / 16:9 / 9:16 / 4:3 / 3:4，留空=1:1）",
-        "1:1"
-      ) || "1:1";
+      (await askPrompt({
+        title: "畫面比例",
+        message: "可選 1:1 / 16:9 / 9:16 / 4:3 / 3:4，留空則為 1:1",
+        defaultValue: "1:1",
+      })) || "1:1";
     setUploadError("");
     setUploadPct(5);
     try {
@@ -417,19 +422,21 @@ export default function RichNoteEditor({
   createAiPhotoRef.current = createAiPhoto;
 
   const insertEmbedFromPrompt = useCallback((hint: string) => {
-    const url = promptInsertUrl(hint);
-    if (!url) return;
-    const emb = resolveEmbedUrl(url);
-    if (!emb) {
-      setUploadError("無法辨識此連結");
-      return;
-    }
-    editorRef.current?.chain().focus().setNoteEmbed({
-      src: emb.src,
-      kind: emb.kind,
-      title: emb.title,
-      original: emb.original,
-    }).run();
+    void (async () => {
+      const url = await promptInsertUrl(hint);
+      if (!url) return;
+      const emb = resolveEmbedUrl(url);
+      if (!emb) {
+        setUploadError("無法辨識此連結");
+        return;
+      }
+      editorRef.current?.chain().focus().setNoteEmbed({
+        src: emb.src,
+        kind: emb.kind,
+        title: emb.title,
+        original: emb.original,
+      }).run();
+    })();
   }, []);
 
   const onCreateSubpageRef = useRef(onCreateSubpage);
@@ -463,7 +470,7 @@ export default function RichNoteEditor({
           void (async () => {
             const create = onCreateSubpageRef.current;
             if (!create) return;
-            const name = window.prompt("子頁面標題", "未命名子頁");
+            const name = await askPrompt("子頁面標題", "未命名子頁");
             if (name == null) return;
             const title = name.trim() || "未命名子頁";
             const created = await create(title);
@@ -521,19 +528,21 @@ export default function RichNoteEditor({
         label: "網頁書籤",
         hint: "/bookmark 書籤卡片",
         run: (e) => {
-          const url = window.prompt("書籤網址", "https://");
-          if (!url?.trim()) return;
-          let title = url.trim();
-          try {
-            title = new URL(url.trim()).hostname;
-          } catch {
-            /* keep */
-          }
-          const custom = window.prompt("書籤標題", title);
-          e.chain()
-            .focus()
-            .setBookmark({ href: url.trim(), title: (custom || title).trim() })
-            .run();
+          void (async () => {
+            const url = await askPrompt("書籤網址", "https://");
+            if (!url?.trim()) return;
+            let title = url.trim();
+            try {
+              title = new URL(url.trim()).hostname;
+            } catch {
+              /* keep */
+            }
+            const custom = await askPrompt("書籤標題", title);
+            e.chain()
+              .focus()
+              .setBookmark({ href: url.trim(), title: (custom || title).trim() })
+              .run();
+          })();
         },
       },
       { id: "video", label: "影片檔", hint: "/video 上傳影片", run: () => videoRef.current?.click() },
@@ -564,8 +573,10 @@ export default function RichNoteEditor({
         label: "圖片網址",
         hint: "用 URL 插入",
         run: (e) => {
-          const url = window.prompt("圖片網址", "https://");
-          if (url) e.chain().focus().setImage({ src: url }).run();
+          void (async () => {
+            const url = await askPrompt("圖片網址", "https://");
+            if (url) e.chain().focus().setImage({ src: url }).run();
+          })();
         },
       },
       {
@@ -587,18 +598,20 @@ export default function RichNoteEditor({
           label: `AI · ${a.label}`,
           hint: a.hint,
           run: (e) => {
-            if (a.insertMode === "chat") {
-              onOpenAiRef.current?.({ focusChat: true });
-              return;
-            }
-            if (a.id === "write-anything") {
-              const p = window.prompt("要 AI 寫什麼？", "寫一段開場白");
-              if (p == null) return;
-              onRunAiRef.current?.(a.apiAction, p);
-              return;
-            }
-            onRunAiRef.current?.(a.apiAction, a.prompt);
-            void e;
+            void (async () => {
+              if (a.insertMode === "chat") {
+                onOpenAiRef.current?.({ focusChat: true });
+                return;
+              }
+              if (a.id === "write-anything") {
+                const p = await askPrompt("要 AI 寫什麼？", "寫一段開場白");
+                if (p == null) return;
+                onRunAiRef.current?.(a.apiAction, p);
+                return;
+              }
+              onRunAiRef.current?.(a.apiAction, a.prompt);
+              void e;
+            })();
           },
         })
       ),
@@ -607,16 +620,18 @@ export default function RichNoteEditor({
         label: "樣板按鈕",
         hint: "/template 一鍵插入範本",
         run: (e) => {
-          const choices = NOTE_TEMPLATES.filter((t) => t.id !== "blank")
-            .map((t) => `${t.id}=${t.label}`)
-            .join("、");
-          const id = window.prompt(`範本 id（${choices}）`, "meeting");
-          if (!id?.trim()) return;
-          const t = NOTE_TEMPLATES.find((x) => x.id === id.trim()) || NOTE_TEMPLATES.find((x) => x.id === "meeting")!;
-          e.chain()
-            .focus()
-            .setTemplateBtn({ templateId: t.id, label: `插入「${t.label}」` })
-            .run();
+          void (async () => {
+            const choices = NOTE_TEMPLATES.filter((t) => t.id !== "blank")
+              .map((t) => `${t.id}=${t.label}`)
+              .join("、");
+            const id = await askPrompt(`範本 id（${choices}）`, "meeting");
+            if (!id?.trim()) return;
+            const t = NOTE_TEMPLATES.find((x) => x.id === id.trim()) || NOTE_TEMPLATES.find((x) => x.id === "meeting")!;
+            e.chain()
+              .focus()
+              .setTemplateBtn({ templateId: t.id, label: `插入「${t.label}」` })
+              .run();
+          })();
         },
       },
       {
@@ -634,18 +649,20 @@ export default function RichNoteEditor({
         label: "同步區塊",
         hint: "/sync 以連結同步內容",
         run: (e) => {
-          const title = window.prompt("同步來源筆記標題（wiki）", "共享區塊");
-          if (title == null) return;
-          const t = title.trim() || "共享區塊";
-          e.chain()
-            .focus()
-            .insertContent(
-              markdownToHtml(
-                `> [!tip] 同步：請在來源筆記編輯內容，並在此用 [[${t}]] 連結。`,
-                (title) => resolveWikiRef.current(title)
+          void (async () => {
+            const title = await askPrompt("同步來源筆記標題（wiki）", "共享區塊");
+            if (title == null) return;
+            const t = title.trim() || "共享區塊";
+            e.chain()
+              .focus()
+              .insertContent(
+                markdownToHtml(
+                  `> [!tip] 同步：請在來源筆記編輯內容，並在此用 [[${t}]] 連結。`,
+                  (title) => resolveWikiRef.current(title)
+                )
               )
-            )
-            .run();
+              .run();
+          })();
         },
       },
       {
@@ -659,9 +676,11 @@ export default function RichNoteEditor({
         label: "頁面連結",
         hint: "/link [[筆記]]",
         run: (e) => {
-          const title = window.prompt("筆記標題", "");
-          if (!title?.trim()) return;
-          e.chain().focus().insertContent(`[[${title.trim()}]]`).run();
+          void (async () => {
+            const title = await askPrompt("筆記標題", "");
+            if (!title?.trim()) return;
+            e.chain().focus().insertContent(`[[${title.trim()}]]`).run();
+          })();
         },
       },
       {
@@ -669,8 +688,10 @@ export default function RichNoteEditor({
         label: "數學公式",
         hint: "/equation 區塊 $$",
         run: (e) => {
-          const f = window.prompt("LaTeX 公式", "E = mc^2");
-          if (f) e.chain().focus().setMathBlock(f).run();
+          void (async () => {
+            const f = await askPrompt("LaTeX 公式", "E = mc^2");
+            if (f) e.chain().focus().setMathBlock(f).run();
+          })();
         },
       },
       {
@@ -678,8 +699,10 @@ export default function RichNoteEditor({
         label: "行內公式",
         hint: "$...$",
         run: (e) => {
-          const f = window.prompt("行內 LaTeX", "x^2");
-          if (f) e.chain().focus().setMathInline(f).run();
+          void (async () => {
+            const f = await askPrompt("行內 LaTeX", "x^2");
+            if (f) e.chain().focus().setMathInline(f).run();
+          })();
         },
       },
       {
@@ -1156,11 +1179,13 @@ export default function RichNoteEditor({
 
   const setLink = () => {
     if (!editor) return;
-    const prev = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("連結網址", prev || "https://");
-    if (url === null) return;
-    if (url === "") editor.chain().focus().unsetLink().run();
-    else editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    void (async () => {
+      const prev = editor.getAttributes("link").href as string | undefined;
+      const url = await askPrompt("連結網址", prev || "https://");
+      if (url === null) return;
+      if (url === "") editor.chain().focus().unsetLink().run();
+      else editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    })();
   };
 
   const replaceAll = () => {
@@ -1411,8 +1436,10 @@ export default function RichNoteEditor({
         )}
         <ToolbarBtn
           onClick={() => {
-            const f = window.prompt("LaTeX 公式", "E = mc^2");
-            if (f) editor.chain().focus().setMathBlock(f).run();
+            void (async () => {
+              const f = await askPrompt("LaTeX 公式", "E = mc^2");
+              if (f) editor.chain().focus().setMathBlock(f).run();
+            })();
           }}
           title="LaTeX"
         >
@@ -1506,8 +1533,10 @@ export default function RichNoteEditor({
         </ToolbarBtn>
         <ToolbarBtn
           onClick={() => {
-            const f = window.prompt("行內 LaTeX", "x^2");
-            if (f) editor.chain().focus().setMathInline(f).run();
+            void (async () => {
+              const f = await askPrompt("行內 LaTeX", "x^2");
+              if (f) editor.chain().focus().setMathInline(f).run();
+            })();
           }}
         >
           ∑

@@ -113,11 +113,83 @@ button, input, textarea, select {
 }
 .btn-soft:hover { background: color-mix(in oklab, var(--accent-soft) 80%, var(--accent) 20%); }
 .btn-sm { padding: 0.4rem 0.75rem; font-size: 0.8rem; }
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover { filter: brightness(1.05); }
 .btn-icon {
   width: 40px;
   height: 40px;
   padding: 0;
   border-radius: var(--radius-sm);
+}
+
+/* Cadence custom dialogs (replace native prompt/confirm) */
+.cadence-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  animation: cadence-dialog-fade 0.15s ease;
+}
+[data-theme="light"] .cadence-dialog-backdrop {
+  background: rgba(55, 53, 47, 0.28);
+}
+.cadence-dialog {
+  width: min(420px, 100%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow), 0 24px 64px rgba(15, 23, 42, 0.18);
+  padding: 1.15rem 1.2rem 1.05rem;
+  animation: cadence-dialog-pop 0.18s ease;
+}
+.cadence-dialog-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: "Space Grotesk", "Outfit", sans-serif;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+.cadence-dialog-msg {
+  margin: 0.45rem 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.cadence-dialog-form {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.cadence-dialog-input {
+  font-size: 0.92rem;
+}
+.cadence-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+}
+.cadence-dialog-actions .btn {
+  min-width: 4.5rem;
+  padding: 0.5rem 0.95rem;
+  font-size: 0.86rem;
+}
+@keyframes cadence-dialog-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cadence-dialog-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: none; }
 }
 
 .theme-toggle {

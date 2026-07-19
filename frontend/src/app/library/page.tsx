@@ -1,5 +1,7 @@
 "use client";
 
+import { askConfirm } from "@/lib/dialogs";
+
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -169,7 +171,7 @@ function LibraryPageInner() {
 
   const runBulkDelete = async () => {
     if (!selected.length) return;
-    if (prefs.askBeforeDelete && !window.confirm(`確定刪除選取的 ${selected.length} 篇筆記？`)) return;
+    if (prefs.askBeforeDelete && !(await askConfirm({ title: `刪除選取的 ${selected.length} 篇筆記？`, danger: true, confirmLabel: "刪除" }))) return;
     await Promise.all(selected.map((id) => deleteNote(id)));
     setSelected([]);
   };
@@ -508,7 +510,9 @@ function LibraryPageInner() {
                             type="button"
                             className="btn btn-ghost btn-sm"
                             onClick={() => {
-                              if (confirm("刪除此筆記？")) deleteNote(n.id);
+                              void (async () => {
+                                if (await askConfirm({ title: "刪除此筆記？", danger: true, confirmLabel: "刪除" })) deleteNote(n.id);
+                              })();
                             }}
                           >
                             刪除
@@ -539,9 +543,11 @@ function LibraryPageInner() {
                       type="button"
                       className="btn btn-ghost btn-sm"
                       onClick={() => {
-                        if (confirm("刪除此轉錄？")) {
-                          deleteJob(j.id, j.storage_paths || [], j.result_paths || []);
-                        }
+                        void (async () => {
+                          if (await askConfirm({ title: "刪除此轉錄？", danger: true, confirmLabel: "刪除" })) {
+                            deleteJob(j.id, j.storage_paths || [], j.result_paths || []);
+                          }
+                        })();
                       }}
                     >
                       刪除
