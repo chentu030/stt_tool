@@ -26,22 +26,27 @@ type Props = {
   editor: Editor;
   noteTitle?: string;
   noteBody?: string;
+  /** Rich packed context from buildNoteAiContext */
+  aiContext?: string;
   open: boolean;
   onClose: () => void;
   selectionText: string;
   from: number;
   to: number;
+  onSendToAside?: (selection: string, question?: string) => void;
 };
 
 export default function SelectionAiPanel({
   editor,
   noteTitle,
   noteBody,
+  aiContext,
   open,
   onClose,
   selectionText,
   from,
   to,
+  onSendToAside,
 }: Props) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -93,9 +98,12 @@ export default function SelectionAiPanel({
         selection: sel,
         body: sel,
       };
-      if (noteBody) payload.context = noteBody.slice(0, 6000);
+      if (noteBody) payload.context = aiContext || noteBody.slice(0, 6000);
       if (action === "ask_selection") {
         payload.prompt = ask?.trim() || prompt.trim() || (hasSelection ? "請說明這段在說什麼" : "根據這篇筆記幫我整理重點");
+      }
+      if (action === "expand" || action === "explain") {
+        payload.body = noteBody?.slice(0, 8000) || sel;
       }
       const res = await fetch("/api/ai/generate", {
         method: "POST",
@@ -201,8 +209,36 @@ export default function SelectionAiPanel({
             >
               複製
             </button>
+            {onSendToAside && (
+              <button
+                type="button"
+                className="doc-cmd"
+                onClick={() => {
+                  onSendToAside(
+                    selectionText.trim() || result,
+                    prompt.trim() || "延續討論這段內容"
+                  );
+                  onClose();
+                }}
+              >
+                側欄繼續
+              </button>
+            )}
           </div>
         </div>
+      )}
+      {!result && onSendToAside && selectionText.trim() && (
+        <button
+          type="button"
+          className="doc-cmd"
+          style={{ width: "100%", marginTop: 6 }}
+          onClick={() => {
+            onSendToAside(selectionText, prompt.trim() || undefined);
+            onClose();
+          }}
+        >
+          送到側欄繼續聊
+        </button>
       )}
     </div>
   );

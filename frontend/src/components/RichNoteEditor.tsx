@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -31,6 +31,7 @@ import {
   TemplateBtn,
 } from "@/lib/tiptapBlocks";
 import { NOTE_TEMPLATES } from "@/lib/templates";
+import { CADENCE_AI_ACTIONS, AI_SLASH_ALIASES } from "@/lib/cadenceAiActions";
 import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt, duplicateTopLevelBlock } from "@/lib/moveBlock";
@@ -57,6 +58,13 @@ type Props = {
   noteTitle?: string;
   /** Create a nested page under the current note; return created title for wiki link */
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
+  /** Open Cadence AI aside / chat */
+  onOpenAiAssistant?: (opts?: { selection?: string; question?: string; focusChat?: boolean }) => void;
+  /** Run a named AI action (api action id) */
+  onRunAiAction?: (apiAction: string, prompt?: string) => void;
+  /** Parent registers insert-at-cursor */
+  insertMdRef?: MutableRefObject<((md: string) => void) | null>;
+  aiContext?: string;
 };
 
 type SlashItem = {
@@ -100,6 +108,7 @@ const SLASH_ALIASES: Record<string, string[]> = {
   page: ["page"],
   turn: ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote", "turn-callout"],
   "turn into": ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote"],
+  ...AI_SLASH_ALIASES,
 };
 
 function filterSlash(items: SlashItem[], q: string) {
@@ -134,6 +143,10 @@ export default function RichNoteEditor({
   pageMode = false,
   noteTitle = "",
   onCreateSubpage,
+  onOpenAiAssistant,
+  onRunAiAction,
+  insertMdRef,
+  aiContext,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const { user } = useAuth();
@@ -371,6 +384,10 @@ export default function RichNoteEditor({
 
   const onCreateSubpageRef = useRef(onCreateSubpage);
   onCreateSubpageRef.current = onCreateSubpage;
+  const onOpenAiRef = useRef(onOpenAiAssistant);
+  onOpenAiRef.current = onOpenAiAssistant;
+  const onRunAiRef = useRef(onRunAiAction);
+  onRunAiRef.current = onRunAiAction;
 
   const buildSlash = useCallback((editor: Editor): SlashItem[] => {
     const app = (kind: string, title: string, href: string, hint: string): SlashItem => ({
@@ -496,13 +513,37 @@ export default function RichNoteEditor({
       {
         id: "ai",
         label: "詢問 AI",
-        hint: "/ai 寫作、翻譯、總結",
+        hint: "/ai 開啟助手",
         run: (e) => {
           const { from, to } = e.state.selection;
           const text = from !== to ? e.state.doc.textBetween(from, to, "\n") : "";
-          setSelAi({ from, to, text });
+          if (text.trim()) {
+            setSelAi({ from, to, text });
+          }
+          onOpenAiRef.current?.({ selection: text.trim() || undefined, focusChat: !text.trim() });
         },
       },
+      ...CADENCE_AI_ACTIONS.filter((a) => a.id !== "ask").map(
+        (a): SlashItem => ({
+          id: `ai-${a.id}`,
+          label: `AI · ${a.label}`,
+          hint: a.hint,
+          run: (e) => {
+            if (a.insertMode === "chat") {
+              onOpenAiRef.current?.({ focusChat: true });
+              return;
+            }
+            if (a.id === "write-anything") {
+              const p = window.prompt("要 AI 寫什麼？", "寫一段開場白");
+              if (p == null) return;
+              onRunAiRef.current?.(a.apiAction, p);
+              return;
+            }
+            onRunAiRef.current?.(a.apiAction, a.prompt);
+            void e;
+          },
+        })
+      ),
       {
         id: "template",
         label: "樣板按鈕",
@@ -762,6 +803,24 @@ export default function RichNoteEditor({
         const mod = event.metaKey || event.ctrlKey;
         const key = event.key.toLowerCase();
 
+        // Empty paragraph + Space → open AI slash menu (Notion-style blank invoke)
+        if (event.key === " " && !mod && !event.altKey && ed) {
+          const { $from } = ed.state.selection;
+          const parent = $from.parent;
+          if (
+            parent.type.name === "paragraph" &&
+            parent.content.size === 0 &&
+            slashEnabled
+          ) {
+            event.preventDefault();
+            ed.chain().focus().insertContent("/ai").run();
+            setSlash({ query: "ai", index: 0 });
+            setWiki(null);
+            setAtMenu(null);
+            return true;
+          }
+        }
+
         // Undo / Redo (explicit — ensure Ctrl+Z always works in the note editor)
         if (mod && !event.altKey && key === "z" && !event.shiftKey && ed) {
           event.preventDefault();
@@ -919,6 +978,19 @@ export default function RichNoteEditor({
   });
 
   editorRef.current = editor;
+
+  useEffect(() => {
+    if (!insertMdRef) return;
+    insertMdRef.current = (md: string) => {
+      const ed = editorRef.current;
+      if (!ed) return;
+      const html = markdownToHtml(md, (t) => resolveWikiRef.current(t));
+      ed.chain().focus().insertContent(html).run();
+    };
+    return () => {
+      insertMdRef.current = null;
+    };
+  }, [insertMdRef, editor]);
 
   const applySlash = useCallback(
     (item: SlashItem) => {
@@ -1391,10 +1463,18 @@ export default function RichNoteEditor({
           editor={editor}
           noteTitle={noteTitle}
           noteBody={valueMd}
+          aiContext={aiContext}
           selectionText={selAi.text}
           from={selAi.from}
           to={selAi.to}
           onClose={() => setSelAi(null)}
+          onSendToAside={
+            onOpenAiAssistant
+              ? (selection, question) => {
+                  onOpenAiAssistant({ selection, question, focusChat: true });
+                }
+              : undefined
+          }
         />
       )}
 

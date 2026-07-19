@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import Link from "next/link";
 import {
   HeadingItem,
@@ -9,24 +9,33 @@ import {
   NoteStats,
   RelatedNote,
 } from "@/lib/noteMeta";
+import { CADENCE_AI_ACTIONS } from "@/lib/cadenceAiActions";
 
 type ChatMsg = { id: string; role: "user" | "assistant"; text: string };
 
+export type NoteAsideAiHandle = {
+  focusChat: (seed?: string) => void;
+  seedSelection: (selection: string, question?: string) => void;
+};
+
 type Props = {
+  noteId?: string;
   title: string;
   body: string;
+  aiContext: string;
+  aiChip: string;
   stats: NoteStats;
   outline: HeadingItem[];
   related: RelatedNote[];
   aiBusy: boolean;
-  onAiAction: (action: NoteAiActionId) => void;
-  onInsertMarkdown: (md: string) => void;
+  onAiAction: (action: NoteAiActionId | string, prompt?: string) => void;
+  onInsertAtCursor: (md: string) => void;
+  onInsertAppend: (md: string) => void;
   onJumpHeading?: (item: HeadingItem) => void;
   onOpenSlideForHeading?: (item: HeadingItem) => void;
   open: boolean;
   tab: "outline" | "ai" | "info";
   onTab: (t: "outline" | "ai" | "info") => void;
-  /** Current aside width in px (for resize handle) */
   widthPx?: number;
   onResizeWidth?: (px: number) => void;
 };
@@ -35,33 +44,86 @@ function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export default function NoteAside({
-  title,
-  body,
-  stats,
-  outline,
-  related,
-  aiBusy,
-  onAiAction,
-  onInsertMarkdown,
-  onJumpHeading,
-  onOpenSlideForHeading,
-  open,
-  tab,
-  onTab,
-  widthPx = 300,
-  onResizeWidth,
-}: Props) {
+const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
+  {
+    noteId,
+    title,
+    body,
+    aiContext,
+    aiChip,
+    stats,
+    outline,
+    related,
+    aiBusy,
+    onAiAction,
+    onInsertAtCursor,
+    onInsertAppend,
+    onJumpHeading,
+    onOpenSlideForHeading,
+    open,
+    tab,
+    onTab,
+    widthPx = 300,
+    onResizeWidth,
+  },
+  ref
+) {
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hydrated = useRef(false);
+  const storageKey = noteId ? `cadence-note-ai-${noteId}` : "";
+
+  useEffect(() => {
+    hydrated.current = false;
+    if (!storageKey) {
+      setMsgs([]);
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as ChatMsg[];
+        if (Array.isArray(parsed)) setMsgs(parsed.slice(-40));
+        else setMsgs([]);
+      } else setMsgs([]);
+    } catch {
+      setMsgs([]);
+    }
+    hydrated.current = true;
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (!hydrated.current || !storageKey) return;
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(msgs.slice(-40)));
+    } catch {
+      /* ignore */
+    }
+  }, [msgs, storageKey]);
 
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, busy]);
+
+  useImperativeHandle(ref, () => ({
+    focusChat: (seed?: string) => {
+      onTab("ai");
+      if (seed) setInput(seed);
+      setTimeout(() => inputRef.current?.focus(), 60);
+    },
+    seedSelection: (selection: string, question?: string) => {
+      onTab("ai");
+      const q = question?.trim() || "請針對以下選取文字說明並給出可插入的 Markdown 建議";
+      const seed = `${q}\n\n---\n選取：\n${selection.slice(0, 2000)}`;
+      setInput(seed);
+      setTimeout(() => inputRef.current?.focus(), 60);
+    },
+  }));
 
   if (!open) return null;
 
@@ -80,12 +142,16 @@ export default function NoteAside({
         body: JSON.stringify({
           action: "note",
           title,
-          body: body.slice(0, 12000),
+          body: body.slice(0, 8000),
+          context: aiContext,
           prompt,
-          messages: [...msgs, userMsg].slice(-8).map((m) => ({
-            role: m.role === "assistant" ? "model" : "user",
-            text: m.text,
-          })).slice(0, -1),
+          messages: [...msgs, userMsg]
+            .slice(-8)
+            .map((m) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              text: m.text,
+            }))
+            .slice(0, -1),
         }),
       });
       const data = await res.json();
@@ -101,6 +167,7 @@ export default function NoteAside({
   };
 
   const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+  const draftChips = CADENCE_AI_ACTIONS.filter((a) => a.group === "draft" || a.group === "visual");
 
   return (
     <aside className="note-aside">
@@ -118,7 +185,7 @@ export default function NoteAside({
             const target = e.currentTarget;
             target.setPointerCapture(e.pointerId);
             const onMove = (ev: globalThis.PointerEvent) => {
-              const dx = startX - ev.clientX; // drag left → wider
+              const dx = startX - ev.clientX;
               const next = Math.round(Math.min(560, Math.max(220, startW + dx)));
               onResizeWidth(next);
             };
@@ -204,6 +271,9 @@ export default function NoteAside({
 
       {tab === "ai" && (
         <div className="note-aside-body note-aside-ai">
+          <p className="note-ai-chip-line" title={aiChip}>
+            {aiChip}
+          </p>
           <div className="note-ai-actions">
             {NOTE_AI_ACTIONS.map((a) => (
               <button
@@ -217,15 +287,27 @@ export default function NoteAside({
                 {a.label}
               </button>
             ))}
+            {draftChips.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className="note-ai-chip"
+                disabled={aiBusy}
+                onClick={() => onAiAction(a.apiAction, a.prompt)}
+                title={a.hint}
+              >
+                {a.label}
+              </button>
+            ))}
           </div>
 
           <div className="note-ai-msgs" ref={listRef}>
             {msgs.length === 0 && (
-              <p className="note-aside-empty">針對這篇筆記提問，或用上方快捷動作。</p>
+              <p className="note-aside-empty">針對這篇筆記提問，或用上方快捷動作。也可用 Ctrl+J 快速開啟。</p>
             )}
             {msgs.map((m) => (
               <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
-                <span>{m.role === "user" ? "你" : "助手"}</span>
+                <span>{m.role === "user" ? "你" : "Cadence AI"}</span>
                 <p>{m.text}</p>
               </div>
             ))}
@@ -233,14 +315,24 @@ export default function NoteAside({
           </div>
 
           {lastAssistant && (
-            <button
-              type="button"
-              className="btn btn-soft btn-sm"
-              style={{ width: "100%" }}
-              onClick={() => onInsertMarkdown(`\n\n---\n\n## AI 回覆\n\n${lastAssistant.text}\n`)}
-            >
-              插入最後回覆到筆記
-            </button>
+            <div className="note-ai-insert-row">
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => onInsertAtCursor(lastAssistant.text)}
+              >
+                插入游標處
+              </button>
+              <button
+                type="button"
+                className="btn btn-soft btn-sm"
+                onClick={() =>
+                  onInsertAppend(`\n\n---\n\n## AI 回覆\n\n${lastAssistant.text}\n`)
+                }
+              >
+                附加文末
+              </button>
+            </div>
           )}
 
           {error && <p className="note-aside-error">{error}</p>}
@@ -253,9 +345,10 @@ export default function NoteAside({
             }}
           >
             <textarea
+              ref={inputRef}
               className="input"
               rows={3}
-              placeholder="問這篇筆記…"
+              placeholder="問這篇筆記…（Enter 送出，Shift+Enter 換行）"
               value={input}
               disabled={busy}
               onChange={(e) => setInput(e.target.value)}
@@ -286,15 +379,15 @@ export default function NoteAside({
           <div className="note-aside-block">
             <h4>快捷鍵</h4>
             <ul className="note-shortcuts">
-              <li><kbd>/</kbd> 插入區塊</li>
+              <li><kbd>/</kbd> 或空白段 <kbd>Space</kbd> 插入／AI</li>
+              <li><kbd>/ai</kbd> Cadence AI 動作</li>
+              <li><kbd>Ctrl</kbd>+<kbd>J</kbd> 開啟 AI 側欄</li>
               <li><kbd>@</kbd> 提及頁面／日期／人名</li>
               <li><kbd>[[</kbd> 連結筆記</li>
               <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> 復原　<kbd>Ctrl</kbd>+<kbd>Y</kbd> 重做</li>
               <li><kbd>Ctrl</kbd>+<kbd>D</kbd> 複製區塊</li>
               <li><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑↓</kbd> 移動區塊</li>
-              <li><kbd>Ctrl</kbd>+<kbd>B</kbd>／<kbd>I</kbd> 粗體／斜體</li>
               <li><kbd>Ctrl</kbd>+<kbd>P</kbd>／<kbd>K</kbd> 快速搜尋</li>
-              <li><kbd>Ctrl</kbd>+<kbd>[</kbd> 回上一頁</li>
               <li><kbd>Ctrl</kbd>+<kbd>S</kbd> 手動儲存</li>
               <li><kbd>Ctrl</kbd>+<kbd>F</kbd> 尋找</li>
               <li><kbd>Ctrl</kbd>+<kbd>\\</kbd> 側欄</li>
@@ -305,4 +398,6 @@ export default function NoteAside({
       )}
     </aside>
   );
-}
+});
+
+export default NoteAside;

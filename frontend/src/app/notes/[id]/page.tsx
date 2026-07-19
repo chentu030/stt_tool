@@ -17,7 +17,7 @@ import {
 } from "@/lib/firebase";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
-import NoteAside from "@/components/notes/NoteAside";
+import NoteAside, { type NoteAsideAiHandle } from "@/components/notes/NoteAside";
 import {
   downloadDocx,
   downloadMarkdown,
@@ -44,6 +44,8 @@ import {
   extractOutline,
   findRelatedNotes,
 } from "@/lib/noteMeta";
+import { buildNoteAiContext } from "@/lib/noteAiContext";
+import { findCadenceAiAction } from "@/lib/cadenceAiActions";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
 import { NOTE_TEMPLATES } from "@/lib/templates";
@@ -103,6 +105,8 @@ export default function NotePage() {
   const [toast, setToast] = useState("");
   const [iconOpen, setIconOpen] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const asideAiRef = useRef<NoteAsideAiHandle | null>(null);
+  const insertMdRef = useRef<((md: string) => void) | null>(null);
   const latest = useRef({
     title: "",
     body: "",
@@ -207,28 +211,54 @@ export default function NotePage() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
   }, []);
 
-  const runAi = async (action: NoteAiActionId) => {
-    if (!body.trim() || aiBusy) return;
+  const runAi = async (action: NoteAiActionId | string, prompt?: string) => {
+    if (aiBusy) return;
+    const catalog = findCadenceAiAction(action) || findCadenceAiAction(action.replace(/^ai-/, ""));
+    const apiAction = catalog?.apiAction || action;
+    const meta = NOTE_AI_ACTIONS.find((a) => a.id === action);
+    const needsBody = ["summarize", "rewrite", "outline", "expand", "actions", "quiz", "explain"].includes(apiAction);
+    if (needsBody && !body.trim()) return;
+
     setAiBusy(true);
     setAiError("");
     setAsideTab("ai");
     setAsideOpen(true);
     try {
+      const pack = buildNoteAiContext({
+        title,
+        body,
+        folder,
+        status: note?.status,
+        tags,
+        relatedTitles: related.map((r) => r.title),
+      });
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, title, body }),
+        body: JSON.stringify({
+          action: apiAction,
+          title,
+          body,
+          context: pack.context,
+          prompt: prompt || catalog?.prompt,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI 失敗");
-      const meta = NOTE_AI_ACTIONS.find((a) => a.id === action);
-      const next =
-        meta?.mode === "replace"
-          ? data.text
-          : `${body.trim()}\n\n---\n\n## AI ${meta?.label || action}\n\n${data.text}`;
-      setBody(next);
+      const text = String(data.text || "").trim();
+      if (!text) throw new Error("AI 無回覆");
+
+      const mode = catalog?.insertMode || meta?.mode || "append";
+      if (mode === "replace" || meta?.mode === "replace") {
+        setBody(text);
+      } else if (mode === "cursor" && insertMdRef.current) {
+        insertMdRef.current(text);
+      } else {
+        const label = catalog?.label || meta?.label || action;
+        setBody((b) => `${b.trim()}\n\n---\n\n## AI ${label}\n\n${text}`);
+      }
       markDirty();
-      flash(`已套用：${meta?.label || action}`);
+      flash(`已套用：${catalog?.label || meta?.label || action}`);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : "AI 失敗");
     } finally {
@@ -248,6 +278,19 @@ export default function NotePage() {
           )
         : [],
     [note, title, body, tags, folder, allNotes]
+  );
+
+  const aiPack = useMemo(
+    () =>
+      buildNoteAiContext({
+        title,
+        body,
+        folder,
+        status: note?.status,
+        tags,
+        relatedTitles: related.map((r) => r.title),
+      }),
+    [title, body, folder, note?.status, tags, related]
   );
 
   const backlinks = useMemo(() => {
@@ -390,6 +433,13 @@ export default function NotePage() {
       if (mod && e.key === "\\") {
         e.preventDefault();
         setAsideOpen((v) => !v);
+      }
+      if (mod && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setAsideOpen(true);
+        setAsideTab("ai");
+        setFocusMode(false);
+        setTimeout(() => asideAiRef.current?.focusChat(), 50);
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
@@ -989,7 +1039,7 @@ export default function NotePage() {
             <RichNoteEditor
               valueMd={body}
               onChangeMd={(md) => { setBody(md); markDirty(); }}
-              placeholder="輸入文字，或輸入 / 插入區塊…"
+              placeholder="輸入文字，空白段按空白鍵或 /ai 呼叫助手…"
               findOpen={findOpen}
               onFindOpenChange={setFindOpen}
               toolbarHost={ribbonHost}
@@ -998,6 +1048,28 @@ export default function NotePage() {
               wikiNotes={allNotes}
               pageMode={pageMode}
               noteTitle={title}
+              aiContext={aiPack.context}
+              insertMdRef={insertMdRef}
+              onOpenAiAssistant={(opts) => {
+                setAsideOpen(true);
+                setAsideTab("ai");
+                setFocusMode(false);
+                if (opts?.selection) {
+                  setTimeout(
+                    () =>
+                      asideAiRef.current?.seedSelection(
+                        opts.selection!,
+                        opts.question
+                      ),
+                    50
+                  );
+                } else if (opts?.focusChat) {
+                  setTimeout(() => asideAiRef.current?.focusChat(), 50);
+                }
+              }}
+              onRunAiAction={(apiAction, prompt) => {
+                void runAi(apiAction, prompt);
+              }}
               showEmptyTemplates
               onEmptyTemplate={(tid) => {
                 const tpl = NOTE_TEMPLATES.find((t) => t.id === tid);
@@ -1077,17 +1149,35 @@ export default function NotePage() {
         </div>
 
         <NoteAside
+          ref={asideAiRef}
+          noteId={note.id}
           open={asideOpen && !focusMode}
           tab={asideTab}
           onTab={setAsideTab}
           title={title}
           body={body}
+          aiContext={aiPack.context}
+          aiChip={aiPack.chip}
           stats={stats}
           outline={outline}
           related={related}
           aiBusy={aiBusy}
-          onAiAction={(a) => { void runAi(a); }}
-          onInsertMarkdown={(md) => { setBody((b) => b + md); markDirty(); flash("已插入 AI 內容"); }}
+          onAiAction={(a, prompt) => { void runAi(a, prompt); }}
+          onInsertAtCursor={(md) => {
+            if (insertMdRef.current) {
+              insertMdRef.current(md);
+              flash("已插入游標處");
+            } else {
+              setBody((b) => `${b.trim()}\n\n${md}`);
+              markDirty();
+              flash("已附加到筆記");
+            }
+          }}
+          onInsertAppend={(md) => {
+            setBody((b) => b + md);
+            markDirty();
+            flash("已附加文末");
+          }}
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
           widthPx={asideWidth}

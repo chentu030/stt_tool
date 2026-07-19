@@ -10,6 +10,7 @@ import CadenceLogo from "@/components/CadenceLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
+import GlobalAiDock from "@/components/shell/GlobalAiDock";
 
 const NAV_APPS = [
   { href: "/library", label: "知識庫", icon: LibraryIcon },
@@ -207,6 +208,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </Link>
         </nav>
         {palette}
+        <GlobalAiDock />
       </div>
     );
   }
@@ -296,6 +298,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
       <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{children}</main>
       {palette}
+      <GlobalAiDock />
     </div>
   );
 }
