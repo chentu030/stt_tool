@@ -1039,7 +1039,7 @@ export default function SidebarNotesTree() {
 
       {!hintDismissed && (
         <div className="sb-hint">
-          <span>⌘K 搜尋 · 右鍵管理 · F2 改名 · Del 刪除</span>
+          <span>⌘K 搜尋 · 右鍵管理 · 拖到資料夾 · F2 改名 · Del 刪除</span>
           <button
             type="button"
             aria-label="關閉提示"

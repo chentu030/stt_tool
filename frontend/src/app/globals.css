@@ -1117,6 +1117,32 @@ button, input, textarea, select {
   color: var(--text-muted);
   letter-spacing: 0.02em;
 }
+.capture-yt-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.capture-yt-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.capture-yt-chip:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.capture-yt-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .capture-ext {
   font-size: 0.72rem;
   color: var(--text-muted);

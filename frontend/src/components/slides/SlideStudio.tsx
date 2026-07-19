@@ -1,6 +1,7 @@
 "use client";
 
 import { askPrompt, askConfirm } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
@@ -272,7 +273,7 @@ export default function SlideStudio({
       const blob = await res.blob();
       saveAs(blob, `${safeName(noteTitle)}-slide-${idx + 1}.png`);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "PNG 匯出失敗");
+      toast(e instanceof Error ? e.message : "PNG 匯出失敗");
     } finally {
       setBusy("");
     }
@@ -313,7 +314,7 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
 
     const w = window.open("", "_blank", "noopener,noreferrer,width=1100,height=700");
     if (!w) {
-      alert("請允許彈出視窗以匯出 PDF");
+      toast("請允許彈出視窗以匯出 PDF");
       return;
     }
     w.document.write(html);

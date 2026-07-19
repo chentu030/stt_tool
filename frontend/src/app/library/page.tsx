@@ -3,7 +3,7 @@
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
@@ -71,6 +71,7 @@ function LibraryPageInner() {
   const [selected, setSelected] = useState<string[]>([]);
   const [chatOpen, setChatOpen] = useState(true);
   const [bulkFolder, setBulkFolder] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setFolderFilter(folderFromUrl);
@@ -206,9 +207,16 @@ function LibraryPageInner() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const tag = (document.activeElement as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const inField = tag === "INPUT" || tag === "TEXTAREA" || (document.activeElement as HTMLElement | null)?.isContentEditable;
+      if (e.key === "/" && !inField && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      if (inField) return;
       if (!selected.length || tab !== "notes") return;
       e.preventDefault();
       void runBulkDelete();
@@ -298,8 +306,9 @@ function LibraryPageInner() {
           <div className="kb-controls">
             <div className="kb-toolbar">
               <input
+                ref={searchRef}
                 className="input kb-ctrl"
-                placeholder="搜尋…"
+                placeholder="搜尋…（/）"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -346,7 +355,7 @@ function LibraryPageInner() {
               </div>
             </div>
 
-            {(tagFilter || folderFilter || statusFilter) && (
+            {(tagFilter || folderFilter || statusFilter || q) && (
               <div className="kb-filters">
                 {folderFilter && (
                   <span className="kb-chip">
@@ -355,6 +364,7 @@ function LibraryPageInner() {
                 )}
                 {tagFilter && <span className="kb-chip">#{tagFilter}</span>}
                 {statusFilter && <span className="kb-chip">狀態：{noteStatusLabel(statusFilter)}</span>}
+                {q && <span className="kb-chip">搜尋：{q}</span>}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -362,6 +372,7 @@ function LibraryPageInner() {
                     setTagFilter("");
                     setFolderFilter("");
                     setStatusFilter("");
+                    setQ("");
                     router.replace("/library");
                   }}
                 >
@@ -475,16 +486,37 @@ function LibraryPageInner() {
             <section>
               {filteredNotes.length === 0 ? (
                 <div className="kb-empty">
-                  <p>沒有符合的筆記。</p>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => {
-                      void createFromTemplate("blank");
-                    }}
-                  >
-                    建立第一篇
-                  </button>
+                  {notes.length === 0 ? (
+                    <>
+                      <p>還沒有筆記</p>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => {
+                          void createFromTemplate("blank");
+                        }}
+                      >
+                        建立第一篇
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p>沒有符合的結果</p>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          setTagFilter("");
+                          setFolderFilter("");
+                          setStatusFilter("");
+                          setQ("");
+                          router.replace("/library");
+                        }}
+                      >
+                        清除篩選／搜尋
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : view === "table" ? (
                 <div className="kb-table-wrap">

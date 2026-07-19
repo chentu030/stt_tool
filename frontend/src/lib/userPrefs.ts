@@ -442,4 +442,5 @@ export const SHORTCUT_HELP: { keys: string; action: string }[] = [
   { keys: "⌘/Ctrl + S（逐字稿）", action: "儲存逐字稿編輯" },
   { keys: "⌘/Ctrl + Enter（捕捉）", action: "開始轉錄" },
   { keys: "貼上（捕捉）", action: "貼上影片連結" },
+  { keys: "/（知識庫）", action: "聚焦搜尋" },
 ];

@@ -14,6 +14,7 @@ import {
   BorderStyle,
 } from "docx";
 import { saveAs } from "file-saver";
+import { toast } from "@/lib/toast";
 
 function safeName(title: string) {
   return (title || "note").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
@@ -33,7 +34,7 @@ export function downloadPdfViaPrint(title: string, body: string) {
   const html = markdownToPrintHtml(title, body);
   const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
   if (!w) {
-    alert("請允許彈出視窗以匯出 PDF");
+    toast("請允許彈出視窗以匯出 PDF");
     return;
   }
   w.document.write(html);

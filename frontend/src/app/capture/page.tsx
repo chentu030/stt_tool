@@ -14,6 +14,49 @@ import Link from "next/link";
 import { libraryJobsUrl } from "@/lib/navApps";
 import { toast } from "@/lib/toast";
 
+const YT_DRAFT_KEY = "cadence_capture_yt_draft";
+const YT_RECENT_KEY = "cadence_capture_yt_recent";
+const YT_RECENT_MAX = 5;
+
+function loadYtDraft(): string {
+  try {
+    return localStorage.getItem(YT_DRAFT_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveYtDraft(url: string) {
+  try {
+    if (url.trim()) localStorage.setItem(YT_DRAFT_KEY, url.trim());
+    else localStorage.removeItem(YT_DRAFT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadYtRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(YT_RECENT_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? arr.map(String).filter(Boolean).slice(0, YT_RECENT_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushYtRecent(url: string) {
+  const u = url.trim();
+  if (!looksLikeYoutube(u)) return;
+  try {
+    const next = [u, ...loadYtRecent().filter((x) => x !== u)].slice(0, YT_RECENT_MAX);
+    localStorage.setItem(YT_RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+}
+
 function looksLikeYoutube(text: string) {
   const t = text.trim();
   return /youtu\.be\/|youtube\.com\//i.test(t);
@@ -36,6 +79,7 @@ export default function CapturePage() {
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [ytRecent, setYtRecent] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [recentJobs, setRecentJobs] = useState<Job[]>([]);
   const [error, setError] = useState("");
@@ -59,6 +103,16 @@ export default function CapturePage() {
   }, [user]);
 
   useEffect(() => {
+    setYoutubeUrl(loadYtDraft());
+    setYtRecent(loadYtRecent());
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => saveYtDraft(youtubeUrl), 400);
+    return () => window.clearTimeout(t);
+  }, [youtubeUrl]);
+
+  useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!recording && !busy) return;
       e.preventDefault();
@@ -75,8 +129,11 @@ export default function CapturePage() {
       const text = e.clipboardData?.getData("text") || "";
       if (!looksLikeYoutube(text)) return;
       e.preventDefault();
-      setYoutubeUrl(text.trim());
+      const u = text.trim();
+      setYoutubeUrl(u);
       setFiles([]);
+      pushYtRecent(u);
+      setYtRecent(loadYtRecent());
       toast("已貼上影片連結");
     };
     window.addEventListener("paste", onPaste);
@@ -221,6 +278,12 @@ export default function CapturePage() {
       }).catch(() => {});
 
       listenToJob(jobId, () => {});
+      saveYtDraft("");
+      if (youtubeUrl.trim()) {
+        pushYtRecent(youtubeUrl.trim());
+        setYtRecent(loadYtRecent());
+      }
+      setYoutubeUrl("");
       toast("已開始轉錄");
       router.push(`/job/${jobId}`);
     } catch (e) {
@@ -279,8 +342,6 @@ export default function CapturePage() {
           <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" speed={22} />
           <p className="capture-lead">上傳、貼連結或錄音。</p>
         </header>
-
-        <ContinueChips className="capture-continue" chips={captureContinueChips()} />
 
         <ContinueChips className="capture-continue" chips={captureContinueChips()} />
 
@@ -391,8 +452,35 @@ export default function CapturePage() {
                 setYoutubeUrl(e.target.value);
                 if (e.target.value) setFiles([]);
               }}
+              onBlur={() => {
+                if (looksLikeYoutube(youtubeUrl)) {
+                  pushYtRecent(youtubeUrl);
+                  setYtRecent(loadYtRecent());
+                }
+              }}
               onClick={(e) => e.stopPropagation()}
             />
+            {ytRecent.length > 0 && (
+              <div className="capture-yt-recent">
+                {ytRecent.map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    className="capture-yt-chip"
+                    disabled={busy || recording}
+                    title={u}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setYoutubeUrl(u);
+                      setFiles([]);
+                    }}
+                  >
+                    {u.replace(/^https?:\/\/(www\.)?/i, "").slice(0, 42)}
+                    {u.length > 50 ? "…" : ""}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className={`capture-ext${extReady ? " is-on" : ""}`}>
               {extReady ? "本機擷取已連線" : "伺服器下載（較慢）"}
             </span>

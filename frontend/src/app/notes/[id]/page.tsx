@@ -166,6 +166,8 @@ function NotePageInner() {
   const [shareOpen, setShareOpen] = useState(false);
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mainScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollRestored = useRef<string | null>(null);
   const asideAiRef = useRef<NoteAsideAiHandle | null>(null);
   const insertMdRef = useRef<((md: string) => void) | null>(null);
   const latest = useRef({
@@ -292,7 +294,7 @@ function NotePageInner() {
       setTags(mergedTags);
       setDirty(false);
       setStatus("saved");
-      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1200 : 1800);
+      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1800 : 2200);
     } catch (e) {
       setStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "儲存失敗");
@@ -303,7 +305,8 @@ function NotePageInner() {
     setDirty(true);
     setStatus("dirty");
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void save(true); }, 1200);
+    const secs = Math.min(30, Math.max(1, prefsCtx?.prefs.autosaveSeconds ?? 2));
+    saveTimer.current = setTimeout(() => { void save(true); }, secs * 1000);
   };
 
   const applyIngestBody = useCallback(
@@ -604,6 +607,50 @@ function NotePageInner() {
     }
   }, [id]);
 
+  useEffect(() => {
+    if (!id || !note || viewMode !== "write") return;
+    if (scrollRestored.current === id) return;
+    if (typeof window !== "undefined" && window.location.hash) {
+      scrollRestored.current = id;
+      return;
+    }
+    const el = mainScrollRef.current;
+    if (!el) return;
+    let top = 0;
+    try {
+      top = Number(sessionStorage.getItem(`cadence_scroll_${id}`)) || 0;
+    } catch {
+      top = 0;
+    }
+    scrollRestored.current = id;
+    if (top <= 0) return;
+    const t = window.setTimeout(() => {
+      if (mainScrollRef.current) mainScrollRef.current.scrollTop = top;
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [id, note, viewMode]);
+
+  useEffect(() => {
+    const el = mainScrollRef.current;
+    if (!el || !id) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          sessionStorage.setItem(`cadence_scroll_${id}`, String(el.scrollTop));
+        } catch {
+          /* ignore */
+        }
+      }, 200);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (timer) clearTimeout(timer);
+    };
+  }, [id, note]);
+
   const setMode = (mode: "write" | "slides") => {
     setViewMode(mode);
     if (id) {
@@ -847,8 +894,8 @@ function NotePageInner() {
   if (note.user_id !== user.uid) return <p style={{ padding: "2rem" }}>無權限。</p>;
 
   const statusLabel =
-    status === "saving" ? "儲存中"
-      : status === "saved" ? "已儲存"
+    status === "saving" ? "儲存中…"
+      : status === "saved" ? "已自動儲存"
         : status === "dirty" ? "未儲存變更"
           : status === "error" ? errorMsg
             : "";
@@ -1120,7 +1167,10 @@ function NotePageInner() {
       </div>
 
       <div className="doc-body-row">
-        <div className={`doc-main-stack${splitId && splitId !== id ? " is-split" : ""}`}>
+        <div
+          ref={mainScrollRef}
+          className={`doc-main-stack${splitId && splitId !== id ? " is-split" : ""}`}
+        >
         <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
           {viewMode === "write" && <NotePageLog noteId={note.id} />}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
