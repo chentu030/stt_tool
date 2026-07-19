@@ -220,6 +220,8 @@ export interface Note {
   tags: string[];
   folder?: string;
   journal_date?: string;
+  /** kanban status */
+  status?: "backlog" | "doing" | "done" | "";
   source_job_id?: string;
   created_at: Date;
   updated_at: Date;
@@ -231,7 +233,7 @@ export async function createNote(
   bodyMd: string,
   sourceJobId?: string,
   tags: string[] = [],
-  extra?: { folder?: string; journal_date?: string }
+  extra?: { folder?: string; journal_date?: string; status?: Note["status"] }
 ): Promise<string> {
   const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   await setDoc(doc(db, "notes", id), {
@@ -241,6 +243,7 @@ export async function createNote(
     tags,
     folder: extra?.folder || "",
     journal_date: extra?.journal_date || "",
+    status: extra?.status || "backlog",
     source_job_id: sourceJobId || "",
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
@@ -250,7 +253,7 @@ export async function createNote(
 
 export async function updateNote(
   noteId: string,
-  updates: Partial<Pick<Note, "title" | "body_md" | "tags" | "folder" | "journal_date">>
+  updates: Partial<Pick<Note, "title" | "body_md" | "tags" | "folder" | "journal_date" | "status">>
 ) {
   await updateDoc(doc(db, "notes", noteId), {
     ...updates,

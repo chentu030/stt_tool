@@ -245,6 +245,20 @@ export default function NotePage() {
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
         />
         <button type="button" className="btn btn-ghost btn-sm" onClick={addTag}>加入</button>
+        <select
+          className="input"
+          style={{ width: "auto", padding: "0.35rem 0.6rem", fontSize: "0.85rem" }}
+          value={note.status || "backlog"}
+          onChange={(e) => {
+            const status = e.target.value as Note["status"];
+            setNote({ ...note, status });
+            void updateNote(note.id, { status });
+          }}
+        >
+          <option value="backlog">看板：待辦</option>
+          <option value="doing">看板：進行中</option>
+          <option value="done">看板：完成</option>
+        </select>
       </div>
 
       {note.source_job_id && (
