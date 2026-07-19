@@ -77,7 +77,9 @@ export default function KnowledgeChat({
 
   const scopeLabel = selectedIds.length
     ? `已選 ${selectedIds.length} 篇`
-    : `全庫 ${notes.length} 篇（自動檢索）`;
+    : notes.length === 0
+      ? "尚無筆記"
+      : `全庫 ${notes.length} 篇`;
 
   const send = async (text: string) => {
     const prompt = text.trim();
@@ -155,24 +157,32 @@ export default function KnowledgeChat({
     }
   };
 
+  const empty = messages.length === 0 && !busy;
+
   return (
     <aside className="kb-chat">
       <header className="kb-chat-head">
-        <div>
+        <div className="kb-chat-title">
           <h2 className="font-display">知識助手</h2>
-          <p>{scopeLabel}{packedHint(selectedNotes.length, notes.length)}</p>
+          <span className="kb-chat-badge">{scopeLabel}</span>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={clearChat}>
+        <button
+          type="button"
+          className="kb-chat-icon-btn"
+          onClick={clearChat}
+          disabled={!messages.length && !error}
+          title="清空對話"
+        >
           清空
         </button>
       </header>
 
       {selectedNotes.length > 0 && (
         <div className="kb-chat-scope">
-          {selectedNotes.slice(0, 6).map((n) => (
+          {selectedNotes.slice(0, 5).map((n) => (
             <span key={n.id} className="kb-chip">{n.title || "未命名"}</span>
           ))}
-          {selectedNotes.length > 6 && <span className="kb-chip">+{selectedNotes.length - 6}</span>}
+          {selectedNotes.length > 5 && <span className="kb-chip">+{selectedNotes.length - 5}</span>}
           {onClearSelection && (
             <button type="button" className="kb-chip-btn" onClick={onClearSelection}>
               清除選取
@@ -181,59 +191,83 @@ export default function KnowledgeChat({
         </div>
       )}
 
-      <div className="kb-chat-suggestions">
-        {AI_SUGGESTIONS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            className="kb-suggest"
-            disabled={busy}
-            onClick={() => { void send(s); }}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-
       <div className="kb-chat-messages" ref={listRef}>
-        {messages.length === 0 && (
+        {empty ? (
           <div className="kb-chat-empty">
-            <p>問知識庫任何問題——摘要、找關聯、補缺漏、產出行動清單。</p>
-            <p>在左側勾選筆記，可把對話範圍鎖定在那幾篇。</p>
+            <p className="kb-chat-empty-lead">問知識庫任何問題</p>
+            <p>摘要、找關聯、補缺漏，或產出行動清單。左側勾選筆記可鎖定範圍。</p>
+            <div className="kb-chat-suggestions">
+              {AI_SUGGESTIONS.map((s) => (
+                <button
+                  key={s.prompt}
+                  type="button"
+                  className="kb-suggest"
+                  disabled={busy || notes.length === 0}
+                  title={s.prompt}
+                  onClick={() => {
+                    void send(s.prompt);
+                  }}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
-        {messages.map((m) => (
-          <div key={m.id} className={`kb-msg kb-msg--${m.role}`}>
-            <div className="kb-msg-role">{m.role === "user" ? "你" : "助手"}</div>
-            <div className="kb-msg-body">{formatMessage(m.text)}</div>
-            {m.usedNoteIds && m.usedNoteIds.length > 0 && (
-              <div className="kb-msg-refs">
-                參考：
-                {m.usedNoteIds.slice(0, 5).map((id) => {
-                  const n = notes.find((x) => x.id === id);
-                  return (
-                    <Link key={id} href={`/notes/${id}`} className="kb-ref">
-                      {n?.title || id.slice(-6)}
-                    </Link>
-                  );
-                })}
+        ) : (
+          <>
+            {messages.map((m) => (
+              <div key={m.id} className={`kb-msg kb-msg--${m.role}`}>
+                <div className="kb-msg-role">{m.role === "user" ? "你" : "助手"}</div>
+                <div className="kb-msg-body">{formatMessage(m.text)}</div>
+                {m.usedNoteIds && m.usedNoteIds.length > 0 && (
+                  <div className="kb-msg-refs">
+                    參考
+                    {m.usedNoteIds.slice(0, 5).map((id) => {
+                      const n = notes.find((x) => x.id === id);
+                      return (
+                        <Link key={id} href={`/notes/${id}`} className="kb-ref">
+                          {n?.title || id.slice(-6)}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+            {busy && (
+              <div className="kb-msg kb-msg--assistant">
+                <div className="kb-msg-role">助手</div>
+                <div className="kb-msg-body kb-msg-typing">正在讀取知識庫…</div>
               </div>
             )}
-          </div>
-        ))}
-        {busy && (
-          <div className="kb-msg kb-msg--assistant">
-            <div className="kb-msg-role">助手</div>
-            <div className="kb-msg-body kb-msg-typing">正在讀取知識庫並回答…</div>
-          </div>
+          </>
         )}
       </div>
+
+      {!empty && (
+        <div className="kb-chat-suggestions kb-chat-suggestions--bar">
+          {AI_SUGGESTIONS.map((s) => (
+            <button
+              key={s.prompt}
+              type="button"
+              className="kb-suggest"
+              disabled={busy || notes.length === 0}
+              title={s.prompt}
+              onClick={() => {
+                void send(s.prompt);
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="kb-chat-error">{error}</p>}
       {model && !error && (
         <p className="kb-chat-meta">
           {model}
-          {lastUsed.length > 0 ? ` · 本次參考 ${lastUsed.length} 篇` : ""}
+          {lastUsed.length > 0 ? ` · 參考 ${lastUsed.length} 篇` : ""}
         </p>
       )}
 
@@ -245,9 +279,9 @@ export default function KnowledgeChat({
         }}
       >
         <textarea
-          className="input kb-chat-input"
-          rows={3}
-          placeholder="對知識庫提問…（Enter 送出，Shift+Enter 換行）"
+          className="kb-chat-input"
+          rows={2}
+          placeholder="對知識庫提問… Enter 送出"
           value={input}
           disabled={busy}
           onChange={(e) => setInput(e.target.value)}
@@ -258,7 +292,11 @@ export default function KnowledgeChat({
             }
           }}
         />
-        <button type="submit" className="btn" disabled={busy || !input.trim()}>
+        <button
+          type="submit"
+          className="kb-chat-send"
+          disabled={busy || !input.trim()}
+        >
           {busy ? "…" : "送出"}
         </button>
       </form>
@@ -266,14 +304,7 @@ export default function KnowledgeChat({
   );
 }
 
-function packedHint(selected: number, total: number) {
-  if (selected > 0) return "";
-  if (total === 0) return " · 尚無筆記";
-  return "";
-}
-
 function formatMessage(text: string) {
-  // lightweight markdown-ish rendering without pulling a heavy lib
   const blocks = text.split(/\n{2,}/);
   return blocks.map((block, i) => {
     const lines = block.split("\n");

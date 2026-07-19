@@ -345,10 +345,10 @@ export function recentActivity(notes: LibraryNote[], jobs: LibraryJob[], limit =
   return items.sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
 }
 
-export const AI_SUGGESTIONS = [
-  "用三點總結我知識庫最近在寫什麼",
-  "找出彼此相關、可以互相連結的筆記",
-  "幫我整理一份學習複習清單",
-  "哪些主題內容還很薄、值得補筆記？",
-  "把本週更新的筆記做成行動項目",
+export const AI_SUGGESTIONS: { label: string; prompt: string }[] = [
+  { label: "最近摘要", prompt: "用三點總結我知識庫最近在寫什麼" },
+  { label: "找可連結", prompt: "找出彼此相關、可以互相連結的筆記" },
+  { label: "複習清單", prompt: "幫我整理一份學習複習清單" },
+  { label: "補缺漏", prompt: "哪些主題內容還很薄、值得補筆記？" },
+  { label: "本週行動", prompt: "把本週更新的筆記做成行動項目" },
 ];

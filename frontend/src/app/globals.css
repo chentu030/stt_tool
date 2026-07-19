@@ -82,7 +82,7 @@ button, input, textarea, select {
   color: inherit;
 }
 
-/* ── Buttons ── */
+/* ?? Buttons ?? */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -200,7 +200,7 @@ button, input, textarea, select {
   text-decoration: underline;
 }
 
-/* ── Surfaces ── */
+/* ?? Surfaces ?? */
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -236,7 +236,7 @@ button, input, textarea, select {
   color: var(--accent-2);
 }
 
-/* ── Shell layout ── */
+/* ?? Shell layout ?? */
 .app-shell {
   min-height: 100vh;
   display: flex;
@@ -365,7 +365,7 @@ button, input, textarea, select {
   box-shadow: 0 8px 20px rgba(13, 148, 136, 0.35);
 }
 
-/* ── Page bits ── */
+/* ?? Page bits ?? */
 .page-title {
   font-size: clamp(1.6rem, 2.5vw, 2.1rem);
   margin-bottom: 0.35rem;
@@ -409,7 +409,7 @@ button, input, textarea, select {
   background: var(--accent-soft);
 }
 
-/* ── Capture (centered stage) ── */
+/* ?? Capture (centered stage) ?? */
 .capture-page {
   position: relative;
   min-height: calc(100vh - 8rem);
@@ -682,7 +682,7 @@ button, input, textarea, select {
   transition: width 0.35s ease;
 }
 
-/* ── Journal workspace ── */
+/* ?? Journal workspace ?? */
 .jn-page { max-width: 1480px; margin: 0 auto; }
 .jn-guest { text-align: center; padding: 3rem 1rem; }
 .jn-hero {
@@ -1056,7 +1056,7 @@ button, input, textarea, select {
   .jn-aside { position: static; }
 }
 
-/* ── Board / kanban workspace ── */
+/* ?? Board / kanban workspace ?? */
 .bd-page { max-width: 1600px; margin: 0 auto; }
 .bd-guest { text-align: center; padding: 3rem 1rem; }
 .bd-hero {
@@ -1433,7 +1433,7 @@ button, input, textarea, select {
   .bd-col-body { max-height: none; }
 }
 
-/* ── Spatial canvas / whiteboard ── */
+/* ?? Spatial canvas / whiteboard ?? */
 .cv-page { max-width: 1600px; margin: 0 auto; }
 .cv-guest { text-align: center; padding: 3rem 1rem; }
 .cv-hero {
@@ -1761,7 +1761,7 @@ button, input, textarea, select {
 }
 .editor-area:focus { border-color: var(--accent); }
 
-/* ── Document / block editor (immersive) ── */
+/* ?? Document / block editor (immersive) ?? */
 .doc-workspace {
   min-height: 100%;
   display: flex;
@@ -2423,7 +2423,7 @@ button, input, textarea, select {
   to { opacity: 1; }
 }
 
-/* ── TipTap rich note editor ── */
+/* ?? TipTap rich note editor ?? */
 .rich-editor {
   display: flex;
   flex-direction: column;
@@ -2762,7 +2762,7 @@ button, input, textarea, select {
   background: var(--accent-soft);
 }
 
-/* ── Custom menu select (no native <select>) ── */
+/* ?? Custom menu select (no native <select>) ?? */
 .menu-select {
   position: relative;
   display: inline-flex;
@@ -2885,7 +2885,7 @@ button, input, textarea, select {
   font-weight: 700;
 }
 
-/* ── Knowledge base workspace ── */
+/* ?? Knowledge base workspace ?? */
 .kb-page {
   max-width: 1600px;
   margin: 0 auto;
@@ -2913,8 +2913,7 @@ button, input, textarea, select {
 .kb-layout--chat {
   grid-template-columns: 200px minmax(0, 1fr) minmax(280px, 360px);
 }
-.kb-rail,
-.kb-chat {
+.kb-rail {
   position: sticky;
   top: 0.75rem;
   max-height: calc(100vh - 5.5rem);
@@ -2923,6 +2922,12 @@ button, input, textarea, select {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 0.85rem;
+}
+.kb-chat {
+  position: sticky;
+  top: 0.75rem;
+  max-height: calc(100vh - 5.5rem);
+  overflow: hidden;
 }
 .kb-rail-section + .kb-rail-section {
   margin-top: 1rem;
@@ -3261,23 +3266,58 @@ button, input, textarea, select {
 .kb-chat {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.75rem;
+  gap: 0.65rem;
+  padding: 0.85rem;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
 }
 .kb-chat-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.5rem;
 }
-.kb-chat-head h2 {
-  font-size: 1rem;
-  margin: 0;
+.kb-chat-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
 }
-.kb-chat-head p {
-  font-size: 0.72rem;
+.kb-chat-head h2 {
+  font-size: 1.05rem;
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+.kb-chat-badge {
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+.kb-chat-icon-btn {
+  height: 32px;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
   color: var(--text-muted);
-  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+.kb-chat-icon-btn:hover:not(:disabled) {
+  color: var(--text-main);
+  background: var(--bg-elevated);
+}
+.kb-chat-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .kb-chat-scope {
   display: flex;
@@ -3287,62 +3327,93 @@ button, input, textarea, select {
 }
 .kb-chat-suggestions {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.kb-chat-suggestions--bar {
+  padding-top: 0.15rem;
 }
 .kb-suggest {
-  text-align: left;
-  border: 1px dashed var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 8px;
-  padding: 0.4rem 0.55rem;
+  text-align: center;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 999px;
+  padding: 0.32rem 0.7rem;
   font-size: 0.74rem;
+  font-weight: 550;
   cursor: pointer;
-  line-height: 1.35;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 .kb-suggest:hover:not(:disabled) {
-  border-style: solid;
-  color: var(--text-main);
-  background: var(--bg-muted);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.kb-suggest:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .kb-chat-messages {
   flex: 1;
-  min-height: 220px;
+  min-height: 200px;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  padding-right: 0.15rem;
+  gap: 0.55rem;
+  padding: 0.15rem 0.1rem 0.15rem 0;
 }
 .kb-chat-empty {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.55;
-  padding: 0.5rem 0.15rem;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.1rem 0.6rem;
 }
-.kb-chat-empty p + p { margin-top: 0.45rem; }
+.kb-chat-empty-lead {
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--text-main);
+  margin: 0;
+}
+.kb-chat-empty > p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.kb-chat-empty .kb-chat-suggestions {
+  margin-top: 0.55rem;
+}
 .kb-msg {
   border-radius: 12px;
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.7rem;
   background: var(--bg-muted);
+  border: 1px solid transparent;
 }
 .kb-msg--user {
   background: var(--accent-soft);
-  margin-left: 0.75rem;
+  border-color: color-mix(in oklab, var(--accent) 22%, transparent);
+  margin-left: 0.85rem;
 }
 .kb-msg--assistant {
-  margin-right: 0.35rem;
+  margin-right: 0.25rem;
+  background: var(--bg-elevated);
+  border-color: var(--border);
 }
 .kb-msg-role {
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   color: var(--text-muted);
   margin-bottom: 0.25rem;
   font-weight: 650;
+  letter-spacing: 0.02em;
 }
 .kb-msg-body {
   font-size: 0.84rem;
   line-height: 1.55;
+  color: var(--text-main);
 }
 .kb-msg-body p + p,
 .kb-msg-body ul { margin-top: 0.45rem; }
@@ -3375,27 +3446,66 @@ button, input, textarea, select {
 }
 .kb-ref {
   color: var(--accent);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
+  background: var(--accent-soft);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-weight: 550;
 }
+.kb-ref:hover { text-decoration: underline; }
 .kb-chat-error {
   color: var(--danger);
   font-size: 0.78rem;
+  margin: 0;
 }
 .kb-chat-meta {
   font-size: 0.68rem;
   color: var(--text-muted);
+  margin: 0;
 }
 .kb-chat-compose {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 0.4rem;
-  align-items: end;
+  gap: 0.45rem;
+  align-items: stretch;
+  padding: 0.45rem;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 .kb-chat-input {
-  resize: vertical;
-  min-height: 4.2rem;
-  font-size: 0.85rem;
+  width: 100%;
+  resize: none;
+  min-height: 2.6rem;
+  max-height: 7rem;
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-main);
+  outline: none;
+  font-family: inherit;
+}
+.kb-chat-input::placeholder { color: var(--text-muted); }
+.kb-chat-send {
+  align-self: end;
+  height: 36px;
+  min-width: 64px;
+  padding: 0 0.85rem;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.kb-chat-send:hover:not(:disabled) { filter: brightness(1.06); }
+.kb-chat-send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
 }
 
 @media (max-width: 1100px) {
