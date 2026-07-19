@@ -5,6 +5,8 @@ export type TreeNote = {
   title: string;
   folder?: string;
   updated_at?: Date;
+  sort_order?: number;
+  parent_id?: string;
 };
 
 export type FolderNode = {
@@ -30,6 +32,20 @@ export function splitFolderPath(folder?: string): string[] {
   const p = normalizeFolderPath(folder);
   if (!p) return [];
   return p.split("/").filter(Boolean);
+}
+
+export function compareSidebarNotes(
+  a: { title?: string; sort_order?: number },
+  b: { title?: string; sort_order?: number }
+): number {
+  const ao = a.sort_order;
+  const bo = b.sort_order;
+  const aHas = typeof ao === "number" && Number.isFinite(ao);
+  const bHas = typeof bo === "number" && Number.isFinite(bo);
+  if (aHas && bHas && ao !== bo) return ao! - bo!;
+  if (aHas && !bHas) return -1;
+  if (!aHas && bHas) return 1;
+  return (a.title || "").localeCompare(b.title || "", "zh-Hant");
 }
 
 function emptyFolder(name: string, path: string): FolderNode {
@@ -73,9 +89,7 @@ export function buildNoteTree(notes: TreeNote[]): {
   };
 
   const uncategorized: TreeNote[] = [];
-  const sorted = [...notes].sort((a, b) =>
-    (a.title || "").localeCompare(b.title || "", "zh-Hant")
-  );
+  const sorted = [...notes].sort(compareSidebarNotes);
 
   for (const note of sorted) {
     const segs = splitFolderPath(note.folder);

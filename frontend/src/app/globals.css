@@ -6907,6 +6907,18 @@ body.is-sidebar-resizing iframe {
 .sb-fav.is-on, .sb-row--note:hover .sb-fav { opacity: 1; }
 .sb-fav.is-on { color: #ca8a04; }
 .sb-row--folder.is-drop { background: var(--accent-soft); }
+.sb-row--note.is-drop-before {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+.sb-row--note.is-drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+.sb-row--note[draggable="true"] {
+  cursor: grab;
+}
+.sb-row--note[draggable="true"]:active {
+  cursor: grabbing;
+}
 .doc-cover {
   height: 140px;
   border-radius: 12px;

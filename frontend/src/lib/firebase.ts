@@ -276,6 +276,8 @@ export interface Note {
   cover?: string;
   /** nested under another note */
   parent_id?: string;
+  /** Manual sidebar order within folder / parent (lower = higher) */
+  sort_order?: number;
   /** Canva-lite slide deck JSON */
   deck?: Record<string, unknown> | null;
   /** Cadence database row membership */
@@ -322,6 +324,7 @@ export async function createNote(
     icon: extra?.icon || "",
     cover: extra?.cover || "",
     parent_id: extra?.parent_id || "",
+    sort_order: Date.now(),
     database_id: extra?.database_id || "",
     props: extra?.props || {},
     created_at: Timestamp.now(),
@@ -345,18 +348,19 @@ export async function updateNote(
       | "color"
       | "cover"
       | "parent_id"
+      | "sort_order"
       | "deck"
       | "database_id"
       | "props"
       | "share"
       | "source_job_id"
     >
-  >
+  >,
+  options?: { silent?: boolean }
 ) {
-  await updateDoc(doc(db, "notes", noteId), {
-    ...updates,
-    updated_at: Timestamp.now(),
-  });
+  const payload: Record<string, unknown> = { ...updates };
+  if (!options?.silent) payload.updated_at = Timestamp.now();
+  await updateDoc(doc(db, "notes", noteId), payload);
 }
 
 export async function getNote(noteId: string): Promise<Note | null> {

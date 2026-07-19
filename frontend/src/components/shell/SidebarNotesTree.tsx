@@ -28,6 +28,7 @@ import { askConfirm, askPrompt } from "@/lib/dialogs";
 import {
   UNCATEGORIZED,
   buildNoteTree,
+  compareSidebarNotes,
   flattenVisibleNotes,
   noteInFolderPath,
   normalizeFolderPath,
@@ -109,6 +110,10 @@ export default function SidebarNotesTree() {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([UNCATEGORIZED]));
   const [creating, setCreating] = useState(false);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{ noteId: string; place: "before" | "after" } | null>(
+    null
+  );
+  const draggingId = useRef<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
@@ -157,7 +162,7 @@ export default function SidebarNotesTree() {
       m.get(p)!.push(n);
     }
     for (const arr of m.values()) {
-      arr.sort((a, b) => (a.title || "").localeCompare(b.title || "", "zh-Hant"));
+      arr.sort(compareSidebarNotes);
     }
     return m;
   }, [notes]);
@@ -307,8 +312,80 @@ export default function SidebarNotesTree() {
 
   const onDropToFolder = async (folderPath: string, noteId: string) => {
     const folder = folderPath === UNCATEGORIZED ? "" : folderPath;
-    await updateNote(noteId, { folder, parent_id: "" });
+    const siblings = notes.filter(
+      (n) =>
+        !(n.parent_id || "").trim() &&
+        normalizeFolderPath(n.folder) === normalizeFolderPath(folder) &&
+        n.id !== noteId
+    );
+    const maxOrder = siblings.reduce((m, n) => {
+      const o = n.sort_order;
+      return typeof o === "number" && Number.isFinite(o) ? Math.max(m, o) : m;
+    }, 0);
+    await updateNote(
+      noteId,
+      { folder, parent_id: "", sort_order: maxOrder + 1000 },
+      { silent: true }
+    );
     setDragOverFolder(null);
+    setDropHint(null);
+    toast("已移到資料夾");
+  };
+
+  const onDropReorder = async (
+    dragId: string,
+    targetId: string,
+    place: "before" | "after"
+  ) => {
+    if (!dragId || dragId === targetId) return;
+    const drag = notes.find((n) => n.id === dragId);
+    const target = notes.find((n) => n.id === targetId);
+    if (!drag || !target) return;
+
+    const parentId = (target.parent_id || "").trim();
+    const folder = normalizeFolderPath(target.folder);
+
+    const siblings = notes
+      .filter((n) => {
+        const p = (n.parent_id || "").trim();
+        if (parentId) return p === parentId;
+        return !p && normalizeFolderPath(n.folder) === folder;
+      })
+      .sort(compareSidebarNotes);
+
+    const ordered = siblings.filter((n) => n.id !== dragId);
+    let idx = ordered.findIndex((n) => n.id === targetId);
+    if (idx < 0) return;
+    if (place === "after") idx += 1;
+    ordered.splice(idx, 0, drag);
+
+    await Promise.all(
+      ordered.map((n, i) => {
+        const sort_order = (i + 1) * 1000;
+        if (n.id === dragId) {
+          return updateNote(
+            n.id,
+            {
+              sort_order,
+              parent_id: parentId,
+              folder: target.folder || "",
+            },
+            { silent: true }
+          );
+        }
+        if (n.sort_order === sort_order) return Promise.resolve();
+        return updateNote(n.id, { sort_order }, { silent: true });
+      })
+    );
+    setDropHint(null);
+    setDragOverFolder(null);
+    toast("已調整順序");
+  };
+
+  const clearDragState = () => {
+    draggingId.current = null;
+    setDragOverFolder(null);
+    setDropHint(null);
   };
 
   const toggleFav = (noteId: string) => {
@@ -830,10 +907,12 @@ export default function SidebarNotesTree() {
     const isFav = (prefs?.favoriteNoteIds || []).includes(note.id);
     const colorId = isPageColorId(note.color) ? note.color : "";
     const color = pageColorMeta(colorId);
+    const dropPlace =
+      dropHint?.noteId === note.id ? dropHint.place : null;
     return (
       <div key={`n:${note.id}`}>
         <div
-          className={`sb-row sb-row--note${active ? " is-active" : ""}${isSelected ? " is-selected" : ""}${colorId ? " has-color" : ""}`}
+          className={`sb-row sb-row--note${active ? " is-active" : ""}${isSelected ? " is-selected" : ""}${colorId ? " has-color" : ""}${dropPlace === "before" ? " is-drop-before" : ""}${dropPlace === "after" ? " is-drop-after" : ""}`}
           style={{
             paddingLeft: 12 + depth * 12,
             ...(colorId
@@ -845,8 +924,36 @@ export default function SidebarNotesTree() {
           }}
           draggable
           onDragStart={(e) => {
+            draggingId.current = note.id;
             e.dataTransfer.setData("text/note-id", note.id);
             e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={clearDragState}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (draggingId.current === note.id) return;
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const place = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+            setDragOverFolder(null);
+            setDropHint((prev) =>
+              prev?.noteId === note.id && prev.place === place
+                ? prev
+                : { noteId: note.id, place }
+            );
+          }}
+          onDragLeave={(e) => {
+            const related = e.relatedTarget as Node | null;
+            if (related && (e.currentTarget as HTMLElement).contains(related)) return;
+            setDropHint((prev) => (prev?.noteId === note.id ? null : prev));
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = e.dataTransfer.getData("text/note-id");
+            const place = dropHint?.noteId === note.id ? dropHint.place : "before";
+            clearDragState();
+            if (id) void onDropReorder(id, note.id, place);
           }}
           onContextMenu={(e) => openCtx(e, { kind: "note", noteId: note.id })}
           onClick={(e) => onNoteClick(e, note.id)}
@@ -1039,7 +1146,7 @@ export default function SidebarNotesTree() {
 
       {!hintDismissed && (
         <div className="sb-hint">
-          <span>⌘K 搜尋 · 右鍵管理 · 拖到資料夾 · F2 改名 · Del 刪除</span>
+          <span>⌘K 搜尋 · 拖曳排序／移資料夾 · 右鍵管理 · F2 改名</span>
           <button
             type="button"
             aria-label="關閉提示"
@@ -1135,12 +1242,14 @@ export default function SidebarNotesTree() {
                     }}
                     onDragOver={(e) => {
                       e.preventDefault();
+                      setDropHint(null);
                       setDragOverFolder(dropKey);
                     }}
                     onDragLeave={() => setDragOverFolder(null)}
                     onDrop={(e) => {
                       e.preventDefault();
                       const id = e.dataTransfer.getData("text/note-id");
+                      clearDragState();
                       if (id) void onDropToFolder(dropKey, id);
                     }}
                     onContextMenu={(e) => openCtx(e, { kind: "folder", path: dropKey })}
