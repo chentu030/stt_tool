@@ -6,7 +6,7 @@ import {
 import {
   getFirestore, collection, doc, setDoc,
   query, where, onSnapshot, updateDoc, deleteDoc,
-  Timestamp, Unsubscribe, getDoc
+  Timestamp, Unsubscribe, getDoc, getDocs
 } from "firebase/firestore";
 import {
   getStorage, ref, uploadBytesResumable, getDownloadURL, getBytes, deleteObject,
@@ -292,4 +292,36 @@ export function listenToUserNotes(uid: string, callback: (notes: Note[]) => void
 
 export async function deleteNote(noteId: string) {
   await deleteDoc(doc(db, "notes", noteId));
+}
+
+export type NoteVersion = {
+  id: string;
+  title: string;
+  body_md: string;
+  created_at: Date;
+};
+
+/** Keep last ~30 snapshots under notes/{id}/versions */
+export async function pushNoteVersion(noteId: string, title: string, bodyMd: string) {
+  const id = `v_${Date.now()}`;
+  await setDoc(doc(db, "notes", noteId, "versions", id), {
+    title,
+    body_md: bodyMd,
+    created_at: Timestamp.now(),
+  });
+}
+
+export async function listNoteVersions(noteId: string): Promise<NoteVersion[]> {
+  const res = await getDocs(collection(db, "notes", noteId, "versions"));
+  const list = res.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      title: data.title || "",
+      body_md: data.body_md || "",
+      created_at: data.created_at?.toDate?.() || new Date(),
+    } as NoteVersion;
+  });
+  list.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+  return list.slice(0, 30);
 }

@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
-import { getNote, updateNote, listenToUserNotes, Note } from "@/lib/firebase";
+import { getNote, updateNote, listenToUserNotes, pushNoteVersion, listNoteVersions, Note, NoteVersion } from "@/lib/firebase";
 import BlockEditor from "@/components/BlockEditor";
 import ScrambleText from "@/components/motion/ScrambleText";
 import { downloadDocx, downloadMarkdown, downloadPdfViaPrint, downloadPptOutline, bodyToSlides } from "@/lib/exportNote";
@@ -32,6 +32,8 @@ export default function NotePage() {
   const [exportOpen, setExportOpen] = useState(false);
   const [presenting, setPresenting] = useState(false);
   const [slideIdx, setSlideIdx] = useState(0);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versions, setVersions] = useState<NoteVersion[]>([]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ title: "", body: "", tags: [] as string[], folder: "" });
 
@@ -70,6 +72,11 @@ export default function NotePage() {
         tags: mergedTags,
         folder: latest.current.folder,
       });
+      try {
+        await pushNoteVersion(note.id, latest.current.title, latest.current.body);
+      } catch {
+        // versions are best-effort (rules may lag)
+      }
       setTags(mergedTags);
       setDirty(false);
       setStatus("saved");
@@ -172,6 +179,16 @@ export default function NotePage() {
             </motion.span>
           </AnimatePresence>
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => setFindOpen(true)}>尋找</button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={async () => {
+              setVersionsOpen((v) => !v);
+              if (!versionsOpen && note) setVersions(await listNoteVersions(note.id));
+            }}
+          >
+            版本
+          </button>
           <div style={{ position: "relative" }}>
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => setExportOpen((v) => !v)}>匯出</button>
             {exportOpen && (
@@ -204,6 +221,36 @@ export default function NotePage() {
       </div>
 
       {aiError && <p style={{ color: "var(--danger)", fontSize: "0.82rem", marginTop: "0.55rem" }}>{aiError}</p>}
+
+      {versionsOpen && (
+        <div className="card" style={{ padding: "0.85rem", marginTop: "0.7rem", marginBottom: "0.5rem" }}>
+          <h3 className="font-display" style={{ fontSize: "0.95rem", marginBottom: "0.5rem" }}>版本歷史</h3>
+          {versions.length === 0 ? (
+            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>尚無快照（儲存後會自動留下）。</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflow: "auto" }}>
+              {versions.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ justifyContent: "space-between", width: "100%" }}
+                  onClick={() => {
+                    if (!confirm("還原此版本？目前內容會被覆蓋（可再存成新版本）。")) return;
+                    setTitle(v.title);
+                    setBody(v.body_md);
+                    markDirty();
+                    setVersionsOpen(false);
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.title || "（無標題）"}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>{v.created_at.toLocaleString("zh-TW")}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ marginTop: "0.85rem", marginBottom: "0.55rem" }}>
         <ScrambleText words="筆記" as="p" style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 6, letterSpacing: "0.08em" }} speed={22} />

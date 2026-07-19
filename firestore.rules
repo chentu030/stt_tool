@@ -12,6 +12,11 @@ service cloud.firestore {
                     && request.resource.data.user_id == request.auth.uid;
       allow read, update, delete: if request.auth != null
                     && resource.data.user_id == request.auth.uid;
+
+      match /versions/{versionId} {
+        allow read, create, delete: if request.auth != null
+          && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+      }
     }
   }
 }

@@ -196,3 +196,4 @@
 - 2026-07-19：Phase A/B — PDF/DOCX/簡報匯出、簡報模式、[[wikilink]]+反向連結、標籤/資料夾、Journal、範本
 - 2026-07-19：Phase C/D — 看板（狀態欄）、白板畫布（拖曳／縮放／平移）
 - 2026-07-19：區塊補齊 Callout／Code／Toggle／Table
+- 2026-07-19：版本歷史、Obsidian 連結圖譜 `/graph`
