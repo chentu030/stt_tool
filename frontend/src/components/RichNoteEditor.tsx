@@ -66,10 +66,60 @@ export default function RichNoteEditor({
   const [replaceQ, setReplaceQ] = useState("");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState("");
+  const [hlOpen, setHlOpen] = useState(false);
+  const [hlColor, setHlColor] = useState(() => {
+    if (typeof window === "undefined") return "#fde047";
+    return localStorage.getItem("cadence_hl_color") || "#fde047";
+  });
+  const hlPanelRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<Editor | null>(null);
   const showFind = findOpen ?? false;
   const onChangeRef = useRef(onChangeMd);
   onChangeRef.current = onChangeMd;
   const [, setTick] = useState(0);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cadence_hl_color", hlColor);
+    } catch {
+      /* ignore */
+    }
+  }, [hlColor]);
+
+  useEffect(() => {
+    if (!hlOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!hlPanelRef.current?.contains(e.target as Node)) setHlOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [hlOpen]);
+
+  const applyHighlight = (color?: string) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const c = color || hlColor;
+    if (ed.isActive("highlight") && !color) {
+      const cur = ed.getAttributes("highlight").color as string | undefined;
+      if (!cur || cur === c) {
+        ed.chain().focus().unsetHighlight().run();
+        return;
+      }
+    }
+    ed.chain().focus().toggleHighlight({ color: c }).run();
+  };
+
+  const setHighlightColor = (color: string) => {
+    const next = normalizeHex(color);
+    if (!next) return;
+    setHlColor(next);
+    const ed = editorRef.current;
+    if (!ed) return;
+    if (ed.state.selection.empty) return;
+    ed.chain().focus().setHighlight({ color: next }).run();
+  };
+
+  const rgb = hexToRgb(hlColor);
 
   const imageRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -77,7 +127,6 @@ export default function RichNoteEditor({
   const videoRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLInputElement>(null);
   const pptRef = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<Editor | null>(null);
 
   const insertUploaded = useCallback(async (file: File) => {
     if (!userId || !noteId) {
@@ -244,7 +293,7 @@ export default function RichNoteEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Underline,
-      Highlight.configure({ multicolor: false }),
+      Highlight.configure({ multicolor: true }),
       Typography,
       NoteAudio,
       NoteVideo,
@@ -419,7 +468,94 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} title="斜體"><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()} title="底線"><u>U</u></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()} title="刪除線"><s>S</s></ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()} title="螢光筆">螢</ToolbarBtn>
+        <div className="hl-wrap" ref={hlPanelRef}>
+          <ToolbarBtn
+            active={editor.isActive("highlight")}
+            onClick={() => applyHighlight()}
+            title="螢光筆"
+          >
+            <span className="hl-swatch" style={{ background: hlColor }} />
+            螢
+          </ToolbarBtn>
+          <button
+            type="button"
+            className={`rich-tool-btn hl-caret${hlOpen ? " is-active" : ""}`}
+            title="螢光筆顏色"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setHlOpen((v) => !v)}
+          >
+            ▾
+          </button>
+          {hlOpen && (
+            <div className="hl-panel">
+              <div className="hl-presets">
+                {HL_PRESETS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`hl-preset${hlColor === c ? " is-on" : ""}`}
+                    style={{ background: c }}
+                    title={c}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setHighlightColor(c);
+                      applyHighlight(c);
+                    }}
+                  />
+                ))}
+              </div>
+              <label className="hl-row">
+                <span>色盤</span>
+                <input
+                  type="color"
+                  value={normalizeHex(hlColor) || "#fde047"}
+                  onChange={(e) => setHighlightColor(e.target.value)}
+                />
+              </label>
+              <div className="hl-rgb">
+                {(["r", "g", "b"] as const).map((ch) => (
+                  <label key={ch}>
+                    <span>{ch.toUpperCase()}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={255}
+                      value={rgb[ch]}
+                      onChange={(e) => {
+                        const n = Math.min(255, Math.max(0, Number(e.target.value) || 0));
+                        const next = { ...rgb, [ch]: n };
+                        setHighlightColor(rgbToHex(next.r, next.g, next.b));
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="hl-hex-row">
+                <span>HEX</span>
+                <input
+                  className="input"
+                  value={hlColor}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    setHlColor(v);
+                    if (normalizeHex(v)) setHighlightColor(v);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-soft"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    applyHighlight(hlColor);
+                    setHlOpen(false);
+                  }}
+                >
+                  套用
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         <span className="rich-toolbar-sep" />
         <ToolbarBtn active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolbarBtn>
@@ -480,6 +616,14 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</ToolbarBtn>
         <ToolbarBtn
+          active={editor.isActive("highlight")}
+          onClick={() => applyHighlight()}
+          title="螢光筆"
+        >
+          <span className="hl-swatch" style={{ background: hlColor }} />
+          螢
+        </ToolbarBtn>
+        <ToolbarBtn
           onClick={() => {
             const f = window.prompt("行內 LaTeX", "x^2");
             if (f) editor.chain().focus().setMathInline(f).run();
@@ -538,4 +682,42 @@ function ToolbarBtn({
       {children}
     </button>
   );
+}
+
+const HL_PRESETS = [
+  "#fde047",
+  "#86efac",
+  "#7dd3fc",
+  "#f9a8d4",
+  "#fdba74",
+  "#c4b5fd",
+  "#fca5a5",
+  "#e2e8f0",
+];
+
+function normalizeHex(c: string): string | null {
+  const s = c.trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(s)) {
+    const r = s[1];
+    const g = s[2];
+    const b = s[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  if (/^[0-9a-f]{6}$/i.test(s)) return `#${s.toLowerCase()}`;
+  return null;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const n = normalizeHex(hex) || "#fde047";
+  return {
+    r: parseInt(n.slice(1, 3), 16),
+    g: parseInt(n.slice(3, 5), 16),
+    b: parseInt(n.slice(5, 7), 16),
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const h = (n: number) => Math.min(255, Math.max(0, n | 0)).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
 }

@@ -2598,9 +2598,114 @@ button, input, textarea, select {
   border-radius: 4px;
 }
 .rich-prose mark {
-  background: rgba(250, 204, 21, 0.35);
   border-radius: 2px;
   padding: 0 0.1em;
+  background: rgba(250, 204, 21, 0.45);
+}
+.rich-prose mark[data-color] {
+  background-color: var(--hl, rgba(250, 204, 21, 0.45));
+}
+.hl-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.hl-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.15);
+  margin-right: 0.25rem;
+  vertical-align: middle;
+}
+.hl-caret {
+  padding-left: 0.2rem !important;
+  padding-right: 0.35rem !important;
+  min-width: 0;
+}
+.hl-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 80;
+  width: 220px;
+  padding: 0.55rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.hl-presets {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.25rem;
+}
+.hl-preset {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+.hl-preset.is-on {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.hl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.hl-row input[type="color"] {
+  width: 42px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.hl-rgb {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem;
+}
+.hl-rgb label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+.hl-rgb input {
+  width: 100%;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  padding: 0 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-main);
+}
+.hl-hex-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.3rem;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.hl-hex-row .input {
+  height: 28px;
+  padding: 0 0.4rem;
+  font-size: 0.78rem;
 }
 .rich-prose hr {
   border: none;

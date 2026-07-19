@@ -94,6 +94,32 @@ turndown.addRule("noteEmbed", {
   },
 });
 
+turndown.addRule("highlight", {
+  filter: ["mark"],
+  replacement: (content, node) => {
+    const el = node as HTMLElement;
+    const color =
+      el.getAttribute("data-color") ||
+      el.style?.backgroundColor ||
+      "";
+    const text = content.trim();
+    if (!text) return "";
+    if (color) return `==${text}=={${normalizeCssColor(color)}}`;
+    return `==${text}==`;
+  },
+});
+
+function normalizeCssColor(c: string): string {
+  const s = c.trim();
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s.toLowerCase();
+  const m = s.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) {
+    const hex = (n: number) => n.toString(16).padStart(2, "0");
+    return `#${hex(+m[1])}${hex(+m[2])}${hex(+m[3])}`;
+  }
+  return s;
+}
+
 marked.setOptions({ gfm: true, breaks: false });
 
 function escapeAttr(s: string) {
@@ -153,7 +179,19 @@ function enrichMarkdown(md: string): string {
 export function markdownToHtml(md: string): string {
   const raw = (md || "").trim();
   if (!raw) return "<p></p>";
-  const withMedia = enrichMarkdown(raw);
+  // Colored / plain highlights: ==text== or ==text=={#rrggbb}
+  const withMarks = raw.replace(
+    /==([^=\n]+?)==(?:\{([^}\n]+)\})?/g,
+    (_m, text: string, color?: string) => {
+      const t = escapeHtml(text);
+      if (color) {
+        const c = escapeAttr(color.trim());
+        return `<mark data-color="${c}" style="background-color: ${c}">${t}</mark>`;
+      }
+      return `<mark>${t}</mark>`;
+    }
+  );
+  const withMedia = enrichMarkdown(withMarks);
   return marked.parse(withMedia, { async: false }) as string;
 }
 
