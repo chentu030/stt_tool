@@ -208,6 +208,17 @@ export default function GlobalAiDock() {
             >
               清空
             </button>
+            <button
+              type="button"
+              className="doc-cmd"
+              title="深度研究"
+              onClick={() => {
+                setOpen(false);
+                router.push("/research");
+              }}
+            >
+              深度研究
+            </button>
             <button type="button" className="doc-cmd" onClick={() => setOpen(false)}>
               關閉
             </button>
