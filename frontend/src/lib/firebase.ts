@@ -256,6 +256,8 @@ export interface Note {
   cover?: string;
   /** nested under another note */
   parent_id?: string;
+  /** Canva-lite slide deck JSON */
+  deck?: Record<string, unknown> | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -299,7 +301,7 @@ export async function updateNote(
   updates: Partial<
     Pick<
       Note,
-      "title" | "body_md" | "tags" | "folder" | "journal_date" | "status" | "icon" | "cover" | "parent_id"
+      "title" | "body_md" | "tags" | "folder" | "journal_date" | "status" | "icon" | "cover" | "parent_id" | "deck"
     >
   >
 ) {

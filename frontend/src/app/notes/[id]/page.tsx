@@ -23,8 +23,15 @@ import {
   downloadMarkdown,
   downloadPdfViaPrint,
   downloadPptOutline,
-  bodyToSlides,
 } from "@/lib/exportNote";
+import SlideStudio from "@/components/slides/SlideStudio";
+import {
+  SlideDeck,
+  deckFromMarkdown,
+  loadDeckLocal,
+  normalizeDeck,
+  saveDeckLocal,
+} from "@/lib/slideDeck";
 import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle } from "@/lib/wiki";
 import {
   NOTE_AI_ACTIONS,
@@ -62,8 +69,8 @@ export default function NotePage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
-  const [presenting, setPresenting] = useState(false);
-  const [slideIdx, setSlideIdx] = useState(0);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
@@ -100,6 +107,9 @@ export default function NotePage() {
       setIcon(n.icon || "");
       setCover(n.cover || "");
       setParentId(n.parent_id || "");
+      const fromCloud = normalizeDeck(n.deck);
+      const fromLocal = loadDeckLocal(n.id);
+      setDeck(fromCloud || fromLocal);
       latest.current = {
         title: n.title,
         body: n.body_md,
@@ -228,7 +238,28 @@ export default function NotePage() {
   }, [allNotes, note, title, body, tags]);
 
   const outbound = useMemo(() => extractWikiLinks(body), [body]);
-  const slides = useMemo(() => bodyToSlides(title, body), [title, body]);
+
+  const openStudio = () => {
+    const existing = deck;
+    if (existing?.slides?.length) {
+      setStudioOpen(true);
+      return;
+    }
+    const generated = deckFromMarkdown(title, body);
+    setDeck(generated);
+    if (note) saveDeckLocal(note.id, generated);
+    setStudioOpen(true);
+  };
+
+  const onDeckChange = (next: SlideDeck) => {
+    setDeck(next);
+    if (note) {
+      saveDeckLocal(note.id, next);
+      void updateNote(note.id, { deck: next as unknown as Record<string, unknown> }).catch(() => {
+        /* local still ok */
+      });
+    }
+  };
 
   const linkCandidates = useMemo(() => {
     const q = linkPicker.trim().toLowerCase();
@@ -236,17 +267,6 @@ export default function NotePage() {
     if (!q) return list.slice(0, 8);
     return list.filter((n) => n.title.toLowerCase().includes(q)).slice(0, 8);
   }, [allNotes, linkPicker, note?.id]);
-
-  useEffect(() => {
-    if (!presenting) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPresenting(false);
-      if (e.key === "ArrowRight" || e.key === " ") setSlideIdx((i) => Math.min(i + 1, slides.length - 1));
-      if (e.key === "ArrowLeft") setSlideIdx((i) => Math.max(i - 1, 0));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [presenting, slides.length]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -413,8 +433,8 @@ export default function NotePage() {
           </button>
           <button
             type="button"
-            className="doc-cmd"
-            onClick={() => { setSlideIdx(0); setPresenting(true); }}
+            className={`doc-cmd${studioOpen ? " is-on" : ""}`}
+            onClick={openStudio}
           >
             簡報
           </button>
@@ -736,24 +756,15 @@ export default function NotePage() {
         />
       </div>
 
-      {presenting && (
-        <div
-          className="doc-present"
-          onClick={() => setSlideIdx((i) => Math.min(i + 1, slides.length - 1))}
-        >
-          <div className="doc-present-bar">
-            <span>{slideIdx + 1} / {slides.length}</span>
-            <button
-              type="button"
-              className="doc-cmd"
-              onClick={(e) => { e.stopPropagation(); setPresenting(false); }}
-            >
-              離開
-            </button>
-          </div>
-          <h1 className="font-display">{slides[slideIdx]?.title}</h1>
-          <pre>{slides[slideIdx]?.content}</pre>
-        </div>
+      {studioOpen && deck && (
+        <SlideStudio
+          open={studioOpen}
+          noteTitle={title}
+          noteBody={body}
+          deck={deck}
+          onChange={onDeckChange}
+          onClose={() => setStudioOpen(false)}
+        />
       )}
     </div>
   );
