@@ -26,6 +26,7 @@ import LibraryRail from "@/components/library/LibraryRail";
 import MenuSelect, { noteStatusLabel } from "@/components/MenuSelect";
 import { usePrefs } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
+import { buildResearchUrl } from "@/lib/researchBridge";
 import {
   SortKey,
   ViewMode,
@@ -359,6 +360,23 @@ function LibraryPageInner() {
                 </button>
                 <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
                   匯出 MD
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm kb-ctrl-btn"
+                  disabled={!selected.length}
+                  title="用已選筆記作為深度研究範圍"
+                  onClick={() =>
+                    router.push(
+                      buildResearchUrl({
+                        notes: selected,
+                        from: selected[0],
+                        returnTo: true,
+                      })
+                    )
+                  }
+                >
+                  深度研究
                 </button>
                 <button
                   type="button"

@@ -40,6 +40,7 @@ type Props = {
   onAiAction: (action: NoteAiActionId | string, prompt?: string) => void;
   onInsertAtCursor: (md: string) => void;
   onInsertAppend: (md: string) => void;
+  onDeepResearch?: () => void;
   onJumpHeading?: (item: HeadingItem) => void;
   onOpenSlideForHeading?: (item: HeadingItem) => void;
   open: boolean;
@@ -67,6 +68,7 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
     onAiAction,
     onInsertAtCursor,
     onInsertAppend,
+    onDeepResearch,
     onJumpHeading,
     onOpenSlideForHeading,
     open,
@@ -309,6 +311,17 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
                 {a.label}
               </button>
             ))}
+            {onDeepResearch && (
+              <button
+                type="button"
+                className="note-ai-chip"
+                disabled={!body.trim() && !title.trim()}
+                onClick={onDeepResearch}
+                title="以本篇為脈絡啟動深度研究（網路 + 筆記庫）"
+              >
+                深度研究
+              </button>
+            )}
             {draftChips.map((a) => (
               <button
                 key={a.id}

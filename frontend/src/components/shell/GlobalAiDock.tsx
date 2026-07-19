@@ -6,6 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, type Note } from "@/lib/firebase";
 import { packLibraryContext } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import { buildResearchUrl } from "@/lib/researchBridge";
 
 type Msg = { id: string; role: "user" | "assistant"; text: string };
 
@@ -214,7 +215,15 @@ export default function GlobalAiDock() {
               title="深度研究"
               onClick={() => {
                 setOpen(false);
-                router.push("/research");
+                const noteMatch = pathname?.match(/^\/notes\/([^/?#]+)/);
+                const from = noteMatch?.[1];
+                router.push(
+                  buildResearchUrl({
+                    from,
+                    notes: pinnedIds.length ? pinnedIds : undefined,
+                    returnTo: !!from,
+                  })
+                );
               }}
             >
               深度研究

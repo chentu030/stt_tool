@@ -42,6 +42,7 @@ import {
   splitMarkdownSections,
 } from "@/lib/slideDeck";
 import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle } from "@/lib/wiki";
+import { buildResearchUrl, takeResearchInsert } from "@/lib/researchBridge";
 import {
   NOTE_AI_ACTIONS,
   NoteAiActionId,
@@ -178,6 +179,31 @@ function NotePageInner() {
       };
     });
   }, [id]);
+
+  // Consume research insert handoff (when returning from /research)
+  useEffect(() => {
+    if (!id) return;
+    const flag = searchParams.get("researchInserted");
+    if (flag !== "1") return;
+
+    const pending = takeResearchInsert(id);
+    void getNote(id).then((n) => {
+      if (!n) return;
+      let next = n.body_md || "";
+      if (pending && !next.includes(pending.trim().slice(0, 80))) {
+        next = `${next.trim()}${pending}`;
+        void updateNote(id, { body_md: next });
+      }
+      setBody(next);
+      latest.current = { ...latest.current, body: next };
+      flash("深度研究已寫入本篇");
+    });
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("researchInserted");
+    window.history.replaceState({}, "", url.pathname + (url.search || ""));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, searchParams]);
 
   useEffect(() => {
     if (!user) return;
@@ -778,6 +804,22 @@ function NotePageInner() {
               <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
                 {aiBusy ? "AI…" : "摘要"}
               </button>
+              <button
+                type="button"
+                className="doc-cmd"
+                title="以本篇為脈絡啟動深度研究"
+                onClick={() =>
+                  router.push(
+                    buildResearchUrl({
+                      from: note.id,
+                      topic: title || undefined,
+                      returnTo: true,
+                    })
+                  )
+                }
+              >
+                深度研究
+              </button>
               <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
                 抽待辦
               </button>
@@ -820,6 +862,7 @@ function NotePageInner() {
             {moreOpen && (
               <div className="doc-more-menu">
                 {[
+                  { label: "深度研究", fn: () => router.push(buildResearchUrl({ from: note.id, topic: title || undefined, returnTo: true })) },
                   { label: "改寫", fn: () => runAi("rewrite") },
                   { label: "擴寫", fn: () => runAi("expand") },
                   { label: "產出大綱", fn: () => runAi("outline") },
@@ -1259,6 +1302,15 @@ function NotePageInner() {
             markDirty();
             flash("已附加文末");
           }}
+          onDeepResearch={() =>
+            router.push(
+              buildResearchUrl({
+                from: note.id,
+                topic: title || undefined,
+                returnTo: true,
+              })
+            )
+          }
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
           widthPx={asideWidth}

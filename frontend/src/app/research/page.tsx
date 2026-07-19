@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { createNote, listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
+import {
+  createNote,
+  getNote,
+  listenToUserNotes,
+  loginWithGoogle,
+  updateNote,
+  type Note,
+} from "@/lib/firebase";
 import { searchNotes, type LibraryNote } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
@@ -21,6 +29,13 @@ import {
   saveResearchHistoryItem,
   type ResearchHistoryItem,
 } from "@/lib/researchHistory";
+import {
+  formatResearchInsertBlock,
+  formatResearchNoteBody,
+  notesToResearchSnippets,
+  parseNotesParam,
+  stashResearchInsert,
+} from "@/lib/researchBridge";
 
 type Citation = {
   index: number;
@@ -117,15 +132,17 @@ function toLibraryNotes(notes: Note[]): LibraryNote[] {
   }));
 }
 
-function buildLibraryPayload(notes: LibraryNote[], topic: string) {
+function buildLibraryPayload(
+  notes: LibraryNote[],
+  topic: string,
+  selectedIds?: string[]
+) {
+  if (selectedIds?.length) {
+    return notesToResearchSnippets(notes, { selectedIds, limit: 40 });
+  }
   const ranked = searchNotes(notes, topic, { sort: topic.trim() ? "relevance" : "updated" });
   const pool = (ranked.length ? ranked : notes).slice(0, 28);
-  return pool.map((n) => ({
-    id: n.id,
-    title: n.title,
-    excerpt: (n.body_md || "").replace(/\s+/g, " ").trim().slice(0, 900),
-    updatedAt: n.updated_at?.toISOString?.() || undefined,
-  }));
+  return notesToResearchSnippets(pool, { limit: 28 });
 }
 
 function linkCitations(html: string, sources: Citation[]): string {
@@ -151,24 +168,41 @@ function extractToc(md: string): { id: string; text: string; level: number }[] {
   return out.slice(0, 24);
 }
 
-function reportExportBody(report: Report): string {
-  const webList = (report.webSources || [])
-    .map((s) => `${s.index}. [${s.title}](${s.uri})`)
-    .join("\n");
-  const noteList = (report.noteSources || [])
-    .map((s) => `${s.index}. [[${s.title}]] (${s.uri})`)
-    .join("\n");
-  return `## 摘要\n\n${report.summary}\n\n${report.markdown}\n\n---\n\n## 來源\n\n### 網路\n${webList || "（無）"}\n\n### 筆記\n${noteList || "（無）"}\n`;
+function reportExportBody(report: Report, sourceTitle?: string): string {
+  return formatResearchNoteBody({
+    title: report.title,
+    summary: report.summary,
+    markdown: report.markdown,
+    model: report.model,
+    sourceNoteTitle: sourceTitle,
+    webSources: report.webSources,
+    noteSources: report.noteSources,
+  }).replace(/^# .+\n\n/, "");
 }
 
 export default function DeepResearchPage() {
+  return (
+    <Suspense fallback={<p style={{ padding: "2rem", color: "var(--text-muted)" }}>載入中…</p>}>
+      <DeepResearchPageInner />
+    </Suspense>
+  );
+}
+
+function DeepResearchPageInner() {
   const { user, loading } = useAuth();
   const prefs = usePrefsOptional();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [notes, setNotes] = useState<Note[]>([]);
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
   const [domains, setDomains] = useState("");
   const [depth, setDepth] = useState<Depth>("standard");
+  const [sourceNoteId, setSourceNoteId] = useState<string | null>(null);
+  const [sourceNoteTitle, setSourceNoteTitle] = useState("");
+  const [scopeIds, setScopeIds] = useState<string[]>([]);
+  const [scopeQ, setScopeQ] = useState("");
+  const [wantReturn, setWantReturn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("");
   const [logs, setLogs] = useState<LogItem[]>([]);
@@ -178,6 +212,7 @@ export default function DeepResearchPage() {
   const [clarifyQs, setClarifyQs] = useState<string[]>([]);
   const [clarifyAnswers, setClarifyAnswers] = useState<string[]>([]);
   const [assumedIntent, setAssumedIntent] = useState("");
+  const seededRef = useRef(false);
   const [draftPlan, setDraftPlan] = useState<Plan | null>(null);
   const [sourceStats, setSourceStats] = useState({ web: 0, notes: 0 });
   const [modelUsed, setModelUsed] = useState("");
@@ -200,15 +235,71 @@ export default function DeepResearchPage() {
     setHistory(loadResearchHistory(user.uid));
   }, [user]);
 
+  // Seed from notebook / library URL params
+  useEffect(() => {
+    if (seededRef.current || !user) return;
+    const from = searchParams.get("from");
+    const notesParam = parseNotesParam(searchParams.get("notes"));
+    const topicParam = searchParams.get("topic");
+    const returnTo = searchParams.get("returnTo") === "1";
+    if (!from && !notesParam.length && !topicParam) {
+      seededRef.current = true;
+      return;
+    }
+    seededRef.current = true;
+    setWantReturn(returnTo && !!from);
+    if (notesParam.length) setScopeIds(notesParam);
+    if (topicParam) setTopic(topicParam);
+
+    if (from) {
+      setSourceNoteId(from);
+      setScopeIds((prev) => (prev.includes(from) ? prev : [from, ...prev].slice(0, 40)));
+      void getNote(from).then((n) => {
+        if (!n || n.user_id !== user.uid) return;
+        setSourceNoteTitle(n.title || "未命名");
+        if (!topicParam) setTopic(n.title || "");
+        const body = (n.body_md || "").trim();
+        if (body) {
+          setContext((prev) =>
+            prev.trim()
+              ? prev
+              : `來源筆記《${n.title}》：\n${body.slice(0, 4000)}`
+          );
+        }
+      });
+    }
+  }, [user, searchParams]);
+
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
   const libraryNotes = useMemo(() => toLibraryNotes(notes), [notes]);
   const notePreview = useMemo(() => {
+    if (scopeIds.length) {
+      return libraryNotes.filter((n) => scopeIds.includes(n.id)).slice(0, 8);
+    }
     if (!topic.trim()) return [];
     return searchNotes(libraryNotes, topic, { sort: "relevance" }).slice(0, 5);
-  }, [libraryNotes, topic]);
+  }, [libraryNotes, topic, scopeIds]);
+
+  const scopeCandidates = useMemo(() => {
+    const q = scopeQ.trim().toLowerCase();
+    const list = q
+      ? libraryNotes.filter(
+          (n) =>
+            n.title.toLowerCase().includes(q) ||
+            (n.body_md || "").toLowerCase().includes(q)
+        )
+      : libraryNotes;
+    return list.slice(0, 12);
+  }, [libraryNotes, scopeQ]);
+
+  const toggleScope = (id: string) => {
+    setScopeIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(0, 40)
+    );
+  };
 
   const preferredDomains = useMemo(
     () =>
@@ -409,7 +500,11 @@ export default function DeepResearchPage() {
       pushLog("依核准計畫繼續執行…", "ok");
     }
 
-    const libraryPayload = buildLibraryPayload(libraryNotes, topic.trim());
+    const libraryPayload = buildLibraryPayload(
+      libraryNotes,
+      topic.trim(),
+      scopeIds.length ? scopeIds : undefined
+    );
     if (libraryPayload.length && opts?.resetLogs !== false) {
       pushLog(`已打包 ${libraryPayload.length} 則相關筆記`, "ok");
     }
@@ -483,7 +578,11 @@ export default function DeepResearchPage() {
           approvedPlan: report.plan,
           findings: report.findings,
           refineQuestions: qs,
-          libraryNotes: buildLibraryPayload(libraryNotes, topic.trim()),
+          libraryNotes: buildLibraryPayload(
+            libraryNotes,
+            topic.trim(),
+            scopeIds.length ? scopeIds : undefined
+          ),
           stream: true,
         }),
       });
@@ -505,20 +604,71 @@ export default function DeepResearchPage() {
     }
   };
 
-  const saveNote = async () => {
+  const saveNote = async (asChild = !!sourceNoteId) => {
     if (!user || !report) return;
-    const wikiBlock = (report.noteSources || [])
-      .map((s) => `- [[${s.title}]]`)
-      .join("\n");
-    const body = `# ${report.title}
-
-> 由 Cadence 深度研究產生 · ${report.model || "gemini-3.1-pro-preview"}
-
-${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(report)}`;
-    const id = await createNote(user.uid, report.title, body, undefined, ["深度研究"], {
-      folder: "深度研究",
+    const body = formatResearchNoteBody({
+      title: report.title,
+      summary: report.summary,
+      markdown: report.markdown,
+      model: report.model,
+      sourceNoteTitle: sourceNoteTitle || undefined,
+      webSources: report.webSources,
+      noteSources: report.noteSources,
     });
+    const id = await createNote(
+      user.uid,
+      report.title,
+      body,
+      undefined,
+      ["深度研究"],
+      {
+        folder: "深度研究",
+        parent_id: asChild && sourceNoteId ? sourceNoteId : undefined,
+      }
+    );
+    if (asChild && sourceNoteId) {
+      try {
+        const parent = await getNote(sourceNoteId);
+        if (parent?.body_md != null) {
+          const link = `\n\n[[${report.title}]]\n`;
+          if (!parent.body_md.includes(`[[${report.title}]]`)) {
+            await updateNote(sourceNoteId, {
+              body_md: `${parent.body_md.trim()}${link}`,
+            });
+          }
+        }
+      } catch {
+        /* ignore parent link failure */
+      }
+    }
     setSavedId(id);
+    if (wantReturn && sourceNoteId) {
+      router.push(`/notes/${sourceNoteId}`);
+    }
+  };
+
+  const insertIntoSource = async (mode: "full" | "summary" = "full") => {
+    if (!user || !report || !sourceNoteId) return;
+    const block = formatResearchInsertBlock({
+      title: report.title,
+      summary: report.summary,
+      markdown: report.markdown,
+      mode,
+    });
+    try {
+      const parent = await getNote(sourceNoteId);
+      if (!parent || parent.user_id !== user.uid) throw new Error("找不到來源筆記");
+      await updateNote(sourceNoteId, {
+        body_md: `${(parent.body_md || "").trim()}${block}`,
+      });
+      pushLog(`已寫入來源筆記《${sourceNoteTitle || sourceNoteId}》`, "ok");
+      if (wantReturn) router.push(`/notes/${sourceNoteId}?researchInserted=1`);
+    } catch (e) {
+      // Fallback: stash for note page to apply
+      stashResearchInsert(sourceNoteId, block);
+      setError(e instanceof Error ? e.message : "寫入筆記失敗（已暫存，回筆記時會嘗試插入）");
+      if (wantReturn) router.push(`/notes/${sourceNoteId}?researchInserted=1`);
+    }
   };
 
   const askFollowUp = async () => {
@@ -645,7 +795,6 @@ ${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(repo
   }
 
   const showStart = !busy && clarifyQs.length === 0 && !draftPlan;
-  const exportBody = report ? reportExportBody(report) : "";
 
   return (
     <div className="dr-page">
@@ -653,13 +802,30 @@ ${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(repo
         <div>
           <ScrambleText words="深度研究" as="h1" className="page-title font-display" />
           <p className="page-sub">
-            計畫審核 · 來源偏好 · 偏弱題補強 · 匯出 MD/PDF/DOCX · 知識圖譜連結 · 多輪追問
+            與筆記本結合：從筆記啟動、指定研究範圍、存成子筆記或寫回原文。
           </p>
         </div>
       </header>
 
       <div className="dr-layout">
         <section className="dr-form">
+          {sourceNoteId && (
+            <div className="dr-source-banner">
+              <span>
+                來源筆記：{" "}
+                <Link href={`/notes/${sourceNoteId}`}>{sourceNoteTitle || "開啟筆記"}</Link>
+              </span>
+              <label className="dr-return-check">
+                <input
+                  type="checkbox"
+                  checked={wantReturn}
+                  onChange={(e) => setWantReturn(e.target.checked)}
+                />
+                完成後回到筆記
+              </label>
+            </div>
+          )}
+
           <label className="dr-label">
             研究主題
             <textarea
@@ -732,7 +898,7 @@ ${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(repo
 
           {notePreview.length > 0 && (
             <div className="dr-note-preview">
-              <h4>可能用到的筆記</h4>
+              <h4>{scopeIds.length ? "研究範圍筆記" : "可能用到的筆記"}</h4>
               <ul>
                 {notePreview.map((n) => (
                   <li key={n.id}>
@@ -742,6 +908,50 @@ ${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(repo
               </ul>
             </div>
           )}
+
+          <div className="dr-scope">
+            <h4>
+              指定筆記範圍{" "}
+              <span className="dr-muted-inline">
+                {scopeIds.length ? `${scopeIds.length} 篇` : "自動相關"}
+              </span>
+            </h4>
+            <input
+              className="input"
+              placeholder="搜尋筆記加入範圍…"
+              value={scopeQ}
+              disabled={busy}
+              onChange={(e) => setScopeQ(e.target.value)}
+            />
+            <ul className="dr-scope-list">
+              {scopeCandidates.map((n) => {
+                const on = scopeIds.includes(n.id);
+                return (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      className={`dr-scope-item${on ? " is-on" : ""}`}
+                      disabled={busy}
+                      onClick={() => toggleScope(n.id)}
+                    >
+                      {on ? "✓ " : ""}
+                      {n.title}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {scopeIds.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                disabled={busy}
+                onClick={() => setScopeIds(sourceNoteId ? [sourceNoteId] : [])}
+              >
+                清除範圍
+              </button>
+            )}
+          </div>
 
           {clarifyQs.length > 0 && !busy && !report && (
             <div className="dr-clarify">
@@ -949,9 +1159,53 @@ ${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(repo
               <div className="dr-result-bar">
                 <h2>{report.title}</h2>
                 <div className="dr-result-actions">
-                  <button type="button" className="btn btn-sm" onClick={() => void saveNote()}>
-                    {savedId ? "已存筆記" : "存成筆記"}
+                  {sourceNoteId && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => void insertIntoSource("full")}
+                      >
+                        寫入來源筆記
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => void insertIntoSource("summary")}
+                      >
+                        只寫摘要
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => void saveNote(!!sourceNoteId)}
+                  >
+                    {savedId
+                      ? "已存"
+                      : sourceNoteId
+                        ? "存成子筆記"
+                        : "存成筆記"}
                   </button>
+                  {!sourceNoteId && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => void saveNote(false)}
+                    >
+                      獨立筆記
+                    </button>
+                  )}
+                  {sourceNoteId && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => void saveNote(false)}
+                    >
+                      存獨立筆記
+                    </button>
+                  )}
                   {savedId && (
                     <Link href={`/notes/${savedId}`} className="btn btn-sm btn-soft">
                       開啟
@@ -960,21 +1214,36 @@ ${wikiBlock ? `## 相關筆記\n\n${wikiBlock}\n\n` : ""}${reportExportBody(repo
                   <button
                     type="button"
                     className="btn btn-sm btn-ghost"
-                    onClick={() => downloadMarkdown(report.title, exportBody)}
+                    onClick={() =>
+                      downloadMarkdown(
+                        report.title,
+                        reportExportBody(report, sourceNoteTitle || undefined)
+                      )
+                    }
                   >
                     MD
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm btn-ghost"
-                    onClick={() => downloadPdfViaPrint(report.title, exportBody)}
+                    onClick={() =>
+                      downloadPdfViaPrint(
+                        report.title,
+                        reportExportBody(report, sourceNoteTitle || undefined)
+                      )
+                    }
                   >
                     PDF
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm btn-ghost"
-                    onClick={() => void downloadDocx(report.title, exportBody)}
+                    onClick={() =>
+                      void downloadDocx(
+                        report.title,
+                        reportExportBody(report, sourceNoteTitle || undefined)
+                      )
+                    }
                   >
                     DOCX
                   </button>

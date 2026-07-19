@@ -9211,6 +9211,70 @@ button, input, textarea, select {
 .dr-chat-bubble.is-assistant {
   background: var(--bg);
 }
+.dr-source-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 0.82rem;
+}
+.dr-source-banner a { color: var(--accent); }
+.dr-return-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.dr-scope {
+  margin: 0.65rem 0 0.85rem;
+  padding: 0.65rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.dr-scope h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+}
+.dr-muted-inline {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.72rem;
+}
+.dr-scope-list {
+  list-style: none;
+  margin: 0.45rem 0 0.35rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 160px;
+  overflow: auto;
+}
+.dr-scope-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.dr-scope-item:hover { color: var(--text); }
+.dr-scope-item.is-on {
+  border-color: var(--border);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
 @media (max-width: 860px) {
   .dr-layout { grid-template-columns: 1fr; }
   .dr-graph-grid { grid-template-columns: 1fr; }
