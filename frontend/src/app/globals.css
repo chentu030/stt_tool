@@ -4891,3 +4891,115 @@ button, input, textarea, select {
 }
 .kb-table tr.is-selected { background: var(--accent-soft); }
 .kb-table a { color: var(--accent); }
+
+/* Word-like: page mode, tables, text-align */
+.rich-editor--page {
+  min-height: 60vh;
+}
+.rich-canvas--page {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.04), rgba(15, 23, 42, 0.02)),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 23px,
+      rgba(15, 23, 42, 0.015) 24px
+    );
+  padding: 1.25rem 0.75rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+.rich-page-sheet {
+  position: relative;
+  width: min(100%, 210mm);
+  min-height: 297mm;
+  background: #fff;
+  color: #111;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 12px 40px rgba(15, 23, 42, 0.1);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 22mm 18mm 24mm;
+  box-sizing: border-box;
+}
+.rich-page-sheet .rich-prose {
+  min-height: calc(297mm - 46mm);
+  padding-left: 1.5rem;
+  color: #111;
+}
+.rich-page-sheet .block-drag-handle {
+  left: 0.15rem;
+}
+.doc-workspace.is-page .doc-editor {
+  max-width: none;
+}
+@media (max-width: 720px) {
+  .rich-canvas--page {
+    padding: 0.75rem 0.35rem 1.5rem;
+  }
+  .rich-page-sheet {
+    width: 100%;
+    min-height: 70vh;
+    padding: 1.25rem 1rem 2rem;
+  }
+}
+.rich-prose [style*="text-align: center"],
+.rich-prose [style*="text-align:center"] {
+  text-align: center;
+}
+.rich-prose [style*="text-align: right"],
+.rich-prose [style*="text-align:right"] {
+  text-align: right;
+}
+.rich-prose [style*="text-align: justify"],
+.rich-prose [style*="text-align:justify"] {
+  text-align: justify;
+}
+.rich-prose .rich-table,
+.rich-prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.85rem 0;
+  table-layout: fixed;
+  overflow: hidden;
+}
+.rich-prose .rich-table td,
+.rich-prose .rich-table th,
+.rich-prose table td,
+.rich-prose table th {
+  border: 1px solid var(--border, #d4d4d8);
+  padding: 0.45rem 0.55rem;
+  vertical-align: top;
+  min-width: 2.5rem;
+  position: relative;
+}
+.rich-prose .rich-table th,
+.rich-prose table th {
+  background: var(--bg-muted, #f4f4f5);
+  font-weight: 650;
+  text-align: left;
+}
+.rich-prose .rich-table .selectedCell::after,
+.rich-prose table .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--accent, #0d9488) 14%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+.rich-prose .tableWrapper {
+  overflow-x: auto;
+  margin: 0.85rem 0;
+}
+.rich-prose .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--accent, #0d9488);
+  pointer-events: none;
+}

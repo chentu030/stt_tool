@@ -12,8 +12,10 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
-import { TextStyle } from "@tiptap/extension-text-style";
+import { TextStyle, FontSize } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
+import TextAlign from "@tiptap/extension-text-align";
+import { TableKit } from "@tiptap/extension-table";
 import Typography from "@tiptap/extension-typography";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
@@ -40,6 +42,7 @@ type Props = {
   wikiNotes?: NoteLite[];
   onEmptyTemplate?: (templateId: string) => void;
   showEmptyTemplates?: boolean;
+  pageMode?: boolean;
 };
 
 type SlashItem = {
@@ -67,6 +70,7 @@ export default function RichNoteEditor({
   wikiNotes = [],
   onEmptyTemplate,
   showEmptyTemplates,
+  pageMode = false,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
@@ -303,6 +307,12 @@ export default function RichNoteEditor({
     { id: "quote", label: "引用", hint: "引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
     { id: "code", label: "程式碼", hint: "Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
     {
+      id: "table",
+      label: "表格",
+      hint: "3×3",
+      run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+    },
+    {
       id: "math",
       label: "LaTeX 公式",
       hint: "區塊公式 $$",
@@ -387,7 +397,12 @@ export default function RichNoteEditor({
       TaskItem.configure({ nested: true }),
       Underline,
       TextStyle,
+      FontSize,
       Color,
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+      TableKit.configure({
+        table: { resizable: true, HTMLAttributes: { class: "rich-table" } },
+      }),
       Highlight.configure({ multicolor: true }),
       Typography,
       NoteAudio,
@@ -641,6 +656,10 @@ export default function RichNoteEditor({
     </>
   );
 
+  const FONT_SIZES = ["14px", "16px", "18px", "20px", "24px", "28px", "32px"];
+  const currentFontSize =
+    (editor.getAttributes("textStyle").fontSize as string | undefined) || "";
+
   const ribbon = (
     <div className="doc-ribbon-inner">
       <div className="rich-toolbar rich-toolbar--ribbon">
@@ -648,6 +667,50 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} title="斜體"><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()} title="底線"><u>U</u></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()} title="刪除線"><s>S</s></ToolbarBtn>
+        <label className="rich-lh" title="字級">
+          <span>字</span>
+          <select
+            value={currentFontSize}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) editor.chain().focus().unsetFontSize().run();
+              else editor.chain().focus().setFontSize(v).run();
+            }}
+          >
+            <option value="">預設</option>
+            {FONT_SIZES.map((s) => (
+              <option key={s} value={s}>{s.replace("px", "")}</option>
+            ))}
+          </select>
+        </label>
+        <ToolbarBtn
+          title="靠左"
+          active={editor.isActive({ textAlign: "left" })}
+          onClick={() => editor.chain().focus().setTextAlign("left").run()}
+        >
+          左
+        </ToolbarBtn>
+        <ToolbarBtn
+          title="置中"
+          active={editor.isActive({ textAlign: "center" })}
+          onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        >
+          中
+        </ToolbarBtn>
+        <ToolbarBtn
+          title="靠右"
+          active={editor.isActive({ textAlign: "right" })}
+          onClick={() => editor.chain().focus().setTextAlign("right").run()}
+        >
+          右
+        </ToolbarBtn>
+        <ToolbarBtn
+          title="兩端對齊"
+          active={editor.isActive({ textAlign: "justify" })}
+          onClick={() => editor.chain().focus().setTextAlign("justify").run()}
+        >
+          齊
+        </ToolbarBtn>
         <div className="hl-wrap" ref={hlPanelRef}>
           <ToolbarBtn
             active={editor.isActive("highlight")}
@@ -779,6 +842,29 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>引用</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()} title="程式碼">{"</>"}</ToolbarBtn>
         <ToolbarBtn
+          title="插入表格"
+          onClick={() =>
+            editor
+              .chain()
+              .focus()
+              .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+              .run()
+          }
+        >
+          表
+        </ToolbarBtn>
+        {editor.isActive("table") && (
+          <>
+            <ToolbarBtn title="左增欄" onClick={() => editor.chain().focus().addColumnBefore().run()}>◀欄</ToolbarBtn>
+            <ToolbarBtn title="右增欄" onClick={() => editor.chain().focus().addColumnAfter().run()}>欄▶</ToolbarBtn>
+            <ToolbarBtn title="上增列" onClick={() => editor.chain().focus().addRowBefore().run()}>▲列</ToolbarBtn>
+            <ToolbarBtn title="下增列" onClick={() => editor.chain().focus().addRowAfter().run()}>列▼</ToolbarBtn>
+            <ToolbarBtn title="刪欄" onClick={() => editor.chain().focus().deleteColumn().run()}>刪欄</ToolbarBtn>
+            <ToolbarBtn title="刪列" onClick={() => editor.chain().focus().deleteRow().run()}>刪列</ToolbarBtn>
+            <ToolbarBtn title="刪表" onClick={() => editor.chain().focus().deleteTable().run()}>刪表</ToolbarBtn>
+          </>
+        )}
+        <ToolbarBtn
           onClick={() => {
             const f = window.prompt("LaTeX 公式", "E = mc^2");
             if (f) editor.chain().focus().setMathBlock(f).run();
@@ -819,7 +905,7 @@ export default function RichNoteEditor({
   );
 
   return (
-    <div className="rich-editor">
+    <div className={`rich-editor${pageMode ? " rich-editor--page" : ""}`}>
       {hiddenInputs}
       {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
 
@@ -827,6 +913,13 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>B</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</ToolbarBtn>
+        <ToolbarBtn
+          title="置中"
+          active={editor.isActive({ textAlign: "center" })}
+          onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        >
+          中
+        </ToolbarBtn>
         <ToolbarBtn
           active={editor.isActive("highlight")}
           onClick={() => applyHighlight()}
@@ -858,9 +951,11 @@ export default function RichNoteEditor({
         <ToolbarBtn onClick={setLink}>連結</ToolbarBtn>
       </BubbleMenu>
 
-      <div className="rich-canvas">
-        <BlockDragHandle editor={editor} />
-        <EditorContent editor={editor} />
+      <div className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
+        <div className={pageMode ? "rich-page-sheet" : undefined}>
+          <BlockDragHandle editor={editor} />
+          <EditorContent editor={editor} />
+        </div>
         {showEmptyTemplates && isEmptyDoc && onEmptyTemplate && (
           <div className="empty-templates">
             <p className="empty-templates-label">從範本開始</p>

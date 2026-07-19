@@ -70,6 +70,10 @@ export default function NotePage() {
   const [asideOpen, setAsideOpen] = useState(true);
   const [asideTab, setAsideTab] = useState<"outline" | "ai" | "info">("outline");
   const [focusMode, setFocusMode] = useState(false);
+  const [pageMode, setPageMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("cadence_page_mode") === "1";
+  });
   const [linkPicker, setLinkPicker] = useState("");
   const [toast, setToast] = useState("");
   const [iconOpen, setIconOpen] = useState(false);
@@ -337,7 +341,7 @@ export default function NotePage() {
   };
 
   return (
-    <div className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}`}>
+    <div className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}`}>
       <div className="doc-ribbon" ref={setRibbonHost} />
 
       <div className="doc-command">
@@ -419,6 +423,24 @@ export default function NotePage() {
           </button>
           <button type="button" className={`doc-cmd${focusMode ? " is-on" : ""}`} onClick={() => setFocusMode((v) => !v)}>
             專注
+          </button>
+          <button
+            type="button"
+            className={`doc-cmd${pageMode ? " is-on" : ""}`}
+            title="頁面模式（A4）"
+            onClick={() => {
+              setPageMode((v) => {
+                const next = !v;
+                try {
+                  localStorage.setItem("cadence_page_mode", next ? "1" : "0");
+                } catch {
+                  /* ignore */
+                }
+                return next;
+              });
+            }}
+          >
+            頁面
           </button>
           <div className="doc-more-wrap">
             <button type="button" className="doc-cmd" onClick={() => setMoreOpen((v) => !v)}>更多</button>
@@ -656,6 +678,7 @@ export default function NotePage() {
               userId={user.uid}
               noteId={note.id}
               wikiNotes={allNotes}
+              pageMode={pageMode}
               showEmptyTemplates
               onEmptyTemplate={(tid) => {
                 const tpl = NOTE_TEMPLATES.find((t) => t.id === tid);

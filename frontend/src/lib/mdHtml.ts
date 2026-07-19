@@ -141,6 +141,59 @@ turndown.addRule("wikiLink", {
   },
 });
 
+turndown.addRule("fontSize", {
+  filter: (node) =>
+    node.nodeName === "SPAN" &&
+    !!(node as HTMLElement).style?.fontSize &&
+    !(node as HTMLElement).getAttribute("data-math-inline") &&
+    !(node as HTMLElement).getAttribute("data-text-color"),
+  replacement: (content, node) => {
+    const size = (node as HTMLElement).style.fontSize;
+    if (!size || !content.trim()) return content;
+    return `{fs:${size}}${content}{/fs}`;
+  },
+});
+
+turndown.addRule("alignedParagraph", {
+  filter: (node) => {
+    if (node.nodeName !== "P" && !/^H[1-6]$/.test(node.nodeName)) return false;
+    const align = (node as HTMLElement).style?.textAlign;
+    return !!align && align !== "start" && align !== "left";
+  },
+  replacement: (content, node) => {
+    const el = node as HTMLElement;
+    const align = el.style.textAlign;
+    const tag = node.nodeName.toLowerCase();
+    const inner = content.trim();
+    if (tag.startsWith("h")) {
+      const level = tag[1];
+      const hashes = "#".repeat(Number(level));
+      return `\n\n${hashes} ${inner} <!--align:${align}-->\n\n`;
+    }
+    return `\n\n<p style="text-align:${align}">${inner}</p>\n\n`;
+  },
+});
+
+turndown.addRule("table", {
+  filter: "table",
+  replacement: (_content, node) => {
+    const table = node as HTMLTableElement;
+    const rows = Array.from(table.querySelectorAll("tr"));
+    if (!rows.length) return "";
+    const lines: string[] = [];
+    rows.forEach((tr, i) => {
+      const cells = Array.from(tr.querySelectorAll("th,td")).map((c) =>
+        (c.textContent || "").replace(/\|/g, "\\|").trim()
+      );
+      lines.push(`| ${cells.join(" | ")} |`);
+      if (i === 0) {
+        lines.push(`| ${cells.map(() => "---").join(" | ")} |`);
+      }
+    });
+    return `\n\n${lines.join("\n")}\n\n`;
+  },
+});
+
 function normalizeCssColor(c: string): string {
   const s = c.trim();
   if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s.toLowerCase();
@@ -209,6 +262,18 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   s = s.replace(/\{c:([^}\n]+)\}([\s\S]*?)\{\/c\}/g, (_m, color: string, text: string) => {
     const c = escapeAttr(String(color).trim());
     return `<span style="color: ${c}" data-text-color="${c}">${escapeHtml(text)}</span>`;
+  });
+
+  // Font size: {fs:18px}text{/fs}
+  s = s.replace(/\{fs:([^}\n]+)\}([\s\S]*?)\{\/fs\}/g, (_m, size: string, text: string) => {
+    const fs = escapeAttr(String(size).trim());
+    return `<span style="font-size: ${fs}">${escapeHtml(text)}</span>`;
+  });
+
+  // Heading align markers: ## Title <!--align:center-->
+  s = s.replace(/^(#{1,3})\s+(.+?)\s*<!--align:(left|center|right|justify)-->\s*$/gm, (_m, hashes, title, align) => {
+    const level = String(hashes).length;
+    return `<h${level} style="text-align:${align}">${title}</h${level}>`;
   });
 
   // Wiki links [[Title]] or [[Title|alias]]
