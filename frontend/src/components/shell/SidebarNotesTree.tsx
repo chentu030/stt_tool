@@ -902,18 +902,19 @@ export default function SidebarNotesTree() {
     },
   });
 
-  const renderNoteLink = (note: Note, depth: number) => {
+  const renderNoteLink = (note: Note, depth: number, opts?: { flat?: boolean }) => {
+    const flat = !!opts?.flat;
     const active = note.id === activeNoteId;
     const isSelected = selected.has(note.id);
-    const kids = childrenByParent.get(note.id) || [];
-    const open = expanded.has(`note:${note.id}`);
+    const kids = flat ? [] : childrenByParent.get(note.id) || [];
+    const open = !flat && expanded.has(`note:${note.id}`);
     const isFav = (prefs?.favoriteNoteIds || []).includes(note.id);
     const colorId = isPageColorId(note.color) ? note.color : "";
     const color = pageColorMeta(colorId);
     const dropPlace =
       dropHint?.noteId === note.id ? dropHint.place : null;
     return (
-      <div key={`n:${note.id}`}>
+      <div key={flat ? `flat:${note.id}` : `n:${note.id}`}>
         <div
           className={`sb-row sb-row--note${active ? " is-active" : ""}${isSelected ? " is-selected" : ""}${colorId ? " has-color" : ""}${dropPlace === "before" ? " is-drop-before" : ""}${dropPlace === "after" ? " is-drop-after" : ""}`}
           style={{
@@ -1190,14 +1191,14 @@ export default function SidebarNotesTree() {
       {!q && favNotes.length > 0 && (
         <div className="sb-section">
           <p className="sb-section-label">收藏</p>
-          {favNotes.map((n) => renderNoteLink(n, 0))}
+          {favNotes.map((n) => renderNoteLink(n, 0, { flat: true }))}
         </div>
       )}
 
       {!q && recentNotes.length > 0 && (
         <div className="sb-section">
           <p className="sb-section-label">最近</p>
-          {recentNotes.slice(0, 5).map((n) => renderNoteLink(n, 0))}
+          {recentNotes.slice(0, 5).map((n) => renderNoteLink(n, 0, { flat: true }))}
         </div>
       )}
 
