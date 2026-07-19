@@ -73,9 +73,16 @@ export default function SelectionAiPanel({
 
   if (!open) return null;
 
+  const hasSelection = !!rangeRef.current.text.trim();
+  const contextFallback = (noteBody || "").trim().slice(0, 4000) || noteTitle || "空白筆記";
+
   const run = async (action: SelectionAiAction, ask?: string) => {
-    const sel = rangeRef.current.text.trim();
+    const sel = rangeRef.current.text.trim() || contextFallback;
     if (!sel || busy) return;
+    if (!hasSelection && action !== "ask_selection" && action !== "continue") {
+      setError("請先選取文字，或直接輸入問題");
+      return;
+    }
     setBusy(true);
     setError("");
     setResult("");
@@ -88,7 +95,7 @@ export default function SelectionAiPanel({
       };
       if (noteBody) payload.context = noteBody.slice(0, 6000);
       if (action === "ask_selection") {
-        payload.prompt = ask?.trim() || prompt.trim() || "請說明這段在說什麼";
+        payload.prompt = ask?.trim() || prompt.trim() || (hasSelection ? "請說明這段在說什麼" : "根據這篇筆記幫我整理重點");
       }
       const res = await fetch("/api/ai/generate", {
         method: "POST",
@@ -107,9 +114,13 @@ export default function SelectionAiPanel({
 
   const replaceSelection = () => {
     if (!result) return;
-    const { from: a, to: b } = rangeRef.current;
+    const { from: a, to: b, text } = rangeRef.current;
     const html = markdownToHtml(result);
-    editor.chain().focus().deleteRange({ from: a, to: b }).insertContentAt(a, html).run();
+    if (!text.trim() || a === b) {
+      editor.chain().focus().insertContentAt(b, html).run();
+    } else {
+      editor.chain().focus().deleteRange({ from: a, to: b }).insertContentAt(a, html).run();
+    }
     onClose();
   };
 
@@ -133,9 +144,10 @@ export default function SelectionAiPanel({
           關閉
         </button>
       </div>
-      <p className="sel-ai-snip" title={selectionText}>
-        「{selectionText.slice(0, 120)}
-        {selectionText.length > 120 ? "…" : ""}」
+      <p className="sel-ai-snip" title={selectionText || "整篇筆記"}>
+        {selectionText.trim()
+          ? `「${selectionText.slice(0, 120)}${selectionText.length > 120 ? "…" : ""}」`
+          : "（未選取文字 — 可直接提問或繼續寫）"}
       </p>
       <div className="sel-ai-quick">
         {QUICK.map((q) => (
@@ -143,7 +155,7 @@ export default function SelectionAiPanel({
             key={q.id}
             type="button"
             className="doc-cmd"
-            disabled={busy}
+            disabled={busy || (!hasSelection && q.id !== "continue")}
             onClick={() => void run(q.id)}
           >
             {q.label}
@@ -175,7 +187,7 @@ export default function SelectionAiPanel({
           <pre>{result}</pre>
           <div className="sel-ai-actions">
             <button type="button" className="doc-cmd is-on" onClick={replaceSelection}>
-              取代選取
+              {hasSelection ? "取代選取" : "插入此處"}
             </button>
             <button type="button" className="doc-cmd" onClick={insertBelow}>
               插入下方

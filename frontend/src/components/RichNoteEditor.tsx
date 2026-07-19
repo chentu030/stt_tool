@@ -22,6 +22,15 @@ import { common, createLowlight } from "lowlight";
 import { markdownToHtml, htmlToMarkdown, formatFileSize } from "@/lib/mdHtml";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
+import {
+  Callout,
+  ToggleBlock,
+  TocBlock,
+  Bookmark,
+  AppCard,
+  TemplateBtn,
+} from "@/lib/tiptapBlocks";
+import { NOTE_TEMPLATES } from "@/lib/templates";
 import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt } from "@/lib/moveBlock";
@@ -56,15 +65,51 @@ type SlashItem = {
   run: (editor: Editor) => void;
 };
 
+const SLASH_ALIASES: Record<string, string[]> = {
+  text: ["p"],
+  paragraph: ["p"],
+  "to-do": ["todo"],
+  todo: ["todo"],
+  number: ["numbered"],
+  numbered: ["numbered"],
+  divider: ["hr"],
+  hr: ["hr"],
+  equation: ["math", "mathi"],
+  math: ["math", "mathi"],
+  bookmark: ["bookmark", "web"],
+  web: ["web", "bookmark"],
+  embed: ["web", "youtube", "drive"],
+  database: ["database", "library"],
+  list: ["list", "library"],
+  gallery: ["gallery", "library"],
+  board: ["board"],
+  calendar: ["calendar", "journal"],
+  timeline: ["timeline", "graph"],
+  sync: ["sync"],
+  toc: ["toc"],
+  link: ["link"],
+  ai: ["ai"],
+  template: ["template"],
+  button: ["button", "template"],
+  callout: ["callout"],
+  toggle: ["toggle"],
+  page: ["page"],
+};
+
 function filterSlash(items: SlashItem[], q: string) {
-  const s = q.toLowerCase();
+  const s = q.toLowerCase().trim();
   if (!s) return items;
+  const aliasIds = new Set<string>();
+  for (const [key, ids] of Object.entries(SLASH_ALIASES)) {
+    if (key.startsWith(s) || s.startsWith(key)) ids.forEach((id) => aliasIds.add(id));
+  }
   return items.filter(
     (i) =>
+      aliasIds.has(i.id) ||
       i.label.toLowerCase().includes(s) ||
       i.hint.toLowerCase().includes(s) ||
       i.id.toLowerCase().includes(s) ||
-      (s === "page" && (i.id === "page" || i.label.includes("頁")))
+      i.id.toLowerCase().startsWith(s)
   );
 }
 
@@ -313,8 +358,16 @@ export default function RichNoteEditor({
   onCreateSubpageRef.current = onCreateSubpage;
 
   const buildSlash = useCallback((editor: Editor): SlashItem[] => {
+    const app = (kind: string, title: string, href: string, hint: string): SlashItem => ({
+      id: kind,
+      label: title,
+      hint,
+      run: (e) =>
+        e.chain().focus().setAppCard({ href, kind, title, hint }).run(),
+    });
+
     const items: SlashItem[] = [
-      { id: "p", label: "文字", hint: "一般段落", run: (e) => e.chain().focus().setParagraph().run() },
+      { id: "p", label: "文字", hint: "/text 一般段落", run: (e) => e.chain().focus().setParagraph().run() },
       { id: "h1", label: "標題 1", hint: "大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
       { id: "h2", label: "標題 2", hint: "中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
       { id: "h3", label: "標題 3", hint: "小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
@@ -339,21 +392,168 @@ export default function RichNoteEditor({
       });
     }
     items.push(
-      { id: "bullet", label: "項目清單", hint: "無序清單", run: (e) => e.chain().focus().toggleBulletList().run() },
-      { id: "numbered", label: "編號清單", hint: "有序清單", run: (e) => e.chain().focus().toggleOrderedList().run() },
-      { id: "todo", label: "待辦", hint: "可勾選", run: (e) => e.chain().focus().toggleTaskList().run() },
-      { id: "quote", label: "引用", hint: "引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
-      { id: "code", label: "程式碼", hint: "Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
+      { id: "todo", label: "待辦", hint: "/todo 可勾選", run: (e) => e.chain().focus().toggleTaskList().run() },
+      { id: "bullet", label: "項目清單", hint: "/bullet 無序清單", run: (e) => e.chain().focus().toggleBulletList().run() },
+      { id: "numbered", label: "編號清單", hint: "/number 有序清單", run: (e) => e.chain().focus().toggleOrderedList().run() },
+      {
+        id: "toggle",
+        label: "折疊清單",
+        hint: "/toggle 可收合",
+        run: (e) => e.chain().focus().setToggleBlock("詳細內容").run(),
+      },
+      { id: "hr", label: "分隔線", hint: "/divider 水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
+      { id: "quote", label: "引用", hint: "/quote 引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
+      {
+        id: "callout",
+        label: "醒目提示",
+        hint: "/callout 重點框",
+        run: (e) => e.chain().focus().setCallout("info").run(),
+      },
       {
         id: "table",
         label: "表格",
-        hint: "3×3",
+        hint: "/table 內嵌表格",
         run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+      },
+      app("board", "看板", "/board", "/board Kanban"),
+      app("calendar", "行事曆／日誌", "/journal", "/calendar 日誌"),
+      app("list", "清單檢視", "/library", "/list 知識庫清單"),
+      app("gallery", "畫廊", "/library", "/gallery 知識庫"),
+      app("timeline", "時間軸／圖譜", "/graph", "/timeline 圖譜"),
+      app("database", "全頁知識庫", "/library", "/database 開啟知識庫"),
+      app("library", "知識庫", "/library", "筆記庫"),
+      app("journal", "日誌", "/journal", "日記與行事曆"),
+      app("graph", "圖譜", "/graph", "關聯圖譜"),
+      { id: "image", label: "圖片", hint: "/image 上傳圖片", run: () => imageRef.current?.click() },
+      { id: "pdf", label: "PDF 預覽", hint: "/pdf 上傳 PDF", run: () => pdfRef.current?.click() },
+      {
+        id: "bookmark",
+        label: "網頁書籤",
+        hint: "/bookmark 書籤卡片",
+        run: (e) => {
+          const url = window.prompt("書籤網址", "https://");
+          if (!url?.trim()) return;
+          let title = url.trim();
+          try {
+            title = new URL(url.trim()).hostname;
+          } catch {
+            /* keep */
+          }
+          const custom = window.prompt("書籤標題", title);
+          e.chain()
+            .focus()
+            .setBookmark({ href: url.trim(), title: (custom || title).trim() })
+            .run();
+        },
+      },
+      { id: "video", label: "影片檔", hint: "/video 上傳影片", run: () => videoRef.current?.click() },
+      { id: "audio", label: "語音／音訊", hint: "/audio 上傳音訊", run: () => audioRef.current?.click() },
+      { id: "code", label: "程式碼", hint: "/code Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
+      { id: "file", label: "檔案", hint: "/file 上傳任意檔案", run: () => fileRef.current?.click() },
+      {
+        id: "web",
+        label: "嵌入網頁",
+        hint: "/embed /web 外部頁面",
+        run: () => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）"),
+      },
+      {
+        id: "youtube",
+        label: "YouTube",
+        hint: "貼上影片連結",
+        run: () => insertEmbedFromPrompt("YouTube 連結"),
+      },
+      {
+        id: "drive",
+        label: "Google Drive",
+        hint: "貼上分享連結",
+        run: () => insertEmbedFromPrompt("Google Drive / Docs 分享連結"),
+      },
+      { id: "ppt", label: "PPT 預覽", hint: "上傳簡報檔", run: () => pptRef.current?.click() },
+      {
+        id: "imglink",
+        label: "圖片網址",
+        hint: "用 URL 插入",
+        run: (e) => {
+          const url = window.prompt("圖片網址", "https://");
+          if (url) e.chain().focus().setImage({ src: url }).run();
+        },
+      },
+      {
+        id: "ai",
+        label: "詢問 AI",
+        hint: "/ai 寫作、翻譯、總結",
+        run: (e) => {
+          const { from, to } = e.state.selection;
+          const text = from !== to ? e.state.doc.textBetween(from, to, "\n") : "";
+          setSelAi({ from, to, text });
+        },
+      },
+      {
+        id: "template",
+        label: "樣板按鈕",
+        hint: "/template 一鍵插入範本",
+        run: (e) => {
+          const choices = NOTE_TEMPLATES.filter((t) => t.id !== "blank")
+            .map((t) => `${t.id}=${t.label}`)
+            .join("、");
+          const id = window.prompt(`範本 id（${choices}）`, "meeting");
+          if (!id?.trim()) return;
+          const t = NOTE_TEMPLATES.find((x) => x.id === id.trim()) || NOTE_TEMPLATES.find((x) => x.id === "meeting")!;
+          e.chain()
+            .focus()
+            .setTemplateBtn({ templateId: t.id, label: `插入「${t.label}」` })
+            .run();
+        },
+      },
+      {
+        id: "button",
+        label: "操作按鈕",
+        hint: "/button 自動化樣板鈕",
+        run: (e) =>
+          e.chain()
+            .focus()
+            .setTemplateBtn({ templateId: "meeting", label: "一鍵建立會議紀錄" })
+            .run(),
+      },
+      {
+        id: "sync",
+        label: "同步區塊",
+        hint: "/sync 以連結同步內容",
+        run: (e) => {
+          const title = window.prompt("同步來源筆記標題（wiki）", "共享區塊");
+          if (title == null) return;
+          const t = title.trim() || "共享區塊";
+          e.chain()
+            .focus()
+            .insertContent(
+              markdownToHtml(
+                `> [!tip] 同步：請在來源筆記編輯內容，並在此用 [[${t}]] 連結。`,
+                (title) => resolveWikiRef.current(title)
+              )
+            )
+            .run();
+        },
+      },
+      {
+        id: "toc",
+        label: "目錄",
+        hint: "/toc 自動目錄",
+        run: (e) => e.chain().focus().setTocBlock().run(),
+      },
+      {
+        id: "link",
+        label: "頁面連結",
+        hint: "/link [[筆記]]",
+        run: (e) => {
+          const title = window.prompt("筆記標題", "");
+          if (!title?.trim()) return;
+          e.chain().focus().insertContent(`[[${title.trim()}]]`).run();
+        },
       },
       {
         id: "math",
-        label: "LaTeX 公式",
-        hint: "區塊公式 $$",
+        label: "數學公式",
+        hint: "/equation 區塊 $$",
         run: (e) => {
           const f = window.prompt("LaTeX 公式", "E = mc^2");
           if (f) e.chain().focus().setMathBlock(f).run();
@@ -367,40 +567,6 @@ export default function RichNoteEditor({
           const f = window.prompt("行內 LaTeX", "x^2");
           if (f) e.chain().focus().setMathInline(f).run();
         },
-      },
-      { id: "hr", label: "分隔線", hint: "水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
-      { id: "image", label: "圖片", hint: "上傳圖片", run: () => imageRef.current?.click() },
-      { id: "file", label: "檔案", hint: "上傳任意檔案", run: () => fileRef.current?.click() },
-      { id: "audio", label: "語音／音訊", hint: "上傳音訊", run: () => audioRef.current?.click() },
-      { id: "video", label: "影片檔", hint: "上傳影片", run: () => videoRef.current?.click() },
-      { id: "pdf", label: "PDF 預覽", hint: "上傳或之後貼連結", run: () => pdfRef.current?.click() },
-      { id: "ppt", label: "PPT 預覽", hint: "上傳簡報檔", run: () => pptRef.current?.click() },
-      {
-        id: "youtube",
-        label: "YouTube",
-        hint: "貼上影片連結",
-        run: () => insertEmbedFromPrompt("YouTube 連結"),
-      },
-      {
-        id: "drive",
-        label: "Google Drive",
-        hint: "貼上分享連結",
-        run: () => insertEmbedFromPrompt("Google Drive / Docs 分享連結"),
-      },
-      {
-        id: "web",
-        label: "網站",
-        hint: "嵌入網頁",
-        run: () => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）"),
-      },
-      {
-        id: "imglink",
-        label: "圖片網址",
-        run: (e) => {
-          const url = window.prompt("圖片網址", "https://");
-          if (url) e.chain().focus().setImage({ src: url }).run();
-        },
-        hint: "用 URL 插入",
       }
     );
     return items;
@@ -422,7 +588,11 @@ export default function RichNoteEditor({
       }),
       Link.extend({
         parseHTML() {
-          return [{ tag: "a[href]:not([data-wiki]):not([data-note-file])" }];
+          return [
+            {
+              tag: "a[href]:not([data-wiki]):not([data-note-file]):not([data-note-bookmark]):not([data-note-app])",
+            },
+          ];
         },
       }).configure({
         openOnClick: false,
@@ -451,12 +621,26 @@ export default function RichNoteEditor({
       MathInline,
       MathBlock,
       NoteEmbed,
+      Callout,
+      ToggleBlock,
+      TocBlock,
+      Bookmark,
+      AppCard,
+      TemplateBtn,
     ],
     content: markdownToHtml(valueMd, (t) => resolveWikiRef.current(t)),
     editorProps: {
       attributes: { class: "rich-prose" },
       handleClick: (_view, _pos, event) => {
-        const el = (event.target as HTMLElement | null)?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
+        const target = event.target as HTMLElement | null;
+        const app = target?.closest?.("a[data-note-app]") as HTMLAnchorElement | null;
+        if (app) {
+          event.preventDefault();
+          const href = app.getAttribute("href");
+          if (href) window.location.href = href;
+          return true;
+        }
+        const el = target?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
         if (!el) return false;
         event.preventDefault();
         const href = el.getAttribute("href");
@@ -656,6 +840,18 @@ export default function RichNoteEditor({
       }
     });
   }, [editor, valueMd]);
+
+  useEffect(() => {
+    const onTpl = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ templateId?: string }>).detail;
+      const t = NOTE_TEMPLATES.find((x) => x.id === detail?.templateId);
+      if (!t?.body || !editorRef.current) return;
+      const html = markdownToHtml(t.body, (title) => resolveWikiRef.current(title));
+      editorRef.current.chain().focus().insertContent(html).run();
+    };
+    window.addEventListener("cadence-insert-template", onTpl as EventListener);
+    return () => window.removeEventListener("cadence-insert-template", onTpl as EventListener);
+  }, []);
 
   const setLink = () => {
     if (!editor) return;

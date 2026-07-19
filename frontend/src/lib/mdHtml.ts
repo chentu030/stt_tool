@@ -94,6 +94,78 @@ turndown.addRule("noteEmbed", {
   },
 });
 
+turndown.addRule("callout", {
+  filter: (node) =>
+    node.nodeName === "ASIDE" &&
+    (node as HTMLElement).getAttribute("data-note-callout") === "1",
+  replacement: (content, node) => {
+    const tone = (node as HTMLElement).getAttribute("data-tone") || "info";
+    const body = content.replace(/^\s+|\s+$/g, "").replace(/\n+/g, "\n> ");
+    return `\n\n> [!${tone}] ${body}\n\n`;
+  },
+});
+
+turndown.addRule("toggleBlock", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-note-toggle") === "1",
+  replacement: (content, node) => {
+    const el = node as HTMLElement;
+    const title = el.getAttribute("data-title") || "詳細內容";
+    const open = el.getAttribute("data-open") !== "0" ? " open" : "";
+    const body = content.trim();
+    return `\n\n:::toggle${open} ${title}\n${body}\n:::\n\n`;
+  },
+});
+
+turndown.addRule("tocBlock", {
+  filter: (node) =>
+    (node.nodeName === "NAV" || node.nodeName === "DIV") &&
+    (node as HTMLElement).getAttribute("data-note-toc") === "1",
+  replacement: () => `\n\n<!--toc-->\n\n`,
+});
+
+turndown.addRule("bookmark", {
+  filter: (node) =>
+    node.nodeName === "A" &&
+    (node as HTMLElement).getAttribute("data-note-bookmark") === "1",
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const href = el.getAttribute("href") || "";
+    const title =
+      el.getAttribute("data-title") ||
+      el.querySelector(".rich-bookmark-title")?.textContent ||
+      href;
+    return `\n\n[bookmark|${title}](${href})\n\n`;
+  },
+});
+
+turndown.addRule("appCard", {
+  filter: (node) =>
+    node.nodeName === "A" &&
+    (node as HTMLElement).getAttribute("data-note-app") === "1",
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const href = el.getAttribute("href") || "/";
+    const kind = el.getAttribute("data-kind") || "app";
+    const title = el.getAttribute("data-title") || "應用";
+    const hint = el.getAttribute("data-hint") || "";
+    return `\n\n[app|${kind}|${title}|${hint}](${href})\n\n`;
+  },
+});
+
+turndown.addRule("templateBtn", {
+  filter: (node) =>
+    node.nodeName === "BUTTON" &&
+    (node as HTMLElement).getAttribute("data-note-template-btn") === "1",
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const id = el.getAttribute("data-template") || "meeting";
+    const label = (el.textContent || "插入範本").trim();
+    return `\n\n[template|${id}|${label}](#)\n\n`;
+  },
+});
+
 turndown.addRule("highlight", {
   filter: ["mark"],
   replacement: (content, node) => {
@@ -256,6 +328,35 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
 
   s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {
     return `<div class="rich-embed rich-embed--${escapeAttr(kind)}" data-note-embed="1" data-kind="${escapeAttr(kind)}" data-title="${escapeAttr(title || kind)}" data-src="${escapeAttr(original)}" data-original="${escapeAttr(original)}"></div>`;
+  });
+
+  s = s.replace(/\[bookmark\|([^\]]*)\]\(([^)]+)\)/g, (_m, title, href) => {
+    const t = String(title || href).trim() || href;
+    return `<a class="rich-bookmark" data-note-bookmark="1" data-title="${escapeAttr(t)}" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"><span class="rich-bookmark-label">書籤</span><span class="rich-bookmark-title">${escapeHtml(t)}</span><span class="rich-bookmark-url">${escapeHtml(href)}</span></a>`;
+  });
+
+  s = s.replace(/\[app\|([^\]|]+)\|([^\]|]*)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, hint, href) => {
+    return `<a class="rich-app-card rich-app-card--${escapeAttr(kind)}" data-note-app="1" data-kind="${escapeAttr(kind)}" data-title="${escapeAttr(title || kind)}" data-hint="${escapeAttr(hint || "")}" href="${escapeAttr(href)}"><strong>${escapeHtml(title || kind)}</strong><span>${escapeHtml(hint || href)}</span></a>`;
+  });
+
+  s = s.replace(/\[template\|([^\]|]+)\|([^\]]*)\]\(#\)/g, (_m, id, label) => {
+    return `<button class="rich-template-btn" type="button" data-note-template-btn="1" data-template="${escapeAttr(id)}">${escapeHtml(label || "插入範本")}</button>`;
+  });
+
+  s = s.replace(/<!--\s*toc\s*-->/gi, () => {
+    return `<nav class="rich-toc" data-note-toc="1"><p class="rich-toc-label">目錄</p></nav>`;
+  });
+
+  // Toggle fence: :::toggle open Title\n...\n:::
+  s = s.replace(/:::toggle(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g, (_m, openFlag, title, body) => {
+    const open = openFlag ? "1" : "0";
+    const inner = String(body).trim();
+    return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}"><p>${escapeHtml(inner)}</p></div>`;
+  });
+
+  // Callout: > [!tone] text  (single line; multiline becomes blockquote after marked — also catch raw)
+  s = s.replace(/^>\s*\[!(\w+)\]\s*(.*)$/gm, (_m, tone, text) => {
+    return `<aside class="rich-callout rich-callout--${escapeAttr(tone)}" data-note-callout="1" data-tone="${escapeAttr(tone)}"><p>${escapeHtml(String(text).trim() || "提示")}</p></aside>`;
   });
 
   // Colored text: {c:#rrggbb}text{/c}
