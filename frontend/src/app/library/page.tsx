@@ -20,6 +20,7 @@ export default function LibraryPage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "notes" | "jobs">("all");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   useEffect(() => {
     if (!user) return;
@@ -27,6 +28,26 @@ export default function LibraryPage() {
     const u2 = listenToUserNotes(user.uid, setNotes);
     return () => { u1(); u2(); };
   }, [user]);
+
+  const createNewNote = async () => {
+    if (!user || creating) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      const id = await createNote(user.uid, "新筆記", "");
+      router.push(`/notes/${id}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const permission = /permission|insufficient/i.test(msg);
+      setCreateError(
+        permission
+          ? "無法建立筆記：Firestore 權限不足。請在 Firebase Console 部署 firestore.rules（需允許 notes 讀寫）。"
+          : `無法建立筆記：${msg}`
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const filteredNotes = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -69,20 +90,18 @@ export default function LibraryPage() {
         ))}
         <ShinyPill
           style={{ padding: "0.4rem 0.85rem", fontSize: "0.8rem" }}
-          onClick={async () => {
-            if (creating) return;
-            setCreating(true);
-            try {
-              const id = await createNote(user.uid, "新筆記", "");
-              router.push(`/notes/${id}`);
-            } finally {
-              setCreating(false);
-            }
-          }}
+          disabled={creating}
+          onClick={() => { void createNewNote(); }}
         >
           {creating ? "建立中…" : "+ 新筆記"}
         </ShinyPill>
       </div>
+
+      {createError && (
+        <p style={{ color: "var(--danger)", fontSize: "0.85rem", marginBottom: "0.85rem", lineHeight: 1.5 }}>
+          {createError}
+        </p>
+      )}
 
       {(tab === "all" || tab === "notes") && (
         <section style={{ marginBottom: "1.4rem" }}>

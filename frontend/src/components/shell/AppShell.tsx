@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -44,45 +45,28 @@ function SettingsIcon() {
   );
 }
 
+function useIsMobile(breakpoint = 900) {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const apply = () => setMobile(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [breakpoint]);
+  return mobile;
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading } = useAuth();
+  const isMobile = useIsMobile();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
-  return (
-    <>
-      {/* Desktop */}
-      <div className="app-shell desktop-only">
-        <aside className="desktop-sidebar">
-          <Link href="/" style={{ padding: "0.35rem 0.6rem 1.1rem", display: "block" }}>
-            <CadenceLogo height={28} />
-          </Link>
-          <nav className="sidebar-nav" style={{ flex: 1 }}>
-            {NAV.map((item) => (
-              <Link key={item.href} href={item.href} className={isActive(item.href) ? "active" : ""}>
-                <item.icon />
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.8rem", display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-            <ThemeToggle />
-            {loading ? null : user ? (
-              <button className="nav-item" onClick={() => logout()} style={{ color: "var(--text-muted)" }}>
-                <img src={user.photoURL || ""} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
-                登出
-              </button>
-            ) : (
-              <button className="btn btn-sm" onClick={() => loginWithGoogle()}>登入</button>
-            )}
-          </div>
-        </aside>
-        <main className="app-main">{children}</main>
-      </div>
-
-      {/* Mobile */}
-      <div className="mobile-shell mobile-only">
+  if (isMobile) {
+    return (
+      <div className="mobile-shell">
         <header className="mobile-top">
           <Link href="/"><CadenceLogo height={24} /></Link>
           <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
@@ -111,6 +95,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </nav>
       </div>
-    </>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="desktop-sidebar">
+        <Link href="/" style={{ padding: "0.35rem 0.6rem 1.1rem", display: "block" }}>
+          <CadenceLogo height={28} />
+        </Link>
+        <nav className="sidebar-nav" style={{ flex: 1 }}>
+          {NAV.map((item) => (
+            <Link key={item.href} href={item.href} className={isActive(item.href) ? "active" : ""}>
+              <item.icon />
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: "0.8rem", display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+          <ThemeToggle />
+          {loading ? null : user ? (
+            <button className="nav-item" onClick={() => logout()} style={{ color: "var(--text-muted)" }}>
+              <img src={user.photoURL || ""} alt="" width={20} height={20} style={{ borderRadius: "50%" }} />
+              登出
+            </button>
+          ) : (
+            <button className="btn btn-sm" onClick={() => loginWithGoogle()}>登入</button>
+          )}
+        </div>
+      </aside>
+      <main className="app-main">{children}</main>
+    </div>
   );
 }
