@@ -409,28 +409,14 @@ export default function BlockEditor({
       title={title}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      style={{ minWidth: 34, padding: "0.35rem 0.55rem" }}
     >
       {label}
     </button>
   );
 
   return (
-    <div className="block-editor" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div
-        className="note-toolbar"
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-          padding: "0.45rem 0.35rem",
-          borderBottom: "1px solid var(--border)",
-          position: "sticky",
-          top: 0,
-          zIndex: 5,
-          background: "var(--bg-muted)",
-        }}
-      >
+    <div className="block-editor">
+      <div className="block-toolbar">
         {toolBtn("B", () => applyWrap("**"), "粗體 ⌘B")}
         {toolBtn("I", () => applyWrap("*"), "斜體 ⌘I")}
         {toolBtn("連結", applyLink, "插入連結")}
@@ -442,9 +428,9 @@ export default function BlockEditor({
           updateBlock(id, { text: `${b.text}[[` });
           setWiki({ blockId: id, query: "", index: 0 });
           focusBlock(id, true);
-        }, "插入 wikilink")}
+        }, "插入連結")}
         {toolBtn("找", () => setShowFind(!showFind), "尋找 ⌘F")}
-        {toolBtn("圖片", () => {
+        {toolBtn("圖", () => {
           const id = focusId || blocks[blocks.length - 1]?.id;
           if (!id) return;
           const url = window.prompt("圖片網址（https://…）", "https://");
@@ -473,7 +459,8 @@ export default function BlockEditor({
               padding: "0.55rem 0.4rem",
               background: "var(--bg-elevated)",
               border: "1px solid var(--border)",
-              borderRadius: 10,
+              borderRadius: 8,
+              marginBottom: 8,
             }}
           >
             <input
@@ -497,72 +484,47 @@ export default function BlockEditor({
         )}
       </AnimatePresence>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <div style={{ display: "flex", flexDirection: "column" }}>
         {blocks.map((block, i) => {
           const isSlash = slash?.blockId === block.id;
           const slashItems = isSlash ? filteredSlash(slash.query) : [];
           const isWiki = wiki?.blockId === block.id;
           const wikiItems = isWiki ? suggestWikiTitles(wikiNotes, wiki.query) : [];
           const hit = findQuery && block.text.toLowerCase().includes(findQuery.toLowerCase());
+          const focused = focusId === block.id;
 
           return (
             <motion.div
               key={block.id}
               layout
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="block-row"
+              className={`block-row${focused ? " is-focus" : ""}`}
               onDragOver={(e) => onDragOver(e, block.id)}
               onDrop={(e) => onDrop(e, block.id)}
               style={{
-                display: "grid",
-                gridTemplateColumns: "28px 28px 1fr",
-                gap: 4,
-                alignItems: block.type === "divider" || block.type === "image" ? "center" : "flex-start",
-                padding: "2px 0",
-                borderRadius: 8,
-                background: overId === block.id || hit
-                  ? "var(--accent-soft)"
-                  : "transparent",
-                position: "relative",
+                background: overId === block.id || hit ? "var(--accent-soft)" : undefined,
               }}
             >
-              <button
-                type="button"
-                draggable
-                onDragStart={(e) => onDragStart(e, block.id)}
-                onDragEnd={() => { setDragId(null); setOverId(null); }}
-                title="拖曳排序"
-                aria-label="拖曳區塊"
-                style={{
-                  cursor: "grab",
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  opacity: 0.45,
-                  fontSize: "0.85rem",
-                  padding: "6px 0",
-                  lineHeight: 1,
-                }}
-              >
-                ⋮⋮
-              </button>
-
-              <div
-                style={{
-                  fontSize: "0.7rem",
-                  color: "var(--text-muted)",
-                  paddingTop: block.type.startsWith("heading") ? 10 : 8,
-                  textAlign: "center",
-                  opacity: 0.55,
-                  userSelect: "none",
-                }}
-                title={block.type}
-              >
-                {typeLabel(block.type)}
+              <div className="block-gutter">
+                <button
+                  type="button"
+                  title="新增區塊"
+                  onClick={() => insertAfter(block.id)}
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  draggable
+                  onDragStart={(e) => onDragStart(e, block.id)}
+                  onDragEnd={() => { setDragId(null); setOverId(null); }}
+                  title="拖曳排序"
+                  aria-label="拖曳區塊"
+                >
+                  ⋮⋮
+                </button>
               </div>
 
-              <div style={{ minWidth: 0, position: "relative" }}>
+              <div className="block-content" style={{ position: "relative" }}>
                 {block.type === "divider" ? (
                   <div
                     onClick={() => insertAfter(block.id)}
@@ -749,28 +711,20 @@ export default function BlockEditor({
                       ref={(el) => { inputRefs.current[block.id] = el; }}
                       className="block-input"
                       value={block.text}
-                      placeholder={i === 0 && !block.text ? (placeholder || "輸入文字，或打 / 插入區塊…") : ""}
+                      placeholder={i === 0 && !block.text ? (placeholder || "輸入文字，或按 / 插入區塊…") : ""}
                       onChange={(e) => onTextChange(block.id, e.target.value)}
                       onKeyDown={(e) => onKeyDown(e, block)}
                       onSelect={() => rememberSel(block.id)}
                       onMouseUp={() => rememberSel(block.id)}
                       onFocus={() => setFocusId(block.id)}
                       style={{
-                        flex: 1,
-                        width: "100%",
-                        border: "none",
-                        outline: "none",
-                        background: "transparent",
-                        color: "var(--text-main)",
-                        fontFamily: "inherit",
-                        lineHeight: 1.55,
-                        padding: "6px 0",
                         fontSize:
-                          block.type === "heading1" ? "1.55rem"
-                            : block.type === "heading2" ? "1.25rem"
-                              : block.type === "heading3" ? "1.05rem"
-                                : "0.98rem",
+                          block.type === "heading1" ? "1.875rem"
+                            : block.type === "heading2" ? "1.5rem"
+                              : block.type === "heading3" ? "1.25rem"
+                                : "1rem",
                         fontWeight: block.type.startsWith("heading") ? 700 : 400,
+                        letterSpacing: block.type.startsWith("heading") ? "-0.03em" : undefined,
                         textDecoration: block.type === "todo" && block.checked ? "line-through" : "none",
                         opacity: block.type === "todo" && block.checked ? 0.55 : 1,
                         fontStyle: block.type === "quote" ? "italic" : "normal",
@@ -926,15 +880,25 @@ export default function BlockEditor({
 
       <button
         type="button"
-        className="btn btn-ghost"
         onClick={() => {
           const nb = createBlock();
           commit([...blocks, nb]);
           focusBlock(nb.id);
         }}
-        style={{ alignSelf: "flex-start", marginTop: 4, fontSize: "0.85rem", opacity: 0.75 }}
+        style={{
+          alignSelf: "flex-start",
+          marginTop: 8,
+          marginLeft: 44,
+          border: "none",
+          background: "transparent",
+          color: "var(--text-muted)",
+          fontSize: "0.85rem",
+          cursor: "pointer",
+          padding: "0.35rem 0",
+          opacity: 0.55,
+        }}
       >
-        + 新增區塊
+        按 Enter 繼續，或點此新增區塊
       </button>
     </div>
   );
