@@ -5,6 +5,7 @@ import { askPrompt } from "@/lib/dialogs";
 import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -22,6 +23,7 @@ import Typography from "@tiptap/extension-typography";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { markdownToHtml, htmlToMarkdown, formatFileSize } from "@/lib/mdHtml";
+import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
 import { CadenceDatabase } from "@/lib/tiptapDatabase";
@@ -71,6 +73,8 @@ type Props = {
   aiContext?: string;
   /** Read-only shared / preview mode */
   readOnly?: boolean;
+  /** Open the block discussion panel for the current text selection */
+  onOpenThread?: (selectionText: string) => void;
 };
 
 type SlashItem = {
@@ -154,6 +158,7 @@ export default function RichNoteEditor({
   insertMdRef,
   aiContext,
   readOnly = false,
+  onOpenThread,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const { user } = useAuth();
@@ -314,7 +319,7 @@ export default function RichNoteEditor({
   const pdfRef = useRef<HTMLInputElement>(null);
   const pptRef = useRef<HTMLInputElement>(null);
 
-  const insertUploaded = useCallback(async (file: File) => {
+  const insertUploaded = useCallback(async (file: File, pos?: number) => {
     if (!userId || !noteId) {
       setUploadError("無法上傳：缺少登入或筆記編號");
       return;
@@ -326,6 +331,9 @@ export default function RichNoteEditor({
     }
     setUploadError("");
     setUploadPct(0);
+    if (pos != null) {
+      editorRef.current?.chain().setTextSelection(pos).run();
+    }
     try {
       const { url, name } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
       const ed = editorRef.current;
@@ -396,27 +404,13 @@ export default function RichNoteEditor({
     setUploadError("");
     setUploadPct(5);
     try {
-      const res = await fetch("/api/ai/image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: desc.trim(),
-          aspectRatio: ratio.trim() || "1:1",
-        }),
+      const { file, caption } = await generateAiImageFile({
+        prompt: desc.trim(),
+        aspectRatio: ratio.trim() || "1:1",
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "圖片生成失敗");
       setUploadPct(40);
-      const mime = String(data.mimeType || "image/png");
-      const b64 = String(data.data || "");
-      if (!b64) throw new Error("未收到圖片資料");
-      const bin = atob(b64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
-      const file = new File([bytes], `ai-photo-${Date.now()}.${ext}`, { type: mime });
       const { url } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
-      const alt = (data.caption || desc).trim().slice(0, 120);
+      const alt = (caption || desc).trim().slice(0, 120);
       editorRef.current?.chain().focus().setImage({ src: url, alt }).run();
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "圖片生成失敗");
@@ -898,11 +892,17 @@ export default function RichNoteEditor({
         }
         return false;
       },
-      handleDrop: (_view, event) => {
+      handleDrop: (view, event) => {
         const files = event.dataTransfer?.files;
         if (!files?.length) return false;
         event.preventDefault();
-        Array.from(files).forEach((f) => { void insertUploaded(f); });
+        const coords = { left: event.clientX, top: event.clientY };
+        const hit = view.posAtCoords(coords);
+        if (hit) {
+          const tr = view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(hit.pos)));
+          view.dispatch(tr);
+        }
+        Array.from(files).forEach((f) => { void insertUploaded(f, hit?.pos); });
         return true;
       },
       handleKeyDown: (_view, event) => {
@@ -1580,6 +1580,19 @@ export default function RichNoteEditor({
           ∑
         </ToolbarBtn>
         <ToolbarBtn onClick={setLink}>連結</ToolbarBtn>
+        {onOpenThread && (
+          <ToolbarBtn
+            title="開啟討論串"
+            onClick={() => {
+              const { from, to } = editor.state.selection;
+              const text = editor.state.doc.textBetween(from, to, "\n");
+              if (!text.trim()) return;
+              onOpenThread(text);
+            }}
+          >
+            討論
+          </ToolbarBtn>
+        )}
       </BubbleMenu>
 
       {selAi && (

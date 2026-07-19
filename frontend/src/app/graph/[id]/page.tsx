@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -14,12 +15,16 @@ import {
   listenToUserNotes,
   loginWithGoogle,
   createNote,
+  updateNote,
+  uploadNoteMedia,
   Note,
 } from "@/lib/firebase";
+import { appendMediaToNote, mediaMarkdownForFile, titleFromFileName } from "@/lib/noteMediaInsert";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import GraphToolbar from "@/components/graph/GraphToolbar";
 import GraphAside from "@/components/graph/GraphAside";
+import StageSelectionAi from "@/components/StageSelectionAi";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import { downloadText } from "@/lib/libraryIndex";
 import { askPrompt } from "@/lib/dialogs";
@@ -103,6 +108,7 @@ export default function GraphDetailPage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiError, setAiError] = useState("");
+  const [selAiOpen, setSelAiOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState>(null);
   const positionsRef = useRef<Record<string, { x: number; y: number }>>({});
@@ -128,6 +134,7 @@ export default function GraphDetailPage() {
     setPathEnds([null, null]);
     setAiText("");
     setAiError("");
+    setSelAiOpen(false);
   }, [graphId]);
 
   useEffect(() => {
@@ -170,6 +177,7 @@ export default function GraphDetailPage() {
       }
       if (e.key === "Escape") {
         setSelectedId(null);
+        setSelAiOpen(false);
         setPathMode(false);
         setPathEnds([null, null]);
         setFilters((f) => ({ ...f, egoId: "" }));
@@ -468,10 +476,12 @@ export default function GraphDetailPage() {
         return [id, null];
       });
       setSelectedId(id);
+      setSelAiOpen(false);
       return;
     }
 
     setSelectedId(id);
+    setSelAiOpen(n.kind === "note" && Boolean(n.noteId));
     dragRef.current = {
       kind: "node",
       id,
@@ -512,6 +522,101 @@ export default function GraphDetailPage() {
     if (dragRef.current?.kind === "node") persistPositions();
     dragRef.current = null;
     rightPanRef.current = null;
+  };
+
+  const screenToWorld = (clientX: number, clientY: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: (clientX - rect.left - pan.x) / scale,
+      y: (clientY - rect.top - pan.y) / scale,
+    };
+  };
+
+  /** Find the note node under a world-space point (drop target), nearest circle wins. */
+  const hitTestNoteNode = (wx: number, wy: number): GraphNode | null => {
+    let best: GraphNode | null = null;
+    let bestDist = Infinity;
+    for (const n of painted.nodes) {
+      if (n.kind !== "note" || !n.noteId) continue;
+      const r = radiusForNode(n) + 6;
+      const dist = Math.hypot(wx - n.x, wy - n.y);
+      if (dist <= r && dist < bestDist) {
+        bestDist = dist;
+        best = n;
+      }
+    }
+    return best;
+  };
+
+  const onDragOverStage = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDropStage = async (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!user) return;
+    const files = Array.from(e.dataTransfer.files || []);
+    if (!files.length) return;
+    const world = screenToWorld(e.clientX, e.clientY);
+    try {
+      const hit = hitTestNoteNode(world.x, world.y);
+      if (hit && hit.noteId) {
+        const noteId = hit.noteId;
+        let body = notes.find((nt) => nt.id === noteId)?.body_md || "";
+        for (const file of files) {
+          const res = await appendMediaToNote(user.uid, noteId, file, body);
+          body = res.body_md;
+        }
+        setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md: body } : nt)));
+        setSelectedId(hit.id);
+        setSelAiOpen(true);
+        flash(files.length > 1 ? `已附加 ${files.length} 個檔案到「${hit.title}」` : `已附加到「${hit.title}」`);
+      } else {
+        let lastNodeId: string | null = null;
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const title = titleFromFileName(file.name);
+          const placeholder = `# ${title}\n\n`;
+          const noteId = await createNote(user.uid, title, placeholder, undefined, []);
+          const up = await uploadNoteMedia(user.uid, noteId, file);
+          const body_md = `${placeholder}${mediaMarkdownForFile(up.url, file)}`;
+          await updateNote(noteId, { body_md });
+          const nodeId = nodeIdForNote(noteId);
+          positionsRef.current[nodeId] = { x: world.x + i * 30, y: world.y + i * 30 };
+          lastNodeId = nodeId;
+        }
+        persistPositions();
+        setDragVer((v) => v + 1);
+        if (lastNodeId) {
+          setSelectedId(lastNodeId);
+          setSelAiOpen(true);
+        }
+        flash(files.length > 1 ? `已建立 ${files.length} 則筆記` : "已建立筆記並附加檔案");
+      }
+    } catch (err) {
+      flash(err instanceof Error ? err.message : "拖放失敗");
+    }
+  };
+
+  const applySelAiTextToNote = async (noteId: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const current = notes.find((nt) => nt.id === noteId)?.body_md || "";
+    const sep = current.endsWith("\n\n") ? "" : current.endsWith("\n") ? "\n" : "\n\n";
+    const body_md = `${current}${sep}${trimmed}\n`;
+    await updateNote(noteId, { body_md });
+    setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md } : nt)));
+    flash("已加入筆記");
+  };
+
+  const applySelAiImageToNote = async (noteId: string, file: File) => {
+    if (!user) return;
+    const current = notes.find((nt) => nt.id === noteId)?.body_md || "";
+    const res = await appendMediaToNote(user.uid, noteId, file, current);
+    setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md: res.body_md } : nt)));
+    flash("已插入圖片到筆記");
   };
 
   const askAi = async () => {
@@ -646,6 +751,20 @@ ${orphanLines || "（無）"}`;
     visible: painted.edges.length,
   };
 
+  const selectedNode = selectedId ? painted.byId.get(selectedId) || full.byId.get(selectedId) : null;
+  const selectedNote =
+    selectedNode?.kind === "note" && selectedNode.noteId
+      ? notes.find((nt) => nt.id === selectedNode.noteId) || null
+      : null;
+  const showSelAi = selAiOpen && Boolean(selectedNote);
+  const stageRect = stageRef.current?.getBoundingClientRect();
+  const selAiAnchor = selectedNode
+    ? {
+        left: (stageRect?.left || 0) + selectedNode.x * scale + pan.x + radiusForNode(selectedNode) + 16,
+        top: (stageRect?.top || 0) + selectedNode.y * scale + pan.y - 12,
+      }
+    : { top: 80, left: 80 };
+
   return (
     <div className="gp-page gp-immersive">
       <div className="gp-float-chrome">
@@ -715,6 +834,8 @@ ${orphanLines || "（無）"}`;
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onContextMenu={(e) => e.preventDefault()}
+          onDragOver={onDragOverStage}
+          onDrop={(e) => void onDropStage(e)}
         >
           {painted.nodes.length === 0 ? (
             <div className="gp-empty">
@@ -873,6 +994,26 @@ ${orphanLines || "（無）"}`;
       </div>
 
       {toast && <div className="gp-toast">{toast}</div>}
+
+      <StageSelectionAi
+        open={showSelAi}
+        onClose={() => setSelAiOpen(false)}
+        selectionText={
+          selectedNote ? `${selectedNote.title}\n\n${(selectedNote.body_md || "").slice(0, 800)}` : ""
+        }
+        context={selectedNote?.body_md || ""}
+        title={selectedNote?.title}
+        anchor={selAiAnchor}
+        onApplyReplace={(text) => {
+          if (selectedNote) void applySelAiTextToNote(selectedNote.id, text);
+        }}
+        onApplyInsert={(text) => {
+          if (selectedNote) void applySelAiTextToNote(selectedNote.id, text);
+        }}
+        onGenerateImage={(file) => {
+          if (selectedNote) return applySelAiImageToNote(selectedNote.id, file);
+        }}
+      />
     </div>
   );
 }

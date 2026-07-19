@@ -564,6 +564,22 @@ export function createMediaItem(
   };
 }
 
+export function createSticky(
+  partial: Partial<Omit<CanvasSticky, "id" | "kind">> & { x: number; y: number }
+): CanvasSticky {
+  return {
+    id: uid("st"),
+    kind: "sticky",
+    x: partial.x,
+    y: partial.y,
+    w: partial.w ?? 200,
+    h: partial.h ?? 160,
+    text: partial.text ?? "",
+    color: partial.color ?? "yellow",
+    z: partial.z ?? Date.now(),
+  };
+}
+
 export function autoLayoutNotes(pins: NotePin[], cols = 4, gapX = 240, gapY = 170, origin: Point = { x: 40, y: 40 }): NotePin[] {
   return pins.map((p, i) => ({
     ...p,
@@ -635,6 +651,7 @@ export const CANVAS_TIPS = [
   "雙指／滾輪平移；Ctrl+滾輪或 Ctrl+/- 縮放；Shift+滾輪左右移。",
   "右鍵或中鍵拖曳、空白鍵拖曳皆可平移。",
   "Shift+1 看全部；Shift+0 恢復 100%。",
-  "工具列可插入圖片／語音／影片／網址／PDF／PPT／檔案，也可拖放上傳。",
+  "工具列可插入圖片／語音／影片／網址／PDF／PPT／檔案；拖放檔案會直接放在滑鼠所在位置。",
   "雙擊編輯便利貼；Ctrl+C/V/X/Z；右側 AI 可讀寫白板。",
+  "選取物件後點擊附近的「AI」鈕，可改寫、延伸文字或生成圖片並插入畫布。",
 ];

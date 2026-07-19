@@ -40,6 +40,21 @@ service cloud.firestore {
         allow read, create, delete: if signedIn()
           && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
       }
+
+      match /threads/{threadId} {
+        allow read, write: if signedIn()
+          && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+
+        match /messages/{messageId} {
+          allow read, create: if signedIn()
+            && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+        }
+      }
+
+      match /page_log/{entryId} {
+        allow read, create: if signedIn()
+          && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+      }
     }
 
     match /share_tokens/{token} {
@@ -71,6 +86,76 @@ service cloud.firestore {
 
     match /users/{uid}/graphs/{graphId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ─── Team Space ─────────────────────────────────────────
+    function isTeamMember(teamId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+    function teamRole(teamId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid)).data.role;
+    }
+    function isTeamAdmin(teamId) {
+      return isTeamMember(teamId) && (teamRole(teamId) == 'owner' || teamRole(teamId) == 'admin');
+    }
+
+    match /teams/{teamId} {
+      allow create: if signedIn() && request.resource.data.created_by == request.auth.uid;
+      allow read: if isTeamMember(teamId);
+      allow update, delete: if isTeamAdmin(teamId);
+
+      match /members/{memberId} {
+        allow read: if isTeamMember(teamId);
+        allow create: if signedIn() && request.auth.uid == memberId
+          && (
+            (request.resource.data.role == 'owner'
+              && get(/databases/$(database)/documents/teams/$(teamId)).data.created_by == request.auth.uid)
+            || request.resource.data.role in ['admin', 'member', 'guest']
+          );
+        allow update: if isTeamAdmin(teamId);
+        allow delete: if isTeamAdmin(teamId) || request.auth.uid == memberId;
+      }
+
+      match /channels/{channelId} {
+        allow read, create: if isTeamMember(teamId);
+        allow update: if isTeamMember(teamId);
+        allow delete: if isTeamAdmin(teamId);
+
+        match /messages/{messageId} {
+          allow read: if isTeamMember(teamId);
+          allow create: if isTeamMember(teamId)
+            && request.resource.data.author_id == request.auth.uid;
+          allow update, delete: if isTeamMember(teamId)
+            && (resource.data.author_id == request.auth.uid || isTeamAdmin(teamId));
+        }
+      }
+    }
+
+    match /invites/{token} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.created_by == request.auth.uid
+        && isTeamAdmin(request.resource.data.team_id);
+      allow update: if signedIn()
+        && (resource.data.status == 'pending' || isTeamAdmin(resource.data.team_id));
+      allow delete: if signedIn() && isTeamAdmin(resource.data.team_id);
+    }
+
+    match /users/{uid}/teams/{teamId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ─── Live cursor presence on note pages ──────────────────
+    match /note_presence/{noteId}/users/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ─── Huddle signaling (offer/answer/candidates) ──────────
+    match /huddles/{noteId}/signals/{signalId} {
+      allow read, create: if signedIn();
+      allow update, delete: if signedIn() && resource.data.from_uid == request.auth.uid;
     }
   }
 }

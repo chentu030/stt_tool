@@ -20,6 +20,7 @@ const NAV_APPS = [
   { href: "/db", label: "資料庫", icon: DatabaseIcon },
   { href: "/canvas", label: "白板", icon: CanvasIcon },
   { href: "/graph", label: "圖譜", icon: GraphIcon },
+  { href: "/team", label: "團隊", icon: TeamIcon },
 ];
 
 function HomeIcon() {
@@ -79,6 +80,16 @@ function GraphIcon() {
       <circle cx="18" cy="7" r="2.5" />
       <circle cx="12" cy="17" r="2.5" />
       <path d="M8.2 8.5l3 6.5M15.8 8.5l-3 6.5M8.5 7h7" />
+    </svg>
+  );
+}
+function TeamIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 21v-1.5A4.5 4.5 0 0 1 7.5 15h3A4.5 4.5 0 0 1 15 19.5V21" />
+      <circle cx="17" cy="8.5" r="2.2" />
+      <path d="M16 15.2a3.6 3.6 0 0 1 5 3.3V21" />
     </svg>
   );
 }

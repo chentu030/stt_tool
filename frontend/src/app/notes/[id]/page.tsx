@@ -56,10 +56,30 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import { toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { splitFolderPath } from "@/lib/noteTree";
+import { FocusModeProvider, useFocusMode } from "@/components/notes/FocusModeProvider";
+import NotePresence from "@/components/notes/NotePresence";
+import NoteHuddle from "@/components/notes/NoteHuddle";
+import NotePageLog from "@/components/notes/NotePageLog";
+import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
+import { fireConfetti } from "@/lib/confetti";
 
 const PAGE_ICONS = ["📄", "📝", "💡", "📌", "🎯", "📚", "🔬", "🎤", "🗂", "⭐"];
 
+function countTaskCheckboxes(md: string): { total: number; checked: number } {
+  const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
+  const checked = md.match(/^\s*[-*]\s\[[xX]\]/gim)?.length || 0;
+  return { total: unchecked + checked, checked };
+}
+
 export default function NotePage() {
+  return (
+    <FocusModeProvider>
+      <NotePageInner />
+    </FocusModeProvider>
+  );
+}
+
+function NotePageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -106,6 +126,9 @@ export default function NotePage() {
     return 300;
   });
   const [focusMode, setFocusMode] = useState(false);
+  const [threadSelection, setThreadSelection] = useState<string | null>(null);
+  const teamFocus = useFocusMode();
+  const allCheckedRef = useRef(false);
   const [pageMode, setPageMode] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("cadence_page_mode") === "1";
@@ -170,6 +193,19 @@ export default function NotePage() {
   useEffect(() => {
     latest.current = { title, body, tags, folder, icon, cover, parent_id: parentId };
   }, [title, body, tags, folder, icon, cover, parentId]);
+
+  useEffect(() => {
+    teamFocus.setFocusMode(focusMode);
+  }, [focusMode, teamFocus]);
+
+  useEffect(() => {
+    const { total, checked } = countTaskCheckboxes(body);
+    const allDone = total > 0 && checked === total;
+    if (allDone && !allCheckedRef.current) {
+      fireConfetti();
+    }
+    allCheckedRef.current = allDone;
+  }, [body]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1100px)");
@@ -644,6 +680,8 @@ export default function NotePage() {
           </div>
         </div>
         <div className="doc-command-actions">
+          <NotePresence noteId={note.id} />
+          <NoteHuddle noteId={note.id} />
           {viewMode === "slides" && slideActions && (
             <>
               {slideActions.busy && <span className="slide-busy">{slideActions.busy}</span>}
@@ -823,6 +861,7 @@ export default function NotePage() {
       <div className="doc-body-row">
         <div className={`doc-main-stack${splitId && splitId !== id ? " is-split" : ""}`}>
         <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
+          {viewMode === "write" && <NotePageLog noteId={note.id} />}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
           {toast && <p className="doc-toast">{toast}</p>}
 
@@ -1113,6 +1152,7 @@ export default function NotePage() {
                 markDirty();
                 flash(`已套用範本：${tpl.label}`);
               }}
+              onOpenThread={(selection) => setThreadSelection(selection)}
               onCreateSubpage={async (pageTitle) => {
                 if (!user || !note) return null;
                 try {
@@ -1225,6 +1265,16 @@ export default function NotePage() {
           onResizeWidth={onAsideResize}
         />
       </div>
+
+      {threadSelection != null && note && (
+        <div className="block-thread-overlay">
+          <BlockThreadPanel
+            noteId={note.id}
+            selectionText={threadSelection}
+            onClose={() => setThreadSelection(null)}
+          />
+        </div>
+      )}
 
       {user && note && (
         <ShareDialog

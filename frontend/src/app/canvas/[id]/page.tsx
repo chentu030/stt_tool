@@ -19,12 +19,12 @@ import CanvasToolbar from "@/components/canvas/CanvasToolbar";
 import CanvasAside from "@/components/canvas/CanvasAside";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
+import StageSelectionAi from "@/components/StageSelectionAi";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import {
   type CanvasDoc,
   type CanvasEdge,
   type CanvasShape,
-  type CanvasSticky,
   type CanvasMedia,
   type CanvasMediaKind,
   type Selectable,
@@ -52,6 +52,7 @@ import {
   applyCanvasOps,
   mediaKindFromFile,
   createMediaItem,
+  createSticky,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
@@ -95,6 +96,8 @@ export default function CanvasIdPage() {
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
+  const [stageAiOpen, setStageAiOpen] = useState(false);
+  const [stageAiAnchor, setStageAiAnchor] = useState<{ top: number; left: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const skipCloud = useRef(false);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
@@ -185,12 +188,22 @@ export default function CanvasIdPage() {
     return m;
   }, [notes]);
 
-  const screenToWorld = (clientX: number, clientY: number) => {
+  const clientToWorld = (clientX: number, clientY: number) => {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     return {
       x: (clientX - rect.left - doc.pan.x) / doc.scale,
       y: (clientY - rect.top - doc.pan.y) / doc.scale,
+    };
+  };
+  const screenToWorld = clientToWorld;
+
+  const worldToClient = (x: number, y: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return {
+      x: rect.left + x * doc.scale + doc.pan.x,
+      y: rect.top + y * doc.scale + doc.pan.y,
     };
   };
 
@@ -244,6 +257,116 @@ export default function CanvasIdPage() {
     return null;
   };
 
+  const selectionInfo = useMemo(() => {
+    if (!selected.length) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const texts: string[] = [];
+    for (const s of selected) {
+      const b = boxOf(s);
+      if (b) {
+        minX = Math.min(minX, b.x);
+        minY = Math.min(minY, b.y);
+        maxX = Math.max(maxX, b.x + b.w);
+        maxY = Math.max(maxY, b.y + b.h);
+      }
+      if (s.type === "sticky") {
+        const st = doc.stickies.find((x) => x.id === s.id);
+        if (st?.text.trim()) texts.push(st.text.trim());
+      } else if (s.type === "shape") {
+        const sh = doc.shapes.find((x) => x.id === s.id);
+        if (sh?.label.trim()) texts.push(sh.label.trim());
+      } else if (s.type === "note") {
+        const n = noteMap.get(s.id);
+        if (n?.title.trim()) texts.push(n.title.trim());
+      }
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+    return {
+      box: { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) },
+      text: texts.join("\n"),
+    };
+  }, [selected, doc.stickies, doc.shapes, noteMap, boxOf]);
+
+  const applyStageAiReplace = (text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    if (selected.length === 1 && selected[0].type === "sticky") {
+      const id = selected[0].id;
+      updateDoc((d) => ({
+        ...d,
+        stickies: d.stickies.map((s) => (s.id === id ? { ...s, text: clean } : s)),
+      }));
+      flash("已更新便利貼");
+      return;
+    }
+    const box = selectionInfo?.box;
+    const origin = box ? { x: box.x, y: box.y } : viewportCenterWorld();
+    const sticky = createSticky({
+      x: snapVal(origin.x, 22, doc.snap),
+      y: snapVal(origin.y, 22, doc.snap),
+      w: 220,
+      h: 180,
+      text: clean,
+      color: stickyColor,
+    });
+    updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
+    setSelected([{ type: "sticky", id: sticky.id }]);
+    flash("已新增便利貼");
+  };
+
+  const applyStageAiInsert = (text: string) => {
+    const clean = text.trim();
+    if (!clean) return;
+    const box = selectionInfo?.box;
+    const origin = box
+      ? { x: box.x, y: box.y + box.h + 24 }
+      : viewportCenterWorld();
+    const sticky = createSticky({
+      x: snapVal(origin.x, 22, doc.snap),
+      y: snapVal(origin.y, 22, doc.snap),
+      w: 220,
+      h: 180,
+      text: clean,
+      color: stickyColor,
+    });
+    updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
+    setSelected([{ type: "sticky", id: sticky.id }]);
+    flash("已插入便利貼");
+  };
+
+  const applyStageAiImage = async (file: File) => {
+    if (!user || !canvasId) return;
+    setUploadBusy(true);
+    try {
+      const up = await uploadCanvasMedia(user.uid, canvasId, file);
+      const size = MEDIA_DEFAULT_SIZE.image;
+      const box = selectionInfo?.box;
+      const center = box
+        ? { x: box.x + box.w / 2, y: box.y + box.h + 24 + size.h / 2 }
+        : viewportCenterWorld();
+      placeMedia({
+        media: "image",
+        x: snapVal(center.x - size.w / 2, 22, doc.snap),
+        y: snapVal(center.y - size.h / 2, 22, doc.snap),
+        w: size.w,
+        h: size.h,
+        url: up.url,
+        originalUrl: up.url,
+        title: up.name,
+        mime: up.contentType,
+        storagePath: up.path,
+        frameable: true,
+      });
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "上傳失敗");
+    } finally {
+      setUploadBusy(false);
+    }
+  };
+
   const viewportCenterWorld = () => {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return { x: 80, y: 80 };
@@ -261,13 +384,13 @@ export default function CanvasIdPage() {
     flash(`已插入${item.title || "媒體"}`);
   };
 
-  const insertFiles = async (files: FileList | File[]) => {
+  const insertFiles = async (files: FileList | File[], at?: { x: number; y: number }) => {
     if (!user || !canvasId) return;
     const list = Array.from(files);
     if (!list.length) return;
     setUploadBusy(true);
     try {
-      const center = viewportCenterWorld();
+      const center = at ?? viewportCenterWorld();
       let i = 0;
       for (const file of list) {
         const kind = mediaKindFromFile(file);
@@ -397,9 +520,7 @@ export default function CanvasIdPage() {
       const y = snapVal(world.y, 22, doc.snap);
       const z = Date.now();
       if (tool === "sticky" || tool === "text") {
-        const sticky: CanvasSticky = {
-          id: uid("st"),
-          kind: "sticky",
+        const sticky = createSticky({
           x,
           y,
           w: tool === "text" ? 240 : 180,
@@ -407,7 +528,7 @@ export default function CanvasIdPage() {
           text: tool === "text" ? "文字" : "",
           color: stickyColor,
           z,
-        };
+        });
         updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
         setSelected([{ type: "sticky", id: sticky.id }]);
         setEditingId(sticky.id);
@@ -917,6 +1038,13 @@ export default function CanvasIdPage() {
   const single = selected.length === 1 ? selected[0] : null;
   const resizeBox = single && single.type !== "edge" ? boxOf(single) : null;
 
+  const openStageAi = () => {
+    if (!selectionInfo) return;
+    const p = worldToClient(selectionInfo.box.x, selectionInfo.box.y + selectionInfo.box.h);
+    setStageAiAnchor({ top: p.y + 8, left: p.x });
+    setStageAiOpen(true);
+  };
+
   return (
     <div className="cv-page cv-immersive">
       <div className="cv-float-chrome">
@@ -1053,7 +1181,8 @@ export default function CanvasIdPage() {
           onDrop={(e) => {
             e.preventDefault();
             if (e.dataTransfer.files?.length) {
-              void insertFiles(e.dataTransfer.files);
+              const at = clientToWorld(e.clientX, e.clientY);
+              void insertFiles(e.dataTransfer.files, at);
             }
           }}
         >
@@ -1220,6 +1349,19 @@ export default function CanvasIdPage() {
                 }}
               />
             )}
+
+            {selectionInfo && !stageAiOpen && (
+              <button
+                type="button"
+                className="cv-sel-ai-btn"
+                style={{ left: selectionInfo.box.x + selectionInfo.box.w, top: selectionInfo.box.y }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={openStageAi}
+                title="詢問 AI"
+              >
+                ✦ AI
+              </button>
+            )}
           </div>
         </div>
 
@@ -1250,6 +1392,19 @@ export default function CanvasIdPage() {
             刪除
           </button>
         </div>
+      )}
+
+      {stageAiOpen && stageAiAnchor && selectionInfo && (
+        <StageSelectionAi
+          open={stageAiOpen}
+          onClose={() => setStageAiOpen(false)}
+          selectionText={selectionInfo.text}
+          title={doc.name}
+          anchor={stageAiAnchor}
+          onApplyReplace={applyStageAiReplace}
+          onApplyInsert={applyStageAiInsert}
+          onGenerateImage={applyStageAiImage}
+        />
       )}
 
       {toast && <p className="cv-toast">{toast}</p>}
