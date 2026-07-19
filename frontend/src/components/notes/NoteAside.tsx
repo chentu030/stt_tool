@@ -159,6 +159,7 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
           assistant: {
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
+            model: prefsCtx?.prefs.aiModel,
           },
           messages: [...msgs, userMsg]
             .slice(-8)

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 type ChatMessage = {
   id: string;
@@ -42,6 +43,7 @@ export default function TranscriptChat({
   transcriptText,
   filename,
 }: Props) {
+  const prefsCtx = usePrefsOptional();
   const storageKey = `cadence-tx-chat-${jobId}`;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -114,6 +116,11 @@ export default function TranscriptChat({
           prompt,
           context: `來源：逐字稿\n檔名：${filename || "—"}\n\n${context}`,
           messages: history.slice(0, -1),
+          assistant: {
+            name: prefsCtx?.prefs.aiAssistantName,
+            style: prefsCtx?.prefs.aiStyle,
+            model: prefsCtx?.prefs.aiModel,
+          },
         }),
       });
       const data = await res.json();

@@ -244,6 +244,7 @@ export default function NotePage() {
           assistant: {
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
+            model: prefsCtx?.prefs.aiModel,
           },
         }),
       });

@@ -87,6 +87,7 @@ export type UserPrefs = {
   /** Cadence AI */
   aiAssistantName: string;
   aiStyle: "concise" | "balanced" | "detailed";
+  aiModel: string;
   aiDefaultScope: "note" | "folder" | "library";
   /** Workspace */
   favoriteNoteIds: string[];
@@ -232,6 +233,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   slashMenu: true,
   aiAssistantName: "Cadence AI",
   aiStyle: "balanced",
+  aiModel: "gemini-3.5-flash",
   aiDefaultScope: "note",
   favoriteNoteIds: [],
   recentNoteIds: [],
@@ -309,6 +311,7 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
       p.aiStyle === "concise" || p.aiStyle === "detailed" || p.aiStyle === "balanced"
         ? p.aiStyle
         : "balanced",
+    aiModel: String(p.aiModel || "gemini-3.5-flash").slice(0, 80) || "gemini-3.5-flash",
     aiDefaultScope:
       p.aiDefaultScope === "folder" || p.aiDefaultScope === "library" || p.aiDefaultScope === "note"
         ? p.aiDefaultScope

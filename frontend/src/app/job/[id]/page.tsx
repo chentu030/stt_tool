@@ -15,10 +15,12 @@ import TranscriptEditor from "@/components/TranscriptEditor";
 import TranscriptChat from "@/components/TranscriptChat";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import { NOTE_TEMPLATES } from "@/lib/templates";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
   const { user, loading } = useAuth();
+  const prefsCtx = usePrefsOptional();
   const router = useRouter();
   const [job, setJob] = useState<Job | null>(null);
   const [fileIdx, setFileIdx] = useState(0);
@@ -151,6 +153,11 @@ export default function JobPage() {
                       action: "meeting_pack",
                       title: current.filename || title,
                       body: plain.slice(0, 14000),
+                      assistant: {
+                        name: prefsCtx?.prefs.aiAssistantName,
+                        style: prefsCtx?.prefs.aiStyle,
+                        model: prefsCtx?.prefs.aiModel,
+                      },
                     }),
                   });
                   const data = await res.json();

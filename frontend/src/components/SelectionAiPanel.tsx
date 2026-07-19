@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { markdownToHtml } from "@/lib/mdHtml";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 export type SelectionAiAction =
   | "improve"
@@ -48,6 +49,7 @@ export default function SelectionAiPanel({
   to,
   onSendToAside,
 }: Props) {
+  const prefsCtx = usePrefsOptional();
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -92,11 +94,16 @@ export default function SelectionAiPanel({
     setError("");
     setResult("");
     try {
-      const payload: Record<string, string> = {
+      const payload: Record<string, unknown> = {
         action: action === "expand" ? "expand" : action === "explain" ? "explain" : action,
         title: noteTitle || "未命名筆記",
         selection: sel,
         body: sel,
+        assistant: {
+          name: prefsCtx?.prefs.aiAssistantName,
+          style: prefsCtx?.prefs.aiStyle,
+          model: prefsCtx?.prefs.aiModel,
+        },
       };
       if (noteBody) payload.context = aiContext || noteBody.slice(0, 6000);
       if (action === "ask_selection") {

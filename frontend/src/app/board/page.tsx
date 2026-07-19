@@ -227,6 +227,7 @@ export default function BoardPage() {
           assistant: {
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
+            model: prefs.aiModel,
           },
         }),
       });
@@ -257,6 +258,7 @@ export default function BoardPage() {
           assistant: {
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
+            model: prefs.aiModel,
           },
         }),
       });

@@ -408,7 +408,15 @@ ${orphanLines || "（無）"}`;
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "custom", prompt }),
+        body: JSON.stringify({
+          action: "custom",
+          prompt,
+          assistant: {
+            name: prefs.aiAssistantName,
+            style: prefs.aiStyle,
+            model: prefs.aiModel,
+          },
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI 失敗");

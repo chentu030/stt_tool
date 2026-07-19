@@ -4,13 +4,13 @@
  *
  * Vercel env:
  *   VERTEX_API_KEYS=key1,key2,key3   (comma/newline separated, 3-key rotate)
- *   VERTEX_MODEL=gemini-3-flash-preview
+ *   VERTEX_MODEL=gemini-3.5-flash
  *   VERTEX_IMAGE_MODEL=gemini-3-pro-image   (optional; AI /create-photo)
  *   VERTEX_LOCATION=global
  *   VERTEX_PROJECT_ID=your-gcp-project   (optional; enables project-scoped URL)
  */
 
-const DEFAULT_MODEL = "gemini-3-flash-preview";
+const DEFAULT_MODEL = "gemini-3.5-flash";
 const DEFAULT_LOCATION = "global";
 
 let rotateIndex = 0;
@@ -61,13 +61,15 @@ export async function vertexGenerateContent(prompt: string, opts?: {
   maxOutputTokens?: number;
   /** Multi-turn history before the current `prompt` (user turn). */
   history?: VertexChatMessage[];
+  /** Override Vertex model id (e.g. gemini-3.5-flash). */
+  model?: string;
 }): Promise<VertexGenerateResult> {
   const keys = getKeys();
   if (!keys.length) {
     throw new Error("VERTEX_API_KEYS 未設定（請在 Vercel 環境變數加入逗號分隔的 3 組金鑰）");
   }
 
-  const model = process.env.VERTEX_MODEL || DEFAULT_MODEL;
+  const model = (opts?.model || process.env.VERTEX_MODEL || DEFAULT_MODEL).trim();
   const url = endpoint(model);
   const history = (opts?.history || [])
     .filter((m) => m.text?.trim())

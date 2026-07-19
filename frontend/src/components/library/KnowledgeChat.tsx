@@ -7,6 +7,7 @@ import {
   LibraryNote,
   packLibraryContext,
 } from "@/lib/libraryIndex";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 export type ChatMessage = {
   id: string;
@@ -33,6 +34,7 @@ export default function KnowledgeChat({
   onClearSelection,
   storageKey = "cadence-kb-chat",
 }: Props) {
+  const prefsCtx = usePrefsOptional();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -114,6 +116,11 @@ export default function KnowledgeChat({
           prompt,
           context: packed.context,
           messages: history.slice(0, -1),
+          assistant: {
+            name: prefsCtx?.prefs.aiAssistantName,
+            style: prefsCtx?.prefs.aiStyle,
+            model: prefsCtx?.prefs.aiModel,
+          },
         }),
       });
       const data = await res.json();

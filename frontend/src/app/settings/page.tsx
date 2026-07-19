@@ -21,6 +21,7 @@ import {
   importPrefsJson,
   resetPrefs,
 } from "@/lib/userPrefs";
+import { AI_TEXT_MODELS } from "@/lib/aiPrefs";
 
 function Row({
   label,
@@ -500,6 +501,19 @@ export default function SettingsPage() {
                 ]}
               />
             </Row>
+            <Row label="Gemini 模型">
+              <select
+                className="input"
+                value={prefs.aiModel}
+                onChange={(e) => patch({ aiModel: e.target.value })}
+              >
+                {AI_TEXT_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} — {m.hint}
+                  </option>
+                ))}
+              </select>
+            </Row>
             <Row label="預設脈絡範圍">
               <Seg
                 value={prefs.aiDefaultScope}
@@ -512,7 +526,7 @@ export default function SettingsPage() {
               />
             </Row>
             <p className="st-hint">
-              筆記頁用 Ctrl+J 開側欄；全站右下角 AI 或 Ctrl+Shift+A。可用 @ 指定筆記。
+              筆記頁 Ctrl+J；全站右下角 AI 或 Ctrl+Shift+A。目前文字模型預設為 Gemini 3.5 Flash；圖片仍用 gemini-3-pro-image。
             </p>
           </section>
 

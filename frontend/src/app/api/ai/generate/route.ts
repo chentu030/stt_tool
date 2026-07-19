@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { vertexConfigStatus, vertexGenerateContent, VertexChatMessage } from "@/lib/vertex";
-import { assistantSystemPrefix } from "@/lib/aiPrefs";
+import { assistantSystemPrefix, resolveAiTextModel, AI_TEXT_MODELS } from "@/lib/aiPrefs";
 
 export const runtime = "nodejs";
 
@@ -37,7 +37,12 @@ type Body = {
   context?: string;
   selection?: string;
   messages?: VertexChatMessage[];
-  assistant?: { name?: string; style?: "concise" | "balanced" | "detailed" };
+  model?: string;
+  assistant?: {
+    name?: string;
+    style?: "concise" | "balanced" | "detailed";
+    model?: string;
+  };
 };
 
 function buildPrompt(data: Body): {
@@ -215,7 +220,10 @@ function buildPrompt(data: Body): {
 }
 
 export async function GET() {
-  return NextResponse.json(vertexConfigStatus());
+  return NextResponse.json({
+    ...vertexConfigStatus(),
+    models: AI_TEXT_MODELS,
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -228,11 +236,13 @@ export async function POST(req: NextRequest) {
 
     const multi =
       data.action === "chat" || data.action === "library" || data.action === "note";
+    const model = resolveAiTextModel(data.assistant?.model || data.model);
     const result = await vertexGenerateContent(built.prompt, {
       system: built.system,
       history: built.history,
       temperature: built.temperature,
       maxOutputTokens: multi ? 6144 : 4096,
+      model,
     });
     return NextResponse.json({
       text: result.text,
