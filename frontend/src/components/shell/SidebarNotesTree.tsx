@@ -110,8 +110,15 @@ export default function SidebarNotesTree() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
+  const [toast, setToast] = useState("");
+  const [hintDismissed, setHintDismissed] = useState(true);
 
   const folderStyles = prefs?.folderStyles || {};
+
+  const flash = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(""), 2200);
+  }, []);
 
   const remapStyles = (oldPath: string, newPath: string) => {
     if (!prefsCtx) return;
@@ -120,6 +127,14 @@ export default function SidebarNotesTree() {
       folderStyles: remapFolderStyles(prev.folderStyles || {}, oldPath, newPath),
     }));
   };
+
+  useEffect(() => {
+    try {
+      setHintDismissed(localStorage.getItem("cadence_hint_sidebar_v1") === "1");
+    } catch {
+      setHintDismissed(true);
+    }
+  }, []);
 
   useEffect(() => {
     setExpanded(loadExpanded());
@@ -245,20 +260,6 @@ export default function SidebarNotesTree() {
     };
   }, [ctx]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "a") return;
-      const root = rootRef.current;
-      if (!root?.contains(document.activeElement)) return;
-      const tag = (document.activeElement as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      e.preventDefault();
-      setSelected(new Set(visibleNoteIds));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [visibleNoteIds]);
-
   const toggle = (path: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -366,6 +367,7 @@ export default function SidebarNotesTree() {
         icon: next.icon,
         color: next.color || "",
       });
+      flash("已更新圖示");
       return;
     }
     if (!prefsCtx) return;
@@ -377,6 +379,7 @@ export default function SidebarNotesTree() {
         color: next.color || undefined,
       }),
     }));
+    flash("已更新資料夾樣式");
   };
 
   const renameNote = async (note: Note) => {
@@ -388,6 +391,7 @@ export default function SidebarNotesTree() {
     });
     if (next == null) return;
     await updateNote(note.id, { title: next || "未命名" });
+    flash("已重新命名");
   };
 
   const moveNotes = async (ids: string[]) => {
@@ -403,6 +407,7 @@ export default function SidebarNotesTree() {
     if (next == null) return;
     const folder = normalizeFolderPath(next);
     await Promise.all(ids.map((id) => updateNote(id, { folder, parent_id: "" })));
+    flash(ids.length > 1 ? `已移動 ${ids.length} 篇` : "已移動");
   };
 
   const duplicateNote = async (note: Note) => {
@@ -420,12 +425,14 @@ export default function SidebarNotesTree() {
         parent_id: note.parent_id || "",
       }
     );
+    flash("已建立副本");
     router.push(`/notes/${newId}`);
   };
 
   const copyNoteLink = async (noteId: string) => {
     const url = `${window.location.origin}/notes/${noteId}`;
     await navigator.clipboard.writeText(url);
+    flash("已複製連結");
   };
 
   const deleteNotes = async (ids: string[]) => {
@@ -449,6 +456,7 @@ export default function SidebarNotesTree() {
       for (const id of ids) next.delete(id);
       return next;
     });
+    flash(ids.length > 1 ? `已刪除 ${ids.length} 篇` : "已刪除");
     if (wasActive) router.push("/library");
   };
 
@@ -473,6 +481,7 @@ export default function SidebarNotesTree() {
       .filter(Boolean) as { id: string; folder: string }[];
     await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
     remapStyles(path, newPath);
+    flash("已重新命名資料夾");
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -519,6 +528,7 @@ export default function SidebarNotesTree() {
       .filter(Boolean) as { id: string; folder: string }[];
     await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
     remapStyles(path, newPath);
+    flash("已移動資料夾");
     setExpanded((prev) => {
       const nextSet = new Set(prev);
       if (nextSet.has(path)) {
@@ -559,7 +569,74 @@ export default function SidebarNotesTree() {
     }
     await Promise.all(ids.map((id) => deleteNote(id)));
     clearSelection();
+    flash(`已刪除 ${ids.length} 篇`);
   };
+
+  useEffect(() => {
+    const treeFocused = () => {
+      const root = rootRef.current;
+      if (!root) return false;
+      const el = document.activeElement;
+      if (!el) return false;
+      if (root === el || root.contains(el)) {
+        const tag = (el as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return false;
+        return true;
+      }
+      return false;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!treeFocused()) return;
+      const mod = e.ctrlKey || e.metaKey;
+
+      if (mod && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSelected(new Set(visibleNoteIds));
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (selected.size) {
+          e.preventDefault();
+          clearSelection();
+        }
+        return;
+      }
+
+      if (e.key === "F2") {
+        e.preventDefault();
+        const id =
+          selected.size === 1 ? [...selected][0] : activeNoteId || "";
+        const note = notes.find((n) => n.id === id);
+        if (note) void renameNote(note);
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const tag = (document.activeElement as HTMLElement | null)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        const ids =
+          selected.size > 0
+            ? [...selected]
+            : activeNoteId
+              ? [activeNoteId]
+              : [];
+        if (!ids.length) return;
+        e.preventDefault();
+        void deleteNotes(ids);
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    visibleNoteIds,
+    selected,
+    activeNoteId,
+    notes,
+    clearSelection,
+  ]);
 
   const buildMenuItems = (): MenuItem[] => {
     if (!ctx) return [];
@@ -706,6 +783,17 @@ export default function SidebarNotesTree() {
     }
   };
 
+  const openCtxAt = (x: number, y: number, target: CtxTarget) => {
+    if (target.kind === "note") {
+      setSelected((prev) => {
+        if (prev.has(target.noteId)) return prev;
+        return new Set([target.noteId]);
+      });
+    }
+    const pos = clampMenuPos(x, y);
+    setCtx({ ...pos, target });
+  };
+
   const renderNoteLink = (note: Note, depth: number) => {
     const active = note.id === activeNoteId;
     const isSelected = selected.has(note.id);
@@ -746,6 +834,21 @@ export default function SidebarNotesTree() {
           ) : (
             <span className="sb-twist-spacer" />
           )}
+          <button
+            type="button"
+            className={`sb-note-icon${note.icon ? " has-emoji" : ""}`}
+            title="圖示與顏色"
+            aria-label="圖示與顏色"
+            style={colorId ? { background: color.bg, color: color.fg } : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              openStylePicker({ kind: "note", noteId: note.id }, r.left, r.bottom + 4);
+            }}
+          >
+            {note.icon || "▢"}
+          </button>
           <Link
             href={`/notes/${note.id}`}
             className="sb-note-main"
@@ -753,18 +856,30 @@ export default function SidebarNotesTree() {
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault();
             }}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void renameNote(note);
+            }}
           >
-            <span
-              className={`sb-note-icon${note.icon ? " has-emoji" : ""}`}
-              aria-hidden
-              style={colorId ? { background: color.bg, color: color.fg } : undefined}
-            >
-              {note.icon || "▢"}
-            </span>
             <span className="sb-name" style={colorId ? { color: color.fg } : undefined}>
               {note.title || "未命名"}
             </span>
           </Link>
+          <button
+            type="button"
+            className="sb-row-more"
+            title="更多"
+            aria-label="更多"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              openCtxAt(r.left, r.bottom + 4, { kind: "note", noteId: note.id });
+            }}
+          >
+            ···
+          </button>
           <button
             type="button"
             className={`sb-fav${isFav ? " is-on" : ""}`}
@@ -893,6 +1008,26 @@ export default function SidebarNotesTree() {
         onChange={(e) => setQ(e.target.value)}
       />
 
+      {!hintDismissed && (
+        <div className="sb-hint">
+          <span>⌘K 搜尋 · 右鍵管理 · F2 改名 · Del 刪除</span>
+          <button
+            type="button"
+            aria-label="關閉提示"
+            onClick={() => {
+              setHintDismissed(true);
+              try {
+                localStorage.setItem("cadence_hint_sidebar_v1", "1");
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {selected.size > 0 && (
         <div className="sb-sel-bar">
           <span>已選 {selected.size}</span>
@@ -924,7 +1059,28 @@ export default function SidebarNotesTree() {
 
       <div className="sb-tree-list">
         {rows.length === 0 ? (
-          <p className="sb-tree-empty">{notes.length === 0 ? "無筆記" : "無結果"}</p>
+          <div className="sb-tree-empty">
+            {notes.length === 0 ? (
+              <>
+                <p>還沒有筆記</p>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={creating}
+                  onClick={() => void newNote()}
+                >
+                  建立第一篇
+                </button>
+              </>
+            ) : (
+              <>
+                <p>沒有符合「{q}」的結果</p>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setQ("")}>
+                  清除篩選
+                </button>
+              </>
+            )}
+          </div>
         ) : (
           rows.map((row) => {
             if (row.kind === "folder" && row.folder) {
@@ -968,33 +1124,39 @@ export default function SidebarNotesTree() {
                     >
                       {open ? "▾" : "▸"}
                     </button>
+                    <button
+                      type="button"
+                      className={fStyle.icon ? "sb-folder-emoji" : `sb-folder-icon${open ? " is-open" : ""}`}
+                      title="圖示與顏色"
+                      aria-label="圖示與顏色"
+                      style={
+                        fStyle.icon
+                          ? colorId
+                            ? { background: color.bg }
+                            : undefined
+                          : colorId
+                            ? { background: color.fg, opacity: 0.9 }
+                            : undefined
+                      }
+                      onClick={(e) => {
+                        e.preventDefault();
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        openStylePicker({ kind: "folder", path: dropKey }, r.left, r.bottom + 4);
+                      }}
+                    >
+                      {fStyle.icon || null}
+                    </button>
                     <Link
                       href={`/library?folder=${encodeURIComponent(folderParam)}`}
                       className="sb-folder-link"
                       title={row.folder.path}
+                      onDoubleClick={(e) => {
+                        if (dropKey === UNCATEGORIZED) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void renameFolder(dropKey);
+                      }}
                     >
-                      {fStyle.icon ? (
-                        <span
-                          className="sb-folder-emoji"
-                          aria-hidden
-                          style={colorId ? { background: color.bg } : undefined}
-                        >
-                          {fStyle.icon}
-                        </span>
-                      ) : (
-                        <span
-                          className={`sb-folder-icon${open ? " is-open" : ""}`}
-                          aria-hidden
-                          style={
-                            colorId
-                              ? {
-                                  background: color.fg,
-                                  opacity: 0.9,
-                                }
-                              : undefined
-                          }
-                        />
-                      )}
                       <span
                         className="sb-name"
                         style={colorId ? { color: color.fg } : undefined}
@@ -1003,6 +1165,19 @@ export default function SidebarNotesTree() {
                       </span>
                       <em>{row.folder.noteCount}</em>
                     </Link>
+                    <button
+                      type="button"
+                      className="sb-row-more"
+                      title="更多"
+                      aria-label="更多"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        openCtxAt(r.left, r.bottom + 4, { kind: "folder", path: dropKey });
+                      }}
+                    >
+                      ···
+                    </button>
                     <button
                       type="button"
                       className="sb-row-add"
@@ -1035,6 +1210,7 @@ export default function SidebarNotesTree() {
         </Link>
       </div>
 
+      {toast ? <div className="sb-toast">{toast}</div> : null}
       {menuPortal}
       {stylePickerPortal}
     </div>

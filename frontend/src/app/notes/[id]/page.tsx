@@ -297,7 +297,7 @@ function NotePageInner() {
       setTags(mergedTags);
       setDirty(false);
       setStatus("saved");
-      if (!silent) setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 1800);
+      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1200 : 1800);
     } catch (e) {
       setStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "儲存失敗");
@@ -713,6 +713,16 @@ function NotePageInner() {
     if (!q) return list.slice(0, 8);
     return list.filter((n) => n.title.toLowerCase().includes(q)).slice(0, 8);
   }, [allNotes, linkPicker, note?.id]);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!dirty && status !== "saving") return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty, status]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

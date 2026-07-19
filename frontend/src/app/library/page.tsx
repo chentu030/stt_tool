@@ -1,6 +1,6 @@
 "use client";
 
-import { askConfirm } from "@/lib/dialogs";
+import { askConfirm, askPrompt } from "@/lib/dialogs";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -70,6 +70,12 @@ function LibraryPageInner() {
   const [selected, setSelected] = useState<string[]>([]);
   const [chatOpen, setChatOpen] = useState(true);
   const [bulkFolder, setBulkFolder] = useState("");
+  const [toast, setToast] = useState("");
+
+  const flash = (msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(""), 2200);
+  };
 
   useEffect(() => {
     setFolderFilter(folderFromUrl);
@@ -170,17 +176,28 @@ function LibraryPageInner() {
   };
 
   const runBulkFolder = async () => {
-    const folder = bulkFolder.trim();
-    if (!folder || !selected.length) return;
+    if (!selected.length) return;
+    const next = await askPrompt({
+      title: `移動 ${selected.length} 篇筆記`,
+      message: "輸入資料夾路徑（空白＝未分類；可用 / 建立子資料夾）",
+      defaultValue: bulkFolder,
+      placeholder: "例如：專案/客戶A",
+      confirmLabel: "移動",
+    });
+    if (next == null) return;
+    const folder = next.trim();
+    setBulkFolder(folder);
     await Promise.all(selected.map((id) => updateNote(id, { folder })));
-    setBulkFolder("");
+    flash(`已移動 ${selected.length} 篇`);
   };
 
   const runBulkDelete = async () => {
     if (!selected.length) return;
     if (prefs.askBeforeDelete && !(await askConfirm({ title: `刪除選取的 ${selected.length} 篇筆記？`, danger: true, confirmLabel: "刪除" }))) return;
+    const n = selected.length;
     await Promise.all(selected.map((id) => deleteNote(id)));
     setSelected([]);
+    flash(`已刪除 ${n} 篇`);
   };
 
   const exportSelectedOrFiltered = () => {
@@ -189,7 +206,22 @@ function LibraryPageInner() {
       : filteredNotes;
     const md = exportNotesMarkdown(pool, selected.length ? "Cadence 選取匯出" : "Cadence 篩選匯出");
     downloadText(`cadence-library-${Date.now()}.md`, md);
+    flash(selected.length ? `已匯出 ${selected.length} 篇` : "已匯出篩選結果");
   };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (!selected.length || tab !== "notes") return;
+      e.preventDefault();
+      void runBulkDelete();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, tab, prefs.askBeforeDelete]);
 
   if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
   if (!user) {
@@ -348,62 +380,63 @@ function LibraryPageInner() {
                 <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={selectVisible}>
                   全選可見
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm kb-ctrl-btn"
-                  onClick={() => setSelected([])}
-                  disabled={!selected.length}
-                >
-                  取消選取 ({selected.length})
-                </button>
-                <input
-                  className="input kb-ctrl kb-ctrl--folder"
-                  placeholder="批量資料夾"
-                  value={bulkFolder}
-                  onChange={(e) => setBulkFolder(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm kb-ctrl-btn"
-                  disabled={!selected.length || !bulkFolder.trim()}
-                  onClick={() => {
-                    void runBulkFolder();
-                  }}
-                >
-                  套用資料夾
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
-                  匯出 MD
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm kb-ctrl-btn"
-                  disabled={!selected.length}
-                  title="用已選筆記作為深度研究範圍"
-                  onClick={() =>
-                    router.push(
-                      buildResearchUrl({
-                        notes: selected,
-                        from: selected[0],
-                        returnTo: true,
-                      })
-                    )
-                  }
-                >
-                  深度研究
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm kb-ctrl-btn kb-ctrl-btn--danger"
-                  disabled={!selected.length}
-                  onClick={() => {
-                    void runBulkDelete();
-                  }}
-                >
-                  刪除選取
-                </button>
+                {selected.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm kb-ctrl-btn"
+                      onClick={() => setSelected([])}
+                    >
+                      取消選取 ({selected.length})
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm kb-ctrl-btn"
+                      onClick={() => {
+                        void runBulkFolder();
+                      }}
+                    >
+                      移動至…
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
+                      匯出 MD
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm kb-ctrl-btn"
+                      title="用已選筆記作為深度研究範圍"
+                      onClick={() =>
+                        router.push(
+                          buildResearchUrl({
+                            notes: selected,
+                            from: selected[0],
+                            returnTo: true,
+                          })
+                        )
+                      }
+                    >
+                      深度研究
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm kb-ctrl-btn kb-ctrl-btn--danger"
+                      onClick={() => {
+                        void runBulkDelete();
+                      }}
+                    >
+                      刪除選取
+                    </button>
+                  </>
+                )}
+                {!selected.length && (
+                  <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
+                    匯出篩選
+                  </button>
+                )}
               </div>
             )}
+
+            {toast ? <div className="kb-toast" role="status">{toast}</div> : null}
 
             {showTemplates && (
               <div className="card kb-templates">
