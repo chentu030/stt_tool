@@ -1,6 +1,7 @@
 "use client";
 
 import { askPrompt, askConfirm } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 import {
   resolveMediaIngestChoice,
   formatIngestBlock,
@@ -153,7 +154,6 @@ function NotePageInner() {
     return localStorage.getItem("cadence_page_mode") === "1";
   });
   const [linkPicker, setLinkPicker] = useState("");
-  const [toast, setToast] = useState("");
   const [ingestStatus, setIngestStatus] = useState("");
   const [ingestJobId, setIngestJobId] = useState<string | null>(null);
   const [ingestError, setIngestError] = useState("");
@@ -225,7 +225,7 @@ function NotePageInner() {
       }
       setBody(next);
       latest.current = { ...latest.current, body: next };
-      flash("深度研究已寫入本篇");
+      toast("深度研究已寫入本篇");
     });
 
     const url = new URL(window.location.href);
@@ -269,11 +269,6 @@ function NotePageInner() {
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
-
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2200);
-  };
 
   const save = async (silent = false) => {
     if (!note) return;
@@ -361,7 +356,7 @@ function NotePageInner() {
             createdAt: Date.now(),
           };
           upsertPendingIngest(pending);
-          flash("轉錄已在背景進行，可離開本頁，完成後會自動寫回");
+          toast("轉錄已在背景進行，可離開本頁，完成後會自動寫回");
 
           if (ingestWatching.current.has(jobId)) continue;
           ingestWatching.current.add(jobId);
@@ -407,18 +402,18 @@ function NotePageInner() {
             const nextBody = replaceIngestMarker(currentBody, jobId, block);
             applyIngestBody(nextBody, jobId);
             removePendingIngest(jobId);
-            flash(summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+            toast(summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
           } catch (e) {
             setIngestError(e instanceof Error ? e.message : "轉錄失敗");
             setIngestStatus("");
-            flash(e instanceof Error ? e.message : "媒體轉錄失敗");
+            toast(e instanceof Error ? e.message : "媒體轉錄失敗");
           } finally {
             ingestWatching.current.delete(jobId);
             if (ingestCancel.current === cancel) ingestCancel.current = null;
           }
         } catch (e) {
           setIngestError(e instanceof Error ? e.message : "啟動轉錄失敗");
-          flash(e instanceof Error ? e.message : "啟動轉錄失敗");
+          toast(e instanceof Error ? e.message : "啟動轉錄失敗");
         }
       }
 
@@ -440,7 +435,7 @@ function NotePageInner() {
           if (!batch.length) return;
           if (ingestBusy.current) {
             ingestQueue.current.push(...batch);
-            flash("已排入下一批轉錄");
+            toast("已排入下一批轉錄");
             return;
           }
           const resolved = await resolveMediaIngestChoice({
@@ -480,7 +475,7 @@ function NotePageInner() {
           });
           if (result) {
             applyIngestBody(result.body, p.jobId);
-            flash(result.summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+            toast(result.summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
           }
           setIngestStatus("");
           setIngestJobId(null);
@@ -553,7 +548,7 @@ function NotePageInner() {
         setBody((b) => `${b.trim()}\n\n---\n\n## AI ${label}\n\n${text}`);
       }
       markDirty();
-      flash(`已套用：${catalog?.label || meta?.label || action}`);
+      toast(`已套用：${catalog?.label || meta?.label || action}`);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : "AI 失敗");
     } finally {
@@ -639,7 +634,7 @@ function NotePageInner() {
     if (!next?.slides?.length || staleNow) {
       next = deckFromMarkdown(title, body, deck?.theme || "teal");
       onDeckChange(next);
-      if (staleNow && deck?.slides?.length) flash("已依筆記更新投影片");
+      if (staleNow && deck?.slides?.length) toast("已依筆記更新投影片");
     } else {
       next = ensureDeck();
     }
@@ -766,7 +761,7 @@ function NotePageInner() {
     setBody((b) => `${b.trim()}${b.trim() ? "\n\n" : ""}[[${noteTitle}]]\n`);
     markDirty();
     setLinkPicker("");
-    flash(`已插入 [[${noteTitle}]]`);
+    toast(`已插入 [[${noteTitle}]]`);
   };
 
   const duplicate = async () => {
@@ -779,7 +774,7 @@ function NotePageInner() {
       tags,
       { folder, status: note.status }
     );
-    flash("已建立副本");
+    toast("已建立副本");
     router.push(`/notes/${newId}`);
   };
 
@@ -792,12 +787,12 @@ function NotePageInner() {
 
   const copyMd = async () => {
     await navigator.clipboard.writeText(`# ${title}\n\n${body}`);
-    flash("已複製 Markdown");
+    toast("已複製 Markdown");
   };
 
   const copyLink = async () => {
     await navigator.clipboard.writeText(window.location.href);
-    flash("已複製頁面連結");
+    toast("已複製頁面連結");
   };
 
   const jumpHeading = (item: HeadingItem) => {
@@ -1045,7 +1040,7 @@ function NotePageInner() {
                               } catch {
                                 markDirty();
                               }
-                              flash(`已建立子頁：${t}`);
+                              toast(`已建立子頁：${t}`);
                               router.push(`/notes/${id}`);
                             })();
                           },
@@ -1165,7 +1160,7 @@ function NotePageInner() {
                               });
                               if (result) {
                                 applyIngestBody(result.body, p.jobId);
-                                flash(result.summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+                                toast(result.summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
                               }
                               setIngestStatus("");
                               setIngestJobId(null);
@@ -1191,7 +1186,7 @@ function NotePageInner() {
                       setIngestStatus("");
                       setIngestError("");
                       if (!ingestError) {
-                        flash("已改為背景寫入，可繼續編輯或離開本頁");
+                        toast("已改為背景寫入，可繼續編輯或離開本頁");
                       }
                     }}
                   >
@@ -1201,7 +1196,6 @@ function NotePageInner() {
               </div>
             </div>
           )}
-          {toast && <p className="doc-toast">{toast}</p>}
 
           {viewMode === "write" && versionsOpen && (
             <div className="doc-versions">
@@ -1495,7 +1489,7 @@ function NotePageInner() {
                 setBody(tpl.body);
                 if (tpl.tags.length) setTags(Array.from(new Set([...tags, ...tpl.tags])));
                 markDirty();
-                flash(`已套用範本：${tpl.label}`);
+                toast(`已套用範本：${tpl.label}`);
               }}
               onOpenThread={(selection) => setThreadSelection(selection)}
               onCreateSubpage={async (pageTitle) => {
@@ -1507,10 +1501,10 @@ function NotePageInner() {
                     status: "backlog",
                     folder: folder || "",
                   });
-                  flash(`已建立子頁：${t}`);
+                  toast(`已建立子頁：${t}`);
                   return { id, title: t };
                 } catch (e) {
-                  flash(e instanceof Error ? e.message : "建立子頁失敗");
+                  toast(e instanceof Error ? e.message : "建立子頁失敗");
                   return null;
                 }
               }}
@@ -1558,7 +1552,7 @@ function NotePageInner() {
                 deck={deck}
                 onChange={onDeckChange}
                 onBackToWrite={enterWrite}
-                onSynced={() => flash("已依筆記更新投影片")}
+                onSynced={() => toast("已依筆記更新投影片")}
                 onActionsChange={setSlideActions}
                 focusIndex={slideFocusIndex}
                 focusNonce={slideFocusNonce}
@@ -1595,17 +1589,17 @@ function NotePageInner() {
           onInsertAtCursor={(md) => {
             if (insertMdRef.current) {
               insertMdRef.current(md);
-              flash("已插入游標處");
+              toast("已插入游標處");
             } else {
               setBody((b) => `${b.trim()}\n\n${md}`);
               markDirty();
-              flash("已附加到筆記");
+              toast("已附加到筆記");
             }
           }}
           onInsertAppend={(md) => {
             setBody((b) => b + md);
             markDirty();
-            flash("已附加文末");
+            toast("已附加文末");
           }}
           onDeepResearch={() =>
             router.push(

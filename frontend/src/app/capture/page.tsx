@@ -12,6 +12,12 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import ContinueChips, { captureContinueChips } from "@/components/shell/ContinueChips";
 import Link from "next/link";
 import { libraryJobsUrl } from "@/lib/navApps";
+import { toast } from "@/lib/toast";
+
+function looksLikeYoutube(text: string) {
+  const t = text.trim();
+  return /youtu\.be\/|youtube\.com\//i.test(t);
+}
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
@@ -32,14 +38,6 @@ export default function CapturePage() {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [recentJobs, setRecentJobs] = useState<Job[]>([]);
-
-  useEffect(() => {
-    if (!user) {
-      setRecentJobs([]);
-      return;
-    }
-    return listenToUserJobs(user.uid, (jobs) => setRecentJobs(jobs.slice(0, 5)));
-  }, [user]);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState({ status: "", pct: 0, label: "" });
   const [extReady, setExtReady] = useState(false);
@@ -51,6 +49,39 @@ export default function CapturePage() {
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
   const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+
+  useEffect(() => {
+    if (!user) {
+      setRecentJobs([]);
+      return;
+    }
+    return listenToUserJobs(user.uid, (jobs) => setRecentJobs(jobs.slice(0, 5)));
+  }, [user]);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!recording && !busy) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [recording, busy]);
+
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const text = e.clipboardData?.getData("text") || "";
+      if (!looksLikeYoutube(text)) return;
+      e.preventDefault();
+      setYoutubeUrl(text.trim());
+      setFiles([]);
+      toast("已貼上影片連結");
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -135,6 +166,7 @@ export default function CapturePage() {
     if (!user) return;
     if (!files.length && !youtubeUrl) {
       setError("請上傳檔案、貼上連結，或先錄音。");
+      toast("請先加入聲音來源");
       return;
     }
     setBusy(true);
@@ -189,14 +221,30 @@ export default function CapturePage() {
       }).catch(() => {});
 
       listenToJob(jobId, () => {});
+      toast("已開始轉錄");
       router.push(`/job/${jobId}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "失敗");
+      const msg = e instanceof Error ? e.message : "失敗";
+      setError(msg);
+      toast(msg);
       setBusy(false);
     }
   };
 
   const canSubmit = files.length > 0 || !!youtubeUrl.trim();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter") return;
+      if (busy) return;
+      if (!(files.length > 0 || youtubeUrl.trim())) return;
+      e.preventDefault();
+      void submit();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, files, youtubeUrl]);
 
   if (loading) {
     return (
@@ -234,12 +282,14 @@ export default function CapturePage() {
 
         <ContinueChips className="capture-continue" chips={captureContinueChips()} />
 
-        {recentJobs.length > 0 && (
-          <div className="capture-recent">
-            <div className="capture-recent-head">
-              <span>最近轉錄</span>
-              <Link href={libraryJobsUrl()}>全部</Link>
-            </div>
+        <ContinueChips className="capture-continue" chips={captureContinueChips()} />
+
+        <div className="capture-recent">
+          <div className="capture-recent-head">
+            <span>最近轉錄</span>
+            <Link href={libraryJobsUrl()}>全部</Link>
+          </div>
+          {recentJobs.length > 0 ? (
             <ul className="capture-recent-list">
               {recentJobs.map((j) => (
                 <li key={j.id}>
@@ -250,8 +300,10 @@ export default function CapturePage() {
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          ) : (
+            <p className="capture-recent-empty">還沒有轉錄 · 上傳或錄音開始</p>
+          )}
+        </div>
 
         <input
           ref={fileRef}

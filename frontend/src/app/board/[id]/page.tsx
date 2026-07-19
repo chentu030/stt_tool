@@ -1,6 +1,7 @@
 "use client";
 
 import { askPrompt, askConfirm } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -88,7 +89,6 @@ export default function BoardByIdPage() {
   const [sort, setSort] = useState<BoardSort>(prefs.boardSort);
   const [swimlanes, setSwimlanes] = useState(prefs.boardSwimlanes);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState("");
   const [filters, setFilters] = useState<BoardFilters>({
     q: "",
     folder: "",
@@ -141,8 +141,7 @@ export default function BoardByIdPage() {
     focusApplied.current = true;
     setSelected([noteId]);
     if (!noteMatchesBoard(note, board)) {
-      setToast("此筆記不在目前看板範圍，已選取但可能未顯示在欄位中");
-      setTimeout(() => setToast(""), 3200);
+      toast("此筆記不在目前看板範圍，已選取但可能未顯示在欄位中");
     }
     requestAnimationFrame(() => {
       document
@@ -221,11 +220,6 @@ export default function BoardByIdPage() {
 
   const lanes = useMemo(() => (swimlanes ? groupByFolder(filtered) : null), [swimlanes, filtered]);
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2200);
-  };
-
   const persistLast = (id: string) => {
     if (!user) return;
     try {
@@ -237,7 +231,7 @@ export default function BoardByIdPage() {
 
   const moveCard = async (id: string, status: BoardStatus) => {
     await updateNote(id, { status });
-    flash(`已移到「${BOARD_COLUMNS.find((c) => c.id === status)?.label}」`);
+    toast(`已移到「${BOARD_COLUMNS.find((c) => c.id === status)?.label}」`);
   };
 
   const moveSelected = async (status: BoardStatus) => {
@@ -247,7 +241,7 @@ export default function BoardByIdPage() {
       await Promise.all(selected.map((id) => updateNote(id, { status })));
       const n = selected.length;
       setSelected([]);
-      flash(`已移動 ${n} 張`);
+      toast(`已移動 ${n} 張`);
     } finally {
       setBusy(false);
     }
@@ -270,7 +264,7 @@ export default function BoardByIdPage() {
       const n = selected.length;
       await Promise.all(selected.map((id) => deleteNote(id)));
       setSelected([]);
-      flash(`已刪除 ${n} 張`);
+      toast(`已刪除 ${n} 張`);
     } finally {
       setBusy(false);
     }
@@ -310,7 +304,7 @@ export default function BoardByIdPage() {
     if (due === null) return;
     const val = due.trim();
     if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-      flash("日期格式不正確");
+      toast("日期格式不正確");
       return;
     }
     setBusy(true);
@@ -324,7 +318,7 @@ export default function BoardByIdPage() {
           });
         })
       );
-      flash("已更新截止日期");
+      toast("已更新截止日期");
     } finally {
       setBusy(false);
     }
@@ -350,7 +344,7 @@ export default function BoardByIdPage() {
     if (!tag) return;
     const next = Array.from(new Set([...(note.tags || []), tag]));
     await updateNote(noteId, { tags: next });
-    flash(`已加上 #${tag}`);
+    toast(`已加上 #${tag}`);
   };
 
   const removeTagFromNote = async (noteId: string, tag: string) => {
@@ -358,7 +352,7 @@ export default function BoardByIdPage() {
     if (!note) return;
     const next = (note.tags || []).filter((t) => t !== tag);
     await updateNote(noteId, { tags: next });
-    flash(`已移除 #${tag}`);
+    toast(`已移除 #${tag}`);
   };
 
   const renameTagOnBoard = async (from: string) => {
@@ -387,7 +381,7 @@ export default function BoardByIdPage() {
           tags: board.tags.map((t) => (t === from ? to : t)),
         });
       }
-      flash(`已將 #${from} 改為 #${to}（${targets.length} 張）`);
+      toast(`已將 #${from} 改為 #${to}（${targets.length} 張）`);
     } finally {
       setBusy(false);
     }
@@ -415,7 +409,7 @@ export default function BoardByIdPage() {
           tags: board.tags.filter((t) => t !== tag),
         });
       }
-      flash(`已移除 #${tag}（${targets.length} 張）`);
+      toast(`已移除 #${tag}（${targets.length} 張）`);
     } finally {
       setBusy(false);
     }
@@ -494,7 +488,7 @@ export default function BoardByIdPage() {
   const onRenameBoard = async (id: string, name: string) => {
     if (!user) return;
     await updateBoard(user.uid, id, { name });
-    flash("已重新命名");
+    toast("已重新命名");
   };
 
   const onDeleteBoard = async (id: string) => {
@@ -534,10 +528,10 @@ export default function BoardByIdPage() {
       });
       setQuickOpen(null);
       setQuickTitle("");
-      flash("已新增卡片");
+      toast("已新增卡片");
       router.push(`/notes/${id}`);
     } catch (e) {
-      flash(e instanceof Error ? e.message : "新增失敗");
+      toast(e instanceof Error ? e.message : "新增失敗");
     } finally {
       setBusy(false);
     }
@@ -545,7 +539,7 @@ export default function BoardByIdPage() {
 
   const exportMd = () => {
     downloadText(`cadence-board-${Date.now()}.md`, exportBoardMarkdown(filtered));
-    flash("已匯出目前篩選結果");
+    toast("已匯出目前篩選結果");
   };
 
   const runAiTriage = async () => {
@@ -643,7 +637,7 @@ export default function BoardByIdPage() {
         created += 1;
       }
       setAiText(`已建立 ${created} 張卡片。\n\n${raw.slice(0, 800)}`);
-      flash(`AI 已建立 ${created} 張看板卡片`);
+      toast(`AI 已建立 ${created} 張看板卡片`);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1046,8 +1040,6 @@ export default function BoardByIdPage() {
           aiError={aiError}
         />
       </div>
-
-      {toast && <p className="bd-toast">{toast}</p>}
     </div>
   );
 }

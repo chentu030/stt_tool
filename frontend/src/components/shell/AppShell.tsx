@@ -403,7 +403,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
         </header>
-        <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{children}</main>
+        <main className={`app-main${isDoc ? " app-main--doc" : ""}${isImmersive ? " app-main--immersive" : ""}`}>{children}</main>
+        {!isImmersive && (
         <nav className="mobile-bottom">
           {MOBILE_BOTTOM.map((item) => {
             const Icon = NAV_ICONS[item.id] || LibraryIcon;
@@ -432,6 +433,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        )}
         {palette}
         <GlobalAiDock />
       </div>

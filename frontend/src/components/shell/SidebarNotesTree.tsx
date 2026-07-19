@@ -41,6 +41,7 @@ import {
   setFolderStyle,
   type PageColorId,
 } from "@/lib/pageChrome";
+import { toast } from "@/lib/toast";
 
 const EXPAND_KEY = "cadence_sidebar_expand_v1";
 
@@ -111,15 +112,9 @@ export default function SidebarNotesTree() {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
-  const [toast, setToast] = useState("");
   const [hintDismissed, setHintDismissed] = useState(true);
 
   const folderStyles = prefs?.folderStyles || {};
-
-  const flash = useCallback((msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(""), 2200);
-  }, []);
 
   const remapStyles = (oldPath: string, newPath: string) => {
     if (!prefsCtx) return;
@@ -368,7 +363,7 @@ export default function SidebarNotesTree() {
         icon: next.icon,
         color: next.color || "",
       });
-      flash("已更新圖示");
+      toast("已更新圖示");
       return;
     }
     if (!prefsCtx) return;
@@ -380,7 +375,7 @@ export default function SidebarNotesTree() {
         color: next.color || undefined,
       }),
     }));
-    flash("已更新資料夾樣式");
+    toast("已更新資料夾樣式");
   };
 
   const renameNote = async (note: Note) => {
@@ -392,7 +387,7 @@ export default function SidebarNotesTree() {
     });
     if (next == null) return;
     await updateNote(note.id, { title: next || "未命名" });
-    flash("已重新命名");
+    toast("已重新命名");
   };
 
   const moveNotes = async (ids: string[]) => {
@@ -408,7 +403,7 @@ export default function SidebarNotesTree() {
     if (next == null) return;
     const folder = normalizeFolderPath(next);
     await Promise.all(ids.map((id) => updateNote(id, { folder, parent_id: "" })));
-    flash(ids.length > 1 ? `已移動 ${ids.length} 篇` : "已移動");
+    toast(ids.length > 1 ? `已移動 ${ids.length} 篇` : "已移動");
   };
 
   const duplicateNote = async (note: Note) => {
@@ -426,14 +421,14 @@ export default function SidebarNotesTree() {
         parent_id: note.parent_id || "",
       }
     );
-    flash("已建立副本");
+    toast("已建立副本");
     router.push(`/notes/${newId}`);
   };
 
   const copyNoteLink = async (noteId: string) => {
     const url = `${window.location.origin}/notes/${noteId}`;
     await navigator.clipboard.writeText(url);
-    flash("已複製連結");
+    toast("已複製連結");
   };
 
   const deleteNotes = async (ids: string[]) => {
@@ -457,7 +452,7 @@ export default function SidebarNotesTree() {
       for (const id of ids) next.delete(id);
       return next;
     });
-    flash(ids.length > 1 ? `已刪除 ${ids.length} 篇` : "已刪除");
+    toast(ids.length > 1 ? `已刪除 ${ids.length} 篇` : "已刪除");
     if (wasActive) router.push("/library");
   };
 
@@ -482,7 +477,7 @@ export default function SidebarNotesTree() {
       .filter(Boolean) as { id: string; folder: string }[];
     await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
     remapStyles(path, newPath);
-    flash("已重新命名資料夾");
+    toast("已重新命名資料夾");
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -529,7 +524,7 @@ export default function SidebarNotesTree() {
       .filter(Boolean) as { id: string; folder: string }[];
     await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
     remapStyles(path, newPath);
-    flash("已移動資料夾");
+    toast("已移動資料夾");
     setExpanded((prev) => {
       const nextSet = new Set(prev);
       if (nextSet.has(path)) {
@@ -570,7 +565,7 @@ export default function SidebarNotesTree() {
     }
     await Promise.all(ids.map((id) => deleteNote(id)));
     clearSelection();
-    flash(`已刪除 ${ids.length} 篇`);
+    toast(`已刪除 ${ids.length} 篇`);
   };
 
   useEffect(() => {
@@ -691,7 +686,7 @@ export default function SidebarNotesTree() {
           action: () => {
             const wasFav = (prefs?.favoriteNoteIds || []).includes(note.id);
             toggleFav(note.id);
-            flash(wasFav ? "已取消收藏" : "已加入收藏");
+            toast(wasFav ? "已取消收藏" : "已加入收藏");
           },
         },
         { type: "item", label: "新增子頁面", action: () => newNote("", note.id) },
@@ -1245,7 +1240,6 @@ export default function SidebarNotesTree() {
         </Link>
       </div>
 
-      {toast ? <div className="sb-toast">{toast}</div> : null}
       {menuPortal}
       {stylePickerPortal}
     </div>

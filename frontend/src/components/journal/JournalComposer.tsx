@@ -1,12 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useImperativeHandle, forwardRef, useState } from "react";
 import {
   CHECKIN_TEMPLATES,
   MOODS,
   MoodId,
   promptForDate,
 } from "@/lib/journalMeta";
+
+export type JournalComposerHandle = {
+  save: () => void;
+  isDirty: () => boolean;
+};
 
 type Props = {
   dateKey: string;
@@ -16,21 +21,42 @@ type Props = {
   busy?: boolean;
   onSave: (payload: { text: string; mood?: MoodId; energy?: number; appendTemplate?: string }) => void;
   onOpenFull: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
-export default function JournalComposer({
-  dateKey,
-  initialText = "",
-  mood,
-  energy = 3,
-  busy,
-  onSave,
-  onOpenFull,
-}: Props) {
+const JournalComposer = forwardRef<JournalComposerHandle, Props>(function JournalComposer(
+  {
+    dateKey,
+    initialText = "",
+    mood,
+    energy = 3,
+    busy,
+    onSave,
+    onOpenFull,
+    onDirtyChange,
+  },
+  ref
+) {
   const [text, setText] = useState(initialText);
   const [m, setM] = useState<MoodId | undefined>(mood);
   const [e, setE] = useState(energy);
   const prompt = promptForDate(dateKey);
+
+  const dirty =
+    text !== initialText || m !== mood || e !== (energy || 3);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      save: () => onSave({ text, mood: m, energy: e }),
+      isDirty: () => dirty,
+    }),
+    [text, m, e, dirty, onSave]
+  );
 
   return (
     <div className="jn-composer">
@@ -87,7 +113,9 @@ export default function JournalComposer({
         <button
           type="button"
           className="jn-chip"
-          onClick={() => setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`)}
+          onClick={() =>
+            setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`)
+          }
         >
           插入今日提問
         </button>
@@ -99,6 +127,12 @@ export default function JournalComposer({
         placeholder="寫下今天的節奏、卡住的地方、或一句話就好…"
         value={text}
         onChange={(ev) => setText(ev.target.value)}
+        onKeyDown={(ev) => {
+          if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "s") {
+            ev.preventDefault();
+            onSave({ text, mood: m, energy: e });
+          }
+        }}
       />
 
       <div className="jn-composer-actions">
@@ -106,19 +140,24 @@ export default function JournalComposer({
           type="button"
           className="btn"
           disabled={busy || (!text.trim() && !m)}
+          title="儲存 ⌘S"
           onClick={() => onSave({ text, mood: m, energy: e })}
         >
-          {busy ? "儲存中…" : "儲存這天"}
+          {busy ? "儲存中…" : dirty ? "儲存這天 *" : "儲存這天"}
         </button>
         <button
           type="button"
           className="btn btn-soft"
           disabled={busy}
-          onClick={() => onSave({ text: `${text.trim()}\n\n> ${prompt}\n\n`, mood: m, energy: e })}
+          onClick={() =>
+            onSave({ text: `${text.trim()}\n\n> ${prompt}\n\n`, mood: m, energy: e })
+          }
         >
           用提問起筆並儲存
         </button>
       </div>
     </div>
   );
-}
+});
+
+export default JournalComposer;

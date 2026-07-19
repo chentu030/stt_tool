@@ -812,6 +812,9 @@ button, input, textarea, select {
   max-width: 100%;
   padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 1.25rem);
 }
+.mobile-shell > .app-main.app-main--immersive {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 .mobile-top {
   display: flex;
   align-items: center;
@@ -1435,6 +1438,34 @@ button, input, textarea, select {
   font-size: 0.75rem;
   color: var(--accent);
   font-weight: 650;
+}
+.jn-card-actions {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+.jn-card-actions .jn-card-open {
+  border-left: none;
+  padding: 0.45rem 0.7rem;
+}
+.jn-card-del {
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--danger);
+  font-size: 0.72rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+.jn-card-del:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.jn-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.45rem;
+  padding: 0.5rem 0;
 }
 .jn-composer-top {
   display: flex;
@@ -4787,6 +4818,11 @@ button, input, textarea, select {
 .capture-recent-head a {
   color: var(--accent-2);
   text-decoration: none;
+}
+.capture-recent-empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
 }
 .capture-recent-list {
   list-style: none;

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   createNote,
+  deleteNote,
   listenToUserNotes,
   loginWithGoogle,
   updateNote,
@@ -16,7 +17,7 @@ import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import JournalCalendar from "@/components/journal/JournalCalendar";
-import JournalComposer from "@/components/journal/JournalComposer";
+import JournalComposer, { type JournalComposerHandle } from "@/components/journal/JournalComposer";
 import JournalAside from "@/components/journal/JournalAside";
 import {
   MoodId,
@@ -33,6 +34,8 @@ import {
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ContinueChips, { journalContinueChips } from "@/components/shell/ContinueChips";
+import { askConfirm } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 
 export default function JournalPage() {
   const { user, loading } = useAuth();
@@ -41,7 +44,8 @@ export default function JournalPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
-  const [toast, setToast] = useState("");
+  const [composerDirty, setComposerDirty] = useState(false);
+  const composerRef = useRef<JournalComposerHandle>(null);
   const today = journalTitle();
   const [selected, setSelected] = useState(today);
   const [cursor, setCursor] = useState(() => {
@@ -54,6 +58,28 @@ export default function JournalPage() {
     if (!user) return;
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!composerDirty && !busy) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [composerDirty, busy]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s") return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "INPUT") return;
+      e.preventDefault();
+      composerRef.current?.save();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const entries = useMemo(() => toJournalEntries(notes), [notes]);
   const byDate = useMemo(() => {
@@ -83,10 +109,16 @@ export default function JournalPage() {
     );
   }, [entries, q]);
 
-  const flash = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 2200);
-  };
+  const confirmLeaveComposer = useCallback(async () => {
+    if (!composerDirty) return true;
+    return askConfirm({
+      title: "捨棄未儲存的日誌？",
+      message: "切換日期後，目前編輯區尚未儲存的內容會消失。",
+      danger: true,
+      confirmLabel: "捨棄",
+      cancelLabel: "繼續編輯",
+    });
+  }, [composerDirty]);
 
   const ensureNote = async (dateKey: string, seedBody?: string, meta?: { mood?: MoodId; energy?: number }) => {
     if (!user) throw new Error("未登入");
@@ -114,12 +146,13 @@ export default function JournalPage() {
 
   const openOrCreate = async (dateKey: string) => {
     if (!user || busy) return;
+    if (!(await confirmLeaveComposer())) return;
     setBusy(true);
     try {
       const id = await ensureNote(dateKey);
       router.push(`/notes/${id}`);
     } catch (e) {
-      flash(e instanceof Error ? e.message : "無法開啟");
+      toast(e instanceof Error ? e.message : "無法開啟");
     } finally {
       setBusy(false);
     }
@@ -139,8 +172,9 @@ export default function JournalPage() {
       if (payload.appendTemplate) {
         text = `${text.trim()}${text.trim() ? "\n\n" : ""}${payload.appendTemplate}`;
       }
-      // Keep existing body sections if user only set mood on empty quick save with existing note
-      if (!text.trim() && existing) text = existing.body_md.replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim();
+      if (!text.trim() && existing) {
+        text = existing.body_md.replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim();
+      }
       if (!text.trim()) {
         text = `${NOTE_TEMPLATES.find((x) => x.id === "daily")!.body}\n\n## 提問回應\n${promptForDate(selected)}\n\n`;
       }
@@ -148,20 +182,15 @@ export default function JournalPage() {
         mood: payload.mood,
         energy: payload.energy,
       });
-      const id = await ensureNote(selected, body, {
+      await ensureNote(selected, body, {
         mood: payload.mood,
         energy: payload.energy,
       });
-      flash(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
+      toast(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
+      setComposerDirty(false);
       setComposerKey((k) => k + 1);
-      if (payload.appendTemplate) {
-        // stay on page; data refreshes via listener
-      } else {
-        // optional: stay
-      }
-      void id;
     } catch (e) {
-      flash(e instanceof Error ? e.message : "儲存失敗");
+      toast(e instanceof Error ? e.message : "儲存失敗");
     } finally {
       setBusy(false);
     }
@@ -174,24 +203,49 @@ export default function JournalPage() {
     });
   };
 
-  const goToday = () => {
+  const goToday = async () => {
+    if (!(await confirmLeaveComposer())) return;
     const d = new Date();
     setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setSelected(today);
+    setComposerDirty(false);
     setComposerKey((k) => k + 1);
   };
 
-  const onSelectDay = (dateKey: string) => {
+  const onSelectDay = async (dateKey: string) => {
+    if (dateKey === selected) return;
+    if (!(await confirmLeaveComposer())) return;
     setSelected(dateKey);
     const d = parseDateKey(dateKey);
     if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
+    setComposerDirty(false);
     setComposerKey((k) => k + 1);
+  };
+
+  const deleteEntry = async (id: string, dateKey: string) => {
+    if (
+      !(await askConfirm({
+        title: `刪除 ${dateKey} 的日誌？`,
+        message: "此操作無法復原。",
+        danger: true,
+        confirmLabel: "刪除",
+      }))
+    ) {
+      return;
+    }
+    await deleteNote(id);
+    toast("已刪除日誌");
+    if (dateKey === selected) {
+      setSelected(today);
+      setComposerDirty(false);
+      setComposerKey((k) => k + 1);
+    }
   };
 
   const exportMonth = () => {
     const md = exportMonthMarkdown(entries, cursor.year, cursor.month);
     downloadText(`cadence-journal-${cursor.year}-${cursor.month + 1}.md`, md);
-    flash("已匯出本月 Markdown");
+    toast("已匯出本月 Markdown");
   };
 
   const askAi = async (prompt: string) => {
@@ -226,10 +280,13 @@ export default function JournalPage() {
         return d && d.getFullYear() === cursor.year && d.getMonth() === cursor.month;
       });
       const pack = monthEntries
-        .map((e) => `### ${e.dateKey}\n${(e.body_md || "").replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim().slice(0, 1200)}`)
+        .map(
+          (e) =>
+            `### ${e.dateKey}\n${(e.body_md || "").replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim().slice(0, 1200)}`
+        )
         .join("\n\n");
       if (!pack.trim()) {
-        flash("本月尚無日誌可復盤");
+        toast("本月尚無日誌可復盤");
         return;
       }
       const label = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}`;
@@ -245,7 +302,7 @@ export default function JournalPage() {
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
             model: prefsCtx?.prefs.aiModel,
-          grounding: prefsCtx?.prefs.aiGrounding,
+            grounding: prefsCtx?.prefs.aiGrounding,
           },
         }),
       });
@@ -260,10 +317,10 @@ export default function JournalPage() {
         ["journal", "復盤"],
         { folder: "日誌復盤", status: "done" }
       );
-      flash("已建立月復盤筆記");
+      toast("已建立月復盤筆記");
       router.push(`/notes/${id}`);
     } catch (e) {
-      flash(e instanceof Error ? e.message : "復盤失敗");
+      toast(e instanceof Error ? e.message : "復盤失敗");
     } finally {
       setBusy(false);
     }
@@ -304,6 +361,7 @@ export default function JournalPage() {
           <p className="page-sub">
             {today}
             {stats.streak > 0 ? ` · 連續 ${stats.streak} 天` : ""}
+            {composerDirty ? " · 未儲存" : ""}
           </p>
         </div>
         <div className="jn-hero-actions">
@@ -314,7 +372,9 @@ export default function JournalPage() {
             type="button"
             className="btn btn-ghost btn-sm"
             disabled={busy}
-            onClick={() => { void monthlyReview(); }}
+            onClick={() => {
+              void monthlyReview();
+            }}
             title="AI 復盤本月日誌並建立筆記"
           >
             AI 月復盤
@@ -322,7 +382,9 @@ export default function JournalPage() {
           <ShinyPill
             style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem" }}
             disabled={busy}
-            onClick={() => { void openOrCreate(today); }}
+            onClick={() => {
+              void openOrCreate(today);
+            }}
           >
             {byDate.has(today) ? "打開今日" : "建立今日"}
           </ShinyPill>
@@ -341,10 +403,14 @@ export default function JournalPage() {
             month={cursor.month}
             cells={cells}
             selected={selected}
-            onSelect={onSelectDay}
+            onSelect={(dk) => {
+              void onSelectDay(dk);
+            }}
             onPrev={() => shiftMonth(-1)}
             onNext={() => shiftMonth(1)}
-            onToday={goToday}
+            onToday={() => {
+              void goToday();
+            }}
           />
 
           <div className="jn-week-strip">
@@ -355,7 +421,9 @@ export default function JournalPage() {
                   key={dateKey}
                   type="button"
                   className={`jn-week-pill${dateKey === selected ? " is-on" : ""}${entry ? " has" : ""}`}
-                  onClick={() => onSelectDay(dateKey)}
+                  onClick={() => {
+                    void onSelectDay(dateKey);
+                  }}
                 >
                   <strong>{dateKey.slice(5)}</strong>
                   <span>{entry ? `${entry.wordCount} 字` : "空"}</span>
@@ -376,7 +444,18 @@ export default function JournalPage() {
               />
             </div>
             {filtered.length === 0 ? (
-              <p className="jn-muted">還沒有日誌。從右側快速寫下今天吧。</p>
+              <div className="jn-empty">
+                <p className="jn-muted">還沒有日誌</p>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    void onSelectDay(today);
+                  }}
+                >
+                  寫今天
+                </button>
+              </div>
             ) : (
               <div className="jn-list">
                 {filtered.map((e, i) => (
@@ -387,7 +466,13 @@ export default function JournalPage() {
                     transition={{ delay: Math.min(i * 0.02, 0.2) }}
                     className={`jn-card${e.dateKey === selected ? " is-on" : ""}`}
                   >
-                    <button type="button" className="jn-card-main" onClick={() => onSelectDay(e.dateKey)}>
+                    <button
+                      type="button"
+                      className="jn-card-main"
+                      onClick={() => {
+                        void onSelectDay(e.dateKey);
+                      }}
+                    >
                       <div className="jn-card-top">
                         <strong>{e.dateKey}</strong>
                         {e.meta.mood && (
@@ -406,7 +491,21 @@ export default function JournalPage() {
                         <span>{e.updated_at.toLocaleString("zh-TW")}</span>
                       </div>
                     </button>
-                    <Link href={`/notes/${e.id}`} className="jn-card-open">開啟</Link>
+                    <div className="jn-card-actions">
+                      <Link href={`/notes/${e.id}`} className="jn-card-open">
+                        開啟
+                      </Link>
+                      <button
+                        type="button"
+                        className="jn-card-del"
+                        title="刪除"
+                        onClick={() => {
+                          void deleteEntry(e.id, e.dateKey);
+                        }}
+                      >
+                        刪除
+                      </button>
+                    </div>
                   </motion.div>
                 ))}
               </div>
@@ -417,13 +516,19 @@ export default function JournalPage() {
         <div className="jn-center">
           <JournalComposer
             key={`${selected}-${composerKey}-${selectedEntry?.updated_at?.getTime?.() || 0}`}
+            ref={composerRef}
             dateKey={selected}
             initialText={composerBody}
             mood={selectedEntry?.meta.mood}
             energy={selectedEntry?.meta.energy || 3}
             busy={busy}
-            onSave={(p) => { void saveComposer(p); }}
-            onOpenFull={() => { void openOrCreate(selected); }}
+            onSave={(p) => {
+              void saveComposer(p);
+            }}
+            onOpenFull={() => {
+              void openOrCreate(selected);
+            }}
+            onDirtyChange={setComposerDirty}
           />
         </div>
 
@@ -435,8 +540,6 @@ export default function JournalPage() {
           onAskAi={askAi}
         />
       </div>
-
-      {toast && <p className="jn-toast">{toast}</p>}
     </div>
   );
 }

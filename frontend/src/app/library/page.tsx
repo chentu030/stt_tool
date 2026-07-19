@@ -1,6 +1,7 @@
 "use client";
 
 import { askConfirm, askPrompt } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -70,12 +71,6 @@ function LibraryPageInner() {
   const [selected, setSelected] = useState<string[]>([]);
   const [chatOpen, setChatOpen] = useState(true);
   const [bulkFolder, setBulkFolder] = useState("");
-  const [toast, setToast] = useState("");
-
-  const flash = (msg: string) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(""), 2200);
-  };
 
   useEffect(() => {
     setFolderFilter(folderFromUrl);
@@ -188,7 +183,7 @@ function LibraryPageInner() {
     const folder = next.trim();
     setBulkFolder(folder);
     await Promise.all(selected.map((id) => updateNote(id, { folder })));
-    flash(`已移動 ${selected.length} 篇`);
+    toast(`已移動 ${selected.length} 篇`);
   };
 
   const runBulkDelete = async () => {
@@ -197,7 +192,7 @@ function LibraryPageInner() {
     const n = selected.length;
     await Promise.all(selected.map((id) => deleteNote(id)));
     setSelected([]);
-    flash(`已刪除 ${n} 篇`);
+    toast(`已刪除 ${n} 篇`);
   };
 
   const exportSelectedOrFiltered = () => {
@@ -206,7 +201,7 @@ function LibraryPageInner() {
       : filteredNotes;
     const md = exportNotesMarkdown(pool, selected.length ? "Cadence 選取匯出" : "Cadence 篩選匯出");
     downloadText(`cadence-library-${Date.now()}.md`, md);
-    flash(selected.length ? `已匯出 ${selected.length} 篇` : "已匯出篩選結果");
+    toast(selected.length ? `已匯出 ${selected.length} 篇` : "已匯出篩選結果");
   };
 
   useEffect(() => {
@@ -435,8 +430,6 @@ function LibraryPageInner() {
                 )}
               </div>
             )}
-
-            {toast ? <div className="kb-toast" role="status">{toast}</div> : null}
 
             {showTemplates && (
               <div className="card kb-templates">
