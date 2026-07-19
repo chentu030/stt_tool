@@ -8203,7 +8203,161 @@ button, input, textarea, select {
 
 @media (max-width: 760px) {
   .tm-room { grid-template-columns: 1fr; }
-  .tm-sidebar { display: none; }
+  .tm-sidebar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(280px, 86vw);
+    z-index: 40;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+  }
+  .tm-room.is-drawer-open .tm-sidebar { transform: translateX(0); }
+  .tm-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 39;
+  }
+  .tm-menu-btn { display: inline-flex; }
+}
+.tm-menu-btn {
+  display: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1.05rem;
+  color: var(--text-main);
+  padding: 0.2rem 0.35rem;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* v4: editable channel topic */
+.tm-channel-topic-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 0.1rem 0.3rem;
+  border-radius: 6px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-channel-topic-btn:hover { background: var(--bg-muted); color: var(--text-main); }
+
+/* v4: muted channels */
+.tm-channel-item.is-muted { opacity: 0.55; }
+.tm-mute-icon { font-size: 0.7rem; margin-left: 0.15rem; }
+.tm-main-head-actions .btn.is-on { background: var(--accent-soft); color: var(--accent); }
+
+/* v4: slash command hint menu */
+.tm-slash-menu {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  left: 0;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  z-index: 30;
+}
+.tm-slash-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.tm-slash-menu-item:hover { background: var(--bg-muted); }
+.tm-slash-menu-item strong { font-size: 0.82rem; color: var(--accent); }
+.tm-slash-menu-item span { font-size: 0.72rem; color: var(--text-muted); }
+
+/* v4: richer emoji popover on messages */
+.tm-emoji-popover-wrap { position: relative; display: inline-flex; }
+.tm-emoji-popover {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  left: 0;
+  width: 200px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 0.35rem;
+  z-index: 30;
+}
+
+/* v4: team-wide search results panel */
+.tm-team-search-panel {
+  position: absolute;
+  top: 3.6rem;
+  right: 1rem;
+  width: min(420px, 92vw);
+  max-height: min(60vh, 480px);
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  z-index: 25;
+}
+.tm-team-search-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.tm-team-search-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.tm-team-search-item:hover { border-color: var(--accent); }
+.tm-team-search-channel { font-size: 0.7rem; color: var(--accent); font-weight: 650; }
+.tm-team-search-snippet {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 /* Note presence (avatar stack + cursor dots) */

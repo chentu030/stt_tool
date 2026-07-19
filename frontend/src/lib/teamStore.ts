@@ -477,6 +477,8 @@ export async function sendMessage(
   }
   for (const uid of mentions) {
     if (uid === msg.author_id) continue;
+    const muted = await isChannelMutedForUser(uid, teamId, channelId).catch(() => false);
+    if (muted) continue;
     await pushNotification(uid, {
       type: "mention",
       team_id: teamId,
@@ -498,6 +500,17 @@ export async function sendMessage(
     }).catch(() => undefined);
   }
   return ref.id;
+}
+
+/** Reads users/{uid}/teams/{teamId}.muted_channels[channelId] to decide whether to notify. */
+async function isChannelMutedForUser(
+  uid: string,
+  teamId: string,
+  channelId: string
+): Promise<boolean> {
+  const snap = await getDoc(doc(userTeamsCol(uid), teamId));
+  const muted = snap.data()?.muted_channels;
+  return !!(muted && typeof muted === "object" && (muted as Record<string, boolean>)[channelId]);
 }
 
 /** Match @DisplayName against members; also accept raw @uid. */
@@ -726,7 +739,78 @@ export async function findMembershipsAcrossTeams(
   }));
 }
 
-export const REACTION_EMOJIS = ["👍", "🔥", "👀", "✅", "🎉", "❤️"] as const;
+export const REACTION_EMOJIS = [
+  "👍", "👎", "❤️", "🔥", "👀", "✅", "🎉", "😂", "😮", "😢", "🙏", "💡", "🚀", "📌", "✨", "🤝",
+] as const;
+
+export async function updateChannel(
+  teamId: string,
+  channelId: string,
+  patch: { topic?: string; name?: string }
+): Promise<void> {
+  const data: Record<string, string> = {};
+  if (patch.topic !== undefined) data.topic = patch.topic;
+  if (patch.name !== undefined) data.name = patch.name.trim();
+  if (!Object.keys(data).length) return;
+  await updateDoc(doc(channelsCol(teamId), channelId), data);
+}
+
+export async function setChannelMuted(
+  uid: string,
+  teamId: string,
+  channelId: string,
+  muted: boolean
+): Promise<void> {
+  const ref = doc(userTeamsCol(uid), teamId);
+  const snap = await getDoc(ref);
+  const prev =
+    snap.exists() && snap.data().muted_channels && typeof snap.data().muted_channels === "object"
+      ? { ...(snap.data().muted_channels as Record<string, boolean>) }
+      : {};
+  if (muted) prev[channelId] = true;
+  else delete prev[channelId];
+  await setDoc(ref, { muted_channels: prev }, { merge: true });
+}
+
+export function listenMutedChannels(
+  uid: string,
+  teamId: string,
+  cb: (muted: Record<string, boolean>) => void
+): Unsubscribe {
+  return onSnapshot(doc(userTeamsCol(uid), teamId), (snap) => {
+    const data = snap.data();
+    const m = data?.muted_channels;
+    cb(m && typeof m === "object" ? (m as Record<string, boolean>) : {});
+  });
+}
+
+/** Fetch recent messages across channels (client-side filter). Cap channels for cost. */
+export async function searchTeamMessages(
+  teamId: string,
+  channelIds: string[],
+  queryText: string,
+  perChannel = 40
+): Promise<{ channelId: string; message: Message }[]> {
+  const q = queryText.trim().toLowerCase();
+  if (!q) return [];
+  const results: { channelId: string; message: Message }[] = [];
+  await Promise.all(
+    channelIds.slice(0, 12).map(async (channelId) => {
+      const snap = await getDocs(
+        query(messagesCol(teamId, channelId), orderBy("created_at", "desc"), fsLimit(perChannel))
+      );
+      snap.docs.forEach((d) => {
+        const message = messageFromDoc(d.id, d.data());
+        if (message.deleted) return;
+        const hay = `${message.text} ${message.note_title || ""} ${message.file_name || ""}`.toLowerCase();
+        if (hay.includes(q)) results.push({ channelId, message });
+      });
+    })
+  );
+  results.sort((a, b) => b.message.created_at.getTime() - a.message.created_at.getTime());
+  return results.slice(0, 50);
+}
+
 
 function activityCol(teamId: string) {
   return collection(db, "teams", teamId, "activity");

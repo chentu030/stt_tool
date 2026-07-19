@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 import { createNote } from "@/lib/firebase";
 import { colorForUid } from "@/lib/presence";
+import NoteHuddle from "@/components/notes/NoteHuddle";
 import {
   getTeam,
   getMember,
@@ -36,6 +37,10 @@ import {
   toggleMessagePin,
   uploadTeamFile,
   updateChannelMembers,
+  updateChannel,
+  setChannelMuted,
+  listenMutedChannels,
+  searchTeamMessages,
   renameTeam,
   deleteTeam,
   setChannelPresence,
@@ -82,6 +87,19 @@ function renderMentions(text: string): ReactNode {
 function memberLabel(m: Member): string {
   return m.display_name || m.uid.slice(0, 6);
 }
+
+type SlashCommand = { cmd: string; desc: string };
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { cmd: "/me", desc: "以動作訊息發送（斜體）" },
+  { cmd: "/shrug", desc: "附加 ¯\\_(ツ)_/¯" },
+  { cmd: "/note", desc: "以剩餘文字為標題建立筆記" },
+  { cmd: "/summary", desc: "產生本頻道 AI 摘要" },
+  { cmd: "/help", desc: "顯示指令說明" },
+];
+
+const SLASH_HELP_TEXT =
+  "可用指令：/me 動作內容、/shrug 附加表情、/note 標題 建立筆記、/summary 產生摘要、/help 顯示說明";
 
 function TeamRoomInner() {
   const { id } = useParams<{ id: string }>();
@@ -139,6 +157,12 @@ function TeamRoomInner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [presencePeople, setPresencePeople] = useState<{ uid: string; name: string; color: string }[]>([]);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mutedChannels, setMutedChannels] = useState<Record<string, boolean>>({});
+  const [teamSearchOpen, setTeamSearchOpen] = useState(false);
+  const [teamSearchBusy, setTeamSearchBusy] = useState(false);
+  const [teamSearchResults, setTeamSearchResults] = useState<{ channelId: string; message: Message }[]>([]);
 
   const deepLinkRef = useRef(false);
 
@@ -198,6 +222,11 @@ function TeamRoomInner() {
   useEffect(() => {
     if (!id || !user || !member) return;
     return listenChannelReads(user.uid, id, setReads);
+  }, [id, user, member]);
+
+  useEffect(() => {
+    if (!id || !user || !member) return;
+    return listenMutedChannels(user.uid, id, setMutedChannels);
   }, [id, user, member]);
 
   useEffect(() => {
@@ -317,6 +346,15 @@ function TeamRoomInner() {
     return members.filter((m) => memberLabel(m).toLowerCase().includes(q)).slice(0, 6);
   }, [mentionOpen, mentionMatch, members]);
 
+  const slashOpen = !mentionOpen && draft.startsWith("/") && !!activeChannel;
+  const slashMatches = useMemo(() => {
+    if (!slashOpen) return [];
+    const head = draft.trim().split(/\s+/)[0]?.toLowerCase() || "/";
+    return SLASH_COMMANDS.filter((c) => c.cmd.startsWith(head));
+  }, [slashOpen, draft]);
+
+  const activeChannelMuted = !!(activeChannel && mutedChannels[activeChannel]);
+
   const insertMention = (m: Member) => {
     setDraft((d) => {
       const match = d.match(/@([^\s@]*)$/);
@@ -341,11 +379,80 @@ function TeamRoomInner() {
     }
   };
 
+  /** Handles a leading-slash draft. Returns true if it was fully handled (should not send literally). */
+  const runSlashCommand = async (text: string): Promise<boolean> => {
+    if (!user || !id || !activeChannel) return false;
+    const spaceIdx = text.indexOf(" ");
+    const cmd = (spaceIdx === -1 ? text : text.slice(0, spaceIdx)).toLowerCase();
+    const rest = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
+    const name = user.displayName || member?.display_name || "某人";
+
+    switch (cmd) {
+      case "/me": {
+        if (!rest) return true;
+        await sendMessage(id, activeChannel, {
+          author_id: user.uid,
+          author_name: user.displayName || "",
+          text: `_${name} ${rest}_`,
+          members,
+        });
+        return true;
+      }
+      case "/shrug": {
+        await sendMessage(id, activeChannel, {
+          author_id: user.uid,
+          author_name: user.displayName || "",
+          text: `${rest} ¯\\_(ツ)_/¯`.trim(),
+          members,
+        });
+        return true;
+      }
+      case "/note": {
+        const title = rest || "新筆記";
+        try {
+          const noteId = await createNote(user.uid, title, "");
+          await pinNote(id, noteId, title, user.uid);
+          await sendMessage(id, activeChannel, {
+            author_id: user.uid,
+            author_name: user.displayName || "",
+            text: `建立了筆記「${title}」`,
+            kind: "note_share",
+            note_id: noteId,
+            note_title: title,
+            members,
+          });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "建立筆記失敗");
+        }
+        return true;
+      }
+      case "/summary": {
+        void runAiSummary();
+        return true;
+      }
+      case "/help": {
+        setError(SLASH_HELP_TEXT);
+        return true;
+      }
+      default:
+        return false;
+    }
+  };
+
   const send = async (threadId?: string) => {
     const text = threadId ? threadDraft : draft;
     if (!user || !id || !activeChannel || !text.trim() || sending) return;
     setSending(true);
     try {
+      if (!threadId && text.trim().startsWith("/")) {
+        const handled = await runSlashCommand(text.trim());
+        if (handled) {
+          setDraft("");
+          if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
+          void clearTyping(id, activeChannel, user.uid);
+          return;
+        }
+      }
       await sendMessage(id, activeChannel, {
         author_id: user.uid,
         author_name: user.displayName || "",
@@ -382,6 +489,56 @@ function TeamRoomInner() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "建立頻道失敗");
     }
+  };
+
+  const editTopic = async () => {
+    if (!id || !activeChannel || !activeChannelObj) return;
+    const next = await askPrompt({
+      title: "頻道主題",
+      defaultValue: activeChannelObj.topic || "",
+      placeholder: "這個頻道是做什麼的？",
+    });
+    if (next == null) return;
+    try {
+      await updateChannel(id, activeChannel, { topic: next.trim() });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新主題失敗");
+    }
+  };
+
+  const toggleActiveChannelMute = async () => {
+    if (!user || !id || !activeChannel) return;
+    try {
+      await setChannelMuted(user.uid, id, activeChannel, !activeChannelMuted);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "設定靜音失敗");
+    }
+  };
+
+  const selectChannel = (cid: string) => {
+    setActiveChannel(cid);
+    setSidebarOpen(false);
+  };
+
+  const runTeamSearch = async () => {
+    if (!id || searchQuery.trim().length < 2) return;
+    setTeamSearchBusy(true);
+    try {
+      const results = await searchTeamMessages(id, channels.map((c) => c.id), searchQuery.trim());
+      setTeamSearchResults(results);
+      setTeamSearchOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "全隊搜尋失敗");
+    } finally {
+      setTeamSearchBusy(false);
+    }
+  };
+
+  const jumpToTeamSearchResult = (channelId: string, messageId: string) => {
+    setTeamSearchOpen(false);
+    setSidebarOpen(false);
+    setActiveChannel(channelId);
+    window.setTimeout(() => scrollToMessage(messageId), 350);
   };
 
   const refreshInvites = async () => {
@@ -528,6 +685,35 @@ function TeamRoomInner() {
     }
   };
 
+  const convertThreadToNote = async () => {
+    if (!user || !id || !activeChannel || !threadRoot) return;
+    try {
+      const title = threadRoot.text.trim().slice(0, 40) || "討論串筆記";
+      const lines = [
+        `> 討論串 · 來自 ${threadRoot.author_name || "匿名"} · #${activeChannelObj?.name || ""} · ${threadRoot.created_at.toLocaleString("zh-TW")}`,
+        "",
+        threadRoot.text,
+        "",
+        "---",
+        "",
+        ...threadReplies.map((r) => `**${r.author_name || "匿名"}**：${r.text}`),
+      ];
+      const noteId = await createNote(user.uid, title, lines.join("\n"));
+      await pinNote(id, noteId, title, user.uid);
+      await sendMessage(id, activeChannel, {
+        author_id: user.uid,
+        author_name: user.displayName || "",
+        text: `將討論串轉為筆記「${title}」`,
+        kind: "note_share",
+        note_id: noteId,
+        note_title: title,
+        members,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "轉筆記失敗");
+    }
+  };
+
   const doEditMessage = async (m: Message) => {
     if (!id || !activeChannel) return;
     const next = await askPrompt({ title: "編輯訊息", defaultValue: m.text, multiline: true });
@@ -654,7 +840,10 @@ function TeamRoomInner() {
   const canAdmin = canInvite;
 
   return (
-    <div className="tm-room">
+    <div className={`tm-room${sidebarOpen ? " is-drawer-open" : ""}`}>
+      {sidebarOpen && (
+        <div className="tm-drawer-backdrop" onClick={() => setSidebarOpen(false)} />
+      )}
       <aside className="tm-sidebar">
         <div className="tm-sidebar-head">
           <Link href="/team" className="tm-back">←</Link>
@@ -665,18 +854,24 @@ function TeamRoomInner() {
           <p className="tm-channel-label">頻道</p>
           {channels.map((c) => {
             const unread = channelIsUnread(c, reads[c.id]);
+            const muted = !!mutedChannels[c.id];
             return (
               <button
                 key={c.id}
                 type="button"
-                className={`tm-channel-item${c.id === activeChannel ? " is-on" : ""}${unread && c.id !== activeChannel ? " is-unread" : ""}`}
-                onClick={() => setActiveChannel(c.id)}
+                className={`tm-channel-item${c.id === activeChannel ? " is-on" : ""}${unread && c.id !== activeChannel ? " is-unread" : ""}${muted ? " is-muted" : ""}`}
+                onClick={() => selectChannel(c.id)}
               >
                 <span>
                   # {c.name}
                   {c.is_private && (
                     <span className="tm-lock" title="私人頻道">
                       🔒
+                    </span>
+                  )}
+                  {muted && (
+                    <span className="tm-mute-icon" title="已靜音">
+                      🔕
                     </span>
                   )}
                 </span>
@@ -779,6 +974,14 @@ function TeamRoomInner() {
 
       <div className="tm-main">
         <div className="tm-main-head">
+          <button
+            type="button"
+            className="tm-menu-btn"
+            aria-label="開啟頻道選單"
+            onClick={() => setSidebarOpen(true)}
+          >
+            ☰
+          </button>
           <span className="tm-channel-title">
             {activeChannelObj ? `# ${activeChannelObj.name}` : "選擇頻道"}
           </span>
@@ -787,7 +990,20 @@ function TeamRoomInner() {
               🔒
             </span>
           )}
-          {activeChannelObj?.topic && <span className="tm-channel-topic">{activeChannelObj.topic}</span>}
+          {activeChannelObj && (
+            <button
+              type="button"
+              className="tm-channel-topic-btn"
+              onClick={() => void editTopic()}
+              title="編輯主題"
+            >
+              {activeChannelObj.topic || "新增主題…"}
+            </button>
+          )}
+
+          {activeChannel && (
+            <NoteHuddle roomId={`team:${id}:ch:${activeChannel}`} label="語音" />
+          )}
 
           {presencePeople.filter((p) => p.uid !== user.uid).length > 0 && (
             <div
@@ -811,12 +1027,29 @@ function TeamRoomInner() {
           <div className="tm-main-head-actions">
             <input
               className="input tm-search"
-              placeholder="搜尋訊息…"
+              placeholder="搜尋訊息…（Enter 全隊搜尋）"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && searchQuery.trim().length >= 2) {
+                  e.preventDefault();
+                  void runTeamSearch();
+                }
+              }}
             />
             {searchQuery.trim() && (
               <span className="tm-search-count">符合 {filteredMessages.length} 筆</span>
+            )}
+            {searchQuery.trim().length >= 2 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                disabled={teamSearchBusy}
+                onClick={() => void runTeamSearch()}
+                title="搜尋所有頻道"
+              >
+                {teamSearchBusy ? "搜尋中…" : "全隊搜尋"}
+              </button>
             )}
             {activeChannelObj?.is_private &&
               (canAdmin || activeChannelObj.created_by === user.uid) && (
@@ -824,6 +1057,14 @@ function TeamRoomInner() {
                 管理成員
               </button>
             )}
+            <button
+              type="button"
+              className={`btn btn-sm btn-ghost${activeChannelMuted ? " is-on" : ""}`}
+              disabled={!activeChannel}
+              onClick={() => void toggleActiveChannelMute()}
+            >
+              {activeChannelMuted ? "🔕 取消靜音" : "🔔 靜音"}
+            </button>
             <button
               type="button"
               className="btn btn-sm btn-soft"
@@ -834,6 +1075,39 @@ function TeamRoomInner() {
             </button>
           </div>
         </div>
+
+        {teamSearchOpen && (
+          <div className="tm-team-search-panel">
+            <div className="tm-ai-panel-head">
+              <strong>全隊搜尋 ·「{searchQuery.trim()}」</strong>
+              <button type="button" className="doc-cmd" onClick={() => setTeamSearchOpen(false)}>
+                關閉
+              </button>
+            </div>
+            {teamSearchResults.length === 0 ? (
+              <p className="tm-sidebar-muted">沒有符合的訊息。</p>
+            ) : (
+              <div className="tm-team-search-list">
+                {teamSearchResults.map(({ channelId, message }) => {
+                  const ch = channels.find((c) => c.id === channelId);
+                  return (
+                    <button
+                      key={message.id}
+                      type="button"
+                      className="tm-team-search-item"
+                      onClick={() => jumpToTeamSearchResult(channelId, message.id)}
+                    >
+                      <span className="tm-team-search-channel"># {ch?.name || "頻道"}</span>
+                      <span className="tm-team-search-snippet">
+                        <strong>{message.author_name || "匿名"}</strong> {message.text.slice(0, 100)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {pinnedMessages.length > 0 && (
           <div className="tm-pinned-strip">
@@ -947,10 +1221,28 @@ function TeamRoomInner() {
                 ))}
               </div>
             )}
+            {slashOpen && slashMatches.length > 0 && (
+              <div className="tm-slash-menu">
+                {slashMatches.map((c) => (
+                  <button
+                    key={c.cmd}
+                    type="button"
+                    className="tm-slash-menu-item"
+                    onClick={() => {
+                      setDraft(`${c.cmd} `);
+                      composerRef.current?.focus();
+                    }}
+                  >
+                    <strong>{c.cmd}</strong>
+                    <span>{c.desc}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <input
               ref={composerRef}
               className="input"
-              placeholder={activeChannelObj ? `在 #${activeChannelObj.name} 傳訊息…` : "選擇頻道以開始聊天"}
+              placeholder={activeChannelObj ? `在 #${activeChannelObj.name} 傳訊息…（/ 開啟指令）` : "選擇頻道以開始聊天"}
               value={draft}
               disabled={!activeChannel}
               onChange={(e) => handleDraftChange(e.target.value)}
@@ -987,7 +1279,12 @@ function TeamRoomInner() {
         <aside className="tm-thread-panel">
           <div className="tm-thread-head">
             <strong>討論串</strong>
-            <button type="button" className="doc-cmd" onClick={() => setThreadRoot(null)}>關閉</button>
+            <div style={{ display: "flex", gap: "0.35rem" }}>
+              <button type="button" className="doc-cmd" onClick={() => void convertThreadToNote()}>
+                討論串轉筆記
+              </button>
+              <button type="button" className="doc-cmd" onClick={() => setThreadRoot(null)}>關閉</button>
+            </div>
           </div>
           <div className="tm-thread-root">
             <span className="tm-msg-author">{threadRoot.author_name || "匿名"}</span>
@@ -1267,6 +1564,20 @@ function MessageRow({
     return Object.entries(map);
   }, [m.reactions]);
 
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const emojiWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (emojiWrapRef.current && !emojiWrapRef.current.contains(e.target as Node)) {
+        setEmojiOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [emojiOpen]);
+
   if (m.deleted) {
     return (
       <div
@@ -1331,11 +1642,39 @@ function MessageRow({
         </Link>
       )}
       <div className="tm-msg-actions">
-        {REACTION_EMOJIS.map((e) => (
+        {REACTION_EMOJIS.slice(0, 4).map((e) => (
           <button key={e} type="button" className="tm-react-btn" onClick={() => onReact(e)} title="表情">
             {e}
           </button>
         ))}
+        <div className="tm-emoji-popover-wrap" ref={emojiWrapRef}>
+          <button
+            type="button"
+            className="tm-react-btn"
+            title="更多表情"
+            onClick={() => setEmojiOpen((o) => !o)}
+          >
+            ☺
+          </button>
+          {emojiOpen && (
+            <div className="tm-emoji-popover">
+              {REACTION_EMOJIS.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  className="tm-react-btn"
+                  title="表情"
+                  onClick={() => {
+                    onReact(e);
+                    setEmojiOpen(false);
+                  }}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button type="button" className="doc-cmd" onClick={onReply}>
           回覆{replyCount ? ` (${replyCount})` : ""}
         </button>

@@ -29,7 +29,17 @@ const ICE: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-export default function NoteHuddle({ noteId }: { noteId: string }) {
+export default function NoteHuddle({
+  noteId,
+  roomId,
+  label = "加入通話",
+}: {
+  noteId?: string;
+  /** Generic huddle room key (e.g. team channel). Falls back to noteId. */
+  roomId?: string;
+  label?: string;
+}) {
+  const huddleId = roomId || noteId || "";
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [joined, setJoined] = useState(false);
@@ -42,18 +52,18 @@ export default function NoteHuddle({ noteId }: { noteId: string }) {
   const audioHostRef = useRef<HTMLDivElement>(null);
   const processedRef = useRef<Set<string>>(new Set());
 
-  const signalsCol = () => collection(db, "huddles", noteId, "signals");
+  const signalsCol = () => collection(db, "huddles", huddleId, "signals");
 
   const postSignal = useCallback(
     async (partial: Omit<Signal, "id">) => {
-      if (!user) return;
+      if (!user || !huddleId) return;
       await addDoc(signalsCol(), {
         ...partial,
         created_at: serverTimestamp(),
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [noteId, user]
+    [huddleId, user]
   );
 
   const attachRemote = (uid: string, stream: MediaStream) => {
@@ -194,7 +204,7 @@ export default function NoteHuddle({ noteId }: { noteId: string }) {
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joined, user, noteId, ensurePc, postSignal]);
+  }, [joined, user, huddleId, ensurePc, postSignal]);
 
   useEffect(() => {
     return () => {
@@ -210,7 +220,7 @@ export default function NoteHuddle({ noteId }: { noteId: string }) {
     });
   }, [muted]);
 
-  if (!user) return null;
+  if (!user || !huddleId) return null;
 
   return (
     <div className="note-huddle tm-noise">
@@ -220,7 +230,7 @@ export default function NoteHuddle({ noteId }: { noteId: string }) {
         onClick={() => (joined ? setOpen((v) => !v) : void join())}
         title="語音通話"
       >
-        {joined ? `🎙 通話中${peers.length ? ` · ${peers.length + 1}` : ""}` : "加入通話"}
+        {joined ? `🎙 通話中${peers.length ? ` · ${peers.length + 1}` : ""}` : label}
       </button>
 
       {open && (
