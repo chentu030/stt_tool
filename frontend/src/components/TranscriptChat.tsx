@@ -48,6 +48,7 @@ export default function TranscriptChat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [webSearch, setWebSearch] = useState(false);
   const [error, setError] = useState("");
   const [model, setModel] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -58,6 +59,10 @@ export default function TranscriptChat({
     [transcriptText]
   );
   const charHint = context.length;
+
+  useEffect(() => {
+    setWebSearch(!!prefsCtx?.prefs.aiGrounding);
+  }, [prefsCtx?.prefs.aiGrounding]);
 
   useEffect(() => {
     try {
@@ -120,6 +125,7 @@ export default function TranscriptChat({
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
             model: prefsCtx?.prefs.aiModel,
+            grounding: webSearch,
           },
         }),
       });
@@ -266,9 +272,20 @@ export default function TranscriptChat({
             }
           }}
         />
-        <button type="submit" className="kb-chat-send" disabled={busy || !input.trim()}>
-          {busy ? "…" : "送出"}
-        </button>
+        <div className="kb-chat-compose-actions">
+          <button
+            type="button"
+            className={`doc-cmd${webSearch ? " is-on" : ""}`}
+            title="啟用 Google 搜尋 grounding（上網）"
+            aria-pressed={webSearch}
+            onClick={() => setWebSearch((v) => !v)}
+          >
+            {webSearch ? "上網 · 開" : "上網"}
+          </button>
+          <button type="submit" className="kb-chat-send" disabled={busy || !input.trim()}>
+            {busy ? "…" : "送出"}
+          </button>
+        </div>
       </form>
     </aside>
   );

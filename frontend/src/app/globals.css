@@ -2195,11 +2195,17 @@ button, input, textarea, select {
 .note-ai-msg p { white-space: pre-wrap; margin: 0; }
 .note-ai-compose {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 0.35rem;
   align-items: end;
 }
 .note-ai-compose textarea { font-size: 0.82rem; resize: vertical; }
+.note-ai-compose-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
 .note-stat-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3777,6 +3783,17 @@ button, input, textarea, select {
   background: var(--bg-muted);
   border: 1px solid var(--border);
   border-radius: 12px;
+}
+.kb-chat-compose-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: stretch;
+  min-width: 4.2rem;
+}
+.kb-chat-compose-actions .doc-cmd {
+  font-size: 0.72rem;
+  justify-content: center;
 }
 .kb-chat-input {
   width: 100%;

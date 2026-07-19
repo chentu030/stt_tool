@@ -35,6 +35,7 @@ export default function GlobalAiDock() {
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [atOpen, setAtOpen] = useState(false);
   const [atQ, setAtQ] = useState("");
+  const [webSearch, setWebSearch] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
@@ -86,6 +87,10 @@ export default function GlobalAiDock() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    setWebSearch(!!prefsCtx?.prefs.aiGrounding);
+  }, [prefsCtx?.prefs.aiGrounding]);
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 40);
@@ -155,6 +160,7 @@ export default function GlobalAiDock() {
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
             model: prefsCtx?.prefs.aiModel,
+            grounding: webSearch,
           },
           messages: [...msgs, userMsg]
             .slice(-8)
@@ -315,6 +321,15 @@ export default function GlobalAiDock() {
               }}
             />
             <div className="cadence-ai-dock-actions">
+              <button
+                type="button"
+                className={`doc-cmd${webSearch ? " is-on" : ""}`}
+                title="啟用 Google 搜尋 grounding（上網）"
+                aria-pressed={webSearch}
+                onClick={() => setWebSearch((v) => !v)}
+              >
+                {webSearch ? "上網 · 開" : "上網"}
+              </button>
               <button type="button" className="doc-cmd" onClick={() => router.push("/library")}>
                 知識庫
               </button>

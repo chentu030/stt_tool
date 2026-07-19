@@ -415,6 +415,7 @@ ${orphanLines || "（無）"}`;
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
             model: prefs.aiModel,
+            grounding: prefs.aiGrounding,
           },
         }),
       });

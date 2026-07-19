@@ -103,6 +103,7 @@ export default function SelectionAiPanel({
           name: prefsCtx?.prefs.aiAssistantName,
           style: prefsCtx?.prefs.aiStyle,
           model: prefsCtx?.prefs.aiModel,
+          grounding: prefsCtx?.prefs.aiGrounding,
         },
       };
       if (noteBody) payload.context = aiContext || noteBody.slice(0, 6000);

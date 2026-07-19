@@ -12,6 +12,8 @@ export type AiPrefPayload = {
   name?: string;
   style?: AiStyle;
   model?: string;
+  /** Grounding with Google Search */
+  grounding?: boolean;
 };
 
 export const AI_TEXT_MODELS: {
@@ -65,7 +67,10 @@ export function assistantSystemPrefix(prefs?: AiPrefPayload | null): string {
       : style === "detailed"
         ? "回答可較完整：補背景、例子與下一步。"
         : "回答清楚平衡：重點明確、適度細節。";
-  return `你是「${name}」，Cadence 知識工作助手。${styleLine}使用繁體中文。`;
+  const groundingLine = prefs?.grounding
+    ? "已啟用 Google 搜尋 grounding：需要最新資訊或事實查證時請上網查詢，並在回答中標明依據。"
+    : "";
+  return `你是「${name}」，Cadence 知識工作助手。${styleLine}${groundingLine}使用繁體中文。`;
 }
 
 /** Payload fragment for /api/ai/generate from user prefs */
@@ -73,10 +78,31 @@ export function assistantPayloadFromPrefs(prefs?: {
   aiAssistantName?: string;
   aiStyle?: AiStyle;
   aiModel?: string;
+  aiGrounding?: boolean;
 } | null): AiPrefPayload {
   return {
     name: prefs?.aiAssistantName,
     style: prefs?.aiStyle,
     model: prefs?.aiModel,
+    grounding: !!prefs?.aiGrounding,
   };
+}
+
+/** Append web sources to assistant text when grounding was used */
+export function appendGroundingSources(
+  text: string,
+  sources?: Array<{ title?: string; uri?: string }> | null
+): string {
+  if (!sources?.length) return text;
+  const lines = sources
+    .map((s, i) => {
+      const title = (s.title || s.uri || "").trim();
+      const uri = (s.uri || "").trim();
+      if (!title && !uri) return null;
+      if (uri && title !== uri) return `${i + 1}. ${title} — ${uri}`;
+      return `${i + 1}. ${title || uri}`;
+    })
+    .filter(Boolean);
+  if (!lines.length) return text;
+  return `${text.trim()}\n\n—— 網路來源 ——\n${lines.join("\n")}`;
 }

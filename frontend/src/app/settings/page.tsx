@@ -514,6 +514,12 @@ export default function SettingsPage() {
                 ))}
               </select>
             </Row>
+            <Row label="上網搜尋" hint="Grounding with Google Search；需要時模型會查網並附來源">
+              <Toggle
+                checked={prefs.aiGrounding}
+                onChange={(aiGrounding) => patch({ aiGrounding })}
+              />
+            </Row>
             <Row label="預設脈絡範圍">
               <Seg
                 value={prefs.aiDefaultScope}
@@ -526,7 +532,7 @@ export default function SettingsPage() {
               />
             </Row>
             <p className="st-hint">
-              筆記頁 Ctrl+J；全站右下角 AI 或 Ctrl+Shift+A。目前文字模型預設為 Gemini 3.5 Flash；圖片仍用 gemini-3-pro-image。
+              筆記頁 Ctrl+J；全站右下角 AI 或 Ctrl+Shift+A。文字模型預設 Gemini 3.5 Flash；圖片用 gemini-3-pro-image。啟用上網後，對話區也可臨時開關。
             </p>
           </section>
 

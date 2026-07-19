@@ -207,6 +207,7 @@ export default function JournalPage() {
           name: prefsCtx?.prefs.aiAssistantName,
           style: prefsCtx?.prefs.aiStyle,
           model: prefsCtx?.prefs.aiModel,
+          grounding: prefsCtx?.prefs.aiGrounding,
         },
       }),
     });
@@ -243,6 +244,7 @@ export default function JournalPage() {
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
             model: prefsCtx?.prefs.aiModel,
+          grounding: prefsCtx?.prefs.aiGrounding,
           },
         }),
       });

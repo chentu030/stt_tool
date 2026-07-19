@@ -81,12 +81,17 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [webSearch, setWebSearch] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
   const prefsCtx = usePrefsOptional();
   const storageKey = noteId ? `cadence-note-ai-${noteId}` : "";
   const assistantName = prefsCtx?.prefs.aiAssistantName || "Cadence AI";
+
+  useEffect(() => {
+    setWebSearch(!!prefsCtx?.prefs.aiGrounding);
+  }, [prefsCtx?.prefs.aiGrounding]);
 
   useEffect(() => {
     hydrated.current = false;
@@ -160,6 +165,7 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
             name: prefsCtx?.prefs.aiAssistantName,
             style: prefsCtx?.prefs.aiStyle,
             model: prefsCtx?.prefs.aiModel,
+            grounding: webSearch,
           },
           messages: [...msgs, userMsg]
             .slice(-8)
@@ -392,9 +398,20 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
                 }
               }}
             />
-            <button type="submit" className="btn btn-sm" disabled={busy || !input.trim()}>
-              送出
-            </button>
+            <div className="note-ai-compose-actions">
+              <button
+                type="button"
+                className={`doc-cmd${webSearch ? " is-on" : ""}`}
+                title="啟用 Google 搜尋 grounding（上網）"
+                aria-pressed={webSearch}
+                onClick={() => setWebSearch((v) => !v)}
+              >
+                {webSearch ? "上網 · 開" : "上網"}
+              </button>
+              <button type="submit" className="btn btn-sm" disabled={busy || !input.trim()}>
+                送出
+              </button>
+            </div>
           </form>
         </div>
       )}

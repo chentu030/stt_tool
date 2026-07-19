@@ -511,6 +511,7 @@ export default function CanvasPage() {
           name: prefs.aiAssistantName,
           style: prefs.aiStyle,
           model: prefs.aiModel,
+          grounding: prefs.aiGrounding,
         },
       }),
     });

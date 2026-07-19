@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { vertexConfigStatus, vertexGenerateContent, VertexChatMessage } from "@/lib/vertex";
-import { assistantSystemPrefix, resolveAiTextModel, AI_TEXT_MODELS } from "@/lib/aiPrefs";
+import {
+  assistantSystemPrefix,
+  resolveAiTextModel,
+  AI_TEXT_MODELS,
+  appendGroundingSources,
+} from "@/lib/aiPrefs";
 
 export const runtime = "nodejs";
 
@@ -38,10 +43,12 @@ type Body = {
   selection?: string;
   messages?: VertexChatMessage[];
   model?: string;
+  grounding?: boolean;
   assistant?: {
     name?: string;
     style?: "concise" | "balanced" | "detailed";
     model?: string;
+    grounding?: boolean;
   };
 };
 
@@ -57,7 +64,10 @@ function buildPrompt(data: Body): {
   const context = data.context?.trim() || "";
   const selection = data.selection?.trim() || note;
   const noteBlock = context || (note ? `標題：${title}\n\n${note}` : `標題：${title}`);
-  const asst = assistantSystemPrefix(data.assistant);
+  const asst = assistantSystemPrefix({
+    ...data.assistant,
+    grounding: data.assistant?.grounding ?? data.grounding,
+  });
 
   if (action === "improve") {
     return {
@@ -237,16 +247,23 @@ export async function POST(req: NextRequest) {
     const multi =
       data.action === "chat" || data.action === "library" || data.action === "note";
     const model = resolveAiTextModel(data.assistant?.model || data.model);
+    const grounding = !!(data.assistant?.grounding ?? data.grounding);
     const result = await vertexGenerateContent(built.prompt, {
       system: built.system,
       history: built.history,
       temperature: built.temperature,
       maxOutputTokens: multi ? 6144 : 4096,
       model,
+      grounding,
     });
+    const text = appendGroundingSources(result.text, result.sources);
     return NextResponse.json({
-      text: result.text,
+      text,
       model: result.model,
+      grounding: grounding,
+      groundingUsed: !!result.groundingUsed,
+      sources: result.sources || [],
+      searchQueries: result.searchQueries || [],
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

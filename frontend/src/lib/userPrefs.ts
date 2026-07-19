@@ -88,6 +88,8 @@ export type UserPrefs = {
   aiAssistantName: string;
   aiStyle: "concise" | "balanced" | "detailed";
   aiModel: string;
+  /** Default: Grounding with Google Search for Cadence AI */
+  aiGrounding: boolean;
   aiDefaultScope: "note" | "folder" | "library";
   /** Workspace */
   favoriteNoteIds: string[];
@@ -234,6 +236,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   aiAssistantName: "Cadence AI",
   aiStyle: "balanced",
   aiModel: "gemini-3.5-flash",
+  aiGrounding: false,
   aiDefaultScope: "note",
   favoriteNoteIds: [],
   recentNoteIds: [],
@@ -312,6 +315,7 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
         ? p.aiStyle
         : "balanced",
     aiModel: String(p.aiModel || "gemini-3.5-flash").slice(0, 80) || "gemini-3.5-flash",
+    aiGrounding: !!p.aiGrounding,
     aiDefaultScope:
       p.aiDefaultScope === "folder" || p.aiDefaultScope === "library" || p.aiDefaultScope === "note"
         ? p.aiDefaultScope

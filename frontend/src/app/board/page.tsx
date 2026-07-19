@@ -228,6 +228,7 @@ export default function BoardPage() {
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
             model: prefs.aiModel,
+            grounding: prefs.aiGrounding,
           },
         }),
       });
@@ -259,6 +260,7 @@ export default function BoardPage() {
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
             model: prefs.aiModel,
+            grounding: prefs.aiGrounding,
           },
         }),
       });

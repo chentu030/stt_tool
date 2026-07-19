@@ -33,10 +33,19 @@ function endpoint(model: string): string {
   return `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`;
 }
 
+export type VertexGroundingSource = {
+  title: string;
+  uri: string;
+};
+
 export type VertexGenerateResult = {
   text: string;
   model: string;
   keyIndex: number;
+  /** Present when Google Search grounding was used */
+  groundingUsed?: boolean;
+  sources?: VertexGroundingSource[];
+  searchQueries?: string[];
 };
 
 export type VertexChatMessage = {
@@ -55,6 +64,44 @@ export type VertexImageResult = {
 
 const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image";
 
+function parseGroundingMetadata(data: unknown): {
+  groundingUsed: boolean;
+  sources: VertexGroundingSource[];
+  searchQueries: string[];
+} {
+  const meta = (data as {
+    candidates?: Array<{
+      groundingMetadata?: {
+        webSearchQueries?: string[];
+        groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
+      };
+    }>;
+  })?.candidates?.[0]?.groundingMetadata;
+
+  if (!meta) {
+    return { groundingUsed: false, sources: [], searchQueries: [] };
+  }
+
+  const searchQueries = (meta.webSearchQueries || []).filter(Boolean);
+  const seen = new Set<string>();
+  const sources: VertexGroundingSource[] = [];
+  for (const chunk of meta.groundingChunks || []) {
+    const uri = chunk.web?.uri?.trim();
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    sources.push({
+      title: (chunk.web?.title || uri).trim(),
+      uri,
+    });
+  }
+
+  return {
+    groundingUsed: searchQueries.length > 0 || sources.length > 0,
+    sources,
+    searchQueries,
+  };
+}
+
 export async function vertexGenerateContent(prompt: string, opts?: {
   system?: string;
   temperature?: number;
@@ -63,6 +110,8 @@ export async function vertexGenerateContent(prompt: string, opts?: {
   history?: VertexChatMessage[];
   /** Override Vertex model id (e.g. gemini-3.5-flash). */
   model?: string;
+  /** Enable Grounding with Google Search (model may search the web). */
+  grounding?: boolean;
 }): Promise<VertexGenerateResult> {
   const keys = getKeys();
   if (!keys.length) {
@@ -88,6 +137,9 @@ export async function vertexGenerateContent(prompt: string, opts?: {
     ],
     ...(opts?.system
       ? { systemInstruction: { parts: [{ text: opts.system }] } }
+      : {}),
+    ...(opts?.grounding
+      ? { tools: [{ googleSearch: {} }] }
       : {}),
     generationConfig: {
       temperature: opts?.temperature ?? 0.7,
@@ -132,7 +184,17 @@ export async function vertexGenerateContent(prompt: string, opts?: {
         continue;
       }
 
-      return { text, model, keyIndex };
+      const grounding = parseGroundingMetadata(data);
+      return {
+        text,
+        model,
+        keyIndex,
+        groundingUsed: grounding.groundingUsed,
+        sources: grounding.sources.length ? grounding.sources : undefined,
+        searchQueries: grounding.searchQueries.length
+          ? grounding.searchQueries
+          : undefined,
+      };
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
     }
