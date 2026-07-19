@@ -2,10 +2,25 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, Job,
+  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob,
 } from "@/lib/firebase";
+import ScrambleText from "@/components/motion/ScrambleText";
+import ShinyPill from "@/components/motion/ShinyPill";
+
+function formatBytes(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatRec(secs: number) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
 
 export default function CapturePage() {
   const { user, loading } = useAuth();
@@ -18,6 +33,7 @@ export default function CapturePage() {
   const [extReady, setExtReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -37,6 +53,14 @@ export default function CapturePage() {
   useEffect(() => () => {
     if (timerRef.current) window.clearInterval(timerRef.current);
   }, []);
+
+  const addFiles = (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    if (!arr.length) return;
+    setFiles((p) => [...p, ...arr]);
+    setYoutubeUrl("");
+    setError("");
+  };
 
   const startRecording = async () => {
     setError("");
@@ -98,7 +122,7 @@ export default function CapturePage() {
   const submit = async () => {
     if (!user) return;
     if (!files.length && !youtubeUrl) {
-      setError("請上傳檔案、貼上 YouTube，或先錄音。");
+      setError("請上傳檔案、貼上連結，或先錄音。");
       return;
     }
     setBusy(true);
@@ -113,7 +137,7 @@ export default function CapturePage() {
 
       if (useExt) {
         jobId = await createJob(user.uid, "upload", ["YouTube 音訊"], "");
-        setProgress({ status: "extracting", pct: 0, label: "解析 YouTube…" });
+        setProgress({ status: "extracting", pct: 0, label: "解析影片連結…" });
         const token = await user.getIdToken();
         const r = await extractAndUpload(youtubeUrl, user.uid, jobId, token, (stage, pct) => {
           setProgress({
@@ -152,7 +176,6 @@ export default function CapturePage() {
         body: fd,
       }).catch(() => {});
 
-      // brief listen then navigate
       listenToJob(jobId, () => {});
       router.push(`/job/${jobId}`);
     } catch (e) {
@@ -161,99 +184,185 @@ export default function CapturePage() {
     }
   };
 
-  if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+  const canSubmit = files.length > 0 || !!youtubeUrl.trim();
+
+  if (loading) {
+    return (
+      <div className="capture-page">
+        <p style={{ color: "var(--text-muted)" }}>載入中…</p>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
-      <div style={{ textAlign: "center", padding: "2rem" }}>
-        <h1 className="page-title font-display">捕捉</h1>
-        <p className="page-sub">登入後即可上傳、貼 YouTube 或錄音。</p>
-        <button className="btn" onClick={() => loginWithGoogle()}>登入</button>
+      <div className="capture-page">
+        <div className="capture-stage">
+          <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" />
+          <p className="capture-lead">登入後即可上傳、貼連結或錄音，轉成可編輯筆記。</p>
+          <ShinyPill onClick={() => loginWithGoogle()}>登入開始</ShinyPill>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <h1 className="page-title font-display">捕捉</h1>
-      <p className="page-sub">把聲音變成可編輯的知識。完成後會進入逐字稿工作區。</p>
+    <div className="capture-page">
+      <div className="capture-glow" aria-hidden />
+      <motion.div
+        className="capture-stage"
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <header className="capture-head">
+          <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" speed={22} />
+          <p className="capture-lead">把聲音丟進來。轉錄完成後會進入逐字稿工作區。</p>
+        </header>
 
-      <div className="card" style={{ padding: "1.25rem", marginBottom: "1rem" }}>
-        <h2 className="font-display" style={{ fontSize: "1.1rem", marginBottom: "0.7rem" }}>上傳檔案</h2>
-        <input ref={fileRef} type="file" multiple accept="audio/*,video/*" style={{ display: "none" }}
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          accept="audio/*,video/*"
+          style={{ display: "none" }}
           onChange={(e) => {
-            const list = e.target.files;
-            if (list?.length) {
-              setFiles((p) => [...p, ...Array.from(list)]);
-              setYoutubeUrl("");
-            }
+            if (e.target.files?.length) addFiles(e.target.files);
             e.target.value = "";
-          }} />
+          }}
+        />
+
         <div
-          className="upload-zone"
-          onDragOver={(e) => e.preventDefault()}
+          className={`capture-drop${dragOver ? " is-over" : ""}${files.length ? " has-files" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
             e.preventDefault();
-            if (e.dataTransfer.files?.length) {
-              setFiles((p) => [...p, ...Array.from(e.dataTransfer.files)]);
-              setYoutubeUrl("");
+            setDragOver(false);
+            if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
+          }}
+          onClick={() => !busy && fileRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileRef.current?.click();
             }
           }}
         >
-          <p style={{ fontWeight: 600 }}>拖放音訊／影片到這裡</p>
-          <button type="button" className="btn btn-sm" style={{ marginTop: "0.8rem" }} onClick={() => fileRef.current?.click()}>
+          <div className="capture-wave" aria-hidden>
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+              <span key={i} style={{ animationDelay: `${i * 0.12}s` }} />
+            ))}
+          </div>
+          <p className="capture-drop-title">拖放音訊或影片到這裡</p>
+          <p className="capture-drop-hint">也可點擊選擇檔案 · mp3 / wav / m4a / mp4 …</p>
+          <button
+            type="button"
+            className="btn btn-soft btn-sm"
+            style={{ marginTop: "1rem", pointerEvents: "none" }}
+          >
             選擇檔案
           </button>
         </div>
+
         {files.length > 0 && (
-          <ul style={{ marginTop: "0.8rem", listStyle: "none" }}>
+          <ul className="capture-files">
             {files.map((f, i) => (
-              <li key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.4rem 0", fontSize: "0.88rem" }}>
-                <span>{f.name}</span>
-                <button className="btn btn-ghost btn-sm" onClick={() => setFiles((p) => p.filter((_, idx) => idx !== i))}>移除</button>
+              <li key={`${f.name}-${i}`}>
+                <div>
+                  <strong>{f.name}</strong>
+                  <span>{formatBytes(f.size)}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFiles((p) => p.filter((_, idx) => idx !== i));
+                  }}
+                >
+                  移除
+                </button>
               </li>
             ))}
           </ul>
         )}
-      </div>
 
-      <div className="card" style={{ padding: "1.25rem", marginBottom: "1rem" }}>
-        <h2 className="font-display" style={{ fontSize: "1.1rem", marginBottom: "0.7rem" }}>YouTube</h2>
-        <input
-          className="input"
-          placeholder="https://youtube.com/..."
-          value={youtubeUrl}
-          onChange={(e) => { setYoutubeUrl(e.target.value); if (e.target.value) setFiles([]); }}
-        />
-        <p style={{ marginTop: "0.55rem", fontSize: "0.78rem", color: extReady ? "var(--ok)" : "var(--text-muted)" }}>
-          {extReady ? "本機擷取器已啟用" : "未偵測到擴充：將走伺服器下載（可能較慢）"}
-        </p>
-      </div>
-
-      <div className="card" style={{ padding: "1.25rem", marginBottom: "1rem" }}>
-        <h2 className="font-display" style={{ fontSize: "1.1rem", marginBottom: "0.7rem" }}>即時錄音</h2>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
-          {!recording ? (
-            <button className="btn" onClick={startRecording}>開始錄音</button>
-          ) : (
-            <button className="btn" style={{ background: "var(--danger)" }} onClick={stopRecording}>停止（{recSecs}s）</button>
-          )}
-          <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>錄音會加入上方檔案列表</span>
+        <div className="capture-divider">
+          <span>或用其他方式</span>
         </div>
-      </div>
 
-      {error && (
-        <div className="card" style={{ padding: "0.9rem", color: "var(--danger)", marginBottom: "0.8rem" }}>⚠ {error}</div>
-      )}
-      {busy && (
-        <div className="card" style={{ padding: "1rem", marginBottom: "0.8rem" }}>
-          <p style={{ marginBottom: "0.5rem", fontSize: "0.9rem" }}>{progress.label || "處理中…"}</p>
-          <div className="progress-track"><div className="progress-fill" style={{ width: `${progress.pct || 20}%` }} /></div>
+        <div className="capture-alt">
+          <label className="capture-yt">
+            <span className="capture-yt-label">影片連結</span>
+            <input
+              className="input"
+              placeholder="貼上 YouTube 網址…"
+              value={youtubeUrl}
+              disabled={busy || recording}
+              onChange={(e) => {
+                setYoutubeUrl(e.target.value);
+                if (e.target.value) setFiles([]);
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <span className={`capture-ext${extReady ? " is-on" : ""}`}>
+              {extReady ? "本機擷取已連線" : "伺服器下載（較慢）"}
+            </span>
+          </label>
+
+          <div className="capture-rec">
+            {!recording ? (
+              <button
+                type="button"
+                className="capture-rec-btn"
+                disabled={busy}
+                onClick={startRecording}
+              >
+                <span className="capture-rec-dot" />
+                開始錄音
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="capture-rec-btn is-live"
+                onClick={stopRecording}
+              >
+                <span className="capture-rec-pulse" />
+                停止 {formatRec(recSecs)}
+              </button>
+            )}
+            <p>麥克風錄音會加入上方檔案列表</p>
+          </div>
         </div>
-      )}
 
-      <button className="btn" style={{ width: "100%" }} disabled={busy} onClick={submit}>
-        {busy ? "送出中…" : "開始轉錄"}
-      </button>
+        {error && <p className="capture-error">{error}</p>}
+
+        {busy && (
+          <div className="capture-progress">
+            <div className="capture-progress-row">
+              <span>{progress.label || "處理中…"}</span>
+              <span>{Math.round(progress.pct || 0)}%</span>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${progress.pct || 12}%` }} />
+            </div>
+          </div>
+        )}
+
+        <div className="capture-cta">
+          <ShinyPill
+            disabled={busy || !canSubmit}
+            onClick={() => { void submit(); }}
+            style={{ width: "100%", padding: "0.95rem 1.4rem", fontSize: "1rem" }}
+          >
+            {busy ? "送出中…" : canSubmit ? "開始轉錄" : "先加入聲音來源"}
+          </ShinyPill>
+          <p className="capture-foot">完成後自動開啟逐字稿工作區</p>
+        </div>
+      </motion.div>
     </div>
   );
 }
