@@ -192,3 +192,4 @@
 ## 變更紀錄
 
 - 2026-07-19：初版路線圖；開工 Phase A（區塊編輯器）
+- 2026-07-19：Phase A 強化 — 工具列（粗斜/連結/尋找取代）、圖片區塊、自動儲存、匯出 MD；接入 OriginKit 風格動畫（ScrambleText / TypeWriter / Line Ripple / Shiny Pill，以 `motion` 實作）

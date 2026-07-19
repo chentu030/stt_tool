@@ -9,13 +9,16 @@ export type BlockType =
   | "numbered"
   | "todo"
   | "quote"
-  | "divider";
+  | "divider"
+  | "image";
 
 export type Block = {
   id: string;
   type: BlockType;
   text: string;
   checked?: boolean;
+  /** image URL when type === "image" */
+  src?: string;
 };
 
 export function newBlockId(): string {
@@ -69,6 +72,10 @@ export function blocksToMarkdown(blocks: Block[]): string {
         lines.push("---");
         numbered = 0;
         break;
+      case "image":
+        lines.push(`![${b.text || "image"}](${b.src || ""})`);
+        numbered = 0;
+        break;
       default:
         lines.push(b.text);
         numbered = 0;
@@ -86,7 +93,10 @@ export function markdownToBlocks(md: string): Block[] {
   const blocks: Block[] = [];
 
   for (const line of lines) {
-    if (/^#{3}\s+/.test(line)) {
+    const img = line.match(/^!\[([^\]]*)\]\(([^)]*)\)\s*$/);
+    if (img) {
+      blocks.push(createBlock({ type: "image", text: img[1], src: img[2] }));
+    } else if (/^#{3}\s+/.test(line)) {
       blocks.push(createBlock({ type: "heading3", text: line.replace(/^#{3}\s+/, "") }));
     } else if (/^#{2}\s+/.test(line)) {
       blocks.push(createBlock({ type: "heading2", text: line.replace(/^#{2}\s+/, "") }));
@@ -132,5 +142,15 @@ export const SLASH_ITEMS: SlashItem[] = [
   { id: "numbered", label: "編號清單", hint: "有序清單", type: "numbered" },
   { id: "todo", label: "待辦", hint: "可勾選任務", type: "todo", checked: false },
   { id: "quote", label: "引用", hint: "引用區塊", type: "quote" },
+  { id: "image", label: "圖片", hint: "以網址插入圖片", type: "image" },
   { id: "divider", label: "分隔線", hint: "水平線", type: "divider" },
 ];
+
+export function wrapSelection(text: string, start: number, end: number, before: string, after = before) {
+  const selected = text.slice(start, end) || "文字";
+  const next = text.slice(0, start) + before + selected + after + text.slice(end);
+  return {
+    text: next,
+    caret: start + before.length + selected.length + after.length,
+  };
+}

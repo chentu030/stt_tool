@@ -2,18 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   listenToUserJobs, listenToUserNotes, deleteJob, deleteNote,
   createNote, loginWithGoogle, Job, Note,
 } from "@/lib/firebase";
+import ScrambleText from "@/components/motion/ScrambleText";
+import ShinyPill from "@/components/motion/ShinyPill";
 
 export default function LibraryPage() {
   const { user, loading } = useAuth();
+  const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"all" | "notes" | "jobs">("all");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -42,16 +48,16 @@ export default function LibraryPage() {
   if (!user) {
     return (
       <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-        <h1 className="page-title font-display">知識庫</h1>
+        <ScrambleText words="知識庫" as="h1" className="page-title font-display" />
         <p className="page-sub">登入後即可查看筆記與轉錄。</p>
-        <button className="btn" onClick={() => loginWithGoogle()}>登入</button>
+        <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
   }
 
   return (
     <div>
-      <h1 className="page-title font-display">知識庫</h1>
+      <ScrambleText words="知識庫" as="h1" className="page-title font-display" speed={22} />
       <p className="page-sub">搜尋、開啟編輯，或把轉錄整理成筆記。</p>
 
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
@@ -61,15 +67,21 @@ export default function LibraryPage() {
             {t === "all" ? "全部" : t === "notes" ? "筆記" : "轉錄"}
           </button>
         ))}
-        <button
-          className="btn btn-sm btn-soft"
+        <ShinyPill
+          style={{ padding: "0.4rem 0.85rem", fontSize: "0.8rem" }}
           onClick={async () => {
-            const id = await createNote(user.uid, "新筆記", "");
-            window.location.href = `/notes/${id}`;
+            if (creating) return;
+            setCreating(true);
+            try {
+              const id = await createNote(user.uid, "新筆記", "");
+              router.push(`/notes/${id}`);
+            } finally {
+              setCreating(false);
+            }
           }}
         >
-          + 新筆記
-        </button>
+          {creating ? "建立中…" : "+ 新筆記"}
+        </ShinyPill>
       </div>
 
       {(tab === "all" || tab === "notes") && (
@@ -79,20 +91,32 @@ export default function LibraryPage() {
             <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>沒有符合的筆記。</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-              {filteredNotes.map((n) => (
-                <div key={n.id} className="card" style={{ padding: "0.9rem 1rem", display: "flex", justifyContent: "space-between", gap: "0.8rem" }}>
-                  <Link href={`/notes/${n.id}`} style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 650 }}>{n.title}</div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                      {n.updated_at.toLocaleString("zh-TW")}
-                    </div>
-                  </Link>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => { if (confirm("刪除此筆記？")) deleteNote(n.id); }}
-                  >刪除</button>
-                </div>
-              ))}
+              <AnimatePresence>
+                {filteredNotes.map((n, i) => (
+                  <motion.div
+                    key={n.id}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.98 }}
+                    transition={{ delay: Math.min(i * 0.03, 0.24) }}
+                    whileHover={{ y: -2 }}
+                    className="card"
+                    style={{ padding: "0.9rem 1rem", display: "flex", justifyContent: "space-between", gap: "0.8rem" }}
+                  >
+                    <Link href={`/notes/${n.id}`} style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 650 }}>{n.title}</div>
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                        {n.updated_at.toLocaleString("zh-TW")}
+                      </div>
+                    </Link>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => { if (confirm("刪除此筆記？")) deleteNote(n.id); }}
+                    >刪除</button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           )}
         </section>
@@ -105,8 +129,16 @@ export default function LibraryPage() {
             <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>沒有符合的轉錄。</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-              {filteredJobs.map((j) => (
-                <div key={j.id} className="card" style={{ padding: "0.9rem 1rem", display: "flex", justifyContent: "space-between", gap: "0.8rem", alignItems: "center" }}>
+              {filteredJobs.map((j, i) => (
+                <motion.div
+                  key={j.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: Math.min(i * 0.03, 0.24) }}
+                  whileHover={{ y: -2 }}
+                  className="card"
+                  style={{ padding: "0.9rem 1rem", display: "flex", justifyContent: "space-between", gap: "0.8rem", alignItems: "center" }}
+                >
                   <Link href={`/job/${j.id}`} style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {j.filenames?.[0] || j.youtube_url || "未命名"}
@@ -121,7 +153,7 @@ export default function LibraryPage() {
                       if (confirm("刪除此轉錄？")) deleteJob(j.id, j.storage_paths || [], j.result_paths || []);
                     }}
                   >刪除</button>
-                </div>
+                </motion.div>
               ))}
             </div>
           )}

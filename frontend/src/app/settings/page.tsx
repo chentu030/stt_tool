@@ -51,8 +51,8 @@ export default function SettingsPage() {
         <h2 className="font-display" style={{ fontSize: "1.05rem", marginBottom: "0.7rem" }}>路線圖</h2>
         <ul style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.8, paddingLeft: "1.1rem" }}>
           <li>已完成：知識庫、逐字稿編輯、筆記、捕捉、藍綠黑白分版</li>
-          <li>進行中（Phase A）：區塊編輯器、/ 指令、拖曳排序</li>
-          <li>下一階段：樣式列、圖片、匯出；再來 [[wikilink]]、標籤、範本</li>
+          <li>Phase A：區塊編輯、/ 指令、拖曳、樣式列、圖片、自動儲存、匯出 MD</li>
+          <li>下一階段：PDF／DOCX 匯出；再來 [[wikilink]]、標籤、範本</li>
           <li>之後：白板、簡報、協作／AI；Capacitor iOS／Android</li>
         </ul>
         <p style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
