@@ -1,8 +1,17 @@
 "use client";
 
 import { askPrompt, askConfirm } from "@/lib/dialogs";
+import {
+  askMediaIngestChoice,
+  formatIngestBlock,
+  loadJobPlainTranscript,
+  startTranscriptionJob,
+  summarizeTranscript,
+  waitForJobDone,
+  type TranscribableMedia,
+} from "@/lib/noteMediaIngest";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -137,6 +146,8 @@ function NotePageInner() {
   });
   const [linkPicker, setLinkPicker] = useState("");
   const [toast, setToast] = useState("");
+  const [ingestStatus, setIngestStatus] = useState("");
+  const ingestBusy = useRef(false);
   const [iconOpen, setIconOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
@@ -281,6 +292,86 @@ function NotePageInner() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void save(true); }, 1200);
   };
+
+  const handleTranscribableMedia = useCallback(
+    async (media: TranscribableMedia) => {
+      if (!user || !note) return;
+      if (ingestBusy.current) {
+        flash("已有媒體轉錄進行中，請稍候");
+        return;
+      }
+      const choice = await askMediaIngestChoice(media.label);
+      if (!choice || choice === "embed") return;
+
+      ingestBusy.current = true;
+      try {
+        setIngestStatus("啟動轉錄…");
+        const jobId = await startTranscriptionJob({
+          uid: user.uid,
+          getIdToken: () => user.getIdToken(),
+          media,
+          onProgress: (label, pct) =>
+            setIngestStatus(pct != null ? `${label} ${pct}%` : label),
+        });
+        flash("轉錄已在背景啟動，可繼續編輯");
+        setIngestStatus("轉錄處理中…");
+
+        const job = await waitForJobDone(jobId, (j) => {
+          if (j.status === "processing") {
+            setIngestStatus(`轉錄中 ${j.progress || 0}%`);
+          } else if (j.status === "queued") {
+            const ahead = j.queue_ahead ?? 0;
+            setIngestStatus(ahead > 0 ? `排隊中 · 前面 ${ahead}` : "排隊中…");
+          } else {
+            setIngestStatus(`轉錄：${j.status}`);
+          }
+        });
+
+        setIngestStatus("整理逐字稿…");
+        const transcript = await loadJobPlainTranscript(job);
+        let summary = "";
+        if (choice === "transcribe_summarize" && transcript) {
+          setIngestStatus("產生 AI 摘要…");
+          summary = await summarizeTranscript({
+            title: title || media.label,
+            transcript,
+            assistant: {
+              name: prefsCtx?.prefs.aiAssistantName,
+              style: prefsCtx?.prefs.aiStyle,
+              model: prefsCtx?.prefs.aiModel,
+              grounding: prefsCtx?.prefs.aiGrounding,
+            },
+          });
+        }
+
+        const block = formatIngestBlock({
+          label: media.label,
+          transcript: transcript || "（無內容）",
+          summary: summary || undefined,
+          jobId,
+        });
+        if (insertMdRef.current) {
+          insertMdRef.current(block);
+        } else {
+          setBody((prev) => `${prev.trim()}${prev.trim() ? "\n" : ""}${block}`);
+          markDirty();
+        }
+        try {
+          await updateNote(note.id, { source_job_id: jobId });
+        } catch {
+          /* ignore link failure */
+        }
+        flash(summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+      } catch (e) {
+        flash(e instanceof Error ? e.message : "媒體轉錄失敗");
+      } finally {
+        ingestBusy.current = false;
+        setIngestStatus("");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- markDirty/flash are stable enough for this session
+    [user, note, title, prefsCtx]
+  );
 
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -901,6 +992,9 @@ function NotePageInner() {
         <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
           {viewMode === "write" && <NotePageLog noteId={note.id} />}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
+          {ingestStatus && viewMode === "write" && (
+            <p className="doc-banner-ingest">{ingestStatus}</p>
+          )}
           {toast && <p className="doc-toast">{toast}</p>}
 
           {viewMode === "write" && versionsOpen && (
@@ -1189,6 +1283,9 @@ function NotePageInner() {
               }}
               onRunAiAction={(apiAction, prompt) => {
                 void runAi(apiAction, prompt);
+              }}
+              onTranscribableMedia={(media) => {
+                void handleTranscribableMedia(media);
               }}
               showEmptyTemplates
               onEmptyTemplate={(tid) => {

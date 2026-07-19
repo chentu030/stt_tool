@@ -13,6 +13,8 @@ import {
 import { createPortal } from "react-dom";
 import {
   registerDialogApi,
+  type ChoiceDialogOptions,
+  type ChoiceOption,
   type ConfirmDialogOptions,
   type PromptDialogOptions,
 } from "@/lib/dialogs";
@@ -25,9 +27,14 @@ type ConfirmState = ConfirmDialogOptions & {
   resolve: (value: boolean) => void;
 };
 
+type ChoiceState = ChoiceDialogOptions<string> & {
+  resolve: (value: string | null) => void;
+};
+
 export default function DialogProvider({ children }: { children: ReactNode }) {
   const [promptState, setPromptState] = useState<PromptState | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [choiceState, setChoiceState] = useState<ChoiceState | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -37,6 +44,7 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
   const prompt = useCallback((opts: PromptDialogOptions) => {
     return new Promise<string | null>((resolve) => {
       setConfirmState(null);
+      setChoiceState(null);
       setPromptState({ ...opts, resolve });
     });
   }, []);
@@ -44,14 +52,26 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
   const confirm = useCallback((opts: ConfirmDialogOptions) => {
     return new Promise<boolean>((resolve) => {
       setPromptState(null);
+      setChoiceState(null);
       setConfirmState({ ...opts, resolve });
     });
   }, []);
 
+  const choice = useCallback(<T extends string>(opts: ChoiceDialogOptions<T>) => {
+    return new Promise<T | null>((resolve) => {
+      setPromptState(null);
+      setConfirmState(null);
+      setChoiceState({
+        ...opts,
+        resolve: (v) => resolve((v as T | null) ?? null),
+      });
+    });
+  }, []);
+
   useEffect(() => {
-    registerDialogApi({ prompt, confirm });
+    registerDialogApi({ prompt, confirm, choice });
     return () => registerDialogApi(null);
-  }, [prompt, confirm]);
+  }, [prompt, confirm, choice]);
 
   return (
     <>
@@ -76,6 +96,18 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
             onClose={(value) => {
               confirmState.resolve(value);
               setConfirmState(null);
+            }}
+          />,
+          document.body
+        )}
+      {mounted &&
+        choiceState &&
+        createPortal(
+          <ChoiceModal
+            state={choiceState}
+            onClose={(value) => {
+              choiceState.resolve(value);
+              setChoiceState(null);
             }}
           />,
           document.body
@@ -225,6 +257,74 @@ function ConfirmModal({
             onClick={() => onClose(true)}
           >
             {state.confirmLabel || "確定"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChoiceModal({
+  state,
+  onClose,
+}: {
+  state: ChoiceState;
+  onClose: (value: string | null) => void;
+}) {
+  const firstRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    const t = window.setTimeout(() => firstRef.current?.focus(), 20);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="cadence-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose(null);
+      }}
+    >
+      <div
+        className="cadence-dialog cadence-dialog--choice"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <h2 id={titleId} className="cadence-dialog-title">
+          {state.title}
+        </h2>
+        {state.message && <p className="cadence-dialog-msg">{state.message}</p>}
+        <div className="cadence-dialog-choices">
+          {state.options.map((opt: ChoiceOption, i) => (
+            <button
+              key={opt.id}
+              ref={i === 0 ? firstRef : undefined}
+              type="button"
+              className={`cadence-dialog-choice${opt.primary ? " is-primary" : ""}`}
+              onClick={() => onClose(opt.id)}
+            >
+              <strong>{opt.label}</strong>
+              {opt.description && <span>{opt.description}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="cadence-dialog-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => onClose(null)}>
+            {state.cancelLabel || "取消"}
           </button>
         </div>
       </div>

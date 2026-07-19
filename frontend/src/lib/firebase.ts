@@ -346,6 +346,7 @@ export async function updateNote(
       | "database_id"
       | "props"
       | "share"
+      | "source_job_id"
     >
   >
 ) {

@@ -38,8 +38,9 @@ import {
 } from "@/lib/tiptapBlocks";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { CADENCE_AI_ACTIONS, AI_SLASH_ALIASES } from "@/lib/cadenceAiActions";
-import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
+import { resolveEmbedUrl, promptInsertUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
+import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt, duplicateTopLevelBlock } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
@@ -70,6 +71,8 @@ type Props = {
   onDeepResearchSelection?: (selection: string) => void;
   /** Run a named AI action (api action id) */
   onRunAiAction?: (apiAction: string, prompt?: string) => void;
+  /** After inserting audio/video/YouTube — parent may offer transcription */
+  onTranscribableMedia?: (media: TranscribableMedia) => void;
   /** Parent registers insert-at-cursor */
   insertMdRef?: MutableRefObject<((md: string) => void) | null>;
   aiContext?: string;
@@ -158,6 +161,7 @@ export default function RichNoteEditor({
   onOpenAiAssistant,
   onDeepResearchSelection,
   onRunAiAction,
+  onTranscribableMedia,
   insertMdRef,
   aiContext,
   readOnly = false,
@@ -322,6 +326,9 @@ export default function RichNoteEditor({
   const pdfRef = useRef<HTMLInputElement>(null);
   const pptRef = useRef<HTMLInputElement>(null);
 
+  const onTranscribableMediaRef = useRef(onTranscribableMedia);
+  onTranscribableMediaRef.current = onTranscribableMedia;
+
   const insertUploaded = useCallback(async (file: File, pos?: number) => {
     if (!userId || !noteId) {
       setUploadError("無法上傳：缺少登入或筆記編號");
@@ -348,8 +355,10 @@ export default function RichNoteEditor({
         ed.chain().focus().setImage({ src: url, alt: name }).run();
       } else if (kind === "audio") {
         ed.chain().focus().setNoteAudio({ src: url, title: name }).run();
+        onTranscribableMediaRef.current?.({ kind: "file", file, label: name });
       } else if (kind === "video") {
         ed.chain().focus().setNoteVideo({ src: url, title: name }).run();
+        onTranscribableMediaRef.current?.({ kind: "file", file, label: name });
       } else if (lower.endsWith(".pdf")) {
         const emb = resolveEmbedUrl(url, name);
         if (emb) {
@@ -441,6 +450,13 @@ export default function RichNoteEditor({
         original: emb.original,
         frameable: emb.frameable,
       }).run();
+      if (emb.kind === "youtube") {
+        onTranscribableMediaRef.current?.({
+          kind: "youtube",
+          youtubeUrl: emb.original,
+          label: emb.title || "YouTube",
+        });
+      }
     })();
   }, []);
 
@@ -882,15 +898,44 @@ export default function RichNoteEditor({
       },
       handlePaste: (_view, event) => {
         const items = event.clipboardData?.items;
-        if (!items) return false;
-        for (const item of Array.from(items)) {
-          if (item.type.startsWith("image/")) {
-            const file = item.getAsFile();
-            if (file) {
-              event.preventDefault();
-              void insertUploaded(file);
-              return true;
+        const text = event.clipboardData?.getData("text/plain")?.trim() || "";
+
+        if (items) {
+          for (const item of Array.from(items)) {
+            if (
+              item.type.startsWith("image/") ||
+              item.type.startsWith("audio/") ||
+              item.type.startsWith("video/")
+            ) {
+              const file = item.getAsFile();
+              if (file) {
+                event.preventDefault();
+                void insertUploaded(file);
+                return true;
+              }
             }
+          }
+        }
+
+        if (text && isYoutubeUrl(text)) {
+          event.preventDefault();
+          const emb = resolveEmbedUrl(text);
+          if (emb) {
+            editorRef.current?.chain().focus().setNoteEmbed({
+              src: emb.src,
+              kind: emb.kind,
+              title: emb.title,
+              original: emb.original,
+              frameable: emb.frameable,
+            }).run();
+            if (emb.kind === "youtube") {
+              onTranscribableMediaRef.current?.({
+                kind: "youtube",
+                youtubeUrl: emb.original,
+                label: emb.title || "YouTube",
+              });
+            }
+            return true;
           }
         }
         return false;

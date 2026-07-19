@@ -19,9 +19,24 @@ export type ConfirmDialogOptions = {
   danger?: boolean;
 };
 
+export type ChoiceOption<T extends string = string> = {
+  id: T;
+  label: string;
+  description?: string;
+  primary?: boolean;
+};
+
+export type ChoiceDialogOptions<T extends string = string> = {
+  title: string;
+  message?: string;
+  options: ChoiceOption<T>[];
+  cancelLabel?: string;
+};
+
 type DialogApi = {
   prompt: (opts: PromptDialogOptions) => Promise<string | null>;
   confirm: (opts: ConfirmDialogOptions) => Promise<boolean>;
+  choice: <T extends string>(opts: ChoiceDialogOptions<T>) => Promise<T | null>;
 };
 
 let api: DialogApi | null = null;
@@ -59,4 +74,11 @@ export function askConfirm(
       ? { title: titleOrOpts, message }
       : titleOrOpts;
   return ensureApi().confirm(opts);
+}
+
+/** Pick one option. Returns option id, or null if cancelled. */
+export function askChoice<T extends string>(
+  opts: ChoiceDialogOptions<T>
+): Promise<T | null> {
+  return ensureApi().choice(opts);
 }

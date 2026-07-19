@@ -24,7 +24,7 @@ export type EmbedResolved = {
   frameable: boolean;
 };
 
-function youtubeId(url: string): string | null {
+export function youtubeId(url: string): string | null {
   try {
     const u = new URL(url);
     if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("/")[0] || null;
@@ -38,6 +38,12 @@ function youtubeId(url: string): string | null {
     return null;
   }
   return null;
+}
+
+export function isYoutubeUrl(text: string): boolean {
+  const t = text.trim();
+  if (!/^https?:\/\//i.test(t)) return false;
+  return Boolean(youtubeId(t));
 }
 
 function vimeoId(url: string): string | null {
