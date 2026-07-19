@@ -1,4 +1,4 @@
-/** Built-in note templates (Notion / Obsidian style) */
+/** Built-in Cadence note templates */
 
 export type NoteTemplate = {
   id: string;

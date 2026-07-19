@@ -196,7 +196,7 @@ export default function NotePage() {
                 {[
                   { label: "Markdown (.md)", fn: () => downloadMarkdown(title, body) },
                   { label: "PDF（列印）", fn: () => downloadPdfViaPrint(title, body) },
-                  { label: "Word (.docx)", fn: () => { void downloadDocx(title, body); } },
+                  { label: "DOCX 文件", fn: () => { void downloadDocx(title, body); } },
                   { label: "簡報大綱 (.md)", fn: () => downloadPptOutline(title, body) },
                 ].map((item) => (
                   <button

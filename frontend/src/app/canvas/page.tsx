@@ -95,7 +95,7 @@ export default function CanvasPage() {
       <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "0.75rem" }}>
         <div>
           <ScrambleText words="白板" as="h1" className="page-title font-display" />
-          <p className="page-sub" style={{ marginBottom: 0 }}>Heptabase 風格：拖曳卡片、滾輪縮放、空白處平移。</p>
+          <p className="page-sub" style={{ marginBottom: 0 }}>在畫布上擺放筆記卡片：拖曳、縮放、平移。</p>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="btn btn-ghost btn-sm" type="button" onClick={() => setScale((s) => Math.min(1.6, s + 0.1))}>＋</button>

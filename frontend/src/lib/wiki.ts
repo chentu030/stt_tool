@@ -1,4 +1,4 @@
-/** Obsidian-style [[wikilinks]] helpers */
+/** Cadence [[note link]] helpers */
 
 export function extractWikiLinks(md: string): string[] {
   const out: string[] = [];

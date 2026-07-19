@@ -39,7 +39,7 @@ export default function BoardPage() {
     return (
       <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
         <ScrambleText words="看板" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後使用 Notion 風格看板。</p>
+        <p className="page-sub">登入後即可使用狀態看板整理筆記。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
@@ -48,7 +48,7 @@ export default function BoardPage() {
   return (
     <div>
       <ScrambleText words="看板" as="h1" className="page-title font-display" />
-      <p className="page-sub">拖曳卡片換欄 — 對應 Notion／簡易資料庫狀態檢視。</p>
+      <p className="page-sub">把筆記拖到待辦、進行中、完成，追蹤進度。</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "0.85rem" }} className="board-grid">
         {COLUMNS.map((col) => (

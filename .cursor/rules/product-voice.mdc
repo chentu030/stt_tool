@@ -1,0 +1,13 @@
+---
+description: Never use competitor brand names in user-facing product copy
+alwaysApply: true
+---
+
+# Product voice — Cadence only
+
+In any **user-facing** UI, marketing, App Store / Play Store copy, onboarding, or settings:
+
+- Do **not** name competitors or third-party note apps (e.g. Notion, Obsidian, Heptabase, Roam, Logseq, Evernote, OneNote, Word, PowerPoint) as positioning (“inspired by”, “Notion-like”, “Obsidian-style”).
+- Describe features in Cadence’s own words (知識庫、連結圖、日誌、看板、白板、簡報模式).
+- File format labels are OK when they are formats (`.md`, `.docx`, `PDF`), not brand slogans.
+- Internal docs / `ROADMAP.md` may mention reference products for engineering planning only — never surface that language in the shipped app.

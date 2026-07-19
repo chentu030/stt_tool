@@ -14,7 +14,7 @@ type Props = {
   color?: string;
 };
 
-/** OriginKit-inspired ScrambleText — cinematic character reveal */
+/** ScrambleText — cinematic character reveal */
 export default function ScrambleText({
   words,
   as: Tag = "span",

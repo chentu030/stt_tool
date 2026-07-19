@@ -11,7 +11,7 @@ export default function SettingsPage() {
   return (
     <div style={{ maxWidth: 640 }}>
       <h1 className="page-title font-display">設定</h1>
-      <p className="page-sub">帳號、外觀與路線圖。</p>
+      <p className="page-sub">帳號與外觀。</p>
 
       <section className="card" style={{ padding: "1.2rem", marginBottom: "1rem" }}>
         <h2 className="font-display" style={{ fontSize: "1.05rem", marginBottom: "0.7rem" }}>外觀</h2>
@@ -48,18 +48,12 @@ export default function SettingsPage() {
       </section>
 
       <section className="card" style={{ padding: "1.2rem" }}>
-        <h2 className="font-display" style={{ fontSize: "1.05rem", marginBottom: "0.7rem" }}>路線圖</h2>
-        <ul style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.8, paddingLeft: "1.1rem" }}>
-          <li>已完成：知識庫、逐字稿編輯、筆記、捕捉、藍綠黑白分版</li>
-          <li>Phase A：區塊編輯、/ 指令、拖曳、樣式列、圖片、自動儲存、匯出 MD</li>
-          <li>下一階段：PDF／DOCX 匯出；再來 [[wikilink]]、標籤、範本</li>
-          <li>之後：白板、簡報、協作／AI；Capacitor iOS／Android</li>
-        </ul>
-        <p style={{ marginTop: "0.6rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          完整清單見 repo 根目錄 <code>ROADMAP.md</code>；Vertex AI 環境變數見 <code>frontend/ENV.md</code>
+        <h2 className="font-display" style={{ fontSize: "1.05rem", marginBottom: "0.7rem" }}>關於 Cadence</h2>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", lineHeight: 1.7, marginBottom: "0.75rem" }}>
+          Cadence 是語音驅動的知識工作區：捕捉聲音、校對逐字稿、寫成可連結的筆記。
         </p>
-        <p style={{ marginTop: "0.8rem", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-          舊版歷史頁仍可用：<Link href="/history" style={{ color: "var(--accent-2)" }}>/history</Link>
+        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          舊版歷史頁：<Link href="/history" style={{ color: "var(--accent-2)" }}>/history</Link>
         </p>
       </section>
     </div>

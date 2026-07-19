@@ -13,7 +13,7 @@ type Props = {
   disabled?: boolean;
 };
 
-/** Soft shiny CTA inspired by OriginKit Shiny Pill */
+/** Soft shiny CTA pill */
 export default function ShinyPill({
   children,
   className,

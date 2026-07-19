@@ -14,7 +14,7 @@ type Props = {
   style?: CSSProperties;
 };
 
-/** OriginKit-inspired Line Ripple Background — cursor-reactive flow field */
+/** Line Ripple Background — cursor-reactive flow field */
 export default function LineRippleBackground({
   count = 48,
   movement = 22,

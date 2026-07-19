@@ -60,7 +60,7 @@ export default function JournalPage() {
   return (
     <div style={{ maxWidth: 720 }}>
       <ScrambleText words="Journal" as="h1" className="page-title font-display" />
-      <p className="page-sub">Heptabase／Obsidian 風格的每日卡片。今天是 {today}。</p>
+      <p className="page-sub">每天一則日誌，累積你的節奏。今天是 {today}。</p>
 
       <ShinyPill onClick={() => { void openToday(); }} disabled={busy}>
         {busy ? "開啟中…" : todayNote ? "打開今日日誌" : "建立今日日誌"}

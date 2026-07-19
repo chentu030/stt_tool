@@ -16,7 +16,7 @@ type Props = {
   style?: CSSProperties;
 };
 
-/** OriginKit-inspired Type Writer — rotating phrases with caret */
+/** Type writer — rotating phrases with caret */
 export default function TypeWriter({
   prefix = "",
   texts,

@@ -66,11 +66,7 @@ export default function HomePage() {
             />
           </h2>
           <p style={{ color: "var(--text-muted)", fontSize: "1.02rem", marginBottom: "1.7rem", maxWidth: 480, marginInline: "auto" }}>
-            轉錄、校對、區塊筆記一氣呵成——靈感來自 Notion × Obsidian，動畫體驗借鏡{" "}
-            <a href="https://www.originkit.dev/" target="_blank" rel="noreferrer" style={{ color: "var(--accent-2)" }}>
-              OriginKit
-            </a>
-            。
+            錄音與影片轉成可編輯的筆記：捕捉、校對、整理，全部在 Cadence 完成。
           </p>
           <div style={{ display: "flex", gap: "0.65rem", justifyContent: "center", flexWrap: "wrap" }}>
             <ShinyPill onClick={() => loginWithGoogle()}>開始使用</ShinyPill>

@@ -8,7 +8,7 @@ import { extractWikiLinks } from "@/lib/wiki";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 
-/** Obsidian-style local graph of [[wikilinks]] */
+/** Cadence local graph of note links */
 export default function GraphPage() {
   const { user, loading } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -54,7 +54,7 @@ export default function GraphPage() {
   return (
     <div>
       <ScrambleText words="圖譜" as="h1" className="page-title font-display" />
-      <p className="page-sub">Obsidian 風格：依 [[wikilink]] 畫出知識連結（{graph.edges.length} 條邊）。</p>
+      <p className="page-sub">依筆記間的 [[連結]] 顯示關係圖（目前 {graph.edges.length} 條連線）。</p>
 
       <div className="card" style={{ padding: 0, overflow: "hidden", height: "min(70vh, 640px)" }}>
         <svg width="100%" height="100%" viewBox="0 0 640 520" style={{ display: "block", background: "var(--bg-muted)" }}>
