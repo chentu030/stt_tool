@@ -41,6 +41,9 @@ type Props = {
   onSynced?: () => void;
   /** Lift primary actions into parent command bar */
   onActionsChange?: (actions: SlideStudioActions | null) => void;
+  /** When this changes, jump to that slide index */
+  focusIndex?: number | null;
+  focusNonce?: number;
 };
 
 export default function SlideStudio({
@@ -53,6 +56,8 @@ export default function SlideStudio({
   onBackToWrite,
   onSynced,
   onActionsChange,
+  focusIndex = null,
+  focusNonce = 0,
 }: Props) {
   const [idx, setIdx] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -69,6 +74,15 @@ export default function SlideStudio({
   const slide = deck.slides[idx] || deck.slides[0];
   const theme = getTheme(deck.theme);
   const stale = isDeckStale(deck, noteTitle, noteBody) && !syncDismissed;
+
+  useEffect(() => {
+    if (focusIndex == null || !open) return;
+    if (focusIndex >= 0 && focusIndex < deck.slides.length) {
+      setIdx(focusIndex);
+      setSelectedId(null);
+      setEditingId(null);
+    }
+  }, [focusIndex, focusNonce, open, deck.slides.length]);
 
   useEffect(() => {
     if (!open) {

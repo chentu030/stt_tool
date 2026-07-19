@@ -22,6 +22,7 @@ type Props = {
   onAiAction: (action: NoteAiActionId) => void;
   onInsertMarkdown: (md: string) => void;
   onJumpHeading?: (item: HeadingItem) => void;
+  onOpenSlideForHeading?: (item: HeadingItem) => void;
   open: boolean;
   tab: "outline" | "ai" | "info";
   onTab: (t: "outline" | "ai" | "info") => void;
@@ -41,6 +42,7 @@ export default function NoteAside({
   onAiAction,
   onInsertMarkdown,
   onJumpHeading,
+  onOpenSlideForHeading,
   open,
   tab,
   onTab,
@@ -118,20 +120,34 @@ export default function NoteAside({
 
       {tab === "outline" && (
         <div className="note-aside-body">
-          <p className="note-aside-hint">點標題可跳到對應段落（依 Markdown 標題）。</p>
+          <p className="note-aside-hint">
+            點標題跳到段落
+            {onOpenSlideForHeading ? "；右側可開對應投影片" : "（依 Markdown 標題）"}。
+          </p>
           {outline.length === 0 ? (
             <p className="note-aside-empty">尚無標題。用 H1／H2 或輸入 # 建立結構。</p>
           ) : (
             <nav className="note-toc">
               {outline.map((h) => (
-                <button
-                  key={h.id}
-                  type="button"
-                  className={`note-toc-item level-${h.level}`}
-                  onClick={() => onJumpHeading?.(h)}
-                >
-                  {h.text}
-                </button>
+                <div key={h.id} className={`note-toc-row level-${h.level}`}>
+                  <button
+                    type="button"
+                    className={`note-toc-item level-${h.level}`}
+                    onClick={() => onJumpHeading?.(h)}
+                  >
+                    {h.text}
+                  </button>
+                  {onOpenSlideForHeading && (
+                    <button
+                      type="button"
+                      className="note-toc-slide"
+                      title="在簡報中開啟"
+                      onClick={() => onOpenSlideForHeading(h)}
+                    >
+                      ▷
+                    </button>
+                  )}
+                </div>
               ))}
             </nav>
           )}

@@ -28,6 +28,7 @@ import SlideStudio, { SlideStudioActions } from "@/components/slides/SlideStudio
 import {
   SlideDeck,
   deckFromMarkdown,
+  getTheme,
   isDeckStale,
   loadDeckLocal,
   normalizeDeck,
@@ -38,6 +39,7 @@ import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle }
 import {
   NOTE_AI_ACTIONS,
   NoteAiActionId,
+  HeadingItem,
   computeNoteStats,
   extractOutline,
   findRelatedNotes,
@@ -75,6 +77,8 @@ export default function NotePage() {
   const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [slideActions, setSlideActions] = useState<SlideStudioActions | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [slideFocusIndex, setSlideFocusIndex] = useState<number | null>(null);
+  const [slideFocusNonce, setSlideFocusNonce] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
@@ -248,7 +252,10 @@ export default function NotePage() {
     try {
       const m = sessionStorage.getItem(`cadence_view_${id}`);
       if (m === "slides" || m === "write") setViewMode(m);
-      if (m === "slides") setAsideOpen(false);
+      if (m === "slides") {
+        setAsideOpen(true);
+        setAsideTab("outline");
+      }
     } catch {
       /* ignore */
     }
@@ -278,14 +285,60 @@ export default function NotePage() {
     return generated;
   };
 
-  const enterSlides = () => {
-    ensureDeck();
+  const enterSlidesAt = (index?: number) => {
+    let next = deck;
+    const staleNow = isDeckStale(deck, title, body);
+    if (!next?.slides?.length || staleNow) {
+      next = deckFromMarkdown(title, body, deck?.theme || "teal");
+      onDeckChange(next);
+      if (staleNow && deck?.slides?.length) flash("已依筆記更新投影片");
+    } else {
+      next = ensureDeck();
+    }
+    const safeIdx =
+      typeof index === "number"
+        ? Math.max(0, Math.min(index, (next?.slides.length || 1) - 1))
+        : null;
+    if (safeIdx != null && note) {
+      try {
+        sessionStorage.setItem(`cadence_slide_idx_${note.id}`, String(safeIdx));
+      } catch {
+        /* ignore */
+      }
+      setSlideFocusIndex(safeIdx);
+      setSlideFocusNonce((n) => n + 1);
+    } else {
+      setSlideFocusIndex(null);
+    }
     setMode("slides");
-    setAsideOpen(false);
+    // Keep outline available for jump ↔ slides
+    setAsideOpen(true);
+    setAsideTab("outline");
   };
+
+  const enterSlides = () => enterSlidesAt();
 
   const enterWrite = () => {
     setMode("write");
+    setSlideFocusIndex(null);
+  };
+
+  const findSlideIndexForHeading = (heading: string): number => {
+    const sections = splitMarkdownSections(title, body);
+    let idx = sections.findIndex((s) => s.title.trim() === heading.trim());
+    if (idx < 0) {
+      idx = sections.findIndex(
+        (s) => s.title.includes(heading) || heading.includes(s.title)
+      );
+    }
+    if (idx >= 0) return idx;
+    if (deck?.slides?.length) {
+      idx = deck.slides.findIndex((s) =>
+        (s.blocks.find((b) => b.role === "title")?.text || "").includes(heading)
+      );
+      if (idx >= 0) return idx;
+    }
+    return 0;
   };
 
   const onDeckChange = (next: SlideDeck) => {
@@ -382,7 +435,11 @@ export default function NotePage() {
     flash("已複製頁面連結");
   };
 
-  const jumpHeading = (item: { text: string; level: number }) => {
+  const jumpHeading = (item: HeadingItem) => {
+    if (viewMode === "slides") {
+      enterSlidesAt(findSlideIndexForHeading(item.text));
+      return;
+    }
     const root = document.querySelector(".rich-prose");
     if (!root) return;
     const tag = `H${item.level}`;
@@ -390,6 +447,30 @@ export default function NotePage() {
     const hit = nodes.find((n) => (n.textContent || "").trim() === item.text.trim());
     hit?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  const openSlideForHeading = (item: HeadingItem) => {
+    enterSlidesAt(findSlideIndexForHeading(item.text));
+  };
+
+  const deckStale = isDeckStale(deck, title, body);
+  const slideCountHint =
+    deck?.slides?.length ||
+    Math.max(1, splitMarkdownSections(title, body).length);
+  const previewTheme = getTheme(deck?.theme || "teal");
+  const previewSlides = useMemo(() => {
+    if (deck?.slides?.length && !deckStale) {
+      return deck.slides.map((s, i) => ({
+        id: s.id,
+        index: i,
+        label: s.blocks.find((b) => b.role === "title")?.text || `第 ${i + 1} 頁`,
+      }));
+    }
+    return splitMarkdownSections(title, body).map((s, i) => ({
+      id: `pv_${i}`,
+      index: i,
+      label: s.title || `第 ${i + 1} 頁`,
+    }));
+  }, [deck, deckStale, title, body]);
 
   if (loading) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
@@ -402,11 +483,6 @@ export default function NotePage() {
         : status === "dirty" ? "未儲存變更"
           : status === "error" ? errorMsg
             : "";
-
-  const slideCountHint =
-    deck?.slides?.length ||
-    Math.max(1, splitMarkdownSections(title, body).length);
-  const deckStale = isDeckStale(deck, title, body);
 
   const addTag = () => {
     const t = tagInput.trim().replace(/^#/, "");
@@ -555,9 +631,6 @@ export default function NotePage() {
               <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
                 抽待辦
               </button>
-              <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
-                側欄
-              </button>
               <button type="button" className={`doc-cmd${focusMode ? " is-on" : ""}`} onClick={() => setFocusMode((v) => !v)}>
                 專注
               </button>
@@ -581,6 +654,9 @@ export default function NotePage() {
               </button>
             </>
           )}
+          <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
+            側欄
+          </button>
           <div className="doc-more-wrap">
             <button type="button" className="doc-cmd" onClick={() => setMoreOpen((v) => !v)}>更多</button>
             {moreOpen && (
@@ -783,20 +859,61 @@ export default function NotePage() {
                 )}
               </div>
 
-              <button
-                type="button"
-                className={`doc-slide-bridge${deckStale ? " is-stale" : ""}`}
-                onClick={enterSlides}
-              >
-                <span className="doc-slide-bridge-main">
-                  {deck?.slides?.length ? `開啟簡報 · ${slideCountHint} 頁` : `產生簡報 · 約 ${slideCountHint} 頁`}
-                </span>
-                <span className="doc-slide-bridge-hint">
-                  {deckStale && deck?.slides?.length ? "筆記有更新 · " : ""}
-                  依 ## 標題分頁 · ⌘.
-                </span>
-              </button>
+              <div className="doc-slide-bridge-block">
+                <button
+                  type="button"
+                  className={`doc-slide-bridge${deckStale ? " is-stale" : ""}`}
+                  onClick={() => enterSlidesAt()}
+                >
+                  <span className="doc-slide-bridge-main">
+                    {deck?.slides?.length ? `編輯簡報 · ${slideCountHint} 頁` : `產生簡報 · 約 ${slideCountHint} 頁`}
+                  </span>
+                  <span className="doc-slide-bridge-hint">
+                    {deckStale && deck?.slides?.length ? "進入時會自動同步筆記 · " : ""}
+                    點下方縮圖直達該頁 · ⌘.
+                  </span>
+                </button>
+                <div className="doc-slide-strip" role="list" aria-label="投影片預覽">
+                  {previewSlides.slice(0, 12).map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      role="listitem"
+                      className="doc-slide-strip-item"
+                      style={{
+                        background: previewTheme.bg,
+                        color: previewTheme.fg,
+                        borderColor: previewTheme.accent,
+                      }}
+                      onClick={() => enterSlidesAt(s.index)}
+                      title={s.label}
+                    >
+                      <span className="doc-slide-strip-accent" style={{ background: previewTheme.accent }} />
+                      <span className="doc-slide-strip-num">{s.index + 1}</span>
+                      <span className="doc-slide-strip-label">{s.label}</span>
+                    </button>
+                  ))}
+                  {previewSlides.length > 12 && (
+                    <button
+                      type="button"
+                      className="doc-slide-strip-more"
+                      onClick={() => enterSlidesAt(12)}
+                    >
+                      +{previewSlides.length - 12}
+                    </button>
+                  )}
+                </div>
+              </div>
             </>
+          )}
+
+          {viewMode === "slides" && (
+            <div className="doc-slide-back">
+              <button type="button" className="doc-cmd" onClick={enterWrite}>
+                ← 回寫作
+              </button>
+              <span>同一則筆記 · 左側大綱可跳投影片</span>
+            </div>
           )}
 
           <div className={`doc-pane doc-pane--write${viewMode === "write" ? " is-active" : ""}`} aria-hidden={viewMode !== "write"}>
@@ -890,6 +1007,8 @@ export default function NotePage() {
                 onBackToWrite={enterWrite}
                 onSynced={() => flash("已依筆記更新投影片")}
                 onActionsChange={setSlideActions}
+                focusIndex={slideFocusIndex}
+                focusNonce={slideFocusNonce}
               />
             ) : (
               <p className="slide-loading">正在準備投影片…</p>
@@ -898,7 +1017,7 @@ export default function NotePage() {
         </div>
 
         <NoteAside
-          open={asideOpen && !focusMode && viewMode === "write"}
+          open={asideOpen && !focusMode}
           tab={asideTab}
           onTab={setAsideTab}
           title={title}
@@ -910,6 +1029,7 @@ export default function NotePage() {
           onAiAction={(a) => { void runAi(a); }}
           onInsertMarkdown={(md) => { setBody((b) => b + md); markDirty(); flash("已插入 AI 內容"); }}
           onJumpHeading={jumpHeading}
+          onOpenSlideForHeading={openSlideForHeading}
         />
       </div>
     </div>
