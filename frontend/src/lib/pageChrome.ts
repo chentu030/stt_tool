@@ -18,59 +18,107 @@ export type FolderStyle = {
   color?: PageColorId;
 };
 
+/** Google Material Symbols Outlined names (stored on note.icon / folderStyles) */
 export const PAGE_ICONS = [
-  "📄",
-  "📝",
-  "💡",
-  "📌",
-  "🎯",
-  "📚",
-  "🔬",
-  "🎤",
-  "🗂",
-  "⭐",
-  "🔥",
-  "🧠",
-  "💬",
-  "🛠",
-  "🎨",
-  "📊",
-  "🗺",
-  "🧭",
-  "🏠",
-  "💼",
-  "📦",
-  "🧪",
-  "🌱",
-  "🚀",
+  "description",
+  "edit_note",
+  "lightbulb",
+  "push_pin",
+  "flag",
+  "menu_book",
+  "science",
+  "mic",
+  "photo_camera",
+  "star",
+  "local_fire_department",
+  "psychology",
+  "chat_bubble",
+  "build",
+  "palette",
+  "bar_chart",
+  "map",
+  "explore",
+  "home",
+  "work",
+  "inventory_2",
+  "biotech",
+  "spa",
+  "rocket_launch",
 ] as const;
 
 export const FOLDER_ICONS = [
-  "📁",
-  "📂",
-  "🗂",
-  "📦",
-  "🗃",
-  "🗄",
-  "🏷",
-  "📌",
-  "⭐",
-  "🔥",
-  "💡",
-  "📚",
-  "🧠",
-  "🎯",
-  "🛠",
-  "🎨",
-  "📊",
-  "🗺",
-  "🏠",
-  "💼",
-  "🌱",
-  "🚀",
-  "🧪",
-  "💬",
+  "folder",
+  "folder_open",
+  "topic",
+  "inventory_2",
+  "dns",
+  "label",
+  "push_pin",
+  "star",
+  "local_fire_department",
+  "lightbulb",
+  "menu_book",
+  "psychology",
+  "flag",
+  "build",
+  "palette",
+  "bar_chart",
+  "map",
+  "home",
+  "work",
+  "spa",
+  "rocket_launch",
+  "biotech",
+  "chat_bubble",
+  "bookmark",
 ] as const;
+
+const LEGACY_EMOJI_TO_MATERIAL: Record<string, string> = {
+  "📄": "description",
+  "📝": "edit_note",
+  "💡": "lightbulb",
+  "📌": "push_pin",
+  "🎯": "flag",
+  "📚": "menu_book",
+  "🔬": "science",
+  "🎤": "mic",
+  "🗂": "topic",
+  "⭐": "star",
+  "🔥": "local_fire_department",
+  "🧠": "psychology",
+  "💬": "chat_bubble",
+  "🛠": "build",
+  "🎨": "palette",
+  "📊": "bar_chart",
+  "🗺": "map",
+  "🧭": "explore",
+  "🏠": "home",
+  "💼": "work",
+  "📦": "inventory_2",
+  "🧪": "biotech",
+  "🌱": "spa",
+  "🚀": "rocket_launch",
+  "📁": "folder",
+  "📂": "folder_open",
+  "🗃": "dns",
+  "🗄": "dns",
+  "🏷": "label",
+  "📷": "photo_camera",
+  "🗒": "description",
+};
+
+export function isMaterialIconName(icon?: string | null): boolean {
+  return !!icon && /^[a-z][a-z0-9_]{0,47}$/i.test(icon.trim());
+}
+
+/** Normalize stored icon (Material name or legacy emoji) → Material name or "" */
+export function normalizePageIcon(icon?: string | null): string {
+  const raw = (icon || "").trim();
+  if (!raw) return "";
+  if (LEGACY_EMOJI_TO_MATERIAL[raw]) return LEGACY_EMOJI_TO_MATERIAL[raw];
+  if (isMaterialIconName(raw)) return raw.toLowerCase();
+  return "";
+}
 
 export const PAGE_COLORS: {
   id: PageColorId;
@@ -111,7 +159,7 @@ export function sanitizeFolderStyles(
     if (!path || path.length > 200) continue;
     if (!style || typeof style !== "object") continue;
     const s = style as FolderStyle;
-    const icon = typeof s.icon === "string" ? s.icon.slice(0, 8) : "";
+    const icon = normalizePageIcon(typeof s.icon === "string" ? s.icon : "");
     const color = isPageColorId(s.color) ? s.color : "";
     if (!icon && !color) continue;
     out[path] = { ...(icon ? { icon } : {}), ...(color ? { color } : {}) };
@@ -143,7 +191,8 @@ export function setFolderStyle(
 ): Record<string, FolderStyle> {
   if (!path) return styles;
   const prev = styles[path] || {};
-  const icon = patch.icon !== undefined ? patch.icon : prev.icon || "";
+  const iconRaw = patch.icon !== undefined ? patch.icon : prev.icon || "";
+  const icon = normalizePageIcon(iconRaw);
   const color = patch.color !== undefined ? patch.color : prev.color || "";
   const next = { ...styles };
   if (!icon && !color) {

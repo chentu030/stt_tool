@@ -5,8 +5,11 @@ import {
   FOLDER_ICONS,
   PAGE_COLORS,
   PAGE_ICONS,
+  normalizePageIcon,
+  pageColorMeta,
   type PageColorId,
 } from "@/lib/pageChrome";
+import PageChromeIcon from "@/components/PageChromeIcon";
 
 type Props = {
   mode: "note" | "folder";
@@ -33,6 +36,8 @@ export default function IconColorPicker({
   const ref = useRef<HTMLDivElement>(null);
   const icons = mode === "folder" ? FOLDER_ICONS : PAGE_ICONS;
   const fixed = typeof x === "number" && typeof y === "number";
+  const current = normalizePageIcon(icon);
+  const tint = color ? pageColorMeta(color).fg : "var(--text-main)";
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -62,20 +67,22 @@ export default function IconColorPicker({
       <div className="ic-picker-icons">
         <button
           type="button"
-          className={!icon ? "is-on" : undefined}
-          title="預設"
+          className={!current ? "is-on" : undefined}
+          title="無圖示"
           onClick={() => onChange({ icon: "", color })}
         >
-          —
+          <span className="ic-picker-none">無</span>
         </button>
         {icons.map((ic) => (
           <button
             key={ic}
             type="button"
-            className={icon === ic ? "is-on" : undefined}
+            className={current === ic ? "is-on" : undefined}
+            title={ic}
+            style={{ color: tint }}
             onClick={() => onChange({ icon: ic, color })}
           >
-            {ic}
+            <PageChromeIcon icon={ic} color={color || undefined} />
           </button>
         ))}
       </div>
@@ -91,10 +98,13 @@ export default function IconColorPicker({
               background: c.id ? c.fg : "var(--bg-muted)",
               boxShadow: c.id ? undefined : "inset 0 0 0 1px var(--border)",
             }}
-            onClick={() => onChange({ icon, color: c.id })}
+            onClick={() => onChange({ icon: current, color: c.id })}
           />
         ))}
       </div>
+      {current && (
+        <p className="ic-picker-hint">顏色會套用到圖示（與側欄標題）</p>
+      )}
     </div>
   );
 }

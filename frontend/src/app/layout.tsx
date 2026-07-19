@@ -55,6 +55,10 @@ export default function RootLayout({
           href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css"
           crossOrigin="anonymous"
         />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap"
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var r=localStorage.getItem('cadence_prefs_v1');var t=localStorage.getItem('theme');var theme='light';if(r){var p=JSON.parse(r);if(p.theme==='dark'||p.theme==='light')theme=p.theme;else if(p.theme==='system'&&matchMedia('(prefers-color-scheme:dark)').matches)theme='dark';}else if(t==='dark'||t==='light')theme=t;document.documentElement.setAttribute('data-theme',theme);}catch(e){}})();`,

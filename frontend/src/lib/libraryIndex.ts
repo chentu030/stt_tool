@@ -9,6 +9,7 @@ export type LibraryNote = {
   journal_date?: string;
   status?: string;
   icon?: string;
+  color?: string;
   source_job_id?: string;
   updated_at: Date;
   created_at: Date;

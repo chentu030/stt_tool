@@ -5,6 +5,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, type Note } from "@/lib/firebase";
 import { useNoteTabs } from "@/components/notes/NoteTabsProvider";
 import { askPrompt } from "@/lib/dialogs";
+import PageChromeIcon from "@/components/PageChromeIcon";
+import { normalizePageIcon } from "@/lib/pageChrome";
 
 export default function NoteTabsBar() {
   const { user } = useAuth();
@@ -30,7 +32,7 @@ export default function NoteTabsBar() {
       <div className="note-tabs-scroll">
         {openIds.map((id) => {
           const n = byId.get(id);
-          const title = n ? `${n.icon ? `${n.icon} ` : ""}${n.title || "未命名"}` : "載入中…";
+          const title = n ? n.title || "未命名" : "載入中…";
           const isActive = id === activeId;
           const isSplit = id === splitId;
           return (
@@ -49,6 +51,13 @@ export default function NoteTabsBar() {
                   if (activeId && id !== activeId) toggleSplitWith(id);
                 }}
               >
+                {n && normalizePageIcon(n.icon) ? (
+                  <PageChromeIcon
+                    icon={n.icon}
+                    color={n.color}
+                    className="note-tab-icon"
+                  />
+                ) : null}
                 <span className="note-tab-title">{title}</span>
                 {isSplit && <span className="note-tab-badge">並排</span>}
               </button>
@@ -107,7 +116,19 @@ export default function NoteTabsBar() {
                         setMenuOpen(false);
                       }}
                     >
-                      {n ? `${n.icon ? `${n.icon} ` : ""}${n.title || "未命名"}` : id.slice(0, 8)}
+                      {n ? (
+                        <span className="note-tabs-menu-row">
+                          <PageChromeIcon
+                            icon={n.icon}
+                            color={n.color}
+                            hideWhenEmpty
+                            className="note-tab-icon"
+                          />
+                          {n.title || "未命名"}
+                        </span>
+                      ) : (
+                        id.slice(0, 8)
+                      )}
                     </button>
                   );
                 })}

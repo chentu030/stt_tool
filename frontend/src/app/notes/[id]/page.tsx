@@ -81,8 +81,9 @@ import NoteHuddle from "@/components/notes/NoteHuddle";
 import NotePageLog from "@/components/notes/NotePageLog";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
+import PageChromeIcon from "@/components/PageChromeIcon";
 import { fireConfetti } from "@/lib/confetti";
-import { isPageColorId, pageColorMeta, type PageColorId } from "@/lib/pageChrome";
+import { isPageColorId, normalizePageIcon, pageColorMeta, type PageColorId } from "@/lib/pageChrome";
 
 function countTaskCheckboxes(md: string): { total: number; checked: number } {
   const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
@@ -190,7 +191,7 @@ function NotePageInner() {
       setBody(n.body_md);
       setTags(n.tags || []);
       setFolder(n.folder || "");
-      setIcon(n.icon || "");
+      setIcon(normalizePageIcon(n.icon || ""));
       setColor(isPageColorId(n.color) ? n.color : "");
       setCover(n.cover || "");
       setParentId(n.parent_id || "");
@@ -203,7 +204,7 @@ function NotePageInner() {
         body: n.body_md,
         tags: n.tags || [],
         folder: n.folder || "",
-        icon: n.icon || "",
+        icon: normalizePageIcon(n.icon || ""),
         color: isPageColorId(n.color) ? n.color : "",
         cover: n.cover || "",
         parent_id: n.parent_id || "",
@@ -939,7 +940,16 @@ function NotePageInner() {
               <>
                 <span className="doc-crumb-sep">/</span>
                 <Link href={`/notes/${parent.id}`} className="doc-crumb">
-                  {parent.icon ? `${parent.icon} ` : ""}{parent.title || "上層"}
+                  {parent.icon ? (
+                    <>
+                      <PageChromeIcon
+                        icon={parent.icon}
+                        color={parent.color}
+                        className="doc-crumb-icon"
+                      />{" "}
+                    </>
+                  ) : null}
+                  {parent.title || "上層"}
                 </Link>
               </>
             ) : null;
@@ -1307,12 +1317,17 @@ function NotePageInner() {
                   color
                     ? {
                         background: pageColorMeta(color).bg,
+                        color: pageColorMeta(color).fg,
                         boxShadow: `inset 0 0 0 1px ${pageColorMeta(color).fg}33`,
                       }
                     : undefined
                 }
               >
-                {icon || "📄"}
+                <PageChromeIcon
+                  icon={icon}
+                  color={color || undefined}
+                  fallback="description"
+                />
               </button>
               {iconOpen && viewMode === "write" && (
                 <IconColorPicker
@@ -1320,7 +1335,7 @@ function NotePageInner() {
                   icon={icon}
                   color={color}
                   onChange={(next) => {
-                    setIcon(next.icon);
+                    setIcon(normalizePageIcon(next.icon));
                     setColor(next.color);
                     markDirty();
                   }}

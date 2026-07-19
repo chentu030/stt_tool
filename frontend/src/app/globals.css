@@ -6683,7 +6683,19 @@ body.is-sidebar-resizing iframe {
   font-size: 0.82rem;
   background: transparent;
 }
-.sb-folder-emoji {
+.sb-note-icon.has-icon {
+  border: none;
+  opacity: 1;
+  font-size: 0;
+  background: transparent;
+}
+.sb-note-icon .page-chrome-icon,
+.sb-folder-ms .page-chrome-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.sb-folder-emoji,
+.sb-folder-ms {
   width: 1.15rem;
   height: 1.15rem;
   display: inline-grid;
@@ -6696,6 +6708,7 @@ body.is-sidebar-resizing iframe {
   padding: 0;
   cursor: pointer;
   background: transparent;
+  color: var(--text-muted);
 }
 .sb-row.has-color:hover {
   background: var(--sb-tint-bg, var(--bg-muted));
@@ -7038,13 +7051,39 @@ body.is-sidebar-resizing iframe {
   background: var(--bg-muted);
   font-size: 1.35rem;
   cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  padding: 0;
+}
+.doc-icon-btn .page-chrome-icon {
+  font-size: 1.45rem;
+}
+.doc-crumb-icon {
+  font-size: 0.95rem !important;
+  vertical-align: -2px;
+}
+.material-symbols-outlined.page-chrome-icon {
+  font-family: "Material Symbols Outlined", sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  display: inline-block;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "liga";
+  user-select: none;
 }
 .ic-picker {
   position: absolute;
   z-index: 80;
   top: calc(100% + 6px);
   left: 0;
-  width: min(280px, 78vw);
+  width: min(300px, 82vw);
   padding: 0.55rem 0.6rem 0.65rem;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -7068,6 +7107,16 @@ body.is-sidebar-resizing iframe {
 .ic-picker-label:not(:first-child) {
   margin-top: 0.55rem;
 }
+.ic-picker-hint {
+  margin: 0.55rem 0 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.ic-picker-none {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
 .ic-picker-icons {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
@@ -7086,10 +7135,36 @@ body.is-sidebar-resizing iframe {
   place-items: center;
   color: var(--text-muted);
 }
+.ic-picker-icons button .page-chrome-icon {
+  font-size: 1.25rem;
+}
 .ic-picker-icons button:hover,
 .ic-picker-icons button.is-on {
   background: var(--accent-soft);
   color: var(--text-main);
+}
+.note-tab-icon {
+  font-size: 0.95rem !important;
+  margin-right: 0.2rem;
+  vertical-align: -2px;
+}
+.note-tab-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+.note-tabs-menu-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.kb-title-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.kb-note-icon {
+  font-size: 1rem !important;
 }
 .ic-picker-colors {
   display: flex;

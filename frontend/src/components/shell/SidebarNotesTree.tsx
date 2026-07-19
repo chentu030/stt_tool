@@ -23,6 +23,7 @@ import {
 } from "@/lib/firebase";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import IconColorPicker from "@/components/IconColorPicker";
+import PageChromeIcon from "@/components/PageChromeIcon";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import {
@@ -37,6 +38,7 @@ import {
 } from "@/lib/noteTree";
 import {
   isPageColorId,
+  normalizePageIcon,
   pageColorMeta,
   remapFolderStyles,
   setFolderStyle,
@@ -435,9 +437,10 @@ export default function SidebarNotesTree() {
 
   const applyStyle = async (next: { icon: string; color: PageColorId | "" }) => {
     if (!stylePicker) return;
+    const icon = normalizePageIcon(next.icon);
     if (stylePicker.target.kind === "note") {
       await updateNote(stylePicker.target.noteId, {
-        icon: next.icon,
+        icon,
         color: next.color || "",
       });
       toast("已更新圖示");
@@ -448,7 +451,7 @@ export default function SidebarNotesTree() {
     prefsCtx.setPrefs((prev) => ({
       ...prev,
       folderStyles: setFolderStyle(prev.folderStyles || {}, path, {
-        icon: next.icon,
+        icon,
         color: next.color || undefined,
       }),
     }));
@@ -972,7 +975,7 @@ export default function SidebarNotesTree() {
           )}
           <button
             type="button"
-            className={`sb-note-icon${note.icon ? " has-emoji" : ""}`}
+            className={`sb-note-icon${note.icon ? " has-icon" : ""}`}
             title="圖示與顏色"
             aria-label="圖示與顏色"
             style={colorId ? { background: color.bg, color: color.fg } : undefined}
@@ -983,7 +986,12 @@ export default function SidebarNotesTree() {
               openStylePicker({ kind: "note", noteId: note.id }, r.left, r.bottom + 4);
             }}
           >
-            {note.icon || "▢"}
+            <PageChromeIcon
+              icon={note.icon}
+              color={colorId || undefined}
+              hideWhenEmpty
+              fallback="description"
+            />
           </button>
           <Link
             href={`/notes/${note.id}`}
@@ -1265,13 +1273,13 @@ export default function SidebarNotesTree() {
                     </button>
                     <button
                       type="button"
-                      className={fStyle.icon ? "sb-folder-emoji" : `sb-folder-icon${open ? " is-open" : ""}`}
+                      className={fStyle.icon ? "sb-folder-ms" : `sb-folder-icon${open ? " is-open" : ""}`}
                       title="圖示與顏色"
                       aria-label="圖示與顏色"
                       style={
                         fStyle.icon
                           ? colorId
-                            ? { background: color.bg }
+                            ? { background: color.bg, color: color.fg }
                             : undefined
                           : colorId
                             ? { background: color.fg, opacity: 0.9 }
@@ -1283,7 +1291,13 @@ export default function SidebarNotesTree() {
                         openStylePicker({ kind: "folder", path: dropKey }, r.left, r.bottom + 4);
                       }}
                     >
-                      {fStyle.icon || null}
+                      {fStyle.icon ? (
+                        <PageChromeIcon
+                          icon={fStyle.icon}
+                          color={colorId || undefined}
+                          fallback="folder"
+                        />
+                      ) : null}
                     </button>
                     <Link
                       href={`/library?folder=${encodeURIComponent(folderParam)}`}

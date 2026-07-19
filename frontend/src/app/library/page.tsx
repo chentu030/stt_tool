@@ -29,6 +29,7 @@ import { usePrefs } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
 import { buildResearchUrl } from "@/lib/researchBridge";
 import ContinueChips, { libraryContinueChips } from "@/components/shell/ContinueChips";
+import PageChromeIcon from "@/components/PageChromeIcon";
 import {
   SortKey,
   ViewMode,
@@ -543,8 +544,13 @@ function LibraryPageInner() {
                             />
                           </td>
                           <td>
-                            <Link href={`/notes/${n.id}`}>
-                              {n.icon ? `${n.icon} ` : ""}
+                            <Link href={`/notes/${n.id}`} className="kb-title-link">
+                              <PageChromeIcon
+                                icon={n.icon}
+                                color={n.color}
+                                hideWhenEmpty
+                                className="kb-note-icon"
+                              />
                               {n.title || "未命名"}
                             </Link>
                           </td>
