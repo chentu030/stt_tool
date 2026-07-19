@@ -1604,6 +1604,8 @@ def _strip_md_links(text: str) -> str:
     t = text or ""
     t = re.sub(r"!\[([^\]]*)\]\([^)]*\)", " ", t)
     t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", t)
+    t = re.sub(r"\[\[([^\]]*)\]\]", r"\1", t)
+    t = re.sub(r"\*+", "", t)
     return t
 
 
