@@ -69,7 +69,7 @@ export default function NotePage() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
-  const [studioOpen, setStudioOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"write" | "slides">("write");
   const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
@@ -239,16 +239,49 @@ export default function NotePage() {
 
   const outbound = useMemo(() => extractWikiLinks(body), [body]);
 
-  const openStudio = () => {
-    const existing = deck;
-    if (existing?.slides?.length) {
-      setStudioOpen(true);
-      return;
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const m = sessionStorage.getItem(`cadence_view_${id}`);
+      if (m === "slides" || m === "write") setViewMode(m);
+      if (m === "slides") setAsideOpen(false);
+    } catch {
+      /* ignore */
     }
+  }, [id]);
+
+  const setMode = (mode: "write" | "slides") => {
+    setViewMode(mode);
+    if (id) {
+      try {
+        sessionStorage.setItem(`cadence_view_${id}`, mode);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  const ensureDeck = (): SlideDeck => {
+    if (deck?.slides?.length) return deck;
     const generated = deckFromMarkdown(title, body);
     setDeck(generated);
-    if (note) saveDeckLocal(note.id, generated);
-    setStudioOpen(true);
+    if (note) {
+      saveDeckLocal(note.id, generated);
+      void updateNote(note.id, { deck: generated as unknown as Record<string, unknown> }).catch(
+        () => undefined
+      );
+    }
+    return generated;
+  };
+
+  const enterSlides = () => {
+    ensureDeck();
+    setMode("slides");
+    setAsideOpen(false);
+  };
+
+  const enterWrite = () => {
+    setMode("write");
   };
 
   const onDeckChange = (next: SlideDeck) => {
@@ -260,6 +293,14 @@ export default function NotePage() {
       });
     }
   };
+
+  useEffect(() => {
+    if (viewMode !== "slides" || !note) return;
+    if (deck?.slides?.length) return;
+    const generated = deckFromMarkdown(title, body);
+    setDeck(generated);
+    saveDeckLocal(note.id, generated);
+  }, [viewMode, note, deck, title, body]);
 
   const linkCandidates = useMemo(() => {
     const q = linkPicker.trim().toLowerCase();
@@ -361,8 +402,8 @@ export default function NotePage() {
   };
 
   return (
-    <div className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}`}>
-      <div className="doc-ribbon" ref={setRibbonHost} />
+    <div className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}`}>
+      <div className={`doc-ribbon${viewMode === "slides" ? " is-hidden" : ""}`} ref={setRibbonHost} />
 
       <div className="doc-command">
         <div className="doc-command-left">
@@ -399,6 +440,26 @@ export default function NotePage() {
           )}
         </div>
         <div className="doc-command-actions">
+          <div className="doc-view-switch" role="tablist" aria-label="檢視模式">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === "write"}
+              className={viewMode === "write" ? "is-on" : ""}
+              onClick={enterWrite}
+            >
+              寫作
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === "slides"}
+              className={viewMode === "slides" ? "is-on" : ""}
+              onClick={enterSlides}
+            >
+              簡報
+            </button>
+          </div>
           <button
             type="button"
             className={`doc-cmd${(prefsCtx?.prefs.favoriteNoteIds || []).includes(note.id) ? " is-on" : ""}`}
@@ -407,61 +468,58 @@ export default function NotePage() {
           >
             ★
           </button>
-          <button
-            type="button"
-            className="doc-cmd"
-            title="新增子頁面"
-            onClick={() => {
-              if (!user) return;
-              void (async () => {
-                const id = await createNote(user.uid, "未命名子頁", "", undefined, [], {
-                  parent_id: note.id,
-                  status: "backlog",
-                });
-                router.push(`/notes/${id}`);
-              })();
-            }}
-          >
-            子頁
-          </button>
-          <button type="button" className="doc-cmd" onClick={() => setFindOpen(true)}>尋找</button>
-          <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
-            {aiBusy ? "AI…" : "摘要"}
-          </button>
-          <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
-            抽待辦
-          </button>
-          <button
-            type="button"
-            className={`doc-cmd${studioOpen ? " is-on" : ""}`}
-            onClick={openStudio}
-          >
-            簡報
-          </button>
-          <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
-            側欄
-          </button>
-          <button type="button" className={`doc-cmd${focusMode ? " is-on" : ""}`} onClick={() => setFocusMode((v) => !v)}>
-            專注
-          </button>
-          <button
-            type="button"
-            className={`doc-cmd${pageMode ? " is-on" : ""}`}
-            title="頁面模式（A4）"
-            onClick={() => {
-              setPageMode((v) => {
-                const next = !v;
-                try {
-                  localStorage.setItem("cadence_page_mode", next ? "1" : "0");
-                } catch {
-                  /* ignore */
-                }
-                return next;
-              });
-            }}
-          >
-            頁面
-          </button>
+          {viewMode === "write" && (
+            <>
+              <button
+                type="button"
+                className="doc-cmd"
+                title="新增子頁面"
+                onClick={() => {
+                  if (!user) return;
+                  void (async () => {
+                    const id = await createNote(user.uid, "未命名子頁", "", undefined, [], {
+                      parent_id: note.id,
+                      status: "backlog",
+                    });
+                    router.push(`/notes/${id}`);
+                  })();
+                }}
+              >
+                子頁
+              </button>
+              <button type="button" className="doc-cmd" onClick={() => setFindOpen(true)}>尋找</button>
+              <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
+                {aiBusy ? "AI…" : "摘要"}
+              </button>
+              <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
+                抽待辦
+              </button>
+              <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
+                側欄
+              </button>
+              <button type="button" className={`doc-cmd${focusMode ? " is-on" : ""}`} onClick={() => setFocusMode((v) => !v)}>
+                專注
+              </button>
+              <button
+                type="button"
+                className={`doc-cmd${pageMode ? " is-on" : ""}`}
+                title="頁面模式（A4）"
+                onClick={() => {
+                  setPageMode((v) => {
+                    const next = !v;
+                    try {
+                      localStorage.setItem("cadence_page_mode", next ? "1" : "0");
+                    } catch {
+                      /* ignore */
+                    }
+                    return next;
+                  });
+                }}
+              >
+                頁面
+              </button>
+            </>
+          )}
           <div className="doc-more-wrap">
             <button type="button" className="doc-cmd" onClick={() => setMoreOpen((v) => !v)}>更多</button>
             {moreOpen && (
@@ -505,6 +563,26 @@ export default function NotePage() {
       </div>
 
       <div className="doc-body-row">
+        {viewMode === "slides" ? (
+          <div className="doc-page doc-page--slides">
+            {toast && <p className="doc-toast">{toast}</p>}
+            {deck ? (
+              <SlideStudio
+                open
+                noteId={note.id}
+                noteTitle={title}
+                noteBody={body}
+                deck={deck}
+                onChange={onDeckChange}
+                onBackToWrite={enterWrite}
+                onSynced={() => flash("已依筆記更新投影片")}
+              />
+            ) : (
+              <p className="slide-loading">正在準備投影片…</p>
+            )}
+          </div>
+        ) : (
+          <>
         <div className="doc-page">
           {aiError && <p className="doc-banner-error">{aiError}</p>}
           {toast && <p className="doc-toast">{toast}</p>}
@@ -754,18 +832,9 @@ export default function NotePage() {
           onInsertMarkdown={(md) => { setBody((b) => b + md); markDirty(); flash("已插入 AI 內容"); }}
           onJumpHeading={jumpHeading}
         />
+          </>
+        )}
       </div>
-
-      {studioOpen && deck && (
-        <SlideStudio
-          open={studioOpen}
-          noteTitle={title}
-          noteBody={body}
-          deck={deck}
-          onChange={onDeckChange}
-          onClose={() => setStudioOpen(false)}
-        />
-      )}
     </div>
   );
 }

@@ -34,6 +34,8 @@ export type SlideDeck = {
   theme: SlideThemeId;
   slides: Slide[];
   updatedAt?: number;
+  /** hash of note title+body when deck was last generated/synced */
+  sourceHash?: string;
 };
 
 export type ThemeTokens = {
@@ -105,6 +107,7 @@ export function emptyDeck(theme: SlideThemeId = "teal"): SlideDeck {
     theme,
     slides: [buildLayoutSlide("title", "未命名簡報", "")],
     updatedAt: Date.now(),
+    sourceHash: hashNoteSource("未命名簡報", ""),
   };
 }
 
@@ -313,7 +316,25 @@ export function deckFromMarkdown(noteTitle: string, body: string, theme: SlideTh
     theme,
     slides: slides.length ? slides : [buildLayoutSlide("title", noteTitle || "簡報", "")],
     updatedAt: Date.now(),
+    sourceHash: hashNoteSource(noteTitle, body),
   };
+}
+
+/** Fast non-crypto hash for stale-deck detection */
+export function hashNoteSource(title: string, body: string): string {
+  const s = `${title || ""}\n---\n${body || ""}`;
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+export function isDeckStale(deck: SlideDeck | null | undefined, title: string, body: string): boolean {
+  if (!deck?.slides?.length) return true;
+  if (!deck.sourceHash) return true;
+  return deck.sourceHash !== hashNoteSource(title, body);
 }
 
 export function splitMarkdownSections(
@@ -402,5 +423,6 @@ export function normalizeDeck(raw: unknown): SlideDeck | null {
     theme: d.theme || "teal",
     slides: d.slides,
     updatedAt: d.updatedAt,
+    sourceHash: d.sourceHash,
   };
 }

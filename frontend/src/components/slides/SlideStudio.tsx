@@ -15,48 +15,93 @@ import {
   clampBlock,
   deckFromMarkdown,
   getTheme,
+  isDeckStale,
   uid,
 } from "@/lib/slideDeck";
 
 type Props = {
   open: boolean;
+  noteId: string;
   noteTitle: string;
   noteBody: string;
   deck: SlideDeck;
   onChange: (deck: SlideDeck) => void;
-  onClose: () => void;
+  onBackToWrite: () => void;
+  onSynced?: () => void;
 };
 
 export default function SlideStudio({
   open,
+  noteId,
   noteTitle,
   noteBody,
   deck,
   onChange,
-  onClose,
+  onBackToWrite,
+  onSynced,
 }: Props) {
   const [idx, setIdx] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [presenting, setPresenting] = useState(false);
   const [busy, setBusy] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [syncDismissed, setSyncDismissed] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   const slide = deck.slides[idx] || deck.slides[0];
   const theme = getTheme(deck.theme);
+  const stale = isDeckStale(deck, noteTitle, noteBody) && !syncDismissed;
 
   useEffect(() => {
     if (!open) {
       setPresenting(false);
       setSelectedId(null);
       setEditingId(null);
+      setExportOpen(false);
     }
   }, [open]);
 
   useEffect(() => {
+    setSyncDismissed(false);
+  }, [noteTitle, noteBody, deck.sourceHash]);
+
+  useEffect(() => {
+    if (!noteId || typeof window === "undefined") return;
+    try {
+      const raw = sessionStorage.getItem(`cadence_slide_idx_${noteId}`);
+      if (raw != null) {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n >= 0) setIdx(n);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [noteId]);
+
+  useEffect(() => {
+    if (!noteId || typeof window === "undefined") return;
+    try {
+      sessionStorage.setItem(`cadence_slide_idx_${noteId}`, String(idx));
+    } catch {
+      /* ignore */
+    }
+  }, [noteId, idx]);
+
+  useEffect(() => {
     if (idx >= deck.slides.length) setIdx(Math.max(0, deck.slides.length - 1));
   }, [deck.slides.length, idx]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(e.target as Node)) setExportOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [exportOpen]);
 
   const patchDeck = useCallback(
     (fn: (d: SlideDeck) => SlideDeck) => {
@@ -90,13 +135,14 @@ export default function SlideStudio({
     setEditingId(null);
   };
 
-  const rebuildFromNote = () => {
-    if (!confirm("用目前筆記內容重新產生投影片？既有排版會被覆蓋。")) return;
+  const syncFromNote = () => {
     const next = deckFromMarkdown(noteTitle, noteBody, deck.theme);
     onChange(next);
     setIdx(0);
     setSelectedId(null);
     setEditingId(null);
+    setSyncDismissed(false);
+    onSynced?.();
   };
 
   const addSlide = () => {
@@ -180,6 +226,7 @@ export default function SlideStudio({
     const node = exportRef.current;
     if (!node) return;
     setBusy("匯出 PNG…");
+    setExportOpen(false);
     try {
       const dataUrl = await toPng(node, {
         cacheBust: true,
@@ -197,6 +244,7 @@ export default function SlideStudio({
   };
 
   const exportPdf = () => {
+    setExportOpen(false);
     const themeTok = getTheme(deck.theme);
     const pages = deck.slides
       .map((s, i) => {
@@ -257,8 +305,12 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
         return;
       }
       if (e.key === "Escape") {
-        if (editingId) setEditingId(null);
-        else onClose();
+        if (editingId) {
+          setEditingId(null);
+          return;
+        }
+        onBackToWrite();
+        return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId && !editingId) {
         const tag = (e.target as HTMLElement)?.tagName;
@@ -270,26 +322,66 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, presenting, deck.slides.length, selectedId, editingId]);
+  }, [open, presenting, deck.slides.length, selectedId, editingId, onBackToWrite]);
 
   const thumbs = useMemo(() => deck.slides, [deck.slides]);
 
   if (!open || !slide) return null;
 
   return (
-    <div className="slide-studio">
+    <div className="slide-studio slide-studio--embedded">
+      {stale && (
+        <div className="slide-sync-banner">
+          <span>筆記內容有更新，投影片可能已過時。</span>
+          <div className="slide-sync-actions">
+            <button type="button" className="doc-cmd is-on" onClick={syncFromNote}>
+              更新投影片
+            </button>
+            <button type="button" className="doc-cmd" onClick={() => setSyncDismissed(true)}>
+              略過
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="slide-studio-bar">
         <div className="slide-studio-title">
-          <strong>簡報工作室</strong>
-          <span>{noteTitle || "未命名"} · {idx + 1}/{deck.slides.length}</span>
+          <strong>簡報</strong>
+          <span>
+            {idx + 1}/{deck.slides.length} · 雙擊編輯 · Esc 回寫作
+          </span>
         </div>
         <div className="slide-studio-actions">
           {busy && <span className="slide-busy">{busy}</span>}
-          <button type="button" className="doc-cmd" onClick={rebuildFromNote}>從筆記重建</button>
-          <button type="button" className="doc-cmd" onClick={() => setPresenting(true)}>播放</button>
-          <button type="button" className="doc-cmd" onClick={() => void exportPng()}>PNG</button>
-          <button type="button" className="doc-cmd" onClick={exportPdf}>PDF</button>
-          <button type="button" className="doc-cmd is-on" onClick={onClose}>完成</button>
+          <button type="button" className="doc-cmd" onClick={syncFromNote} title="用筆記重新套版">
+            同步筆記
+          </button>
+          <div className="slide-export-wrap" ref={exportMenuRef}>
+            <button
+              type="button"
+              className={`doc-cmd${exportOpen ? " is-on" : ""}`}
+              onClick={() => setExportOpen((v) => !v)}
+            >
+              匯出
+            </button>
+            {exportOpen && (
+              <div className="slide-export-menu">
+                <button type="button" onClick={() => void exportPng()}>
+                  目前頁 PNG
+                </button>
+                <button type="button" onClick={exportPdf}>
+                  全部 PDF
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            className="doc-cmd slide-play-btn"
+            onClick={() => setPresenting(true)}
+          >
+            播放
+          </button>
         </div>
       </header>
 
@@ -315,7 +407,9 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
               </span>
             </button>
           ))}
-          <button type="button" className="slide-thumb-add" onClick={addSlide}>＋ 新增</button>
+          <button type="button" className="slide-thumb-add" onClick={addSlide}>
+            ＋ 新增
+          </button>
         </aside>
 
         <main className="slide-stage-wrap">
@@ -333,7 +427,6 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
               onEditEnd={() => setEditingId(null)}
             />
           </div>
-          {/* Hidden export node at fixed 1920×1080 for sharp PNG */}
           <div className="slide-export-host" aria-hidden>
             <div ref={exportRef} className="slide-export-node">
               <SlideStage slide={slide} theme={theme} interactive={false} />
@@ -376,11 +469,31 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
 
           <p className="slide-props-label">區塊</p>
           <div className="slide-prop-actions">
-            <button type="button" className="doc-cmd" onClick={addTextBlock}>＋ 文字</button>
-            <button type="button" className="doc-cmd" onClick={addImageBlock}>＋ 圖片</button>
-            <button type="button" className="doc-cmd" onClick={duplicateSlide}>複製頁</button>
-            <button type="button" className="doc-cmd" onClick={deleteSlide} disabled={deck.slides.length <= 1}>刪頁</button>
-            <button type="button" className="doc-cmd" onClick={deleteSelected} disabled={!selectedId}>刪區塊</button>
+            <button type="button" className="doc-cmd" onClick={addTextBlock}>
+              ＋ 文字
+            </button>
+            <button type="button" className="doc-cmd" onClick={addImageBlock}>
+              ＋ 圖片
+            </button>
+            <button type="button" className="doc-cmd" onClick={duplicateSlide}>
+              複製頁
+            </button>
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={deleteSlide}
+              disabled={deck.slides.length <= 1}
+            >
+              刪頁
+            </button>
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={deleteSelected}
+              disabled={!selectedId}
+            >
+              刪區塊
+            </button>
           </div>
 
           {selectedId && (
@@ -390,7 +503,7 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
             />
           )}
 
-          <p className="slide-tip">雙擊文字可編輯 · 拖曳移動 · 右下角縮放 · Esc 關閉</p>
+          <p className="slide-tip">拖曳移動 · 右下角縮放 · 播放才會全螢幕</p>
         </aside>
       </div>
 
@@ -400,8 +513,12 @@ html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",san
           onClick={() => setIdx((i) => Math.min(i + 1, deck.slides.length - 1))}
         >
           <div className="slide-present-bar" onClick={(e) => e.stopPropagation()}>
-            <span>{idx + 1} / {deck.slides.length}</span>
-            <button type="button" className="doc-cmd" onClick={() => setPresenting(false)}>離開</button>
+            <span>
+              {idx + 1} / {deck.slides.length}
+            </span>
+            <button type="button" className="doc-cmd" onClick={() => setPresenting(false)}>
+              離開
+            </button>
           </div>
           <div className="slide-present-frame">
             <SlideStage slide={deck.slides[idx]} theme={theme} interactive={false} />
