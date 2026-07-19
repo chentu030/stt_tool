@@ -12,6 +12,7 @@ import {
   blocksToMarkdown,
   wrapSelection,
 } from "@/lib/blocks";
+import { suggestWikiTitles, NoteLite } from "@/lib/wiki";
 
 type Props = {
   valueMd: string;
@@ -19,6 +20,8 @@ type Props = {
   placeholder?: string;
   findOpen?: boolean;
   onFindOpenChange?: (open: boolean) => void;
+  wikiNotes?: NoteLite[];
+  onOpenWiki?: (title: string) => void;
 };
 
 function typeLabel(type: BlockType): string {
@@ -42,10 +45,13 @@ export default function BlockEditor({
   placeholder,
   findOpen,
   onFindOpenChange,
+  wikiNotes = [],
+  onOpenWiki,
 }: Props) {
   const [blocks, setBlocks] = useState<Block[]>(() => markdownToBlocks(valueMd));
   const [focusId, setFocusId] = useState<string | null>(null);
   const [slash, setSlash] = useState<{ blockId: string; query: string; index: number } | null>(null);
+  const [wiki, setWiki] = useState<{ blockId: string; query: string; index: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [findQuery, setFindQuery] = useState("");
@@ -217,12 +223,53 @@ export default function BlockEditor({
 
   const onTextChange = (id: string, text: string) => {
     updateBlock(id, { text });
+    const wikiMatch = text.match(/\[\[([^\]]*)$/);
+    if (wikiMatch) {
+      setWiki({ blockId: id, query: wikiMatch[1], index: 0 });
+      setSlash(null);
+      return;
+    }
+    setWiki((w) => (w?.blockId === id ? null : w));
+
     const m = text.match(/(?:^|\s)\/([^\s]*)$/);
     if (m) setSlash({ blockId: id, query: m[1], index: 0 });
     else setSlash((s) => (s?.blockId === id ? null : s));
   };
 
+  const applyWiki = (blockId: string, title: string) => {
+    const b = blocks.find((x) => x.id === blockId);
+    if (!b) return;
+    const nextText = b.text.replace(/\[\[[^\]]*$/, `[[${title}]]`);
+    updateBlock(blockId, { text: nextText });
+    setWiki(null);
+    focusBlock(blockId, true);
+  };
+
   const onKeyDown = (e: KeyboardEvent, block: Block) => {
+    if (wiki && wiki.blockId === block.id) {
+      const items = suggestWikiTitles(wikiNotes, wiki.query);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setWiki({ ...wiki, index: (wiki.index + 1) % Math.max(items.length, 1) });
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setWiki({ ...wiki, index: (wiki.index - 1 + items.length) % Math.max(items.length, 1) });
+        return;
+      }
+      if (e.key === "Enter" && items[wiki.index]) {
+        e.preventDefault();
+        applyWiki(block.id, items[wiki.index].title);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setWiki(null);
+        return;
+      }
+    }
+
     if (slash && slash.blockId === block.id) {
       const items = filteredSlash(slash.query);
       if (e.key === "ArrowDown") {
@@ -362,6 +409,15 @@ export default function BlockEditor({
         {toolBtn("B", () => applyWrap("**"), "粗體 ⌘B")}
         {toolBtn("I", () => applyWrap("*"), "斜體 ⌘I")}
         {toolBtn("連結", applyLink, "插入連結")}
+        {toolBtn("[[", () => {
+          const id = focusId || blocks[0]?.id;
+          if (!id) return;
+          const b = blocks.find((x) => x.id === id);
+          if (!b) return;
+          updateBlock(id, { text: `${b.text}[[` });
+          setWiki({ blockId: id, query: "", index: 0 });
+          focusBlock(id, true);
+        }, "插入 wikilink")}
         {toolBtn("找", () => setShowFind(!showFind), "尋找 ⌘F")}
         {toolBtn("圖片", () => {
           const id = focusId || blocks[blocks.length - 1]?.id;
@@ -420,6 +476,8 @@ export default function BlockEditor({
         {blocks.map((block, i) => {
           const isSlash = slash?.blockId === block.id;
           const slashItems = isSlash ? filteredSlash(slash.query) : [];
+          const isWiki = wiki?.blockId === block.id;
+          const wikiItems = isWiki ? suggestWikiTitles(wikiNotes, wiki.query) : [];
           const hit = findQuery && block.text.toLowerCase().includes(findQuery.toLowerCase());
 
           return (
@@ -647,6 +705,73 @@ export default function BlockEditor({
                           </span>
                         </button>
                       ))}
+                    </motion.div>
+                  )}
+                  {isWiki && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: "100%",
+                        zIndex: 40,
+                        minWidth: 240,
+                        maxHeight: 240,
+                        overflow: "auto",
+                        background: "var(--bg-elevated)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 12,
+                        boxShadow: "var(--shadow)",
+                        padding: 6,
+                      }}
+                    >
+                      <p style={{ fontSize: "0.7rem", color: "var(--text-muted)", padding: "4px 8px", margin: 0 }}>
+                        連結筆記 [[ ]]
+                      </p>
+                      {wikiItems.length === 0 ? (
+                        <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", padding: "8px" }}>
+                          無符合標題 — 仍可手動完成 [[標題]]
+                        </p>
+                      ) : wikiItems.map((n, idx) => (
+                        <button
+                          key={n.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            applyWiki(block.id, n.title);
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            border: "none",
+                            borderRadius: 8,
+                            padding: "8px 10px",
+                            background: idx === wiki!.index ? "var(--accent-soft)" : "transparent",
+                            color: "var(--text-main)",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                            fontSize: "0.9rem",
+                          }}
+                        >
+                          [[{n.title}]]
+                        </button>
+                      ))}
+                      {onOpenWiki && wikiItems[wiki!.index] && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ margin: 6 }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            onOpenWiki(wikiItems[wiki!.index].title);
+                          }}
+                        >
+                          開啟選取筆記
+                        </button>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>

@@ -230,7 +230,7 @@ button, input, textarea, select {
   background: var(--bg-elevated);
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   z-index: 30;
 }
 .mobile-bottom a {
@@ -366,4 +366,13 @@ button, input, textarea, select {
 @keyframes pulse-soft {
   from { opacity: 0.55; }
   to { opacity: 1; }
+}
+
+.note-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 1rem;
+}
+@media (max-width: 900px) {
+  .note-layout { grid-template-columns: 1fr; }
 }

@@ -218,6 +218,8 @@ export interface Note {
   title: string;
   body_md: string;
   tags: string[];
+  folder?: string;
+  journal_date?: string;
   source_job_id?: string;
   created_at: Date;
   updated_at: Date;
@@ -228,7 +230,8 @@ export async function createNote(
   title: string,
   bodyMd: string,
   sourceJobId?: string,
-  tags: string[] = []
+  tags: string[] = [],
+  extra?: { folder?: string; journal_date?: string }
 ): Promise<string> {
   const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   await setDoc(doc(db, "notes", id), {
@@ -236,6 +239,8 @@ export async function createNote(
     title: title || "未命名筆記",
     body_md: bodyMd,
     tags,
+    folder: extra?.folder || "",
+    journal_date: extra?.journal_date || "",
     source_job_id: sourceJobId || "",
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
@@ -245,7 +250,7 @@ export async function createNote(
 
 export async function updateNote(
   noteId: string,
-  updates: Partial<Pick<Note, "title" | "body_md" | "tags">>
+  updates: Partial<Pick<Note, "title" | "body_md" | "tags" | "folder" | "journal_date">>
 ) {
   await updateDoc(doc(db, "notes", noteId), {
     ...updates,
