@@ -4,6 +4,7 @@ import { resolveAiTextModel } from "@/lib/aiPrefs";
 import {
   ClarifyNeededError,
   PlanApprovalNeededError,
+  ResearchAbortedError,
   depthConfig,
   refineResearchReport,
   runDeepResearch,
@@ -150,7 +151,8 @@ export async function POST(req: NextRequest) {
       const run = async (
         send?: (
           e: ResearchProgressEvent | { type: "meta"; model: string; depth: string; runId?: string }
-        ) => void
+        ) => void,
+        signal?: AbortSignal
       ) => {
         send?.({ type: "meta", model: researchModel, depth, runId });
         try {
@@ -163,6 +165,7 @@ export async function POST(req: NextRequest) {
             maxRetries: cfg.maxRetries + 1,
             questions: data.refineQuestions?.map(String).filter(Boolean),
             addQuestions: data.addQuestions?.map(String).filter(Boolean),
+            signal,
             onProgress: send,
           });
         } finally {
@@ -175,21 +178,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ...report, model: researchModel, depth });
       }
 
+      const ac = new AbortController();
+      const onReqAbort = () => ac.abort();
+      req.signal.addEventListener("abort", onReqAbort);
+
       const readable = new ReadableStream({
         async start(controller) {
           const send = (
             event: ResearchProgressEvent | { type: "meta"; model: string; depth: string }
           ) => controller.enqueue(encoder.encode(sseEncode(event)));
           try {
-            await run(send);
+            await run(send, ac.signal);
           } catch (e) {
-            send({
-              type: "error",
-              message: e instanceof Error ? e.message : String(e),
-            });
+            if (e instanceof ResearchAbortedError || ac.signal.aborted) {
+              send({ type: "log", level: "warn", message: "研究已中止" });
+            } else {
+              send({
+                type: "error",
+                message: e instanceof Error ? e.message : String(e),
+              });
+            }
           } finally {
+            req.signal.removeEventListener("abort", onReqAbort);
             controller.close();
           }
+        },
+        cancel() {
+          ac.abort();
         },
       });
       return new Response(readable, {
@@ -248,6 +263,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const ac = new AbortController();
+    const onReqAbort = () => ac.abort();
+    req.signal.addEventListener("abort", onReqAbort);
+
     const readable = new ReadableStream({
       async start(controller) {
         const send = (
@@ -262,6 +281,7 @@ export async function POST(req: NextRequest) {
           send({ type: "meta", model: researchModel, depth, runId });
           await runDeepResearch(topic, {
             ...runOpts,
+            signal: ac.signal,
             onProgress: (e) => send(e),
           });
         } catch (e) {
@@ -270,6 +290,8 @@ export async function POST(req: NextRequest) {
             e instanceof PlanApprovalNeededError
           ) {
             // already streamed
+          } else if (e instanceof ResearchAbortedError || ac.signal.aborted) {
+            send({ type: "log", level: "warn", message: "研究已中止" });
           } else {
             send({
               type: "error",
@@ -277,9 +299,13 @@ export async function POST(req: NextRequest) {
             });
           }
         } finally {
+          req.signal.removeEventListener("abort", onReqAbort);
           endResearchRun(runId);
           controller.close();
         }
+      },
+      cancel() {
+        ac.abort();
       },
     });
 

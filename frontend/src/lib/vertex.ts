@@ -112,6 +112,8 @@ export async function vertexGenerateContent(prompt: string, opts?: {
   model?: string;
   /** Enable Grounding with Google Search (model may search the web). */
   grounding?: boolean;
+  /** Abort in-flight Vertex fetch (client cancel / disconnect). */
+  signal?: AbortSignal;
 }): Promise<VertexGenerateResult> {
   const keys = getKeys();
   if (!keys.length) {
@@ -163,6 +165,7 @@ export async function vertexGenerateContent(prompt: string, opts?: {
           "x-goog-api-key": apiKey,
         },
         body: JSON.stringify(body),
+        signal: opts?.signal,
       });
 
       const data = await res.json().catch(() => ({}));
@@ -196,10 +199,18 @@ export async function vertexGenerateContent(prompt: string, opts?: {
           : undefined,
       };
     } catch (e) {
+      if (opts?.signal?.aborted || (e instanceof Error && e.name === "AbortError")) {
+        throw e instanceof Error ? e : new Error("ABORTED");
+      }
       lastError = e instanceof Error ? e.message : String(e);
     }
   }
 
+  if (opts?.signal?.aborted) {
+    const err = new Error("ABORTED");
+    err.name = "AbortError";
+    throw err;
+  }
   throw new Error(`Vertex AI 全部金鑰嘗試失敗：${lastError}`);
 }
 

@@ -240,6 +240,17 @@ function DeepResearchPageInner() {
   const [guidance, setGuidance] = useState("");
   const [guidanceBusy, setGuidanceBusy] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [liveFindings, setLiveFindings] = useState<
+    {
+      index: number;
+      question: string;
+      summary: string;
+      adequate: boolean;
+      retries: number;
+      sources: { index: number; kind: string; title: string; uri: string }[];
+    }[]
+  >([]);
+  const [exportOpen, setExportOpen] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const runIdRef = useRef("");
@@ -313,6 +324,16 @@ function DeepResearchPageInner() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreen]);
+
+  useEffect(() => {
+    if (!busy) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [busy]);
 
   const libraryNotes = useMemo(() => toLibraryNotes(notes), [notes]);
 
@@ -615,6 +636,27 @@ function DeepResearchPageInner() {
             );
           } else if (type === "guidance_applied") {
             pushLog(`方向已套用：${event.text}`, "warn");
+          } else if (type === "finding") {
+            const f = event.finding as {
+              question?: string;
+              summary?: string;
+              adequate?: boolean;
+              retries?: number;
+              sources?: { index: number; kind: string; title: string; uri: string }[];
+            };
+            const idx = Number(event.index) || 0;
+            setLiveFindings((prev) => {
+              const row = {
+                index: idx,
+                question: String(f?.question || ""),
+                summary: String(f?.summary || ""),
+                adequate: !!f?.adequate,
+                retries: Number(f?.retries) || 0,
+                sources: Array.isArray(f?.sources) ? f.sources : [],
+              };
+              const without = prev.filter((x) => x.index !== idx);
+              return [...without, row].sort((a, b) => a.index - b.index);
+            });
           } else if (type === "sources") {
             setSourceStats({
               web: Number(event.web) || 0,
@@ -626,7 +668,6 @@ function DeepResearchPageInner() {
             setPhase("");
             setDraftPlan(null);
             setProgressPct(100);
-            setChat([]);
             setTransformOut("");
             pushLog("深度研究完成", "ok");
             opts?.onDone?.(r);
@@ -655,10 +696,13 @@ function DeepResearchPageInner() {
     setChecklist([]);
     setRunId("");
     runIdRef.current = "";
+    setLiveFindings([]);
+    setExportOpen(false);
     setPhase(opts?.approvedPlan ? "hunt" : "clarify");
     if (opts?.resetLogs !== false) {
       setLogs([]);
       setSourceStats({ web: 0, notes: 0 });
+      setChat([]);
       pushLog("啟動深度研究代理人…");
       pushLog(
         `Gemini 3.1 Pro · ${depth === "max" ? "Max" : "標準"} · 筆記 ${notes.length} 則`
@@ -739,6 +783,8 @@ function DeepResearchPageInner() {
     }
     setBusy(true);
     setError("");
+    setLiveFindings([]);
+    setProgressPct(0);
     pushLog(`開始補強 ${qs.length} 個子問題…`, "retry");
     const ac = new AbortController();
     abortRef.current = ac;
@@ -1021,10 +1067,6 @@ function DeepResearchPageInner() {
   };
 
   const openHistory = (item: ResearchHistoryItem) => {
-    if (item.savedNoteId) {
-      router.push(`/notes/${item.savedNoteId}`);
-      return;
-    }
     setTopic(item.topic);
     setReport({
       ...item.report,
@@ -1038,6 +1080,9 @@ function DeepResearchPageInner() {
     setLogs([]);
     setChat([]);
     setTransformOut("");
+    setLiveFindings([]);
+    setFullscreen(false);
+    pushLog(`已還原報告：${item.title}`, "ok");
   };
 
   if (loading) return <p style={{ padding: "2rem", color: "var(--text-muted)" }}>載入中…</p>;
@@ -1132,10 +1177,10 @@ function DeepResearchPageInner() {
           </label>
 
           <label className="dr-label">
-            優先來源網域（選填，逗號分隔）
+            優先來源網域（選填，逗號分隔；會以 site: 加強搜尋）
             <input
               className="input"
-              placeholder="例：reuters.com, nature.com, mckinsey.com"
+              placeholder="例：nih.gov, who.int, nature.com"
               value={domains}
               disabled={busy}
               onChange={(e) => setDomains(e.target.value)}
@@ -1329,6 +1374,29 @@ function DeepResearchPageInner() {
                 >
                   核准並搜尋
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setDraftPlan(null);
+                    void runResearch({ skipClarify: true, resetLogs: true });
+                  }}
+                >
+                  重新規劃
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setDraftPlan(null);
+                    setClarifyQs([]);
+                    setLogs([]);
+                    setPhase("");
+                    pushLog("已放棄研究計畫", "warn");
+                  }}
+                >
+                  放棄
+                </button>
               </div>
             </div>
           )}
@@ -1371,8 +1439,20 @@ function DeepResearchPageInner() {
                   <li key={h.id}>
                     <button type="button" className="dr-history-open" onClick={() => openHistory(h)}>
                       <strong>{h.title}</strong>
-                      <span>{new Date(h.at).toLocaleString("zh-TW")}</span>
+                      <span>
+                        {new Date(h.at).toLocaleString("zh-TW")}
+                        {h.savedNoteId ? " · 已存筆記" : ""}
+                      </span>
                     </button>
+                    {h.savedNoteId && (
+                      <Link
+                        href={`/notes/${h.savedNoteId}`}
+                        className="dr-history-note"
+                        title="開啟筆記"
+                      >
+                        筆記
+                      </Link>
+                    )}
                     <button
                       type="button"
                       className="dr-history-del"
@@ -1455,6 +1535,38 @@ function DeepResearchPageInner() {
                   >
                     注入
                   </button>
+                </div>
+              )}
+              {liveFindings.length > 0 && (
+                <div className="dr-live-findings">
+                  <h4>即時發現</h4>
+                  <ul>
+                    {liveFindings.map((f) => (
+                      <li key={f.index} className={f.adequate ? "is-ok" : "is-weak"}>
+                        <div className="dr-live-head">
+                          <strong>
+                            {f.index}. {f.question}
+                          </strong>
+                          <span>{f.adequate ? "足夠" : "偏弱"}</span>
+                        </div>
+                        <p>{f.summary.slice(0, 280)}{f.summary.length > 280 ? "…" : ""}</p>
+                        {f.sources.length > 0 && (
+                          <div className="dr-live-srcs">
+                            {f.sources.slice(0, 4).map((s) => (
+                              <a
+                                key={`${f.index}-${s.index}`}
+                                href={s.uri}
+                                target={s.kind === "web" ? "_blank" : undefined}
+                                rel="noreferrer"
+                              >
+                                [{s.index}] {s.title.slice(0, 28)}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               <ul className="dr-log">
@@ -1550,49 +1662,64 @@ function DeepResearchPageInner() {
                   >
                     全螢幕
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={() =>
-                      downloadMarkdown(
-                        report.title,
-                        reportExportBody(report, sourceNoteTitle || undefined)
-                      )
-                    }
-                  >
-                    MD
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={() =>
-                      downloadPdfViaPrint(
-                        report.title,
-                        reportExportBody(report, sourceNoteTitle || undefined)
-                      )
-                    }
-                  >
-                    PDF
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={() =>
-                      void downloadDocx(
-                        report.title,
-                        reportExportBody(report, sourceNoteTitle || undefined)
-                      )
-                    }
-                  >
-                    DOCX
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={() => downloadPptOutline(report.title, report.markdown)}
-                  >
-                    簡報大綱
-                  </button>
+                  <div className="dr-export-menu">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setExportOpen((v) => !v)}
+                    >
+                      匯出 ▾
+                    </button>
+                    {exportOpen && (
+                      <div className="dr-export-pop">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            downloadMarkdown(
+                              report.title,
+                              reportExportBody(report, sourceNoteTitle || undefined)
+                            );
+                            setExportOpen(false);
+                          }}
+                        >
+                          Markdown
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            downloadPdfViaPrint(
+                              report.title,
+                              reportExportBody(report, sourceNoteTitle || undefined)
+                            );
+                            setExportOpen(false);
+                          }}
+                        >
+                          PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void downloadDocx(
+                              report.title,
+                              reportExportBody(report, sourceNoteTitle || undefined)
+                            );
+                            setExportOpen(false);
+                          }}
+                        >
+                          DOCX
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            downloadPptOutline(report.title, report.markdown);
+                            setExportOpen(false);
+                          }}
+                        >
+                          簡報大綱
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1824,7 +1951,15 @@ function DeepResearchPageInner() {
                 <ul>
                   {toc.map((t) => (
                     <li key={t.id} className={t.level === 3 ? "is-h3" : ""}>
-                      <a href={`#fs-${t.id}`} onClick={() => {}}>
+                      <a
+                        href={`#fs-${t.id}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          document
+                            .getElementById(`fs-${t.id}`)
+                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                      >
                         {t.text}
                       </a>
                     </li>

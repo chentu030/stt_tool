@@ -73,6 +73,19 @@ export type ResearchProgressEvent =
   | { type: "question"; index: number; total: number; question: string }
   | { type: "question_done"; index: number; total: number; adequate: boolean }
   | {
+      type: "finding";
+      index: number;
+      total: number;
+      finding: {
+        question: string;
+        summary: string;
+        adequate: boolean;
+        retries: number;
+        sources: CitationSource[];
+        noteHits: NoteSnippet[];
+      };
+    }
+  | {
       type: "progress";
       pct: number;
       done: number;
@@ -89,6 +102,57 @@ export function depthConfig(depth: ResearchDepth = "standard") {
     return { maxQuestions: 7, maxRetries: 2, label: "深度 Max" };
   }
   return { maxQuestions: 5, maxRetries: 1, label: "標準" };
+}
+
+export class ResearchAbortedError extends Error {
+  constructor(message = "研究已中止") {
+    super(message);
+    this.name = "ResearchAbortedError";
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new ResearchAbortedError();
+}
+
+function normalizeDomainHost(d: string): string {
+  return d
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .split("/")[0]
+    .toLowerCase();
+}
+
+/** Inject site: operators so preferred domains actually bias grounding. */
+function withPreferredDomainHint(
+  hint: string,
+  domains: string[],
+  attempt = 0
+): string {
+  const hosts = domains.map(normalizeDomainHost).filter(Boolean).slice(0, 8);
+  if (!hosts.length) return hint;
+  if (attempt > 0) {
+    const focus = hosts[attempt % hosts.length];
+    return `${hint} site:${focus}`;
+  }
+  const sites = hosts
+    .slice(0, 3)
+    .map((h) => `site:${h}`)
+    .join(" OR ");
+  return `${hint} (${sites})`;
+}
+
+function countPreferredHits(
+  sources: VertexGroundingSource[],
+  domains: string[]
+): number {
+  const hosts = domains.map(normalizeDomainHost).filter(Boolean);
+  if (!hosts.length) return 0;
+  return sources.filter((s) => {
+    const uri = (s.uri || "").toLowerCase();
+    return hosts.some((h) => uri.includes(h));
+  }).length;
 }
 
 function parseJsonLoose<T>(text: string): T | null {
@@ -154,8 +218,9 @@ function formatNoteBlock(notes: NoteSnippet[]): string {
 
 export async function clarifyTopic(
   topic: string,
-  opts?: { model?: string; context?: string; answers?: string }
+  opts?: { model?: string; context?: string; answers?: string; signal?: AbortSignal }
 ): Promise<ClarifyResult> {
+  throwIfAborted(opts?.signal);
   const res = await vertexGenerateContent(
     `使用者研究主題：${topic}
 ${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 3000)}` : ""}
@@ -174,6 +239,7 @@ ${opts?.answers ? `\n使用者對先前澄清問題的回答：\n${opts.answers.
       maxOutputTokens: 1024,
       model: opts?.model,
       grounding: false,
+      signal: opts?.signal,
     }
   );
 
@@ -190,8 +256,9 @@ ${opts?.answers ? `\n使用者對先前澄清問題的回答：\n${opts.answers.
 
 export async function buildResearchPlan(
   topic: string,
-  opts?: { model?: string; context?: string; intent?: string }
+  opts?: { model?: string; context?: string; intent?: string; signal?: AbortSignal }
 ): Promise<ResearchPlan> {
+  throwIfAborted(opts?.signal);
   const res = await vertexGenerateContent(
     `研究主題：${topic}
 確定意圖：${opts?.intent || topic}
@@ -211,6 +278,7 @@ ${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 4000)}` : ""}
       maxOutputTokens: 2048,
       model: opts?.model,
       grounding: false,
+      signal: opts?.signal,
     }
   );
 
@@ -243,8 +311,9 @@ async function evaluateFinding(
   summary: string,
   webCount: number,
   noteCount: number,
-  opts?: { model?: string }
+  opts?: { model?: string; signal?: AbortSignal }
 ): Promise<{ adequate: boolean; reason: string; retryQuery?: string }> {
+  throwIfAborted(opts?.signal);
   const res = await vertexGenerateContent(
     `子問題：${question}
 網路來源數：${webCount}
@@ -265,6 +334,7 @@ ${summary.slice(0, 2500)}
       maxOutputTokens: 512,
       model: opts?.model,
       grounding: false,
+      signal: opts?.signal,
     }
   );
   const parsed = parseJsonLoose<{
@@ -293,21 +363,34 @@ async function huntOnce(
   question: string,
   searchHint: string,
   noteHits: NoteSnippet[],
-  opts?: { model?: string; preferredDomains?: string[] }
+  opts?: {
+    model?: string;
+    preferredDomains?: string[];
+    domainAttempt?: number;
+    signal?: AbortSignal;
+  }
 ): Promise<{
   summary: string;
   webSources: VertexGroundingSource[];
   searchQueries: string[];
 }> {
+  throwIfAborted(opts?.signal);
   const domains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
+  const biasedHint = withPreferredDomainHint(
+    searchHint,
+    domains,
+    opts?.domainAttempt || 0
+  );
   const domainLine = domains.length
-    ? `\n優先參考這些網站／網域（仍可使用其他可靠來源）：${domains.join("、")}`
+    ? `\n【嚴格偏好】優先且盡量只引用這些網域的資料：${domains
+        .map(normalizeDomainHost)
+        .join("、")}。搜尋時已附 site: 運算子；若找不到再謹慎使用其他權威來源並標明。`
     : "";
 
   const res = await vertexGenerateContent(
     `總主題：${topic}
 子問題：${question}
-建議搜尋方向：${searchHint}${domainLine}
+建議搜尋方向：${biasedHint}${domainLine}
 
 —— 使用者個人筆記（內部知識庫，可引用）——
 ${formatNoteBlock(noteHits)}
@@ -325,6 +408,7 @@ ${formatNoteBlock(noteHits)}
       maxOutputTokens: 4096,
       model: opts?.model,
       grounding: true,
+      signal: opts?.signal,
     }
   );
 
@@ -379,14 +463,19 @@ export async function gatherOnQuestion(
     citeStart?: number;
     maxRetries?: number;
     preferredDomains?: string[];
+    signal?: AbortSignal;
     emit?: (e: ResearchProgressEvent) => void;
   }
 ): Promise<ResearchFinding> {
   const emit = opts?.emit;
+  const signal = opts?.signal;
+  throwIfAborted(signal);
   const library = opts?.libraryNotes || [];
   const maxRetries = Math.max(0, opts?.maxRetries ?? 1);
+  const preferredDomains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
   let noteHits = pickNotesForQuery(library, question, 4);
   let hint = opts?.keywordPool?.slice(0, 3).join(" / ") || question;
+  let domainAttempt = 0;
 
   if (noteHits.length) {
     emit?.({
@@ -398,10 +487,13 @@ export async function gatherOnQuestion(
     emit?.({ type: "log", message: "筆記庫無直接命中，以網路搜尋為主" });
   }
 
-  if (opts?.preferredDomains?.length) {
+  if (preferredDomains.length) {
     emit?.({
       type: "log",
-      message: `優先網域：${opts.preferredDomains.slice(0, 5).join("、")}`,
+      message: `優先網域（site:）：${preferredDomains
+        .map(normalizeDomainHost)
+        .slice(0, 5)
+        .join("、")}`,
     });
   }
 
@@ -413,20 +505,71 @@ export async function gatherOnQuestion(
   let retries = 0;
   let result = await huntOnce(topic, question, hint, noteHits, {
     model: opts?.model,
-    preferredDomains: opts?.preferredDomains,
+    preferredDomains,
+    domainAttempt,
+    signal,
   });
   let allQueries = [...result.searchQueries];
+  let preferredHits = countPreferredHits(result.webSources, preferredDomains);
+
+  // If preferred domains set but zero hits, force one domain-focused pass
+  if (preferredDomains.length && preferredHits === 0 && maxRetries > 0) {
+    domainAttempt = 1;
+    emit?.({
+      type: "log",
+      level: "retry",
+      message: "未命中優先網域，改以 site: 加強搜尋…",
+    });
+    const focused = await huntOnce(topic, question, hint, noteHits, {
+      model: opts?.model,
+      preferredDomains,
+      domainAttempt,
+      signal,
+    });
+    allQueries = [...allQueries, ...focused.searchQueries];
+    preferredHits = countPreferredHits(focused.webSources, preferredDomains);
+    if (
+      focused.webSources.length >= result.webSources.length ||
+      preferredHits > 0 ||
+      focused.summary.length >= result.summary.length * 0.7
+    ) {
+      result = {
+        summary:
+          preferredHits > 0
+            ? focused.summary
+            : `${result.summary}\n\n—— 網域加強補充 ——\n${focused.summary}`,
+        webSources: [...result.webSources, ...focused.webSources],
+        searchQueries: allQueries,
+      };
+    }
+    if (preferredHits > 0) {
+      emit?.({
+        type: "log",
+        level: "ok",
+        message: `已命中優先網域 ${preferredHits} 筆`,
+      });
+    }
+  } else if (preferredHits > 0) {
+    emit?.({
+      type: "log",
+      level: "ok",
+      message: `優先網域命中 ${preferredHits} 筆`,
+    });
+  }
+
   let evalResult = await evaluateFinding(
     question,
     result.summary,
     result.webSources.length,
     noteHits.length,
-    { model: opts?.model }
+    { model: opts?.model, signal }
   );
 
   while (!evalResult.adequate && evalResult.retryQuery && retries < maxRetries) {
+    throwIfAborted(signal);
     retries += 1;
     hint = evalResult.retryQuery;
+    domainAttempt = preferredDomains.length ? retries + 1 : 0;
     emit?.({
       type: "log",
       level: "retry",
@@ -438,12 +581,19 @@ export async function gatherOnQuestion(
       question,
       hint,
       retryNotes.length ? retryNotes : noteHits,
-      { model: opts?.model, preferredDomains: opts?.preferredDomains }
+      {
+        model: opts?.model,
+        preferredDomains,
+        domainAttempt,
+        signal,
+      }
     );
     allQueries = [...allQueries, ...retry.searchQueries];
     if (
       retry.summary.length >= result.summary.length * 0.75 ||
-      retry.webSources.length >= result.webSources.length
+      retry.webSources.length >= result.webSources.length ||
+      countPreferredHits(retry.webSources, preferredDomains) >
+        countPreferredHits(result.webSources, preferredDomains)
     ) {
       result = {
         summary: `${result.summary}\n\n—— 補充調查 ——\n${retry.summary}`,
@@ -457,7 +607,7 @@ export async function gatherOnQuestion(
       result.summary,
       result.webSources.length,
       noteHits.length,
-      { model: opts?.model }
+      { model: opts?.model, signal }
     );
   }
 
@@ -507,7 +657,8 @@ function mergeAllSources(findings: ResearchFinding[]): CitationSource[] {
 async function mapPool<T, R>(
   items: T[],
   concurrency: number,
-  fn: (item: T, index: number) => Promise<R>
+  fn: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let cursor = 0;
@@ -515,6 +666,7 @@ async function mapPool<T, R>(
     { length: Math.max(1, Math.min(concurrency, items.length || 1)) },
     async () => {
       while (true) {
+        throwIfAborted(signal);
         const i = cursor++;
         if (i >= items.length) break;
         results[i] = await fn(items[i], i);
@@ -551,8 +703,9 @@ export async function synthesizeReport(
   plan: ResearchPlan,
   findings: ResearchFinding[],
   sources: CitationSource[],
-  opts?: { model?: string; context?: string; intent?: string }
+  opts?: { model?: string; context?: string; intent?: string; signal?: AbortSignal }
 ): Promise<{ markdown: string; summary: string }> {
+  throwIfAborted(opts?.signal);
   const findingBlock = findings
     .map(
       (f, i) =>
@@ -600,6 +753,7 @@ ${citeBlock || "（無明確網址，請標「待查證」）"}
       maxOutputTokens: 8192,
       model: opts?.model,
       grounding: false,
+      signal: opts?.signal,
     }
   );
 
@@ -613,6 +767,7 @@ ${citeBlock || "（無明確網址，請標「待查證」）"}
       maxOutputTokens: 512,
       model: opts?.model,
       grounding: false,
+      signal: opts?.signal,
     }
   );
 
@@ -647,6 +802,8 @@ export type RunDeepResearchOpts = {
   concurrency?: number;
   /** Mid-run guidance store key */
   runId?: string;
+  /** Abort between Vertex calls / pool workers */
+  signal?: AbortSignal;
   onProgress?: (e: ResearchProgressEvent) => void;
 };
 
@@ -695,6 +852,7 @@ export async function runDeepResearch(
     Math.min(3, opts?.concurrency ?? (depth === "max" ? 3 : 2))
   );
   const runId = opts?.runId;
+  const signal = opts?.signal;
 
   emit?.({
     type: "log",
@@ -703,7 +861,7 @@ export async function runDeepResearch(
   if (preferredDomains.length) {
     emit?.({
       type: "log",
-      message: `來源偏好：${preferredDomains.join("、")}`,
+      message: `來源偏好（site:）：${preferredDomains.map(normalizeDomainHost).join("、")}`,
     });
   }
 
@@ -713,6 +871,7 @@ export async function runDeepResearch(
     intent = opts.approvedPlan.angle || topic;
     emit?.({ type: "log", level: "ok", message: "使用你核准的研究計畫，略過釐清／規劃" });
   } else {
+    throwIfAborted(signal);
     emit?.({ type: "phase", phase: "clarify", detail: "釐清研究意圖…" });
     emit?.({ type: "log", message: "正在判斷主題是否夠清楚…" });
 
@@ -721,6 +880,7 @@ export async function runDeepResearch(
         model,
         context: opts?.context,
         answers: opts?.clarifyAnswers,
+        signal,
       });
       intent = clarified.assumedIntent || topic;
 
@@ -760,10 +920,12 @@ export async function runDeepResearch(
   } else {
     emit?.({ type: "phase", phase: "plan", detail: "擬定研究計畫書…" });
     emit?.({ type: "log", message: "正在規劃研究路徑與關鍵字組合…" });
+    throwIfAborted(signal);
     plan = await buildResearchPlan(topic, {
       model,
       context: opts?.context,
       intent,
+      signal,
     });
     plan = {
       ...plan,
@@ -812,7 +974,11 @@ export async function runDeepResearch(
   const extraContextBits: string[] = [];
   emitProgress(emit, 0, questions.length, huntStarted, "hunt");
 
-  const findings = await mapPool(questions, concurrency, async (q, i) => {
+  const findings = await mapPool(
+    questions,
+    concurrency,
+    async (q, i) => {
+    throwIfAborted(signal);
     if (runId) {
       const tips = drainResearchGuidance(runId);
       for (const t of tips) {
@@ -844,6 +1010,7 @@ export async function runDeepResearch(
       citeStart: i * 50 + 1,
       maxRetries,
       preferredDomains,
+      signal,
       emit,
     });
 
@@ -858,6 +1025,19 @@ export async function runDeepResearch(
       total: questions.length,
       adequate: finding.adequate,
     });
+    emit?.({
+      type: "finding",
+      index: i + 1,
+      total: questions.length,
+      finding: {
+        question: finding.question,
+        summary: finding.summary.slice(0, 1200),
+        adequate: finding.adequate,
+        retries: finding.retries,
+        sources: finding.sources.slice(0, 8),
+        noteHits: finding.noteHits.slice(0, 4),
+      },
+    });
     emitProgress(emit, doneCount, questions.length, huntStarted, "hunt");
     emit?.({
       type: "log",
@@ -867,7 +1047,9 @@ export async function runDeepResearch(
       }`,
     });
     return finding;
-  });
+  },
+    signal
+  );
 
   {
     const all = mergeAllSources(findings);
@@ -879,6 +1061,7 @@ export async function runDeepResearch(
   }
 
   // ── 5. Report ───────────────────────────────────────────
+  throwIfAborted(signal);
   emit?.({ type: "phase", phase: "report", detail: "撰寫完整引用報告…" });
   emit?.({ type: "log", message: "正在整合發現、對照筆記並加上腳註…" });
   emitProgress(emit, questions.length, questions.length, huntStarted, "report");
@@ -907,6 +1090,7 @@ export async function runDeepResearch(
     model,
     context: synthContext || undefined,
     intent,
+    signal,
   });
 
   const webSources = sources.filter((s) => s.kind === "web");
@@ -953,11 +1137,13 @@ export async function refineResearchReport(
     questions?: string[];
     /** Brand-new sub-questions to hunt and merge */
     addQuestions?: string[];
+    signal?: AbortSignal;
     onProgress?: (e: ResearchProgressEvent) => void;
   }
 ): Promise<ResearchReport> {
   const emit = opts?.onProgress;
   const model = opts?.model;
+  const signal = opts?.signal;
   const libraryNotes = opts?.libraryNotes || [];
   const preferredDomains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
   const maxRetries = opts?.maxRetries ?? 2;
@@ -997,6 +1183,7 @@ export async function refineResearchReport(
   let citeCursor = 1;
 
   for (let i = 0; i < findings.length; i++) {
+    throwIfAborted(signal);
     const f = findings[i];
     if (!targets.has(f.question.trim())) {
       next.push(f);
@@ -1015,13 +1202,28 @@ export async function refineResearchReport(
       citeStart: citeCursor,
       maxRetries,
       preferredDomains,
+      signal,
       emit,
     });
     citeCursor += updated.sources.length;
+    emit?.({
+      type: "finding",
+      index: i + 1,
+      total: findings.length,
+      finding: {
+        question: updated.question,
+        summary: updated.summary.slice(0, 1200),
+        adequate: updated.adequate,
+        retries: updated.retries,
+        sources: updated.sources.slice(0, 8),
+        noteHits: updated.noteHits.slice(0, 4),
+      },
+    });
     next.push(updated);
   }
 
   for (let i = 0; i < addQuestions.length; i++) {
+    throwIfAborted(signal);
     const q = addQuestions[i];
     emit?.({
       type: "phase",
@@ -1041,9 +1243,23 @@ export async function refineResearchReport(
       citeStart: citeCursor,
       maxRetries,
       preferredDomains,
+      signal,
       emit,
     });
     citeCursor += finding.sources.length;
+    emit?.({
+      type: "finding",
+      index: next.length + 1,
+      total: next.length + addQuestions.length - i,
+      finding: {
+        question: finding.question,
+        summary: finding.summary.slice(0, 1200),
+        adequate: finding.adequate,
+        retries: finding.retries,
+        sources: finding.sources.slice(0, 8),
+        noteHits: finding.noteHits.slice(0, 4),
+      },
+    });
     next.push(finding);
   }
 
@@ -1066,6 +1282,7 @@ export async function refineResearchReport(
   }
 
   emit?.({ type: "phase", phase: "report", detail: "依補強／追問結果重寫報告…" });
+  throwIfAborted(signal);
   const { markdown, summary } = await synthesizeReport(
     topic,
     mergedPlan,
@@ -1075,6 +1292,7 @@ export async function refineResearchReport(
       model,
       context: opts?.context,
       intent: opts?.intent || plan.angle || topic,
+      signal,
     }
   );
 
