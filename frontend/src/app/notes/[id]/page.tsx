@@ -489,6 +489,8 @@ export default function NotePage() {
               findOpen={findOpen}
               onFindOpenChange={setFindOpen}
               toolbarHost={ribbonHost}
+              userId={user.uid}
+              noteId={note.id}
             />
           </div>
 

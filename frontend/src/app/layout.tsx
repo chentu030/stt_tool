@@ -22,6 +22,11 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
           rel="stylesheet"
         />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css"
+          crossOrigin="anonymous"
+        />
         <link rel="icon" href="/brand/logo-mark.svg" type="image/svg+xml" />
       </head>
       <body>

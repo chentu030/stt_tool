@@ -13,7 +13,15 @@ import TaskItem from "@tiptap/extension-task-item";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import Typography from "@tiptap/extension-typography";
-import { markdownToHtml, htmlToMarkdown } from "@/lib/mdHtml";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
+import { markdownToHtml, htmlToMarkdown, formatFileSize } from "@/lib/mdHtml";
+import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
+import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
+import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
+import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
+
+const lowlight = createLowlight(common);
 
 type Props = {
   valueMd: string;
@@ -21,8 +29,9 @@ type Props = {
   placeholder?: string;
   findOpen?: boolean;
   onFindOpenChange?: (open: boolean) => void;
-  /** Mount formatting ribbon at page top (Word-style). */
   toolbarHost?: HTMLElement | null;
+  userId?: string;
+  noteId?: string;
 };
 
 type SlashItem = {
@@ -32,32 +41,10 @@ type SlashItem = {
   run: (editor: Editor) => void;
 };
 
-const SLASH: SlashItem[] = [
-  { id: "p", label: "文字", hint: "一般段落", run: (e) => e.chain().focus().setParagraph().run() },
-  { id: "h1", label: "標題 1", hint: "大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
-  { id: "h2", label: "標題 2", hint: "中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
-  { id: "h3", label: "標題 3", hint: "小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
-  { id: "bullet", label: "項目清單", hint: "無序清單", run: (e) => e.chain().focus().toggleBulletList().run() },
-  { id: "numbered", label: "編號清單", hint: "有序清單", run: (e) => e.chain().focus().toggleOrderedList().run() },
-  { id: "todo", label: "待辦", hint: "可勾選", run: (e) => e.chain().focus().toggleTaskList().run() },
-  { id: "quote", label: "引用", hint: "引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
-  { id: "code", label: "程式碼", hint: "Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
-  { id: "hr", label: "分隔線", hint: "水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
-  {
-    id: "image",
-    label: "圖片",
-    hint: "以網址插入",
-    run: (e) => {
-      const url = window.prompt("圖片網址", "https://");
-      if (url) e.chain().focus().setImage({ src: url }).run();
-    },
-  },
-];
-
-function filterSlash(q: string) {
+function filterSlash(items: SlashItem[], q: string) {
   const s = q.toLowerCase();
-  if (!s) return SLASH;
-  return SLASH.filter((i) => i.label.includes(s) || i.hint.includes(s) || i.id.includes(s));
+  if (!s) return items;
+  return items.filter((i) => i.label.includes(s) || i.hint.includes(s) || i.id.includes(s));
 }
 
 export default function RichNoteEditor({
@@ -67,6 +54,8 @@ export default function RichNoteEditor({
   findOpen,
   onFindOpenChange,
   toolbarHost,
+  userId,
+  noteId,
 }: Props) {
   const skip = useRef(false);
   const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
@@ -75,16 +64,170 @@ export default function RichNoteEditor({
   const applySlashRef = useRef<(item: SlashItem) => void>(() => {});
   const [findQ, setFindQ] = useState("");
   const [replaceQ, setReplaceQ] = useState("");
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [uploadError, setUploadError] = useState("");
   const showFind = findOpen ?? false;
   const onChangeRef = useRef(onChangeMd);
   onChangeRef.current = onChangeMd;
   const [, setTick] = useState(0);
+
+  const imageRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
+  const pptRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<Editor | null>(null);
+
+  const insertUploaded = useCallback(async (file: File) => {
+    if (!userId || !noteId) {
+      setUploadError("無法上傳：缺少登入或筆記編號");
+      return;
+    }
+    const MAX = 80 * 1024 * 1024;
+    if (file.size > MAX) {
+      setUploadError("檔案超過 80MB");
+      return;
+    }
+    setUploadError("");
+    setUploadPct(0);
+    try {
+      const { url, name } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
+      const ed = editorRef.current;
+      if (!ed) return;
+      const kind = detectMediaKind(file);
+      const lower = name.toLowerCase();
+
+      if (kind === "image") {
+        ed.chain().focus().setImage({ src: url, alt: name }).run();
+      } else if (kind === "audio") {
+        ed.chain().focus().setNoteAudio({ src: url, title: name }).run();
+      } else if (kind === "video") {
+        ed.chain().focus().setNoteVideo({ src: url, title: name }).run();
+      } else if (lower.endsWith(".pdf")) {
+        const emb = resolveEmbedUrl(url, name);
+        if (emb) {
+          ed.chain().focus().setNoteEmbed({
+            src: emb.src,
+            kind: "pdf",
+            title: name,
+            original: url,
+          }).run();
+        }
+      } else if (/\.(ppt|pptx)$/i.test(lower)) {
+        const emb = resolveEmbedUrl(url, name);
+        if (emb) {
+          ed.chain().focus().setNoteEmbed({
+            src: emb.src,
+            kind: "ppt",
+            title: name,
+            original: url,
+          }).run();
+        }
+      } else {
+        ed.chain().focus().setNoteFile({
+          href: url,
+          name,
+          size: formatFileSize(file.size),
+        }).run();
+      }
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "上傳失敗");
+    } finally {
+      setUploadPct(null);
+    }
+  }, [userId, noteId]);
+
+  const insertEmbedFromPrompt = useCallback((hint: string) => {
+    const url = promptInsertUrl(hint);
+    if (!url) return;
+    const emb = resolveEmbedUrl(url);
+    if (!emb) {
+      setUploadError("無法辨識此連結");
+      return;
+    }
+    editorRef.current?.chain().focus().setNoteEmbed({
+      src: emb.src,
+      kind: emb.kind,
+      title: emb.title,
+      original: emb.original,
+    }).run();
+  }, []);
+
+  const buildSlash = useCallback((editor: Editor): SlashItem[] => [
+    { id: "p", label: "文字", hint: "一般段落", run: (e) => e.chain().focus().setParagraph().run() },
+    { id: "h1", label: "標題 1", hint: "大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+    { id: "h2", label: "標題 2", hint: "中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+    { id: "h3", label: "標題 3", hint: "小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+    { id: "bullet", label: "項目清單", hint: "無序清單", run: (e) => e.chain().focus().toggleBulletList().run() },
+    { id: "numbered", label: "編號清單", hint: "有序清單", run: (e) => e.chain().focus().toggleOrderedList().run() },
+    { id: "todo", label: "待辦", hint: "可勾選", run: (e) => e.chain().focus().toggleTaskList().run() },
+    { id: "quote", label: "引用", hint: "引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
+    { id: "code", label: "程式碼", hint: "Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
+    {
+      id: "math",
+      label: "LaTeX 公式",
+      hint: "區塊公式 $$",
+      run: (e) => {
+        const f = window.prompt("LaTeX 公式", "E = mc^2");
+        if (f) e.chain().focus().setMathBlock(f).run();
+      },
+    },
+    {
+      id: "mathi",
+      label: "行內公式",
+      hint: "$...$",
+      run: (e) => {
+        const f = window.prompt("行內 LaTeX", "x^2");
+        if (f) e.chain().focus().setMathInline(f).run();
+      },
+    },
+    { id: "hr", label: "分隔線", hint: "水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
+    { id: "image", label: "圖片", hint: "上傳圖片", run: () => imageRef.current?.click() },
+    { id: "file", label: "檔案", hint: "上傳任意檔案", run: () => fileRef.current?.click() },
+    { id: "audio", label: "語音／音訊", hint: "上傳音訊", run: () => audioRef.current?.click() },
+    { id: "video", label: "影片檔", hint: "上傳影片", run: () => videoRef.current?.click() },
+    { id: "pdf", label: "PDF 預覽", hint: "上傳或之後貼連結", run: () => pdfRef.current?.click() },
+    { id: "ppt", label: "PPT 預覽", hint: "上傳簡報檔", run: () => pptRef.current?.click() },
+    {
+      id: "youtube",
+      label: "YouTube",
+      hint: "貼上影片連結",
+      run: () => insertEmbedFromPrompt("YouTube 連結"),
+    },
+    {
+      id: "drive",
+      label: "Google Drive",
+      hint: "貼上分享連結",
+      run: () => insertEmbedFromPrompt("Google Drive / Docs 分享連結"),
+    },
+    {
+      id: "web",
+      label: "網站",
+      hint: "嵌入網頁",
+      run: () => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）"),
+    },
+    {
+      id: "imglink",
+      label: "圖片網址",
+      run: (e) => {
+        const url = window.prompt("圖片網址", "https://");
+        if (url) e.chain().focus().setImage({ src: url }).run();
+      },
+      hint: "用 URL 插入",
+    },
+  ], [insertEmbedFromPrompt]);
 
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
+        codeBlock: false,
+      }),
+      CodeBlockLowlight.configure({
+        lowlight,
+        defaultLanguage: "plaintext",
       }),
       Placeholder.configure({
         placeholder: placeholder || "輸入文字，或輸入 / 插入區塊…",
@@ -94,22 +237,51 @@ export default function RichNoteEditor({
         autolink: true,
         HTMLAttributes: { class: "rich-link" },
       }),
-      Image.configure({ HTMLAttributes: { class: "rich-image" } }),
+      Image.configure({
+        allowBase64: false,
+        HTMLAttributes: { class: "rich-image" },
+      }),
       TaskList,
       TaskItem.configure({ nested: true }),
       Underline,
       Highlight.configure({ multicolor: false }),
       Typography,
+      NoteAudio,
+      NoteVideo,
+      NoteFile,
+      MathInline,
+      MathBlock,
+      NoteEmbed,
     ],
     content: markdownToHtml(valueMd),
     editorProps: {
-      attributes: {
-        class: "rich-prose",
+      attributes: { class: "rich-prose" },
+      handlePaste: (_view, event) => {
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              event.preventDefault();
+              void insertUploaded(file);
+              return true;
+            }
+          }
+        }
+        return false;
+      },
+      handleDrop: (_view, event) => {
+        const files = event.dataTransfer?.files;
+        if (!files?.length) return false;
+        event.preventDefault();
+        Array.from(files).forEach((f) => { void insertUploaded(f); });
+        return true;
       },
       handleKeyDown: (_view, event) => {
         const cur = slashRef.current;
-        if (!cur) return false;
-        const items = filterSlash(cur.query);
+        if (!cur || !editorRef.current) return false;
+        const items = filterSlash(buildSlash(editorRef.current), cur.query);
         if (event.key === "ArrowDown") {
           event.preventDefault();
           setSlash({ ...cur, index: (cur.index + 1) % Math.max(items.length, 1) });
@@ -145,12 +317,13 @@ export default function RichNoteEditor({
       const m = text.match(/(?:^|\n)\/([^\s/]*)$/);
       if (m) setSlash({ query: m[1], index: 0 });
       else setSlash(null);
-
       skip.current = true;
       onChangeRef.current(htmlToMarkdown(ed.getHTML()));
     },
     onSelectionUpdate: () => setTick((t) => t + 1),
   });
+
+  editorRef.current = editor;
 
   const applySlash = useCallback(
     (item: SlashItem) => {
@@ -159,8 +332,7 @@ export default function RichNoteEditor({
       const text = editor.state.doc.textBetween(Math.max(0, from - 40), from, "\n");
       const m = text.match(/(?:^|\n)(\/[^\s]*)$/);
       if (m) {
-        const delFrom = from - m[1].length;
-        editor.chain().focus().deleteRange({ from: delFrom, to: from }).run();
+        editor.chain().focus().deleteRange({ from: from - m[1].length, to: from }).run();
       }
       item.run(editor);
       setSlash(null);
@@ -176,11 +348,32 @@ export default function RichNoteEditor({
       return;
     }
     const next = markdownToHtml(valueMd);
-    const cur = editor.getHTML();
-    if (htmlToMarkdown(cur) !== (valueMd || "").trim()) {
+    if (htmlToMarkdown(editor.getHTML()) !== (valueMd || "").trim()) {
       editor.commands.setContent(next, { emitUpdate: false });
     }
   }, [valueMd, editor]);
+
+  // Re-resolve embed src from original URL when loading markdown (src may equal original)
+  useEffect(() => {
+    if (!editor) return;
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name !== "noteEmbed") return;
+      const original = node.attrs.original || node.attrs.src;
+      const emb = resolveEmbedUrl(original || "", node.attrs.title || "");
+      if (emb && emb.src !== node.attrs.src) {
+        editor.commands.command(({ tr }) => {
+          tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            src: emb.src,
+            kind: emb.kind,
+            title: node.attrs.title || emb.title,
+            original: emb.original,
+          });
+          return true;
+        });
+      }
+    });
+  }, [editor, valueMd]);
 
   const setLink = () => {
     if (!editor) return;
@@ -199,9 +392,25 @@ export default function RichNoteEditor({
     onChangeMd(md);
   };
 
+  const onPick = (files: FileList | null) => {
+    if (!files?.length) return;
+    Array.from(files).forEach((f) => { void insertUploaded(f); });
+  };
+
   if (!editor) return <p style={{ color: "var(--text-muted)" }}>編輯器載入中…</p>;
 
-  const slashItems = slash ? filterSlash(slash.query) : [];
+  const slashItems = slash ? filterSlash(buildSlash(editor), slash.query) : [];
+
+  const hiddenInputs = (
+    <>
+      <input ref={imageRef} type="file" accept="image/*" hidden multiple onChange={(e) => { onPick(e.target.files); e.target.value = ""; }} />
+      <input ref={fileRef} type="file" hidden multiple onChange={(e) => { onPick(e.target.files); e.target.value = ""; }} />
+      <input ref={audioRef} type="file" accept="audio/*" hidden multiple onChange={(e) => { onPick(e.target.files); e.target.value = ""; }} />
+      <input ref={videoRef} type="file" accept="video/*" hidden multiple onChange={(e) => { onPick(e.target.files); e.target.value = ""; }} />
+      <input ref={pdfRef} type="file" accept="application/pdf,.pdf" hidden multiple onChange={(e) => { onPick(e.target.files); e.target.value = ""; }} />
+      <input ref={pptRef} type="file" accept=".ppt,.pptx,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden multiple onChange={(e) => { onPick(e.target.files); e.target.value = ""; }} />
+    </>
+  );
 
   const ribbon = (
     <div className="doc-ribbon-inner">
@@ -220,18 +429,36 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1. 編號</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>☐ 待辦</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>引用</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>{"</>"}</ToolbarBtn>
-        <ToolbarBtn onClick={setLink} active={editor.isActive("link")}>連結</ToolbarBtn>
+        <ToolbarBtn active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()} title="程式碼">{"</>"}</ToolbarBtn>
         <ToolbarBtn
           onClick={() => {
-            const url = window.prompt("圖片網址", "https://");
-            if (url) editor.chain().focus().setImage({ src: url }).run();
+            const f = window.prompt("LaTeX 公式", "E = mc^2");
+            if (f) editor.chain().focus().setMathBlock(f).run();
           }}
+          title="LaTeX"
         >
-          圖片
+          ∑
         </ToolbarBtn>
+        <ToolbarBtn onClick={setLink} active={editor.isActive("link")}>連結</ToolbarBtn>
+        <span className="rich-toolbar-sep" />
+        <ToolbarBtn onClick={() => imageRef.current?.click()} title="上傳圖片">圖片</ToolbarBtn>
+        <ToolbarBtn onClick={() => fileRef.current?.click()} title="上傳檔案">檔案</ToolbarBtn>
+        <ToolbarBtn onClick={() => audioRef.current?.click()} title="上傳音訊">語音</ToolbarBtn>
+        <ToolbarBtn onClick={() => videoRef.current?.click()} title="上傳影片">影片</ToolbarBtn>
+        <ToolbarBtn onClick={() => pdfRef.current?.click()} title="PDF 預覽">PDF</ToolbarBtn>
+        <ToolbarBtn onClick={() => pptRef.current?.click()} title="PPT 預覽">PPT</ToolbarBtn>
+        <ToolbarBtn onClick={() => insertEmbedFromPrompt("YouTube 連結")} title="YouTube">YT</ToolbarBtn>
+        <ToolbarBtn onClick={() => insertEmbedFromPrompt("Google Drive 分享連結")} title="Drive">Drive</ToolbarBtn>
+        <ToolbarBtn onClick={() => insertEmbedFromPrompt("網站網址")} title="嵌入網站">網站</ToolbarBtn>
         <ToolbarBtn onClick={() => onFindOpenChange?.(true)}>尋找</ToolbarBtn>
       </div>
+      {uploadPct !== null && (
+        <div className="rich-upload-bar">
+          <span>上傳中 {uploadPct}%</span>
+          <div className="progress-track"><div className="progress-fill" style={{ width: `${uploadPct}%` }} /></div>
+        </div>
+      )}
+      {uploadError && <p className="rich-upload-error">{uploadError}</p>}
       {showFind && (
         <div className="rich-find rich-find--ribbon">
           <input className="input" placeholder="尋找…" value={findQ} onChange={(e) => setFindQ(e.target.value)} autoFocus />
@@ -245,13 +472,21 @@ export default function RichNoteEditor({
 
   return (
     <div className="rich-editor">
+      {hiddenInputs}
       {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
 
       <BubbleMenu editor={editor} className="rich-bubble">
         <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>B</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><u>U</u></ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}>螢</ToolbarBtn>
+        <ToolbarBtn active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>{"<>"}</ToolbarBtn>
+        <ToolbarBtn
+          onClick={() => {
+            const f = window.prompt("行內 LaTeX", "x^2");
+            if (f) editor.chain().focus().setMathInline(f).run();
+          }}
+        >
+          ∑
+        </ToolbarBtn>
         <ToolbarBtn onClick={setLink}>連結</ToolbarBtn>
       </BubbleMenu>
 

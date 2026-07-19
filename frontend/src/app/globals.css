@@ -1551,6 +1551,117 @@ button, input, textarea, select {
   border-radius: 10px;
   margin: 0.5em 0;
 }
+.rich-prose .rich-audio,
+.rich-prose .rich-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.75em 0;
+  border-radius: 10px;
+  background: var(--bg-muted);
+}
+.rich-prose .rich-video {
+  max-height: 420px;
+}
+.rich-prose .rich-file {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 0.85rem;
+  margin: 0.55em 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.rich-prose .rich-file:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rich-embed {
+  margin: 0.85em 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+.rich-embed-label {
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.02em;
+}
+.rich-embed-frame {
+  display: block;
+  width: 100%;
+  min-height: 320px;
+  height: 56vw;
+  max-height: 480px;
+  border: none;
+  background: #111;
+}
+.rich-embed--youtube .rich-embed-frame {
+  aspect-ratio: 16 / 9;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+}
+.rich-embed--pdf .rich-embed-frame,
+.rich-embed--ppt .rich-embed-frame,
+.rich-embed--drive .rich-embed-frame {
+  min-height: 480px;
+  height: 70vh;
+  max-height: 720px;
+}
+.rich-embed-open {
+  display: block;
+  font-size: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  color: var(--accent);
+  border-top: 1px solid var(--border);
+}
+.rich-math-inline {
+  display: inline-block;
+  padding: 0 0.15em;
+  vertical-align: middle;
+}
+.rich-math-block {
+  margin: 0.85em 0;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+.rich-math-error {
+  color: var(--danger);
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+.rich-prose pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
+.rich-upload-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 0 0.15rem 0.25rem;
+}
+.rich-upload-error {
+  color: var(--danger);
+  font-size: 0.78rem;
+  margin: 0;
+  padding: 0 0.15rem 0.25rem;
+}
 .rich-slash {
   top: 2.2rem;
   left: 0;

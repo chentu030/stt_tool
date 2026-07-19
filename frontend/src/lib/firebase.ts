@@ -177,6 +177,34 @@ export function uploadFile(
   });
 }
 
+/** Upload media attached to a note under uploads/{uid}/notes/{noteId}/… */
+export async function uploadNoteMedia(
+  uid: string,
+  noteId: string,
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<{ url: string; path: string; name: string; contentType: string }> {
+  const safe = file.name.replace(/[^\w.\u4e00-\u9fff-]+/g, "_").slice(0, 80);
+  const path = `uploads/${uid}/notes/${noteId}/${Date.now()}_${safe}`;
+  const url = await uploadFile(path, file, onProgress);
+  return {
+    url,
+    path,
+    name: file.name,
+    contentType: file.type || "application/octet-stream",
+  };
+}
+
+export type MediaKind = "image" | "audio" | "video" | "file";
+
+export function detectMediaKind(file: File): MediaKind {
+  const t = file.type || "";
+  if (t.startsWith("image/")) return "image";
+  if (t.startsWith("audio/")) return "audio";
+  if (t.startsWith("video/")) return "video";
+  return "file";
+}
+
 export async function getFileUrl(path: string): Promise<string> {
   return getDownloadURL(ref(storage, path));
 }
