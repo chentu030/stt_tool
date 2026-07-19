@@ -22,7 +22,7 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
           rel="stylesheet"
         />
-        <link rel="icon" href="/brand/cadence-lockup.svg" type="image/svg+xml" />
+        <link rel="icon" href="/brand/logo-mark.svg" type="image/svg+xml" />
       </head>
       <body>
         <AuthProvider>
