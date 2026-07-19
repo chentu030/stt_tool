@@ -13,7 +13,7 @@ export type HomePage =
   | "/board"
   | "/canvas"
   | "/graph";
-export type LibraryViewPref = "list" | "grid" | "compact";
+export type LibraryViewPref = "list" | "grid" | "compact" | "table";
 export type LibrarySortPref = "updated" | "created" | "title" | "length";
 export type BoardSortPref = "updated" | "priority" | "due" | "age" | "title";
 export type GraphLayoutPref = "force" | "radial" | "cluster" | "grid" | "timeline";
@@ -84,6 +84,9 @@ export type UserPrefs = {
   /** Shortcuts */
   enableShortcuts: boolean;
   slashMenu: boolean;
+  /** Workspace */
+  favoriteNoteIds: string[];
+  recentNoteIds: string[];
 };
 
 export const ACCENTS: {
@@ -222,6 +225,8 @@ export const DEFAULT_PREFS: UserPrefs = {
   askBeforeDelete: true,
   enableShortcuts: true,
   slashMenu: true,
+  favoriteNoteIds: [],
+  recentNoteIds: [],
 };
 
 const STORAGE_KEY = "cadence_prefs_v1";
@@ -274,6 +279,12 @@ function clamp(n: number, min: number, max: number) {
 }
 
 export function sanitizePrefs(p: UserPrefs): UserPrefs {
+  const fav = Array.isArray(p.favoriteNoteIds)
+    ? p.favoriteNoteIds.filter((x) => typeof x === "string").slice(0, 80)
+    : [];
+  const recent = Array.isArray(p.recentNoteIds)
+    ? p.recentNoteIds.filter((x) => typeof x === "string").slice(0, 30)
+    : [];
   return {
     ...DEFAULT_PREFS,
     ...p,
@@ -285,7 +296,21 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
     defaultFolder: String(p.defaultFolder || "").slice(0, 80),
     defaultTags: String(p.defaultTags || "").slice(0, 200),
+    favoriteNoteIds: fav,
+    recentNoteIds: recent,
   };
+}
+
+export function toggleFavoriteId(prefs: UserPrefs, noteId: string): UserPrefs {
+  const set = new Set(prefs.favoriteNoteIds || []);
+  if (set.has(noteId)) set.delete(noteId);
+  else set.add(noteId);
+  return { ...prefs, favoriteNoteIds: [...set].slice(0, 80) };
+}
+
+export function touchRecentId(prefs: UserPrefs, noteId: string): UserPrefs {
+  const next = [noteId, ...(prefs.recentNoteIds || []).filter((id) => id !== noteId)];
+  return { ...prefs, recentNoteIds: next.slice(0, 20) };
 }
 
 export function resolveTheme(mode: ThemeMode): "light" | "dark" {

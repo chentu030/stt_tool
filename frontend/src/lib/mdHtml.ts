@@ -128,6 +128,19 @@ turndown.addRule("textColor", {
   },
 });
 
+turndown.addRule("wikiLink", {
+  filter: (node) =>
+    node.nodeName === "A" && !!(node as HTMLElement).getAttribute("data-wiki"),
+  replacement: (_content, node) => {
+    const el = node as HTMLElement;
+    const title = (el.getAttribute("data-wiki") || "").trim();
+    const label = (el.textContent || title).trim();
+    if (!title) return label;
+    if (label && label !== title) return `[[${title}|${label}]]`;
+    return `[[${title}]]`;
+  },
+});
+
 function normalizeCssColor(c: string): string {
   const s = c.trim();
   if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s.toLowerCase();
@@ -149,8 +162,10 @@ function escapeHtml(s: string) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+export type WikiResolver = (title: string) => string | null;
+
 /** Convert Cadence shortcuts into HTML TipTap understands */
-function enrichMarkdown(md: string): string {
+function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   let s = md;
 
   // Protect code fences from math transforms
@@ -187,7 +202,6 @@ function enrichMarkdown(md: string): string {
   });
 
   s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {
-    // src resolved at render time in TipTap from original via data; store original as both
     return `<div class="rich-embed rich-embed--${escapeAttr(kind)}" data-note-embed="1" data-kind="${escapeAttr(kind)}" data-title="${escapeAttr(title || kind)}" data-src="${escapeAttr(original)}" data-original="${escapeAttr(original)}"></div>`;
   });
 
@@ -197,11 +211,22 @@ function enrichMarkdown(md: string): string {
     return `<span style="color: ${c}" data-text-color="${c}">${escapeHtml(text)}</span>`;
   });
 
+  // Wiki links [[Title]] or [[Title|alias]]
+  s = s.replace(/\[\[([^\]|#\n]+)(?:\|([^\]\n]+))?\]\]/g, (_m, title: string, alias?: string) => {
+    const t = String(title).trim();
+    const label = escapeHtml((alias || title).trim());
+    const id = resolveWiki?.(t) || null;
+    if (id) {
+      return `<a class="rich-wiki" data-wiki="${escapeAttr(t)}" href="/notes/${escapeAttr(id)}">${label}</a>`;
+    }
+    return `<a class="rich-wiki is-missing" data-wiki="${escapeAttr(t)}" href="#">${label}</a>`;
+  });
+
   s = s.replace(/@@FENCE(\d+)@@/g, (_m, i) => fences[Number(i)] || "");
   return s;
 }
 
-export function markdownToHtml(md: string): string {
+export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   const raw = (md || "").trim();
   if (!raw) return "<p></p>";
   // Colored / plain highlights: ==text== or ==text=={#rrggbb}
@@ -216,7 +241,7 @@ export function markdownToHtml(md: string): string {
       return `<mark>${t}</mark>`;
     }
   );
-  const withMedia = enrichMarkdown(withMarks);
+  const withMedia = enrichMarkdown(withMarks, resolveWiki);
   return marked.parse(withMedia, { async: false }) as string;
 }
 

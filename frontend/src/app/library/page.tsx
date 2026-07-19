@@ -46,7 +46,7 @@ const SORT_OPTIONS = [
 
 function LibraryPageInner() {
   const { user, loading } = useAuth();
-  const { prefs } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
   const router = useRouter();
   const searchParams = useSearchParams();
   const folderFromUrl = searchParams.get("folder") || "";
@@ -285,14 +285,17 @@ function LibraryPageInner() {
               onChange={setSort}
             />
             <div className="kb-seg">
-              {(["list", "grid", "compact"] as ViewMode[]).map((v) => (
+              {(["list", "grid", "compact", "table"] as ViewMode[]).map((v) => (
                 <button
                   key={v}
                   type="button"
                   className={view === v ? "is-active" : ""}
-                  onClick={() => setView(v)}
+                  onClick={() => {
+                    setView(v);
+                    setPrefs({ libraryView: v });
+                  }}
                 >
-                  {v === "list" ? "列表" : v === "grid" ? "網格" : "緊湊"}
+                  {v === "list" ? "列表" : v === "grid" ? "網格" : v === "compact" ? "緊湊" : "表格"}
                 </button>
               ))}
             </div>
@@ -419,6 +422,52 @@ function LibraryPageInner() {
                   >
                     建立第一篇
                   </button>
+                </div>
+              ) : view === "table" ? (
+                <div className="kb-table-wrap">
+                  <table className="kb-table">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>標題</th>
+                        <th>資料夾</th>
+                        <th>標籤</th>
+                        <th>狀態</th>
+                        <th>來源</th>
+                        <th>更新</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredNotes.map((n) => (
+                        <tr key={n.id} className={selected.includes(n.id) ? "is-selected" : ""}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selected.includes(n.id)}
+                              onChange={() => toggleSelect(n.id)}
+                            />
+                          </td>
+                          <td>
+                            <Link href={`/notes/${n.id}`}>
+                              {n.icon ? `${n.icon} ` : ""}
+                              {n.title || "未命名"}
+                            </Link>
+                          </td>
+                          <td>{n.folder || "—"}</td>
+                          <td>{(n.tags || []).slice(0, 3).map((t) => `#${t}`).join(" ") || "—"}</td>
+                          <td>{n.status ? noteStatusLabel(n.status) : "—"}</td>
+                          <td>
+                            {n.source_job_id ? (
+                              <Link href={`/job/${n.source_job_id}`}>逐字稿</Link>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td>{n.updated_at.toLocaleDateString("zh-TW")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               ) : (
                 <div className={`kb-notes kb-notes--${view}`}>

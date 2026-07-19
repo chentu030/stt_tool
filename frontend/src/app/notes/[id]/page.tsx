@@ -33,17 +33,27 @@ import {
   extractOutline,
   findRelatedNotes,
 } from "@/lib/noteMeta";
+import { usePrefsOptional } from "@/components/PrefsProvider";
+import { toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
+import { NOTE_TEMPLATES } from "@/lib/templates";
+import { splitFolderPath } from "@/lib/noteTree";
+
+const PAGE_ICONS = ["📄", "📝", "💡", "📌", "🎯", "📚", "🔬", "🎤", "🗂", "⭐"];
 
 export default function NotePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user, loading } = useAuth();
+  const prefsCtx = usePrefsOptional();
   const [note, setNote] = useState<Note | null>(null);
   const [allNotes, setAllNotes] = useState<Note[]>([]);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [folder, setFolder] = useState("");
+  const [icon, setIcon] = useState("");
+  const [cover, setCover] = useState("");
+  const [parentId, setParentId] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [dirty, setDirty] = useState(false);
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -62,8 +72,17 @@ export default function NotePage() {
   const [focusMode, setFocusMode] = useState(false);
   const [linkPicker, setLinkPicker] = useState("");
   const [toast, setToast] = useState("");
+  const [iconOpen, setIconOpen] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latest = useRef({ title: "", body: "", tags: [] as string[], folder: "" });
+  const latest = useRef({
+    title: "",
+    body: "",
+    tags: [] as string[],
+    folder: "",
+    icon: "",
+    cover: "",
+    parent_id: "",
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -74,7 +93,18 @@ export default function NotePage() {
       setBody(n.body_md);
       setTags(n.tags || []);
       setFolder(n.folder || "");
-      latest.current = { title: n.title, body: n.body_md, tags: n.tags || [], folder: n.folder || "" };
+      setIcon(n.icon || "");
+      setCover(n.cover || "");
+      setParentId(n.parent_id || "");
+      latest.current = {
+        title: n.title,
+        body: n.body_md,
+        tags: n.tags || [],
+        folder: n.folder || "",
+        icon: n.icon || "",
+        cover: n.cover || "",
+        parent_id: n.parent_id || "",
+      };
     });
   }, [id]);
 
@@ -84,8 +114,14 @@ export default function NotePage() {
   }, [user]);
 
   useEffect(() => {
-    latest.current = { title, body, tags, folder };
-  }, [title, body, tags, folder]);
+    if (!id || !prefsCtx) return;
+    prefsCtx.setPrefs((p) => touchRecentId(p, id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  useEffect(() => {
+    latest.current = { title, body, tags, folder, icon, cover, parent_id: parentId };
+  }, [title, body, tags, folder, icon, cover, parentId]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1100px)");
@@ -111,6 +147,9 @@ export default function NotePage() {
         body_md: latest.current.body,
         tags: mergedTags,
         folder: latest.current.folder,
+        icon: latest.current.icon,
+        cover: latest.current.cover,
+        parent_id: latest.current.parent_id,
       });
       try {
         await pushNoteVersion(note.id, latest.current.title, latest.current.body);
@@ -304,6 +343,31 @@ export default function NotePage() {
       <div className="doc-command">
         <div className="doc-command-left">
           <Link href="/library" className="doc-crumb">知識庫</Link>
+          {splitFolderPath(folder).map((seg, i, arr) => {
+            const path = arr.slice(0, i + 1).join("/");
+            return (
+              <span key={path} style={{ display: "contents" }}>
+                <span className="doc-crumb-sep">/</span>
+                <Link
+                  href={`/library?folder=${encodeURIComponent(path)}`}
+                  className="doc-crumb"
+                >
+                  {seg}
+                </Link>
+              </span>
+            );
+          })}
+          {parentId && (() => {
+            const parent = allNotes.find((n) => n.id === parentId);
+            return parent ? (
+              <>
+                <span className="doc-crumb-sep">/</span>
+                <Link href={`/notes/${parent.id}`} className="doc-crumb">
+                  {parent.icon ? `${parent.icon} ` : ""}{parent.title || "上層"}
+                </Link>
+              </>
+            ) : null;
+          })()}
           <span className="doc-crumb-sep">/</span>
           <span className="doc-crumb-current">{title || "未命名"}</span>
           {statusLabel && (
@@ -311,6 +375,31 @@ export default function NotePage() {
           )}
         </div>
         <div className="doc-command-actions">
+          <button
+            type="button"
+            className={`doc-cmd${(prefsCtx?.prefs.favoriteNoteIds || []).includes(note.id) ? " is-on" : ""}`}
+            title="收藏"
+            onClick={() => prefsCtx?.setPrefs((p) => toggleFavoriteId(p, note.id))}
+          >
+            ★
+          </button>
+          <button
+            type="button"
+            className="doc-cmd"
+            title="新增子頁面"
+            onClick={() => {
+              if (!user) return;
+              void (async () => {
+                const id = await createNote(user.uid, "未命名子頁", "", undefined, [], {
+                  parent_id: note.id,
+                  status: "backlog",
+                });
+                router.push(`/notes/${id}`);
+              })();
+            }}
+          >
+            子頁
+          </button>
           <button type="button" className="doc-cmd" onClick={() => setFindOpen(true)}>尋找</button>
           <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
             {aiBusy ? "AI…" : "摘要"}
@@ -406,12 +495,87 @@ export default function NotePage() {
             </div>
           )}
 
-          <input
-            className="doc-title"
-            value={title}
-            onChange={(e) => { setTitle(e.target.value); markDirty(); }}
-            placeholder="無標題"
-          />
+          {cover && (
+            <div
+              className="doc-cover"
+              style={{ backgroundImage: `url(${cover})` }}
+              title="封面"
+            >
+              <button
+                type="button"
+                className="doc-cover-clear"
+                onClick={() => {
+                  setCover("");
+                  markDirty();
+                }}
+              >
+                移除封面
+              </button>
+            </div>
+          )}
+
+          <div className="doc-title-row">
+            <div className="doc-icon-wrap">
+              <button
+                type="button"
+                className="doc-icon-btn"
+                onClick={() => setIconOpen((v) => !v)}
+                title="頁面圖示"
+              >
+                {icon || "📄"}
+              </button>
+              {iconOpen && (
+                <div className="doc-icon-menu">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIcon("");
+                      setIconOpen(false);
+                      markDirty();
+                    }}
+                  >
+                    無
+                  </button>
+                  {PAGE_ICONS.map((ic) => (
+                    <button
+                      key={ic}
+                      type="button"
+                      onClick={() => {
+                        setIcon(ic);
+                        setIconOpen(false);
+                        markDirty();
+                      }}
+                    >
+                      {ic}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <input
+              className="doc-title"
+              value={title}
+              onChange={(e) => { setTitle(e.target.value); markDirty(); }}
+              placeholder="無標題"
+            />
+          </div>
+
+          <div className="doc-chrome-actions">
+            {!cover && (
+              <button
+                type="button"
+                className="doc-cmd"
+                onClick={() => {
+                  const url = window.prompt("封面圖片網址", "https://");
+                  if (!url) return;
+                  setCover(url.trim());
+                  markDirty();
+                }}
+              >
+                加封面
+              </button>
+            )}
+          </div>
 
           <div className="doc-props">
             <input
@@ -491,6 +655,17 @@ export default function NotePage() {
               toolbarHost={ribbonHost}
               userId={user.uid}
               noteId={note.id}
+              wikiNotes={allNotes}
+              showEmptyTemplates
+              onEmptyTemplate={(tid) => {
+                const tpl = NOTE_TEMPLATES.find((t) => t.id === tid);
+                if (!tpl) return;
+                if (tpl.title && !title.trim()) setTitle(tpl.title);
+                setBody(tpl.body);
+                if (tpl.tags.length) setTags(Array.from(new Set([...tags, ...tpl.tags])));
+                markDirty();
+                flash(`已套用範本：${tpl.label}`);
+              }}
             />
           </div>
 

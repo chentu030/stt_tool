@@ -14,6 +14,7 @@ import {
 import TranscriptEditor from "@/components/TranscriptEditor";
 import TranscriptChat from "@/components/TranscriptChat";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
+import { NOTE_TEMPLATES } from "@/lib/templates";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +25,7 @@ export default function JobPage() {
   const [texts, setTexts] = useState<{ filename: string; text: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [liveText, setLiveText] = useState("");
+  const [tplOpen, setTplOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -87,27 +89,75 @@ export default function JobPage() {
           </p>
         </div>
         {showWorkspace && (
-          <button
-            className="btn btn-sm"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
-                const noteId = await createNote(
-                  user.uid,
-                  current.filename || "來自轉錄的筆記",
-                  plain,
-                  job.id
-                );
-                router.push(`/notes/${noteId}`);
-              } finally {
-                setBusy(false);
-              }
-            }}
-          >
-            {busy ? "建立中…" : "轉成筆記"}
-          </button>
+          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", position: "relative" }}>
+            <button
+              className="btn btn-sm btn-ghost"
+              disabled={busy}
+              onClick={() => setTplOpen((v) => !v)}
+            >
+              範本 ▾
+            </button>
+            {tplOpen && (
+              <div className="doc-more-menu" style={{ right: 0, top: "110%" }}>
+                {NOTE_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className="doc-more-item"
+                    onClick={() => {
+                      setTplOpen(false);
+                      void (async () => {
+                        if (!user || !job) return;
+                        setBusy(true);
+                        try {
+                          const plain = segmentsToPlainText(
+                            parseTranscript(liveText || current.text)
+                          );
+                          const body =
+                            t.id === "blank"
+                              ? plain
+                              : `${t.body.trim()}\n\n---\n\n## 逐字稿\n\n${plain}`;
+                          const noteId = await createNote(
+                            user.uid,
+                            `${t.title}${current.filename || "轉錄"}`.trim(),
+                            body,
+                            job.id,
+                            t.tags
+                          );
+                          router.push(`/notes/${noteId}`);
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              className="btn btn-sm"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
+                  const noteId = await createNote(
+                    user.uid,
+                    current.filename || "來自轉錄的筆記",
+                    plain,
+                    job.id
+                  );
+                  router.push(`/notes/${noteId}`);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? "建立中…" : "轉成筆記"}
+            </button>
+          </div>
         )}
       </div>
 

@@ -8,6 +8,8 @@ export type LibraryNote = {
   folder?: string;
   journal_date?: string;
   status?: string;
+  icon?: string;
+  source_job_id?: string;
   updated_at: Date;
   created_at: Date;
 };
@@ -21,7 +23,7 @@ export type LibraryJob = {
 };
 
 export type SortKey = "updated" | "created" | "title" | "length" | "relevance";
-export type ViewMode = "list" | "grid" | "compact";
+export type ViewMode = "list" | "grid" | "compact" | "table";
 
 export type LibraryStats = {
   noteCount: number;

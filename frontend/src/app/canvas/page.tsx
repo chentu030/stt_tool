@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, PointerEvent as REPointerEvent } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, loginWithGoogle, Note } from "@/lib/firebase";
+import { listenToUserNotes, loginWithGoogle, Note, loadCanvasCloud, saveCanvasCloud } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
@@ -60,28 +60,53 @@ export default function CanvasPage() {
 
   useEffect(() => {
     if (!user) return;
-    const loaded = loadDoc(user.uid);
-    // Apply prefs defaults only when canvas is still pristine / first open feel
-    if (
-      loaded.stickies.length === 0 &&
-      loaded.shapes.length === 0 &&
-      loaded.notes.length === 0 &&
-      loaded.edges.length === 0
-    ) {
-      loaded.grid = prefs.canvasGrid;
-      loaded.snap = prefs.canvasSnap;
-    }
-    setDoc(loaded);
-    if (!prefsSeeded) {
-      setTool(prefs.canvasDefaultTool);
-      setPrefsSeeded(true);
-    }
-    return listenToUserNotes(user.uid, setNotes);
+    let cancelled = false;
+    const boot = async () => {
+      let loaded = loadDoc(user.uid);
+      try {
+        const cloud = await loadCanvasCloud(user.uid);
+        if (cloud && cloud.version === 2) {
+          loaded = { ...emptyDoc(), ...(cloud as unknown as CanvasDoc), version: 2 };
+          saveDoc(user.uid, loaded);
+        }
+      } catch {
+        /* offline / rules — keep local */
+      }
+      if (cancelled) return;
+      if (
+        loaded.stickies.length === 0 &&
+        loaded.shapes.length === 0 &&
+        loaded.notes.length === 0 &&
+        loaded.edges.length === 0
+      ) {
+        loaded.grid = prefs.canvasGrid;
+        loaded.snap = prefs.canvasSnap;
+      }
+      setDoc(loaded);
+      if (!prefsSeeded) {
+        setTool(prefs.canvasDefaultTool);
+        setPrefsSeeded(true);
+      }
+    };
+    void boot();
+    return () => {
+      cancelled = true;
+    };
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!user) return;
-    const t = setTimeout(() => saveDoc(user.uid, doc), 250);
+    return listenToUserNotes(user.uid, setNotes);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const t = setTimeout(() => {
+      saveDoc(user.uid, doc);
+      void saveCanvasCloud(user.uid, doc as unknown as Record<string, unknown>).catch(() => {
+        /* best-effort cloud sync */
+      });
+    }, 400);
     return () => clearTimeout(t);
   }, [doc, user]);
 

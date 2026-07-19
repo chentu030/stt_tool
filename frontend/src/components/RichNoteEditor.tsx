@@ -24,6 +24,7 @@ import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 
 const lowlight = createLowlight(common);
 
@@ -36,6 +37,9 @@ type Props = {
   toolbarHost?: HTMLElement | null;
   userId?: string;
   noteId?: string;
+  wikiNotes?: NoteLite[];
+  onEmptyTemplate?: (templateId: string) => void;
+  showEmptyTemplates?: boolean;
 };
 
 type SlashItem = {
@@ -60,13 +64,29 @@ export default function RichNoteEditor({
   toolbarHost,
   userId,
   noteId,
+  wikiNotes = [],
+  onEmptyTemplate,
+  showEmptyTemplates,
 }: Props) {
   const prefsCtx = usePrefsOptional();
+  const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
+  const slashEnabled = prefsCtx?.prefs.slashMenu !== false;
   const skip = useRef(false);
   const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
+  const [wiki, setWiki] = useState<{ query: string; index: number } | null>(null);
   const slashRef = useRef(slash);
   slashRef.current = slash;
+  const wikiRef = useRef(wiki);
+  wikiRef.current = wiki;
   const applySlashRef = useRef<(item: SlashItem) => void>(() => {});
+  const applyWikiRef = useRef<(title: string) => void>(() => {});
+  const wikiNotesRef = useRef(wikiNotes);
+  wikiNotesRef.current = wikiNotes;
+  const resolveWikiRef = useRef<(title: string) => string | null>(() => null);
+  resolveWikiRef.current = (title: string) => {
+    const hit = findNoteByTitle(wikiNotesRef.current, title);
+    return hit?.id || null;
+  };
   const [findQ, setFindQ] = useState("");
   const [replaceQ, setReplaceQ] = useState("");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -350,7 +370,11 @@ export default function RichNoteEditor({
       Placeholder.configure({
         placeholder: placeholder || "輸入文字，或輸入 / 插入區塊…",
       }),
-      Link.configure({
+      Link.extend({
+        parseHTML() {
+          return [{ tag: "a[href]:not([data-wiki]):not([data-note-file])" }];
+        },
+      }).configure({
         openOnClick: false,
         autolink: true,
         HTMLAttributes: { class: "rich-link" },
@@ -373,9 +397,25 @@ export default function RichNoteEditor({
       MathBlock,
       NoteEmbed,
     ],
-    content: markdownToHtml(valueMd),
+    content: markdownToHtml(valueMd, (t) => resolveWikiRef.current(t)),
     editorProps: {
       attributes: { class: "rich-prose" },
+      handleClick: (_view, _pos, event) => {
+        const el = (event.target as HTMLElement | null)?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
+        if (!el) return false;
+        event.preventDefault();
+        const href = el.getAttribute("href");
+        if (href && href.startsWith("/notes/")) {
+          window.location.href = href;
+          return true;
+        }
+        const title = el.getAttribute("data-wiki");
+        if (title) {
+          const id = resolveWikiRef.current(title);
+          if (id) window.location.href = `/notes/${id}`;
+        }
+        return true;
+      },
       handlePaste: (_view, event) => {
         const items = event.clipboardData?.items;
         if (!items) return false;
@@ -408,6 +448,34 @@ export default function RichNoteEditor({
           if (event.key === "ArrowDown" && editorRef.current) {
             event.preventDefault();
             moveTopLevelBlock(editorRef.current, 1);
+            return true;
+          }
+        }
+        const w = wikiRef.current;
+        if (w && editorRef.current) {
+          const items = suggestWikiTitles(wikiNotesRef.current, w.query);
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setWiki({ ...w, index: (w.index + 1) % Math.max(items.length, 1) });
+            return true;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setWiki({
+              ...w,
+              index: (w.index - 1 + Math.max(items.length, 1)) % Math.max(items.length, 1),
+            });
+            return true;
+          }
+          if (event.key === "Enter") {
+            event.preventDefault();
+            const title = items[w.index]?.title || w.query.trim();
+            if (title) applyWikiRef.current(title);
+            return true;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setWiki(null);
             return true;
           }
         }
@@ -446,9 +514,16 @@ export default function RichNoteEditor({
         ed.state.selection.from,
         "\n"
       );
-      const m = text.match(/(?:^|\n)\/([^\s/]*)$/);
-      if (m) setSlash({ query: m[1], index: 0 });
-      else setSlash(null);
+      const wikiMatch = wikiEnabled ? text.match(/\[\[([^\]]*)$/) : null;
+      if (wikiMatch) {
+        setWiki({ query: wikiMatch[1], index: 0 });
+        setSlash(null);
+      } else {
+        setWiki(null);
+        const m = slashEnabled ? text.match(/(?:^|\n)\/([^\s/]*)$/) : null;
+        if (m) setSlash({ query: m[1], index: 0 });
+        else setSlash(null);
+      }
       skip.current = true;
       onChangeRef.current(htmlToMarkdown(ed.getHTML()));
     },
@@ -473,17 +548,37 @@ export default function RichNoteEditor({
   );
   applySlashRef.current = applySlash;
 
+  const applyWiki = useCallback(
+    (title: string) => {
+      if (!editor) return;
+      const { from } = editor.state.selection;
+      const text = editor.state.doc.textBetween(Math.max(0, from - 60), from, "\n");
+      const m = text.match(/\[\[[^\]]*$/);
+      if (m) {
+        editor
+          .chain()
+          .focus()
+          .deleteRange({ from: from - m[0].length, to: from })
+          .insertContent(`[[${title}]]`)
+          .run();
+      }
+      setWiki(null);
+    },
+    [editor]
+  );
+  applyWikiRef.current = applyWiki;
+
   useEffect(() => {
     if (!editor) return;
     if (skip.current) {
       skip.current = false;
       return;
     }
-    const next = markdownToHtml(valueMd);
+    const next = markdownToHtml(valueMd, (t) => resolveWikiRef.current(t));
     if (htmlToMarkdown(editor.getHTML()) !== (valueMd || "").trim()) {
       editor.commands.setContent(next, { emitUpdate: false });
     }
-  }, [valueMd, editor]);
+  }, [valueMd, editor, wikiNotes]);
 
   // Re-resolve embed src from original URL when loading markdown (src may equal original)
   useEffect(() => {
@@ -532,6 +627,8 @@ export default function RichNoteEditor({
   if (!editor) return <p style={{ color: "var(--text-muted)" }}>編輯器載入中…</p>;
 
   const slashItems = slash ? filterSlash(buildSlash(editor), slash.query) : [];
+  const wikiItems = wiki ? suggestWikiTitles(wikiNotes, wiki.query) : [];
+  const isEmptyDoc = !(valueMd || "").trim();
 
   const hiddenInputs = (
     <>
@@ -764,7 +861,65 @@ export default function RichNoteEditor({
       <div className="rich-canvas">
         <BlockDragHandle editor={editor} />
         <EditorContent editor={editor} />
-        {slash && slashItems.length > 0 && (
+        {showEmptyTemplates && isEmptyDoc && onEmptyTemplate && (
+          <div className="empty-templates">
+            <p className="empty-templates-label">從範本開始</p>
+            <div className="empty-templates-grid">
+              {[
+                { id: "blank", label: "空白" },
+                { id: "meeting", label: "會議" },
+                { id: "lecture", label: "課堂" },
+                { id: "interview", label: "訪談" },
+                { id: "daily", label: "日誌" },
+                { id: "ppt", label: "簡報大綱" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className="empty-template-btn"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onEmptyTemplate(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {wiki && (
+          <div className="slash-menu rich-slash wiki-menu">
+            <p className="rich-slash-label">連結筆記</p>
+            {wikiItems.length === 0 ? (
+              <button
+                type="button"
+                className="is-active"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applyWiki(wiki.query.trim() || "未命名");
+                }}
+              >
+                <strong>{`[[${wiki.query.trim() || "…"}]]`}</strong>
+                <span>插入標題</span>
+              </button>
+            ) : (
+              wikiItems.map((n, idx) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  className={idx === wiki.index ? "is-active" : ""}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyWiki(n.title);
+                  }}
+                >
+                  <strong>{n.title}</strong>
+                  <span>開啟筆記</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+        {slash && slashItems.length > 0 && !wiki && (
           <div className="slash-menu rich-slash">
             <p className="rich-slash-label">插入區塊</p>
             {slashItems.map((item, idx) => (

@@ -251,6 +251,11 @@ export interface Note {
   /** kanban status */
   status?: "backlog" | "doing" | "done" | "";
   source_job_id?: string;
+  /** page chrome */
+  icon?: string;
+  cover?: string;
+  /** nested under another note */
+  parent_id?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -261,7 +266,14 @@ export async function createNote(
   bodyMd: string,
   sourceJobId?: string,
   tags: string[] = [],
-  extra?: { folder?: string; journal_date?: string; status?: Note["status"] }
+  extra?: {
+    folder?: string;
+    journal_date?: string;
+    status?: Note["status"];
+    icon?: string;
+    cover?: string;
+    parent_id?: string;
+  }
 ): Promise<string> {
   const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   await setDoc(doc(db, "notes", id), {
@@ -273,6 +285,9 @@ export async function createNote(
     journal_date: extra?.journal_date || "",
     status: extra?.status || "backlog",
     source_job_id: sourceJobId || "",
+    icon: extra?.icon || "",
+    cover: extra?.cover || "",
+    parent_id: extra?.parent_id || "",
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   });
@@ -281,7 +296,12 @@ export async function createNote(
 
 export async function updateNote(
   noteId: string,
-  updates: Partial<Pick<Note, "title" | "body_md" | "tags" | "folder" | "journal_date" | "status">>
+  updates: Partial<
+    Pick<
+      Note,
+      "title" | "body_md" | "tags" | "folder" | "journal_date" | "status" | "icon" | "cover" | "parent_id"
+    >
+  >
 ) {
   await updateDoc(doc(db, "notes", noteId), {
     ...updates,
@@ -352,4 +372,19 @@ export async function listNoteVersions(noteId: string): Promise<NoteVersion[]> {
   });
   list.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   return list.slice(0, 30);
+}
+
+/** Cloud canvas doc under users/{uid}/workspace/canvas */
+export async function loadCanvasCloud(uid: string): Promise<Record<string, unknown> | null> {
+  const snap = await getDoc(doc(db, "users", uid, "workspace", "canvas"));
+  if (!snap.exists()) return null;
+  return snap.data() as Record<string, unknown>;
+}
+
+export async function saveCanvasCloud(uid: string, data: Record<string, unknown>) {
+  await setDoc(
+    doc(db, "users", uid, "workspace", "canvas"),
+    { ...data, updated_at: Timestamp.now() },
+    { merge: true }
+  );
 }

@@ -4,11 +4,12 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle, logout } from "@/lib/firebase";
+import { loginWithGoogle, logout, listenToUserNotes, listenToUserJobs, type Note, type Job } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
 import CadenceLogo from "@/components/CadenceLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
+import CommandPalette from "@/components/CommandPalette";
 
 const NAV_APPS = [
   { href: "/library", label: "知識庫", icon: LibraryIcon },
@@ -109,8 +110,47 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const homeHref = prefsCtx?.prefs.homePage || "/";
   const isMobile = useIsMobile();
   const isDoc = pathname.startsWith("/notes/");
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  useEffect(() => {
+    if (!user) {
+      setNotes([]);
+      setJobs([]);
+      return;
+    }
+    const u1 = listenToUserNotes(user.uid, setNotes);
+    const u2 = listenToUserJobs(user.uid, setJobs);
+    return () => {
+      u1();
+      u2();
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (prefsCtx?.prefs.enableShortcuts === false) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCmdOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [prefsCtx?.prefs.enableShortcuts]);
+
+  const palette = (
+    <CommandPalette
+      open={cmdOpen}
+      onClose={() => setCmdOpen(false)}
+      notes={notes}
+      jobs={jobs}
+      userId={user?.uid}
+    />
+  );
 
   if (isMobile) {
     return (
@@ -120,6 +160,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <CadenceLogo height={24} />
           </Link>
           <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              title="搜尋 ⌘K"
+              onClick={() => setCmdOpen(true)}
+            >
+              ⌕
+            </button>
             <ThemeToggle />
             {!loading && !user && (
               <button className="btn btn-sm" onClick={() => loginWithGoogle()}>
@@ -152,6 +200,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             設定
           </Link>
         </nav>
+        {palette}
       </div>
     );
   }
@@ -164,6 +213,21 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <CadenceLogo height={24} />
           </Link>
           <div className="sidebar-brand-links">
+            <button
+              type="button"
+              className="sidebar-brand-links a"
+              title="搜尋 ⌘K"
+              onClick={() => setCmdOpen(true)}
+              style={{
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                color: "var(--text-muted)",
+                padding: "0.35rem",
+              }}
+            >
+              ⌕
+            </button>
             <Link href="/" className={isActive("/") ? "is-on" : ""} title="總覽">
               <HomeIcon />
             </Link>
@@ -225,6 +289,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
       <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{children}</main>
+      {palette}
     </div>
   );
 }
