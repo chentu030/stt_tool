@@ -18,7 +18,9 @@ import {
   NoteVersion,
 } from "@/lib/firebase";
 import RichNoteEditor from "@/components/RichNoteEditor";
+import ShareDialog from "@/components/ShareDialog";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
+import { parseNoteShare, type NoteShare } from "@/lib/share";
 import NoteAside, { type NoteAsideAiHandle } from "@/components/notes/NoteAside";
 import {
   downloadDocx,
@@ -106,6 +108,8 @@ export default function NotePage() {
   const [linkPicker, setLinkPicker] = useState("");
   const [toast, setToast] = useState("");
   const [iconOpen, setIconOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const asideAiRef = useRef<NoteAsideAiHandle | null>(null);
   const insertMdRef = useRef<((md: string) => void) | null>(null);
@@ -131,6 +135,7 @@ export default function NotePage() {
       setIcon(n.icon || "");
       setCover(n.cover || "");
       setParentId(n.parent_id || "");
+      setNoteShare(parseNoteShare(n.share));
       const fromCloud = normalizeDeck(n.deck);
       const fromLocal = loadDeckLocal(n.id);
       setDeck(fromCloud || fromLocal);
@@ -756,6 +761,14 @@ export default function NotePage() {
               </button>
             </>
           )}
+          <button
+            type="button"
+            className={`doc-cmd${noteShare?.enabled ? " is-on" : ""}`}
+            title="分享筆記"
+            onClick={() => setShareOpen(true)}
+          >
+            分享
+          </button>
           <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
             側欄
           </button>
@@ -1198,6 +1211,20 @@ export default function NotePage() {
           onResizeWidth={onAsideResize}
         />
       </div>
+
+      {user && note && (
+        <ShareDialog
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          noteId={note.id}
+          ownerId={user.uid}
+          share={noteShare}
+          onUpdated={(s) => {
+            setNoteShare(s);
+            setNote((n) => (n ? { ...n, share: s || undefined } : n));
+          }}
+        />
+      )}
     </div>
   );
 }

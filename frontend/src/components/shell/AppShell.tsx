@@ -17,6 +17,7 @@ const NAV_APPS = [
   { href: "/journal", label: "日誌", icon: JournalIcon },
   { href: "/capture", label: "捕捉", icon: MicIcon },
   { href: "/board", label: "看板", icon: BoardIcon },
+  { href: "/db", label: "資料庫", icon: DatabaseIcon },
   { href: "/canvas", label: "白板", icon: CanvasIcon },
   { href: "/graph", label: "圖譜", icon: GraphIcon },
 ];
@@ -49,6 +50,15 @@ function BoardIcon() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="3" y="3" width="7" height="18" rx="1" />
       <rect x="14" y="3" width="7" height="10" rx="1" />
+    </svg>
+  );
+}
+function DatabaseIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <ellipse cx="12" cy="5" rx="8" ry="3" />
+      <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+      <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
     </svg>
   );
 }

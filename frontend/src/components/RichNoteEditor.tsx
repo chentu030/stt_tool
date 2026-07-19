@@ -24,6 +24,8 @@ import { common, createLowlight } from "lowlight";
 import { markdownToHtml, htmlToMarkdown, formatFileSize } from "@/lib/mdHtml";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
+import { CadenceDatabase } from "@/lib/tiptapDatabase";
+import { createDatabase } from "@/lib/database";
 import {
   Callout,
   ToggleBlock,
@@ -67,6 +69,8 @@ type Props = {
   /** Parent registers insert-at-cursor */
   insertMdRef?: MutableRefObject<((md: string) => void) | null>;
   aiContext?: string;
+  /** Read-only shared / preview mode */
+  readOnly?: boolean;
 };
 
 type SlashItem = {
@@ -149,6 +153,7 @@ export default function RichNoteEditor({
   onRunAiAction,
   insertMdRef,
   aiContext,
+  readOnly = false,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const { user } = useAuth();
@@ -512,7 +517,23 @@ export default function RichNoteEditor({
       app("list", "清單檢視", "/library", "/list 知識庫清單"),
       app("gallery", "畫廊", "/library", "/gallery 知識庫"),
       app("timeline", "時間軸／圖譜", "/graph", "/timeline 圖譜"),
-      app("database", "全頁知識庫", "/library", "/database 開啟知識庫"),
+      {
+        id: "database",
+        label: "資料庫",
+        hint: "/database 插入 Notion 式表格",
+        run: (e) => {
+          void (async () => {
+            if (!userId) {
+              setUploadError("請先登入以建立資料庫");
+              return;
+            }
+            const name =
+              (await askPrompt("資料庫名稱", "任務清單"))?.trim() || "未命名資料庫";
+            const id = await createDatabase(userId, name, "tasks");
+            e.chain().focus().setCadenceDatabase({ databaseId: id, viewId: "v_table" }).run();
+          })();
+        },
+      },
       app("library", "知識庫", "/library", "筆記庫"),
       app("journal", "日誌", "/journal", "日記與行事曆"),
       app("graph", "圖譜", "/graph", "關聯圖譜"),
@@ -778,6 +799,7 @@ export default function RichNoteEditor({
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable: !readOnly,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
@@ -826,6 +848,7 @@ export default function RichNoteEditor({
       MathInline,
       MathBlock,
       NoteEmbed,
+      CadenceDatabase,
       Callout,
       ToggleBlock,
       TocBlock,
@@ -1062,6 +1085,10 @@ export default function RichNoteEditor({
   });
 
   editorRef.current = editor;
+
+  useEffect(() => {
+    editor?.setEditable(!readOnly);
+  }, [editor, readOnly]);
 
   useEffect(() => {
     if (!insertMdRef) return;

@@ -82,6 +82,18 @@ turndown.addRule("mathBlock", {
   },
 });
 
+turndown.addRule("cadenceDatabase", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-cadence-database") === "1",
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const id = el.getAttribute("data-database-id") || "";
+    const viewId = el.getAttribute("data-view-id") || "v_table";
+    return `\n\n[database|${viewId}](${id})\n\n`;
+  },
+});
+
 turndown.addRule("noteEmbed", {
   filter: (node) =>
     node.nodeName === "DIV" &&
@@ -325,6 +337,10 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   s = s.replace(/\[file\|([^\]|]+)(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, name, size, href) => {
     const sizeAttr = size ? ` data-size="${escapeAttr(size)}"` : "";
     return `<a class="rich-file" data-note-file="1" data-name="${escapeAttr(name)}"${sizeAttr} href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">📎 ${escapeHtml(name)}${size ? ` · ${escapeHtml(size)}` : ""}</a>`;
+  });
+
+  s = s.replace(/\[database\|([^\]]*)\]\(([^)]+)\)/g, (_m, viewId, databaseId) => {
+    return `<div class="cdb-embed-shell" data-cadence-database="1" data-database-id="${escapeAttr(databaseId)}" data-view-id="${escapeAttr(viewId || "v_table")}"></div>`;
   });
 
   s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {

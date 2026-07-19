@@ -258,6 +258,16 @@ export interface Note {
   parent_id?: string;
   /** Canva-lite slide deck JSON */
   deck?: Record<string, unknown> | null;
+  /** Cadence database row membership */
+  database_id?: string;
+  /** Custom property values keyed by property id */
+  props?: Record<string, unknown>;
+  /** Public share settings */
+  share?: {
+    enabled: boolean;
+    token: string;
+    mode: "view" | "edit" | "copy";
+  };
   created_at: Date;
   updated_at: Date;
 }
@@ -275,6 +285,8 @@ export async function createNote(
     icon?: string;
     cover?: string;
     parent_id?: string;
+    database_id?: string;
+    props?: Record<string, unknown>;
   }
 ): Promise<string> {
   const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -290,6 +302,8 @@ export async function createNote(
     icon: extra?.icon || "",
     cover: extra?.cover || "",
     parent_id: extra?.parent_id || "",
+    database_id: extra?.database_id || "",
+    props: extra?.props || {},
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   });
@@ -301,7 +315,19 @@ export async function updateNote(
   updates: Partial<
     Pick<
       Note,
-      "title" | "body_md" | "tags" | "folder" | "journal_date" | "status" | "icon" | "cover" | "parent_id" | "deck"
+      | "title"
+      | "body_md"
+      | "tags"
+      | "folder"
+      | "journal_date"
+      | "status"
+      | "icon"
+      | "cover"
+      | "parent_id"
+      | "deck"
+      | "database_id"
+      | "props"
+      | "share"
     >
   >
 ) {
