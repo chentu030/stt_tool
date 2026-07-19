@@ -11,6 +11,7 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
 import GlobalAiDock from "@/components/shell/GlobalAiDock";
+import { listenUserTeams, listenChannels, listenChannelReads, channelIsUnread, type TeamMembership, type Channel } from "@/lib/teamStore";
 
 const NAV_APPS = [
   { href: "/library", label: "知識庫", icon: LibraryIcon },
@@ -139,8 +140,65 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [cmdOpen, setCmdOpen] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [teamUnread, setTeamUnread] = useState(0);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  useEffect(() => {
+    if (!user) {
+      setTeamUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const teamUnsubs = new Map<string, () => void>();
+    const channelMaps = new Map<string, Channel[]>();
+    const readMaps = new Map<string, Record<string, Date>>();
+
+    const recompute = () => {
+      let n = 0;
+      channelMaps.forEach((chs, teamId) => {
+        const reads = readMaps.get(teamId) || {};
+        chs.forEach((c) => {
+          if (channelIsUnread(c, reads[c.id])) n += 1;
+        });
+      });
+      if (!cancelled) setTeamUnread(n);
+    };
+
+    const rootUnsub = listenUserTeams(user.uid, (teams: TeamMembership[]) => {
+      const keep = new Set(teams.slice(0, 8).map((t) => t.id));
+      teamUnsubs.forEach((u, id) => {
+        if (!keep.has(id)) {
+          u();
+          teamUnsubs.delete(id);
+          channelMaps.delete(id);
+          readMaps.delete(id);
+        }
+      });
+      teams.slice(0, 8).forEach((t) => {
+        if (teamUnsubs.has(t.id)) return;
+        const u1 = listenChannels(t.id, (chs) => {
+          channelMaps.set(t.id, chs);
+          recompute();
+        });
+        const u2 = listenChannelReads(user.uid, t.id, (reads) => {
+          readMaps.set(t.id, reads);
+          recompute();
+        });
+        teamUnsubs.set(t.id, () => {
+          u1();
+          u2();
+        });
+      });
+      recompute();
+    });
+
+    return () => {
+      cancelled = true;
+      rootUnsub();
+      teamUnsubs.forEach((u) => u());
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) {
@@ -280,6 +338,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
             >
               <item.icon />
               <span>{item.label}</span>
+              {item.href === "/team" && teamUnread > 0 && (
+                <em className="sidebar-badge">{teamUnread > 9 ? "9+" : teamUnread}</em>
+              )}
             </Link>
           ))}
         </nav>

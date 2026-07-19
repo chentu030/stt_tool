@@ -9,12 +9,21 @@ import {
   type NoteShare,
   type ShareMode,
 } from "@/lib/share";
+import { useAuth } from "@/components/AuthProvider";
+import {
+  listenUserTeams,
+  listenChannels,
+  shareNoteToChannel,
+  type TeamMembership,
+  type Channel,
+} from "@/lib/teamStore";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   noteId: string;
   ownerId: string;
+  noteTitle?: string;
   share: NoteShare | null | undefined;
   onUpdated: (share: NoteShare | null) => void;
 };
@@ -30,21 +39,47 @@ export default function ShareDialog({
   onClose,
   noteId,
   ownerId,
+  noteTitle,
   share,
   onUpdated,
 }: Props) {
+  const { user } = useAuth();
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<ShareMode>(share?.mode || "view");
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [teams, setTeams] = useState<TeamMembership[]>([]);
+  const [teamId, setTeamId] = useState("");
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [channelId, setChannelId] = useState("");
+  const [pinToo, setPinToo] = useState(true);
+  const [teamShared, setTeamShared] = useState(false);
 
   useEffect(() => {
     if (open) {
       setMode(share?.mode || "view");
       setError("");
       setCopied(false);
+      setTeamShared(false);
     }
   }, [open, share]);
+
+  useEffect(() => {
+    if (!open || !user) return;
+    return listenUserTeams(user.uid, setTeams);
+  }, [open, user]);
+
+  useEffect(() => {
+    if (!teamId) {
+      setChannels([]);
+      setChannelId("");
+      return;
+    }
+    return listenChannels(teamId, (list) => {
+      setChannels(list);
+      setChannelId((cur) => cur || list[0]?.id || "");
+    });
+  }, [teamId]);
 
   if (!open) return null;
 
@@ -103,6 +138,32 @@ export default function ShareDialog({
     }
   };
 
+  const postToTeam = async () => {
+    if (!user || !teamId || !channelId) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (!enabled) {
+        const next = await enableNoteShare(noteId, ownerId, "edit", share?.token);
+        onUpdated(next);
+      }
+      await shareNoteToChannel({
+        teamId,
+        channelId,
+        author_id: user.uid,
+        author_name: user.displayName || "",
+        note_id: noteId,
+        note_title: noteTitle || "未命名筆記",
+        pin: pinToo,
+      });
+      setTeamShared(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "分享到團隊失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="cadence-dialog-backdrop"
@@ -113,7 +174,7 @@ export default function ShareDialog({
     >
       <div className="cadence-dialog share-dialog" role="dialog" aria-modal="true">
         <h2 className="cadence-dialog-title">分享筆記</h2>
-        <p className="cadence-dialog-msg">產生連結，讓其他人檢視、編輯或複製這則筆記。</p>
+        <p className="cadence-dialog-msg">產生連結，或直接貼到團隊頻道。</p>
 
         <div className="share-mode-list" role="radiogroup" aria-label="分享權限">
           {MODES.map((m) => (
@@ -138,7 +199,48 @@ export default function ShareDialog({
             </button>
           </div>
         ) : (
-          <p className="share-off-hint">尚未開啟分享。選擇權限後按「開啟分享」。</p>
+          <p className="share-off-hint">尚未開啟公開連結。選擇權限後按「開啟分享」。</p>
+        )}
+
+        {teams.length > 0 && (
+          <div className="share-team-block">
+            <h3 className="share-team-title">分享到團隊頻道</h3>
+            <div className="share-team-row">
+              <select className="input" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+                <option value="">選擇團隊</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input"
+                value={channelId}
+                disabled={!teamId}
+                onChange={(e) => setChannelId(e.target.value)}
+              >
+                <option value="">選擇頻道</option>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    # {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <label className="share-team-pin">
+              <input type="checkbox" checked={pinToo} onChange={(e) => setPinToo(e.target.checked)} />
+              同時釘選到團隊「知識」
+            </label>
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={busy || !teamId || !channelId}
+              onClick={() => void postToTeam()}
+            >
+              {teamShared ? "已送到頻道 ✓" : "送到頻道"}
+            </button>
+          </div>
         )}
 
         {error && <p className="cadence-dialog-msg" style={{ color: "var(--danger)" }}>{error}</p>}

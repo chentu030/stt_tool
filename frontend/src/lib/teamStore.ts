@@ -1,13 +1,5 @@
 /**
- * Cadence Team Space — Firestore-backed teams, channels, messages and invites.
- *
- * Layout:
- *   teams/{teamId}                              Team
- *   teams/{teamId}/members/{uid}                Member
- *   teams/{teamId}/channels/{channelId}         Channel
- *   teams/{teamId}/channels/{channelId}/messages/{messageId}   Message
- *   invites/{token}                             Invite (top-level, token == doc id)
- *   users/{uid}/teams/{teamId}                  mirror: { role, name, joined_at } for fast "my teams" list
+ * Cadence Team Space — teams, channels, messages, invites, pins, unread.
  */
 
 import {
@@ -53,7 +45,11 @@ export type Channel = {
   is_private: boolean;
   created_by: string;
   created_at: Date;
+  last_message_at?: Date;
+  last_message_preview?: string;
 };
+
+export type MessageKind = "text" | "note_share";
 
 export type Message = {
   id: string;
@@ -62,6 +58,10 @@ export type Message = {
   text: string;
   created_at: Date;
   thread_id?: string;
+  kind?: MessageKind;
+  note_id?: string;
+  note_title?: string;
+  reactions?: Record<string, string>;
 };
 
 export type InviteStatus = "pending" | "accepted" | "revoked";
@@ -74,15 +74,24 @@ export type Invite = {
   created_by: string;
   expires_at: Date;
   status: InviteStatus;
+  use_count?: number;
 };
 
-/** Lightweight row from the users/{uid}/teams mirror, used to render "my teams" lists. */
 export type TeamMembership = {
   id: string;
   name: string;
   slug: string;
   role: TeamRole;
   joined_at: Date;
+  unread?: number;
+};
+
+export type TeamPin = {
+  id: string;
+  note_id: string;
+  title: string;
+  pinned_by: string;
+  pinned_at: Date;
 };
 
 function slugify(name: string): string {
@@ -116,11 +125,17 @@ function channelsCol(teamId: string) {
 function messagesCol(teamId: string, channelId: string) {
   return collection(db, "teams", teamId, "channels", channelId, "messages");
 }
+function pinsCol(teamId: string) {
+  return collection(db, "teams", teamId, "pins");
+}
 function invitesCol() {
   return collection(db, "invites");
 }
 function userTeamsCol(uid: string) {
   return collection(db, "users", uid, "teams");
+}
+function channelReadsCol(uid: string, teamId: string) {
+  return collection(db, "users", uid, "teams", teamId, "reads");
 }
 
 function teamFromDoc(id: string, data: Record<string, unknown>): Team {
@@ -150,10 +165,18 @@ function channelFromDoc(id: string, data: Record<string, unknown>): Channel {
     is_private: !!data.is_private,
     created_by: String(data.created_by || ""),
     created_at: (data.created_at as { toDate?: () => Date })?.toDate?.() || new Date(),
+    last_message_at: (data.last_message_at as { toDate?: () => Date })?.toDate?.(),
+    last_message_preview: data.last_message_preview
+      ? String(data.last_message_preview)
+      : undefined,
   };
 }
 
 function messageFromDoc(id: string, data: Record<string, unknown>): Message {
+  const reactions =
+    data.reactions && typeof data.reactions === "object"
+      ? (data.reactions as Record<string, string>)
+      : undefined;
   return {
     id,
     author_id: String(data.author_id || ""),
@@ -161,6 +184,10 @@ function messageFromDoc(id: string, data: Record<string, unknown>): Message {
     text: String(data.text || ""),
     created_at: (data.created_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     thread_id: data.thread_id ? String(data.thread_id) : undefined,
+    kind: (data.kind as MessageKind) || "text",
+    note_id: data.note_id ? String(data.note_id) : undefined,
+    note_title: data.note_title ? String(data.note_title) : undefined,
+    reactions,
   };
 }
 
@@ -173,10 +200,20 @@ function inviteFromDoc(id: string, data: Record<string, unknown>): Invite {
     created_by: String(data.created_by || ""),
     expires_at: (data.expires_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     status: (data.status as InviteStatus) || "pending",
+    use_count: typeof data.use_count === "number" ? data.use_count : 0,
   };
 }
 
-/** Create a new team with the creator as owner, plus a default "#一般" channel. */
+function pinFromDoc(id: string, data: Record<string, unknown>): TeamPin {
+  return {
+    id,
+    note_id: String(data.note_id || id),
+    title: String(data.title || "筆記"),
+    pinned_by: String(data.pinned_by || ""),
+    pinned_at: (data.pinned_at as { toDate?: () => Date })?.toDate?.() || new Date(),
+  };
+}
+
 export async function createTeam(
   uid: string,
   name: string,
@@ -220,7 +257,6 @@ export async function createTeam(
   return teamRef.id;
 }
 
-/** Live list of the current user's teams via the users/{uid}/teams mirror. */
 export function listenUserTeams(
   uid: string,
   cb: (teams: TeamMembership[]) => void
@@ -236,6 +272,7 @@ export function listenUserTeams(
           slug: String(data.slug || d.id),
           role: (data.role as TeamRole) || "member",
           joined_at: data.joined_at?.toDate?.() || new Date(),
+          unread: typeof data.unread === "number" ? data.unread : 0,
         } satisfies TeamMembership;
       });
       list.sort((a, b) => b.joined_at.getTime() - a.joined_at.getTime());
@@ -298,7 +335,7 @@ export function listenMessages(
   teamId: string,
   channelId: string,
   cb: (messages: Message[]) => void,
-  limitCount = 80
+  limitCount = 100
 ): Unsubscribe {
   const q = query(
     messagesCol(teamId, channelId),
@@ -316,23 +353,98 @@ export function listenMessages(
   );
 }
 
+export type SendMessageInput = {
+  author_id: string;
+  author_name?: string;
+  text: string;
+  thread_id?: string;
+  kind?: MessageKind;
+  note_id?: string;
+  note_title?: string;
+};
+
 export async function sendMessage(
   teamId: string,
   channelId: string,
-  msg: { author_id: string; author_name?: string; text: string; thread_id?: string }
+  msg: SendMessageInput
 ): Promise<string> {
   const ref = doc(messagesCol(teamId, channelId));
+  const now = Timestamp.now();
+  const kind = msg.kind || "text";
   await setDoc(ref, {
     author_id: msg.author_id,
     author_name: msg.author_name || "",
     text: msg.text,
     thread_id: msg.thread_id || "",
-    created_at: Timestamp.now(),
+    kind,
+    note_id: msg.note_id || "",
+    note_title: msg.note_title || "",
+    reactions: {},
+    created_at: now,
   });
+  // Denormalize for unread badges (top-level channel feed only)
+  if (!msg.thread_id) {
+    const preview =
+      kind === "note_share"
+        ? `📎 ${msg.note_title || "筆記"}`
+        : msg.text.slice(0, 80);
+    await updateDoc(doc(channelsCol(teamId), channelId), {
+      last_message_at: now,
+      last_message_preview: preview,
+    }).catch(() => undefined);
+  }
   return ref.id;
 }
 
-/** Create an invite link. Default expiry: 7 days. */
+export async function toggleMessageReaction(
+  teamId: string,
+  channelId: string,
+  messageId: string,
+  uid: string,
+  emoji: string
+): Promise<void> {
+  const ref = doc(messagesCol(teamId, channelId), messageId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const reactions = { ...((snap.data().reactions as Record<string, string>) || {}) };
+  if (reactions[uid] === emoji) delete reactions[uid];
+  else reactions[uid] = emoji;
+  await updateDoc(ref, { reactions });
+}
+
+export async function markChannelRead(
+  uid: string,
+  teamId: string,
+  channelId: string
+): Promise<void> {
+  await setDoc(
+    doc(channelReadsCol(uid, teamId), channelId),
+    { last_read_at: Timestamp.now() },
+    { merge: true }
+  );
+}
+
+export function listenChannelReads(
+  uid: string,
+  teamId: string,
+  cb: (reads: Record<string, Date>) => void
+): Unsubscribe {
+  return onSnapshot(channelReadsCol(uid, teamId), (snap) => {
+    const map: Record<string, Date> = {};
+    snap.docs.forEach((d) => {
+      const t = d.data().last_read_at?.toDate?.();
+      if (t) map[d.id] = t;
+    });
+    cb(map);
+  });
+}
+
+export function channelIsUnread(ch: Channel, lastRead?: Date): boolean {
+  if (!ch.last_message_at) return false;
+  if (!lastRead) return true;
+  return ch.last_message_at.getTime() > lastRead.getTime() + 500;
+}
+
 export async function createInvite(
   teamId: string,
   uid: string,
@@ -347,6 +459,7 @@ export async function createInvite(
     created_by: uid,
     expires_at: Timestamp.fromMillis(Date.now() + expiresInMs),
     status: "pending" as InviteStatus,
+    use_count: 0,
     created_at: Timestamp.now(),
   });
   return token;
@@ -366,7 +479,7 @@ export type AcceptInviteResult =
   | { ok: true; teamId: string; teamName: string }
   | { ok: false; error: "not_found" | "expired" | "revoked" };
 
-/** Join the invite's team as the given uid, then mark the invite accepted. */
+/** Join team; invite stays pending until expiry/revoke so links are reusable. */
 export async function acceptInvite(
   token: string,
   uid: string,
@@ -376,6 +489,7 @@ export async function acceptInvite(
   if (!invite) return { ok: false, error: "not_found" };
   if (invite.status === "revoked") return { ok: false, error: "revoked" };
   if (invite.expires_at.getTime() < Date.now()) return { ok: false, error: "expired" };
+  if (invite.status !== "pending") return { ok: false, error: "revoked" };
 
   const team = await getTeam(invite.team_id);
   if (!team) return { ok: false, error: "not_found" };
@@ -389,15 +503,15 @@ export async function acceptInvite(
       joined_at: now,
       display_name: displayName || "",
     });
+    await updateDoc(doc(invitesCol(), token), {
+      use_count: (invite.use_count || 0) + 1,
+    }).catch(() => undefined);
   }
   await setDoc(
     doc(userTeamsCol(uid), invite.team_id),
     { role: existing?.role || invite.role, name: team.name, slug: team.slug, joined_at: now },
     { merge: true }
   );
-  if (invite.status === "pending") {
-    await updateDoc(doc(invitesCol(), token), { status: "accepted" as InviteStatus });
-  }
   return { ok: true, teamId: invite.team_id, teamName: team.name };
 }
 
@@ -411,15 +525,66 @@ export async function setMemberRole(teamId: string, uid: string, role: TeamRole)
   await updateDoc(doc(userTeamsCol(uid), teamId), { role }).catch(() => undefined);
 }
 
-/** Best-effort: all invites for a team (owner/admin management view). */
 export async function listTeamInvites(teamId: string): Promise<Invite[]> {
   const q = query(invitesCol(), where("team_id", "==", teamId));
   const snap = await getDocs(q);
-  return snap.docs.map((d) => inviteFromDoc(d.id, d.data()));
+  return snap.docs
+    .map((d) => inviteFromDoc(d.id, d.data()))
+    .sort((a, b) => b.expires_at.getTime() - a.expires_at.getTime());
 }
 
-/** Optional: collection-group lookup, useful if a caller only has a uid and no mirror. */
-export async function findMembershipsAcrossTeams(uid: string): Promise<{ teamId: string; role: TeamRole }[]> {
+export function listenPins(teamId: string, cb: (pins: TeamPin[]) => void): Unsubscribe {
+  return onSnapshot(pinsCol(teamId), (snap) => {
+    const list = snap.docs.map((d) => pinFromDoc(d.id, d.data()));
+    list.sort((a, b) => b.pinned_at.getTime() - a.pinned_at.getTime());
+    cb(list);
+  });
+}
+
+export async function pinNote(
+  teamId: string,
+  noteId: string,
+  title: string,
+  uid: string
+): Promise<void> {
+  await setDoc(doc(pinsCol(teamId), noteId), {
+    note_id: noteId,
+    title: title || "筆記",
+    pinned_by: uid,
+    pinned_at: Timestamp.now(),
+  });
+}
+
+export async function unpinNote(teamId: string, noteId: string): Promise<void> {
+  await deleteDoc(doc(pinsCol(teamId), noteId));
+}
+
+export async function shareNoteToChannel(opts: {
+  teamId: string;
+  channelId: string;
+  author_id: string;
+  author_name?: string;
+  note_id: string;
+  note_title: string;
+  pin?: boolean;
+}): Promise<string> {
+  const id = await sendMessage(opts.teamId, opts.channelId, {
+    author_id: opts.author_id,
+    author_name: opts.author_name,
+    text: `分享了筆記「${opts.note_title}」`,
+    kind: "note_share",
+    note_id: opts.note_id,
+    note_title: opts.note_title,
+  });
+  if (opts.pin) {
+    await pinNote(opts.teamId, opts.note_id, opts.note_title, opts.author_id);
+  }
+  return id;
+}
+
+export async function findMembershipsAcrossTeams(
+  uid: string
+): Promise<{ teamId: string; role: TeamRole }[]> {
   const q = query(collectionGroup(db, "members"), where("uid", "==", uid));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({
@@ -427,3 +592,5 @@ export async function findMembershipsAcrossTeams(uid: string): Promise<{ teamId:
     role: (d.data().role as TeamRole) || "member",
   }));
 }
+
+export const REACTION_EMOJIS = ["👍", "🔥", "👀", "✅", "🎉", "❤️"] as const;

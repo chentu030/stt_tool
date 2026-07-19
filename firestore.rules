@@ -18,6 +18,23 @@ service cloud.firestore {
         && resource.data.share.mode == 'edit'
         && signedIn();
     }
+    function noteDoc(noteId) {
+      return get(/databases/$(database)/documents/notes/$(noteId)).data;
+    }
+    function canAccessNote(noteId) {
+      return signedIn() && (
+        noteDoc(noteId).user_id == request.auth.uid
+        || (
+          noteDoc(noteId).keys().hasAll(['share'])
+          && noteDoc(noteId).share.enabled == true
+          && noteDoc(noteId).share.token is string
+          && noteDoc(noteId).share.token.size() > 0
+        )
+      );
+    }
+    function canCommentOnNote(noteId) {
+      return canAccessNote(noteId);
+    }
 
     match /jobs/{jobId} {
       allow create: if signedIn()
@@ -42,18 +59,17 @@ service cloud.firestore {
       }
 
       match /threads/{threadId} {
-        allow read, write: if signedIn()
-          && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+        allow read, write: if canAccessNote(noteId);
 
         match /messages/{messageId} {
-          allow read, create: if signedIn()
-            && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+          allow read, create: if canCommentOnNote(noteId);
+          allow update, delete: if canCommentOnNote(noteId)
+            && resource.data.author_id == request.auth.uid;
         }
       }
 
       match /page_log/{entryId} {
-        allow read, create: if signedIn()
-          && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+        allow read, create: if canCommentOnNote(noteId);
       }
     }
 
@@ -126,9 +142,20 @@ service cloud.firestore {
           allow read: if isTeamMember(teamId);
           allow create: if isTeamMember(teamId)
             && request.resource.data.author_id == request.auth.uid;
-          allow update, delete: if isTeamMember(teamId)
+          allow update: if isTeamMember(teamId)
+            && (
+              resource.data.author_id == request.auth.uid
+              || isTeamAdmin(teamId)
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+            );
+          allow delete: if isTeamMember(teamId)
             && (resource.data.author_id == request.auth.uid || isTeamAdmin(teamId));
         }
+      }
+
+      match /pins/{pinId} {
+        allow read, create, delete: if isTeamMember(teamId);
+        allow update: if isTeamMember(teamId);
       }
     }
 
@@ -144,6 +171,10 @@ service cloud.firestore {
 
     match /users/{uid}/teams/{teamId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
+
+      match /reads/{channelId} {
+        allow read, write: if signedIn() && request.auth.uid == uid;
+      }
     }
 
     // ─── Live cursor presence on note pages ──────────────────

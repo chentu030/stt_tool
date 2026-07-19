@@ -1282,6 +1282,7 @@ function NotePageInner() {
           onClose={() => setShareOpen(false)}
           noteId={note.id}
           ownerId={user.uid}
+          noteTitle={note.title}
           share={noteShare}
           onUpdated={(s) => {
             setNoteShare(s);
