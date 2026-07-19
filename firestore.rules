@@ -60,5 +60,17 @@ service cloud.firestore {
     match /users/{uid}/workspace/{docId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
+
+    match /users/{uid}/boards/{boardId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/canvases/{canvasId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/graphs/{graphId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
   }
 }

@@ -120,7 +120,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const prefsCtx = usePrefsOptional();
   const homeHref = prefsCtx?.prefs.homePage || "/";
   const isMobile = useIsMobile();
-  const isDoc = pathname.startsWith("/notes/");
+  const isImmersive =
+    pathname.startsWith("/notes/") ||
+    pathname.startsWith("/canvas") ||
+    pathname.startsWith("/graph");
+  const isDoc = isImmersive;
   const [cmdOpen, setCmdOpen] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
