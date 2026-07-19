@@ -43,6 +43,8 @@ type Props = {
   onEmptyTemplate?: (templateId: string) => void;
   showEmptyTemplates?: boolean;
   pageMode?: boolean;
+  /** Create a nested page under the current note; return created title for wiki link */
+  onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
 };
 
 type SlashItem = {
@@ -55,7 +57,13 @@ type SlashItem = {
 function filterSlash(items: SlashItem[], q: string) {
   const s = q.toLowerCase();
   if (!s) return items;
-  return items.filter((i) => i.label.includes(s) || i.hint.includes(s) || i.id.includes(s));
+  return items.filter(
+    (i) =>
+      i.label.toLowerCase().includes(s) ||
+      i.hint.toLowerCase().includes(s) ||
+      i.id.toLowerCase().includes(s) ||
+      (s === "page" && (i.id === "page" || i.label.includes("頁")))
+  );
 }
 
 export default function RichNoteEditor({
@@ -71,6 +79,7 @@ export default function RichNoteEditor({
   onEmptyTemplate,
   showEmptyTemplates,
   pageMode = false,
+  onCreateSubpage,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
@@ -296,75 +305,102 @@ export default function RichNoteEditor({
     }).run();
   }, []);
 
-  const buildSlash = useCallback((editor: Editor): SlashItem[] => [
-    { id: "p", label: "文字", hint: "一般段落", run: (e) => e.chain().focus().setParagraph().run() },
-    { id: "h1", label: "標題 1", hint: "大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
-    { id: "h2", label: "標題 2", hint: "中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
-    { id: "h3", label: "標題 3", hint: "小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
-    { id: "bullet", label: "項目清單", hint: "無序清單", run: (e) => e.chain().focus().toggleBulletList().run() },
-    { id: "numbered", label: "編號清單", hint: "有序清單", run: (e) => e.chain().focus().toggleOrderedList().run() },
-    { id: "todo", label: "待辦", hint: "可勾選", run: (e) => e.chain().focus().toggleTaskList().run() },
-    { id: "quote", label: "引用", hint: "引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
-    { id: "code", label: "程式碼", hint: "Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
-    {
-      id: "table",
-      label: "表格",
-      hint: "3×3",
-      run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-    },
-    {
-      id: "math",
-      label: "LaTeX 公式",
-      hint: "區塊公式 $$",
-      run: (e) => {
-        const f = window.prompt("LaTeX 公式", "E = mc^2");
-        if (f) e.chain().focus().setMathBlock(f).run();
+  const onCreateSubpageRef = useRef(onCreateSubpage);
+  onCreateSubpageRef.current = onCreateSubpage;
+
+  const buildSlash = useCallback((editor: Editor): SlashItem[] => {
+    const items: SlashItem[] = [
+      { id: "p", label: "文字", hint: "一般段落", run: (e) => e.chain().focus().setParagraph().run() },
+      { id: "h1", label: "標題 1", hint: "大型標題", run: (e) => e.chain().focus().toggleHeading({ level: 1 }).run() },
+      { id: "h2", label: "標題 2", hint: "中型標題", run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() },
+      { id: "h3", label: "標題 3", hint: "小型標題", run: (e) => e.chain().focus().toggleHeading({ level: 3 }).run() },
+    ];
+    if (onCreateSubpageRef.current) {
+      items.push({
+        id: "page",
+        label: "子頁面",
+        hint: "/page 新增巢狀筆記",
+        run: (e) => {
+          void (async () => {
+            const create = onCreateSubpageRef.current;
+            if (!create) return;
+            const name = window.prompt("子頁面標題", "未命名子頁");
+            if (name == null) return;
+            const title = name.trim() || "未命名子頁";
+            const created = await create(title);
+            if (!created) return;
+            e.chain().focus().insertContent(`[[${created.title}]]\n`).run();
+          })();
+        },
+      });
+    }
+    items.push(
+      { id: "bullet", label: "項目清單", hint: "無序清單", run: (e) => e.chain().focus().toggleBulletList().run() },
+      { id: "numbered", label: "編號清單", hint: "有序清單", run: (e) => e.chain().focus().toggleOrderedList().run() },
+      { id: "todo", label: "待辦", hint: "可勾選", run: (e) => e.chain().focus().toggleTaskList().run() },
+      { id: "quote", label: "引用", hint: "引用區塊", run: (e) => e.chain().focus().toggleBlockquote().run() },
+      { id: "code", label: "程式碼", hint: "Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
+      {
+        id: "table",
+        label: "表格",
+        hint: "3×3",
+        run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
       },
-    },
-    {
-      id: "mathi",
-      label: "行內公式",
-      hint: "$...$",
-      run: (e) => {
-        const f = window.prompt("行內 LaTeX", "x^2");
-        if (f) e.chain().focus().setMathInline(f).run();
+      {
+        id: "math",
+        label: "LaTeX 公式",
+        hint: "區塊公式 $$",
+        run: (e) => {
+          const f = window.prompt("LaTeX 公式", "E = mc^2");
+          if (f) e.chain().focus().setMathBlock(f).run();
+        },
       },
-    },
-    { id: "hr", label: "分隔線", hint: "水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
-    { id: "image", label: "圖片", hint: "上傳圖片", run: () => imageRef.current?.click() },
-    { id: "file", label: "檔案", hint: "上傳任意檔案", run: () => fileRef.current?.click() },
-    { id: "audio", label: "語音／音訊", hint: "上傳音訊", run: () => audioRef.current?.click() },
-    { id: "video", label: "影片檔", hint: "上傳影片", run: () => videoRef.current?.click() },
-    { id: "pdf", label: "PDF 預覽", hint: "上傳或之後貼連結", run: () => pdfRef.current?.click() },
-    { id: "ppt", label: "PPT 預覽", hint: "上傳簡報檔", run: () => pptRef.current?.click() },
-    {
-      id: "youtube",
-      label: "YouTube",
-      hint: "貼上影片連結",
-      run: () => insertEmbedFromPrompt("YouTube 連結"),
-    },
-    {
-      id: "drive",
-      label: "Google Drive",
-      hint: "貼上分享連結",
-      run: () => insertEmbedFromPrompt("Google Drive / Docs 分享連結"),
-    },
-    {
-      id: "web",
-      label: "網站",
-      hint: "嵌入網頁",
-      run: () => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）"),
-    },
-    {
-      id: "imglink",
-      label: "圖片網址",
-      run: (e) => {
-        const url = window.prompt("圖片網址", "https://");
-        if (url) e.chain().focus().setImage({ src: url }).run();
+      {
+        id: "mathi",
+        label: "行內公式",
+        hint: "$...$",
+        run: (e) => {
+          const f = window.prompt("行內 LaTeX", "x^2");
+          if (f) e.chain().focus().setMathInline(f).run();
+        },
       },
-      hint: "用 URL 插入",
-    },
-  ], [insertEmbedFromPrompt]);
+      { id: "hr", label: "分隔線", hint: "水平線", run: (e) => e.chain().focus().setHorizontalRule().run() },
+      { id: "image", label: "圖片", hint: "上傳圖片", run: () => imageRef.current?.click() },
+      { id: "file", label: "檔案", hint: "上傳任意檔案", run: () => fileRef.current?.click() },
+      { id: "audio", label: "語音／音訊", hint: "上傳音訊", run: () => audioRef.current?.click() },
+      { id: "video", label: "影片檔", hint: "上傳影片", run: () => videoRef.current?.click() },
+      { id: "pdf", label: "PDF 預覽", hint: "上傳或之後貼連結", run: () => pdfRef.current?.click() },
+      { id: "ppt", label: "PPT 預覽", hint: "上傳簡報檔", run: () => pptRef.current?.click() },
+      {
+        id: "youtube",
+        label: "YouTube",
+        hint: "貼上影片連結",
+        run: () => insertEmbedFromPrompt("YouTube 連結"),
+      },
+      {
+        id: "drive",
+        label: "Google Drive",
+        hint: "貼上分享連結",
+        run: () => insertEmbedFromPrompt("Google Drive / Docs 分享連結"),
+      },
+      {
+        id: "web",
+        label: "網站",
+        hint: "嵌入網頁",
+        run: () => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）"),
+      },
+      {
+        id: "imglink",
+        label: "圖片網址",
+        run: (e) => {
+          const url = window.prompt("圖片網址", "https://");
+          if (url) e.chain().focus().setImage({ src: url }).run();
+        },
+        hint: "用 URL 插入",
+      }
+    );
+    return items;
+  }, [insertEmbedFromPrompt]);
 
   const editor = useEditor({
     immediatelyRender: false,

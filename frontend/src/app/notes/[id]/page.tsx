@@ -636,10 +636,31 @@ export default function NotePage() {
                 onClick={() => {
                   if (!user) return;
                   void (async () => {
-                    const id = await createNote(user.uid, "未命名子頁", "", undefined, [], {
+                    const name = window.prompt("子頁面標題", "未命名子頁");
+                    if (name == null) return;
+                    const t = name.trim() || "未命名子頁";
+                    const id = await createNote(user.uid, t, "", undefined, [], {
                       parent_id: note.id,
                       status: "backlog",
+                      folder: folder || "",
                     });
+                    const nextBody = `${body.trim()}${body.trim() ? "\n\n" : ""}[[${t}]]\n`;
+                    setBody(nextBody);
+                    latest.current = { ...latest.current, body: nextBody };
+                    try {
+                      await updateNote(note.id, {
+                        title: latest.current.title,
+                        body_md: nextBody,
+                        tags: latest.current.tags,
+                        folder: latest.current.folder,
+                        icon: latest.current.icon,
+                        cover: latest.current.cover,
+                        parent_id: latest.current.parent_id,
+                      });
+                    } catch {
+                      markDirty();
+                    }
+                    flash(`已建立子頁：${t}`);
                     router.push(`/notes/${id}`);
                   })();
                 }}
@@ -985,6 +1006,22 @@ export default function NotePage() {
                 if (tpl.tags.length) setTags(Array.from(new Set([...tags, ...tpl.tags])));
                 markDirty();
                 flash(`已套用範本：${tpl.label}`);
+              }}
+              onCreateSubpage={async (pageTitle) => {
+                if (!user || !note) return null;
+                try {
+                  const t = pageTitle.trim() || "未命名子頁";
+                  const id = await createNote(user.uid, t, "", undefined, [], {
+                    parent_id: note.id,
+                    status: "backlog",
+                    folder: folder || "",
+                  });
+                  flash(`已建立子頁：${t}`);
+                  return { id, title: t };
+                } catch (e) {
+                  flash(e instanceof Error ? e.message : "建立子頁失敗");
+                  return null;
+                }
               }}
             />
           </div>
