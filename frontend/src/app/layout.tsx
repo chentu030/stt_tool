@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { PrefsProvider } from "@/components/PrefsProvider";
@@ -7,6 +7,31 @@ import AppShell from "@/components/shell/AppShell";
 export const metadata: Metadata = {
   title: "Cadence — 把說話寫成知識",
   description: "語音驅動的知識工作區：轉錄、編輯、組織筆記。",
+  applicationName: "Cadence",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Cadence",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/brand/logo-mark.svg", type: "image/svg+xml" },
+      { url: "/brand/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/brand/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/brand/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0F766E" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B1220" },
+  ],
 };
 
 export default function RootLayout({
@@ -28,7 +53,6 @@ export default function RootLayout({
           href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css"
           crossOrigin="anonymous"
         />
-        <link rel="icon" href="/brand/logo-mark.svg" type="image/svg+xml" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var r=localStorage.getItem('cadence_prefs_v1');var t=localStorage.getItem('theme');var theme='light';if(r){var p=JSON.parse(r);if(p.theme==='dark'||p.theme==='light')theme=p.theme;else if(p.theme==='system'&&matchMedia('(prefers-color-scheme:dark)').matches)theme='dark';}else if(t==='dark'||t==='light')theme=t;document.documentElement.setAttribute('data-theme',theme);}catch(e){}})();`,

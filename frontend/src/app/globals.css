@@ -55,6 +55,8 @@
 
 html, body {
   min-height: 100%;
+  /* clip avoids breaking position:fixed on mobile (unlike overflow-x: hidden) */
+  overflow-x: clip;
 }
 
 body {
@@ -62,7 +64,6 @@ body {
   color: var(--text-main);
   font-family: "Outfit", system-ui, sans-serif;
   transition: background-color 0.25s ease, color 0.25s ease;
-  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -316,8 +317,18 @@ button, input, textarea, select {
 }
 
 .mobile-shell {
+  min-height: 100dvh;
   min-height: 100vh;
-  padding-bottom: calc(var(--bottom-h) + 1rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+.mobile-shell > .app-main {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 1.25rem);
 }
 .mobile-top {
   display: flex;
@@ -328,19 +339,23 @@ button, input, textarea, select {
   background: var(--bg-elevated);
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 40;
+  padding-top: calc(0.85rem + env(safe-area-inset-top, 0px));
 }
 .mobile-bottom {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-  height: var(--bottom-h);
+  height: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--bg-elevated);
   border-top: 1px solid var(--border);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  z-index: 30;
+  z-index: 100;
+  /* keep labels readable even when root font-scale is large */
+  font-size: 16px;
 }
 .mobile-bottom a {
   display: flex;
@@ -391,6 +406,12 @@ button, input, textarea, select {
   .desktop-only { display: none !important; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .app-main { padding: 1rem 1rem 2rem; }
+  .mobile-shell > .app-main {
+    padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 1.25rem);
+  }
+  .card, .surface {
+    max-width: 100%;
+  }
 }
 @media (min-width: 901px) {
   .mobile-only { display: none !important; }

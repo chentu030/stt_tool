@@ -88,7 +88,10 @@ function SettingsIcon() {
 }
 
 function useIsMobile(breakpoint = 900) {
-  const [mobile, setMobile] = useState(false);
+  const [mobile, setMobile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(`(max-width: ${breakpoint}px)`).matches;
+  });
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
     const apply = () => setMobile(mq.matches);
