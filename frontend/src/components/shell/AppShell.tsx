@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as REPointerEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -24,6 +24,16 @@ import {
   type TeamNotification,
 } from "@/lib/teamStore";
 import { NAV_APPS, MOBILE_BOTTOM } from "@/lib/navApps";
+import {
+  SIDEBAR_COLLAPSED_W,
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
+  loadSidebarCollapsed,
+  loadSidebarWidthPx,
+  prefSidebarToPx,
+  saveSidebarCollapsed,
+  saveSidebarWidthPx,
+} from "@/lib/sidebarLayout";
 
 function HomeIcon() {
   return (
@@ -168,8 +178,70 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<TeamNotification[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifWrapRef = useRef<HTMLDivElement | null>(null);
+  const prefSidebar = prefsCtx?.prefs.sidebarWidth || "default";
+  const [sidebarW, setSidebarW] = useState(() =>
+    loadSidebarWidthPx(prefSidebarToPx(prefSidebar))
+  );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
+  const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
+  const prefSidebarRef = useRef(prefSidebar);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  useEffect(() => {
+    if (prefSidebarRef.current === prefSidebar) return;
+    prefSidebarRef.current = prefSidebar;
+    const px = prefSidebarToPx(prefSidebar);
+    setSidebarW(px);
+    saveSidebarWidthPx(px);
+  }, [prefSidebar]);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      saveSidebarCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const onSidebarResizeStart = useCallback(
+    (e: REPointerEvent<HTMLDivElement>) => {
+      if (sidebarCollapsed) return;
+      e.preventDefault();
+      sidebarDrag.current = { startX: e.clientX, startW: sidebarW };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      document.body.classList.add("is-sidebar-resizing");
+    },
+    [sidebarCollapsed, sidebarW]
+  );
+
+  const onSidebarResizeMove = useCallback((e: REPointerEvent<HTMLDivElement>) => {
+    if (!sidebarDrag.current) return;
+    const dx = e.clientX - sidebarDrag.current.startX;
+    const next = Math.min(
+      SIDEBAR_MAX,
+      Math.max(SIDEBAR_MIN, sidebarDrag.current.startW + dx)
+    );
+    setSidebarW(next);
+  }, []);
+
+  const onSidebarResizeEnd = useCallback((e: REPointerEvent<HTMLDivElement>) => {
+    if (!sidebarDrag.current) return;
+    const dx = e.clientX - sidebarDrag.current.startX;
+    const next = Math.min(
+      SIDEBAR_MAX,
+      Math.max(SIDEBAR_MIN, sidebarDrag.current.startW + dx)
+    );
+    sidebarDrag.current = null;
+    setSidebarW(next);
+    saveSidebarWidthPx(next);
+    document.body.classList.remove("is-sidebar-resizing");
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -288,10 +360,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
         e.preventDefault();
         window.history.back();
       }
+      if (mod && e.key === "\\") {
+        e.preventDefault();
+        toggleSidebarCollapsed();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [prefsCtx?.prefs.enableShortcuts]);
+  }, [prefsCtx?.prefs.enableShortcuts, toggleSidebarCollapsed]);
 
   const palette = (
     <CommandPalette
@@ -363,47 +439,75 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="app-shell">
-      <aside className="desktop-sidebar desktop-sidebar--tree">
+    <div className={`app-shell${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}>
+      <aside
+        className={`desktop-sidebar desktop-sidebar--tree${sidebarCollapsed ? " is-collapsed" : ""}`}
+        style={{ width: sidebarCollapsed ? SIDEBAR_COLLAPSED_W : sidebarW }}
+      >
         <div className="sidebar-brand">
-          <Link href={homeHref}>
-            <CadenceLogo height={24} />
-          </Link>
-          <div className="sidebar-brand-links">
+          {!sidebarCollapsed ? (
+            <Link href={homeHref}>
+              <CadenceLogo height={24} />
+            </Link>
+          ) : (
             <button
               type="button"
-              className="sidebar-brand-links a"
-              title="搜尋 ⌘K"
-              onClick={() => setCmdOpen(true)}
-              style={{
-                border: "none",
-                background: "transparent",
-                cursor: "pointer",
-                color: "var(--text-muted)",
-                padding: "0.35rem",
-              }}
+              className="sidebar-collapse-btn sidebar-collapse-btn--brand"
+              title="展開側欄 ⌘\\"
+              onClick={toggleSidebarCollapsed}
             >
-              ⌕
+              <CadenceLogo height={22} showWord={false} />
             </button>
-            <Link href="/" className={isActive("/") ? "is-on" : ""} title="總覽">
-              <HomeIcon />
-            </Link>
-            <Link href="/settings" className={isActive("/settings") ? "is-on" : ""} title="設定">
-              <SettingsIcon />
-            </Link>
+          )}
+          <div className="sidebar-brand-links">
+            {!sidebarCollapsed && (
+              <>
+                <button
+                  type="button"
+                  className="sidebar-brand-links a"
+                  title="搜尋 ⌘K"
+                  onClick={() => setCmdOpen(true)}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    padding: "0.35rem",
+                  }}
+                >
+                  ⌕
+                </button>
+                <Link href="/" className={isActive("/") ? "is-on" : ""} title="總覽">
+                  <HomeIcon />
+                </Link>
+                <Link href="/settings" className={isActive("/settings") ? "is-on" : ""} title="設定">
+                  <SettingsIcon />
+                </Link>
+              </>
+            )}
+            <button
+              type="button"
+              className="sidebar-collapse-btn"
+              title={sidebarCollapsed ? "展開側欄 ⌘\\" : "收合側欄 ⌘\\"}
+              aria-label={sidebarCollapsed ? "展開側欄" : "收合側欄"}
+              aria-pressed={sidebarCollapsed}
+              onClick={toggleSidebarCollapsed}
+            >
+              {sidebarCollapsed ? "»" : "«"}
+            </button>
           </div>
         </div>
 
-        <nav className="sidebar-apps" aria-label="應用">
+        <nav className={`sidebar-apps${sidebarCollapsed ? " is-collapsed" : ""}`} aria-label="應用">
           {NAV_APPS.map((item) => {
             const Icon = NAV_ICONS[item.id] || LibraryIcon;
             return item.href === "/team" ? (
               <div key={item.href} className="sidebar-team-item-wrap" ref={notifWrapRef}>
                 <Link href={item.href} className={isActive(item.href) ? "is-on" : ""} title={item.label}>
                   <Icon />
-                  <span>{item.label}</span>
+                  {!sidebarCollapsed && <span>{item.label}</span>}
                 </Link>
-                {teamUnread + mentionUnread > 0 && (
+                {!sidebarCollapsed && teamUnread + mentionUnread > 0 && (
                   <span
                     role="button"
                     tabIndex={0}
@@ -468,48 +572,74 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 title={item.label}
               >
                 <Icon />
-                <span>{item.label}</span>
+                {!sidebarCollapsed && <span>{item.label}</span>}
               </Link>
             );
           })}
         </nav>
 
-        <div className="sidebar-tree-wrap">
-          <SidebarNotesTree />
-        </div>
+        {!sidebarCollapsed && (
+          <div className="sidebar-tree-wrap">
+            <SidebarNotesTree />
+          </div>
+        )}
 
         <div className="sidebar-footer">
           {loading ? null : user ? (
-            <div className="sidebar-user">
+            <div className={`sidebar-user${sidebarCollapsed ? " is-collapsed" : ""}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 className="sidebar-user-avatar"
                 src={user.photoURL || ""}
                 alt=""
                 referrerPolicy="no-referrer"
+                title={user.displayName || "使用者"}
               />
-              <div className="sidebar-user-meta">
-                <div className="sidebar-user-name">{user.displayName || "使用者"}</div>
-                <button type="button" className="sidebar-user-action" onClick={() => logout()}>
-                  登出
-                </button>
-              </div>
+              {!sidebarCollapsed && (
+                <div className="sidebar-user-meta">
+                  <div className="sidebar-user-name">{user.displayName || "使用者"}</div>
+                  <button type="button" className="sidebar-user-action" onClick={() => logout()}>
+                    登出
+                  </button>
+                </div>
+              )}
               <ThemeToggle />
             </div>
           ) : (
             <div className="sidebar-user sidebar-user--guest">
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ flex: 1 }}
-                onClick={() => loginWithGoogle()}
-              >
-                登入
-              </button>
+              {!sidebarCollapsed && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ flex: 1 }}
+                  onClick={() => loginWithGoogle()}
+                >
+                  登入
+                </button>
+              )}
               <ThemeToggle />
             </div>
           )}
         </div>
+
+        {!sidebarCollapsed && (
+          <div
+            className="sidebar-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="調整側欄寬度"
+            title="拖曳調整寬度"
+            onPointerDown={onSidebarResizeStart}
+            onPointerMove={onSidebarResizeMove}
+            onPointerUp={onSidebarResizeEnd}
+            onPointerCancel={onSidebarResizeEnd}
+            onDoubleClick={() => {
+              const mid = Math.round((SIDEBAR_MIN + SIDEBAR_MAX) / 2);
+              setSidebarW(mid);
+              saveSidebarWidthPx(mid);
+            }}
+          />
+        )}
       </aside>
       <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{children}</main>
       {palette}

@@ -245,7 +245,7 @@ export default function SettingsPage() {
                 ]}
               />
             </Row>
-            <Row label="側欄寬度">
+            <Row label="側欄寬度" hint="也可在側欄右緣拖曳調整；「«」可收合">
               <Seg
                 value={prefs.sidebarWidth}
                 onChange={(sidebarWidth) => patch({ sidebarWidth })}

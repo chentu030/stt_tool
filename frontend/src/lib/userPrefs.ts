@@ -420,6 +420,7 @@ export function clearLocalWorkspaceCaches(uid?: string) {
 export const SHORTCUT_HELP: { keys: string; action: string }[] = [
   { keys: "⌘/Ctrl + S", action: "儲存筆記" },
   { keys: "⌘/Ctrl + K", action: "命令列（若頁面支援）" },
+  { keys: "⌘/Ctrl + \\", action: "收合／展開側欄" },
   { keys: "/", action: "筆記內斜線選單" },
   { keys: "[[", action: "Wiki 連結建議" },
   { keys: "Space（圖譜／白板）", action: "暫時平移" },

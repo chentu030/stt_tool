@@ -6079,9 +6079,92 @@ button, input, textarea, select {
 
 /* Sidebar notes tree (Notion/Obsidian style) */
 .desktop-sidebar--tree {
-  width: max(var(--sidebar-w), 260px);
+  width: var(--sidebar-w, 260px);
+  min-width: 0;
   padding: 0.65rem 0.5rem 0.75rem;
   gap: 0;
+  position: relative;
+  transition: width 0.18s ease;
+}
+.desktop-sidebar--tree.is-collapsed {
+  padding: 0.55rem 0.35rem 0.65rem;
+  overflow: hidden;
+}
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+.sidebar-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:active::after,
+body.is-sidebar-resizing .sidebar-resize-handle::after {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+body.is-sidebar-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.is-sidebar-resizing iframe {
+  pointer-events: none;
+}
+.sidebar-collapse-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.sidebar-collapse-btn:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.sidebar-collapse-btn--brand {
+  width: auto;
+  height: auto;
+  padding: 0.15rem;
+}
+.sidebar-apps.is-collapsed {
+  grid-template-columns: 1fr;
+  padding: 0.25rem 0 0.45rem;
+}
+.sidebar-apps.is-collapsed a {
+  justify-content: center;
+  padding: 0.55rem 0.35rem;
+}
+.sidebar-apps.is-collapsed a span {
+  display: none;
+}
+.sidebar-user.is-collapsed {
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: center;
+}
+.sidebar-user.is-collapsed .sidebar-user-avatar {
+  width: 28px;
+  height: 28px;
 }
 .sidebar-brand {
   display: flex;
