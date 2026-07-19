@@ -752,7 +752,7 @@ export default function BlockEditor({
                       transition={{ duration: 0.16 }}
                       style={{
                         position: "absolute",
-                        left: 0,
+                        left: "1.5rem",
                         top: "100%",
                         zIndex: 40,
                         minWidth: 260,

@@ -207,6 +207,8 @@ export default function RichNoteEditor({
   const [txCustoms, setTxCustoms] = useState<string[]>(() => loadCustomColors("cadence_tx_customs", TX_PRESETS));
   const [selAi, setSelAi] = useState<{ from: number; to: number; text: string } | null>(null);
   const hlPanelRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const txPanelRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const showFind = findOpen ?? false;
@@ -1139,6 +1141,26 @@ export default function RichNoteEditor({
   }, [editor, readOnly]);
 
   useEffect(() => {
+    if (!editor || (!slash && !wiki && !atMenu)) {
+      setMenuPos(null);
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    try {
+      const coords = editor.view.coordsAtPos(editor.state.selection.from);
+      const rect = canvas.getBoundingClientRect();
+      // Sit just past the caret so the menu never covers the triggering `/` or `@`
+      const rawLeft = coords.left - rect.left + 12;
+      const left = Math.min(Math.max(8, rawLeft), Math.max(8, rect.width - 292));
+      const top = coords.bottom - rect.top + 8;
+      setMenuPos({ left, top });
+    } catch {
+      setMenuPos({ left: 28, top: 40 });
+    }
+  }, [editor, slash, wiki, atMenu]);
+
+  useEffect(() => {
     if (!insertMdRef) return;
     insertMdRef.current = (md: string) => {
       const ed = editorRef.current;
@@ -1665,7 +1687,7 @@ export default function RichNoteEditor({
         />
       )}
 
-      <div className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
+      <div ref={canvasRef} className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
         <div className={pageMode ? "rich-page-sheet" : undefined}>
           <BlockDragHandle editor={editor} />
           <EditorContent editor={editor} />
@@ -1696,7 +1718,10 @@ export default function RichNoteEditor({
           </div>
         )}
         {wiki && (
-          <div className="slash-menu rich-slash wiki-menu">
+          <div
+            className="slash-menu rich-slash wiki-menu"
+            style={menuPos ? { left: menuPos.left, top: menuPos.top } : undefined}
+          >
             <p className="rich-slash-label">連結筆記</p>
             {wikiItems.length === 0 ? (
               <button
@@ -1729,7 +1754,10 @@ export default function RichNoteEditor({
           </div>
         )}
         {atMenu && atItems.length > 0 && !wiki && (
-          <div className="slash-menu rich-slash at-menu">
+          <div
+            className="slash-menu rich-slash at-menu"
+            style={menuPos ? { left: menuPos.left, top: menuPos.top } : undefined}
+          >
             <p className="rich-slash-label">提及 @</p>
             {atItems.map((item, idx) => (
               <button
@@ -1748,7 +1776,10 @@ export default function RichNoteEditor({
           </div>
         )}
         {slash && slashItems.length > 0 && !wiki && !atMenu && (
-          <div className="slash-menu rich-slash">
+          <div
+            className="slash-menu rich-slash"
+            style={menuPos ? { left: menuPos.left, top: menuPos.top } : undefined}
+          >
             <p className="rich-slash-label">插入區塊</p>
             {slashItems.map((item, idx) => (
               <button
