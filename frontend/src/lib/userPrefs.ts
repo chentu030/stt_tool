@@ -1,3 +1,6 @@
+import type { FolderStyle } from "@/lib/pageChrome";
+import { sanitizeFolderStyles } from "@/lib/pageChrome";
+
 /** Cadence user preferences — local persistence + document theming */
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -98,6 +101,8 @@ export type UserPrefs = {
   /** Workspace */
   favoriteNoteIds: string[];
   recentNoteIds: string[];
+  /** Per-folder icon/color (folders are path strings, not Firestore docs) */
+  folderStyles: Record<string, FolderStyle>;
 };
 
 export const ACCENTS: {
@@ -246,6 +251,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   aiDefaultScope: "note",
   favoriteNoteIds: [],
   recentNoteIds: [],
+  folderStyles: {},
 };
 
 const STORAGE_KEY = "cadence_prefs_v1";
@@ -328,6 +334,7 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
         : "note",
     favoriteNoteIds: fav,
     recentNoteIds: recent,
+    folderStyles: sanitizeFolderStyles(p.folderStyles),
   };
 }
 

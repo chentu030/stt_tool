@@ -21,6 +21,7 @@ import {
   Note,
 } from "@/lib/firebase";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import IconColorPicker from "@/components/IconColorPicker";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import {
@@ -32,6 +33,13 @@ import {
   remapFolderPath,
   renameFolderLeaf,
 } from "@/lib/noteTree";
+import {
+  isPageColorId,
+  pageColorMeta,
+  remapFolderStyles,
+  setFolderStyle,
+  type PageColorId,
+} from "@/lib/pageChrome";
 
 const EXPAND_KEY = "cadence_sidebar_expand_v1";
 
@@ -62,6 +70,12 @@ type CtxMenu = {
   x: number;
   y: number;
   target: CtxTarget;
+};
+
+type StylePicker = {
+  x: number;
+  y: number;
+  target: { kind: "note"; noteId: string } | { kind: "folder"; path: string };
 };
 
 type MenuItem =
@@ -95,6 +109,17 @@ export default function SidebarNotesTree() {
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
+  const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
+
+  const folderStyles = prefs?.folderStyles || {};
+
+  const remapStyles = (oldPath: string, newPath: string) => {
+    if (!prefsCtx) return;
+    prefsCtx.setPrefs((prev) => ({
+      ...prev,
+      folderStyles: remapFolderStyles(prev.folderStyles || {}, oldPath, newPath),
+    }));
+  };
 
   useEffect(() => {
     setExpanded(loadExpanded());
@@ -324,6 +349,36 @@ export default function SidebarNotesTree() {
 
   const closeCtx = () => setCtx(null);
 
+  const openStylePicker = (
+    target: StylePicker["target"],
+    x: number,
+    y: number
+  ) => {
+    closeCtx();
+    const pos = clampMenuPos(x, y, 280, 320);
+    setStylePicker({ ...pos, target });
+  };
+
+  const applyStyle = async (next: { icon: string; color: PageColorId | "" }) => {
+    if (!stylePicker) return;
+    if (stylePicker.target.kind === "note") {
+      await updateNote(stylePicker.target.noteId, {
+        icon: next.icon,
+        color: next.color || "",
+      });
+      return;
+    }
+    if (!prefsCtx) return;
+    const path = stylePicker.target.path;
+    prefsCtx.setPrefs((prev) => ({
+      ...prev,
+      folderStyles: setFolderStyle(prev.folderStyles || {}, path, {
+        icon: next.icon,
+        color: next.color || undefined,
+      }),
+    }));
+  };
+
   const renameNote = async (note: Note) => {
     const next = await askPrompt({
       title: "重新命名筆記",
@@ -417,6 +472,7 @@ export default function SidebarNotesTree() {
       })
       .filter(Boolean) as { id: string; folder: string }[];
     await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
+    remapStyles(path, newPath);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -462,6 +518,7 @@ export default function SidebarNotesTree() {
       })
       .filter(Boolean) as { id: string; folder: string }[];
     await Promise.all(updates.map((u) => updateNote(u.id, { folder: u.folder })));
+    remapStyles(path, newPath);
     setExpanded((prev) => {
       const nextSet = new Set(prev);
       if (nextSet.has(path)) {
@@ -507,6 +564,8 @@ export default function SidebarNotesTree() {
   const buildMenuItems = (): MenuItem[] => {
     if (!ctx) return [];
     const { target } = ctx;
+    const menuX = ctx.x;
+    const menuY = ctx.y;
     const items: MenuItem[] = [];
 
     if (selected.size > 1 && (target.kind === "note" || target.kind === "blank")) {
@@ -534,6 +593,11 @@ export default function SidebarNotesTree() {
       items.push(
         { type: "item", label: "開啟", action: () => router.push(`/notes/${note.id}`) },
         { type: "item", label: "重新命名", action: () => renameNote(note) },
+        {
+          type: "item",
+          label: "圖示與顏色…",
+          action: () => openStylePicker({ kind: "note", noteId: note.id }, menuX, menuY),
+        },
         { type: "item", label: "移動至…", action: () => moveNotes([note.id]) },
         {
           type: "item",
@@ -559,6 +623,11 @@ export default function SidebarNotesTree() {
 
     if (target.kind === "folder") {
       const isVirtual = target.path === UNCATEGORIZED;
+      items.push({
+        type: "item",
+        label: "圖示與顏色…",
+        action: () => openStylePicker({ kind: "folder", path: target.path }, menuX, menuY),
+      });
       if (!isVirtual) {
         items.push(
           { type: "item", label: "重新命名", action: () => renameFolder(target.path) },
@@ -643,11 +712,21 @@ export default function SidebarNotesTree() {
     const kids = childrenByParent.get(note.id) || [];
     const open = expanded.has(`note:${note.id}`);
     const isFav = (prefs?.favoriteNoteIds || []).includes(note.id);
+    const colorId = isPageColorId(note.color) ? note.color : "";
+    const color = pageColorMeta(colorId);
     return (
       <div key={`n:${note.id}`}>
         <div
-          className={`sb-row sb-row--note${active ? " is-active" : ""}${isSelected ? " is-selected" : ""}`}
-          style={{ paddingLeft: 12 + depth * 12 }}
+          className={`sb-row sb-row--note${active ? " is-active" : ""}${isSelected ? " is-selected" : ""}${colorId ? " has-color" : ""}`}
+          style={{
+            paddingLeft: 12 + depth * 12,
+            ...(colorId
+              ? {
+                  ["--sb-tint" as string]: color.fg,
+                  ["--sb-tint-bg" as string]: color.bg,
+                }
+              : {}),
+          }}
           draggable
           onDragStart={(e) => {
             e.dataTransfer.setData("text/note-id", note.id);
@@ -675,10 +754,16 @@ export default function SidebarNotesTree() {
               if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault();
             }}
           >
-            <span className="sb-note-icon" aria-hidden>
+            <span
+              className={`sb-note-icon${note.icon ? " has-emoji" : ""}`}
+              aria-hidden
+              style={colorId ? { background: color.bg, color: color.fg } : undefined}
+            >
               {note.icon || "▢"}
             </span>
-            <span className="sb-name">{note.title || "未命名"}</span>
+            <span className="sb-name" style={colorId ? { color: color.fg } : undefined}>
+              {note.title || "未命名"}
+            </span>
           </Link>
           <button
             type="button"
@@ -726,6 +811,39 @@ export default function SidebarNotesTree() {
           document.body
         )
       : null;
+
+  const stylePickerPortal: ReactNode = (() => {
+    if (!stylePicker || typeof document === "undefined") return null;
+    let icon = "";
+    let color: PageColorId | "" = "";
+    let mode: "note" | "folder" = "note";
+    const target = stylePicker.target;
+    if (target.kind === "note") {
+      const note = notes.find((n) => n.id === target.noteId);
+      icon = note?.icon || "";
+      color = isPageColorId(note?.color) ? note!.color! : "";
+      mode = "note";
+    } else {
+      const st = folderStyles[target.path] || {};
+      icon = st.icon || "";
+      color = st.color || "";
+      mode = "folder";
+    }
+    return createPortal(
+      <IconColorPicker
+        mode={mode}
+        icon={icon}
+        color={color}
+        x={stylePicker.x}
+        y={stylePicker.y}
+        onChange={(next) => {
+          void applyStyle(next);
+        }}
+        onClose={() => setStylePicker(null)}
+      />,
+      document.body
+    );
+  })();
 
   if (!user) {
     return (
@@ -814,11 +932,22 @@ export default function SidebarNotesTree() {
               const folderParam =
                 row.folder.id === "__none__" ? "__none__" : row.folder.path;
               const dropKey = row.folder.path;
+              const fStyle = folderStyles[dropKey] || {};
+              const colorId = fStyle.color || "";
+              const color = pageColorMeta(colorId);
               return (
                 <div key={`f:${row.path}`}>
                   <div
-                    className={`sb-row sb-row--folder${dragOverFolder === dropKey ? " is-drop" : ""}`}
-                    style={{ paddingLeft: 8 + row.depth * 12 }}
+                    className={`sb-row sb-row--folder${dragOverFolder === dropKey ? " is-drop" : ""}${colorId ? " has-color" : ""}`}
+                    style={{
+                      paddingLeft: 8 + row.depth * 12,
+                      ...(colorId
+                        ? {
+                            ["--sb-tint" as string]: color.fg,
+                            ["--sb-tint-bg" as string]: color.bg,
+                          }
+                        : {}),
+                    }}
                     onDragOver={(e) => {
                       e.preventDefault();
                       setDragOverFolder(dropKey);
@@ -844,8 +973,34 @@ export default function SidebarNotesTree() {
                       className="sb-folder-link"
                       title={row.folder.path}
                     >
-                      <span className={`sb-folder-icon${open ? " is-open" : ""}`} aria-hidden />
-                      <span className="sb-name">{row.folder.name}</span>
+                      {fStyle.icon ? (
+                        <span
+                          className="sb-folder-emoji"
+                          aria-hidden
+                          style={colorId ? { background: color.bg } : undefined}
+                        >
+                          {fStyle.icon}
+                        </span>
+                      ) : (
+                        <span
+                          className={`sb-folder-icon${open ? " is-open" : ""}`}
+                          aria-hidden
+                          style={
+                            colorId
+                              ? {
+                                  background: color.fg,
+                                  opacity: 0.9,
+                                }
+                              : undefined
+                          }
+                        />
+                      )}
+                      <span
+                        className="sb-name"
+                        style={colorId ? { color: color.fg } : undefined}
+                      >
+                        {row.folder.name}
+                      </span>
                       <em>{row.folder.noteCount}</em>
                     </Link>
                     <button
@@ -881,6 +1036,7 @@ export default function SidebarNotesTree() {
       </div>
 
       {menuPortal}
+      {stylePickerPortal}
     </div>
   );
 }

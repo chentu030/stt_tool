@@ -79,9 +79,9 @@ import NotePresence from "@/components/notes/NotePresence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
 import NotePageLog from "@/components/notes/NotePageLog";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
+import IconColorPicker from "@/components/IconColorPicker";
 import { fireConfetti } from "@/lib/confetti";
-
-const PAGE_ICONS = ["📄", "📝", "💡", "📌", "🎯", "📚", "🔬", "🎤", "🗂", "⭐"];
+import { isPageColorId, pageColorMeta, type PageColorId } from "@/lib/pageChrome";
 
 function countTaskCheckboxes(md: string): { total: number; checked: number } {
   const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
@@ -112,6 +112,7 @@ function NotePageInner() {
   const [tags, setTags] = useState<string[]>([]);
   const [folder, setFolder] = useState("");
   const [icon, setIcon] = useState("");
+  const [color, setColor] = useState<PageColorId | "">("");
   const [cover, setCover] = useState("");
   const [parentId, setParentId] = useState("");
   const [tagInput, setTagInput] = useState("");
@@ -173,6 +174,7 @@ function NotePageInner() {
     tags: [] as string[],
     folder: "",
     icon: "",
+    color: "" as PageColorId | "",
     cover: "",
     parent_id: "",
   });
@@ -187,6 +189,7 @@ function NotePageInner() {
       setTags(n.tags || []);
       setFolder(n.folder || "");
       setIcon(n.icon || "");
+      setColor(isPageColorId(n.color) ? n.color : "");
       setCover(n.cover || "");
       setParentId(n.parent_id || "");
       setNoteShare(parseNoteShare(n.share));
@@ -199,6 +202,7 @@ function NotePageInner() {
         tags: n.tags || [],
         folder: n.folder || "",
         icon: n.icon || "",
+        color: isPageColorId(n.color) ? n.color : "",
         cover: n.cover || "",
         parent_id: n.parent_id || "",
       };
@@ -242,8 +246,8 @@ function NotePageInner() {
   }, [id]);
 
   useEffect(() => {
-    latest.current = { title, body, tags, folder, icon, cover, parent_id: parentId };
-  }, [title, body, tags, folder, icon, cover, parentId]);
+    latest.current = { title, body, tags, folder, icon, color, cover, parent_id: parentId };
+  }, [title, body, tags, folder, icon, color, cover, parentId]);
 
   useEffect(() => {
     teamFocus.setFocusMode(focusMode);
@@ -283,6 +287,7 @@ function NotePageInner() {
         tags: mergedTags,
         folder: latest.current.folder,
         icon: latest.current.icon,
+        color: latest.current.color || "",
         cover: latest.current.cover,
         parent_id: latest.current.parent_id,
       });
@@ -997,6 +1002,7 @@ function NotePageInner() {
                         tags: latest.current.tags,
                         folder: latest.current.folder,
                         icon: latest.current.icon,
+                        color: latest.current.color || "",
                         cover: latest.current.cover,
                         parent_id: latest.current.parent_id,
                       });
@@ -1239,36 +1245,30 @@ function NotePageInner() {
                 type="button"
                 className="doc-icon-btn"
                 onClick={() => viewMode === "write" && setIconOpen((v) => !v)}
-                title="頁面圖示"
+                title="頁面圖示與顏色"
+                style={
+                  color
+                    ? {
+                        background: pageColorMeta(color).bg,
+                        boxShadow: `inset 0 0 0 1px ${pageColorMeta(color).fg}33`,
+                      }
+                    : undefined
+                }
               >
                 {icon || "📄"}
               </button>
               {iconOpen && viewMode === "write" && (
-                <div className="doc-icon-menu">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIcon("");
-                      setIconOpen(false);
-                      markDirty();
-                    }}
-                  >
-                    無
-                  </button>
-                  {PAGE_ICONS.map((ic) => (
-                    <button
-                      key={ic}
-                      type="button"
-                      onClick={() => {
-                        setIcon(ic);
-                        setIconOpen(false);
-                        markDirty();
-                      }}
-                    >
-                      {ic}
-                    </button>
-                  ))}
-                </div>
+                <IconColorPicker
+                  mode="note"
+                  icon={icon}
+                  color={color}
+                  onChange={(next) => {
+                    setIcon(next.icon);
+                    setColor(next.color);
+                    markDirty();
+                  }}
+                  onClose={() => setIconOpen(false)}
+                />
               )}
             </div>
             <input

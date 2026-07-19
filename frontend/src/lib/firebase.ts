@@ -271,6 +271,8 @@ export interface Note {
   source_job_id?: string;
   /** page chrome */
   icon?: string;
+  /** accent color id for sidebar / title (see pageChrome) */
+  color?: string;
   cover?: string;
   /** nested under another note */
   parent_id?: string;
@@ -340,6 +342,7 @@ export async function updateNote(
       | "journal_date"
       | "status"
       | "icon"
+      | "color"
       | "cover"
       | "parent_id"
       | "deck"
