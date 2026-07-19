@@ -1,6 +1,8 @@
+"use client";
+
 /**
- * Cadence brand lockup — geometric mark + wordmark (option M).
- * Inspired by Behance logofolio geometry: sharp mark, clean grotesque type.
+ * Cadence primary lockup (option M): three slanted geometric bars + wordmark.
+ * Uses the exact approved mark artwork for fidelity.
  */
 export default function CadenceLogo({
   height = 28,
@@ -11,72 +13,46 @@ export default function CadenceLogo({
   showWord?: boolean;
   className?: string;
 }) {
-  const markSize = height;
-  const wordWidth = showWord ? height * 4.6 : 0;
-  const gap = showWord ? height * 0.35 : 0;
-  const width = markSize + gap + wordWidth;
+  // Mark-only: crop left emblem from lockup; full lockup includes word.
+  if (!showWord) {
+    const size = height;
+    return (
+      <svg
+        className={className}
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="currentColor"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-label="Cadence"
+        role="img"
+      >
+        {/* Three parallel slanted bars — matches selected M mark */}
+        <path d="M6 8.2 L22.5 3.2 L25.2 8.8 L8.7 13.8 Z" />
+        <path d="M4.8 14.6 L21.3 9.6 L24 15.2 L7.5 20.2 Z" />
+        <path d="M3.6 21 L20.1 16 L22.8 21.6 L6.3 26.6 Z" />
+      </svg>
+    );
+  }
 
+  const width = Math.round(height * 4.1);
   return (
-    <svg
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
       className={className}
-      width={width}
+      src="/brand/cadence-lockup-clean.png"
+      alt="Cadence"
       height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="Cadence"
-      role="img"
-    >
-      <defs>
-        <linearGradient id="cadenceMarkGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#0369A1" />
-          <stop offset="45%" stopColor="#0D9488" />
-          <stop offset="100%" stopColor="#34D399" />
-        </linearGradient>
-      </defs>
-
-      {/* Geometric mark: three angled bars forming a C-like cadence emblem */}
-      <g transform={`translate(0, 0) scale(${markSize / 32})`}>
-        <path
-          d="M22 4.5C16.2 2.8 9.8 4.2 6.2 8.6C2.2 13.4 2.4 20.6 6.8 25.2C10.6 29.2 16.4 30.6 21.6 28.8"
-          stroke="url(#cadenceMarkGrad)"
-          strokeWidth="3.2"
-          strokeLinecap="round"
-          fill="none"
-        />
-        <path
-          d="M18.5 10.5H27"
-          stroke="url(#cadenceMarkGrad)"
-          strokeWidth="3.2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M17 16H29"
-          stroke="url(#cadenceMarkGrad)"
-          strokeWidth="3.2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M18.5 21.5H25.5"
-          stroke="url(#cadenceMarkGrad)"
-          strokeWidth="3.2"
-          strokeLinecap="round"
-        />
-      </g>
-
-      {showWord && (
-        <text
-          x={markSize + gap}
-          y={height * 0.72}
-          fill="currentColor"
-          fontFamily="'Space Grotesk', 'Outfit', system-ui, sans-serif"
-          fontSize={height * 0.62}
-          fontWeight="700"
-          letterSpacing="-0.04em"
-        >
-          Cadence
-        </text>
-      )}
-    </svg>
+      width={width}
+      style={{
+        height,
+        width: "auto",
+        maxHeight: height,
+        objectFit: "contain",
+        objectPosition: "left center",
+        display: "block",
+        filter: "var(--logo-filter, none)",
+      }}
+    />
   );
 }
