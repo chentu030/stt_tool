@@ -253,163 +253,166 @@ function LibraryPageInner() {
         />
 
         <main className="kb-main">
-          <div className="kb-toolbar">
-            <input
-              className="input kb-ctrl"
-              placeholder="搜尋…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-            <div className="kb-seg">
-              <button
-                type="button"
-                className={tab === "notes" ? "is-active" : ""}
-                onClick={() => setTab("notes")}
-              >
-                筆記 {filteredNotes.length}
-              </button>
-              {prefs.libraryShowJobs && (
-                <button
-                  type="button"
-                  className={tab === "jobs" ? "is-active" : ""}
-                  onClick={() => setTab("jobs")}
-                >
-                  轉錄 {filteredJobs.length}
-                </button>
-              )}
-            </div>
-            <MenuSelect
-              variant="soft"
-              className="kb-menu"
-              ariaLabel="排序"
-              value={sort}
-              options={SORT_OPTIONS}
-              onChange={setSort}
-            />
-            <div className="kb-seg">
-              {(["list", "grid", "compact", "table"] as ViewMode[]).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={view === v ? "is-active" : ""}
-                  onClick={() => {
-                    setView(v);
-                    setPrefs({ libraryView: v });
-                  }}
-                >
-                  {v === "list" ? "列表" : v === "grid" ? "網格" : v === "compact" ? "緊湊" : "表格"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {(tagFilter || folderFilter || statusFilter) && (
-            <div className="kb-filters">
-              {folderFilter && (
-                <span className="kb-chip">
-                  資料夾：{folderFilter === "__none__" ? "未分類" : folderFilter}
-                </span>
-              )}
-              {tagFilter && <span className="kb-chip">#{tagFilter}</span>}
-              {statusFilter && <span className="kb-chip">狀態：{noteStatusLabel(statusFilter)}</span>}
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  setTagFilter("");
-                  setFolderFilter("");
-                  setStatusFilter("");
-                  router.replace("/library");
-                }}
-              >
-                清除篩選
-              </button>
-            </div>
-          )}
-
-          {tab === "notes" && (
-            <div className="kb-bulk">
-              <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={selectVisible}>
-                全選可見
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm kb-ctrl-btn"
-                onClick={() => setSelected([])}
-                disabled={!selected.length}
-              >
-                取消選取 ({selected.length})
-              </button>
+          <div className="kb-controls">
+            <div className="kb-toolbar">
               <input
-                className="input kb-ctrl kb-ctrl--folder"
-                placeholder="批量資料夾"
-                value={bulkFolder}
-                onChange={(e) => setBulkFolder(e.target.value)}
+                className="input kb-ctrl"
+                placeholder="搜尋…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
               />
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm kb-ctrl-btn"
-                disabled={!selected.length || !bulkFolder.trim()}
-                onClick={() => {
-                  void runBulkFolder();
-                }}
-              >
-                套用資料夾
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
-                匯出 MD
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm kb-ctrl-btn kb-ctrl-btn--danger"
-                disabled={!selected.length}
-                onClick={() => {
-                  void runBulkDelete();
-                }}
-              >
-                刪除選取
-              </button>
-            </div>
-          )}
-
-          {showTemplates && (
-            <div className="card kb-templates">
-              <h2 className="font-display" style={{ fontSize: "1rem", marginBottom: "0.7rem" }}>
-                從範本建立
-              </h2>
-              <div className="grid-3">
-                {NOTE_TEMPLATES.map((t) => (
+              <div className="kb-seg">
+                <button
+                  type="button"
+                  className={tab === "notes" ? "is-active" : ""}
+                  onClick={() => setTab("notes")}
+                >
+                  筆記 {filteredNotes.length}
+                </button>
+                {prefs.libraryShowJobs && (
                   <button
-                    key={t.id}
                     type="button"
-                    className="surface"
-                    disabled={creating}
+                    className={tab === "jobs" ? "is-active" : ""}
+                    onClick={() => setTab("jobs")}
+                  >
+                    轉錄 {filteredJobs.length}
+                  </button>
+                )}
+              </div>
+              <MenuSelect
+                variant="soft"
+                className="kb-menu"
+                ariaLabel="排序"
+                value={sort}
+                options={SORT_OPTIONS}
+                onChange={setSort}
+              />
+              <div className="kb-seg">
+                {(["list", "grid", "compact", "table"] as ViewMode[]).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={view === v ? "is-active" : ""}
                     onClick={() => {
-                      void createFromTemplate(t.id);
-                    }}
-                    style={{
-                      padding: "0.9rem",
-                      textAlign: "left",
-                      cursor: "pointer",
-                      border: "1px solid var(--border)",
+                      setView(v);
+                      setPrefs({ libraryView: v });
                     }}
                   >
-                    <div style={{ fontWeight: 650 }}>{t.label}</div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 4 }}>
-                      {t.hint}
-                    </div>
+                    {v === "list" ? "列表" : v === "grid" ? "網格" : v === "compact" ? "緊湊" : "表格"}
                   </button>
                 ))}
               </div>
             </div>
-          )}
 
-          {createError && (
-            <p style={{ color: "var(--danger)", fontSize: "0.85rem", marginBottom: "0.85rem" }}>
-              {createError}
-            </p>
-          )}
+            {(tagFilter || folderFilter || statusFilter) && (
+              <div className="kb-filters">
+                {folderFilter && (
+                  <span className="kb-chip">
+                    資料夾：{folderFilter === "__none__" ? "未分類" : folderFilter}
+                  </span>
+                )}
+                {tagFilter && <span className="kb-chip">#{tagFilter}</span>}
+                {statusFilter && <span className="kb-chip">狀態：{noteStatusLabel(statusFilter)}</span>}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setTagFilter("");
+                    setFolderFilter("");
+                    setStatusFilter("");
+                    router.replace("/library");
+                  }}
+                >
+                  清除篩選
+                </button>
+              </div>
+            )}
 
+            {tab === "notes" && (
+              <div className="kb-bulk">
+                <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={selectVisible}>
+                  全選可見
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm kb-ctrl-btn"
+                  onClick={() => setSelected([])}
+                  disabled={!selected.length}
+                >
+                  取消選取 ({selected.length})
+                </button>
+                <input
+                  className="input kb-ctrl kb-ctrl--folder"
+                  placeholder="批量資料夾"
+                  value={bulkFolder}
+                  onChange={(e) => setBulkFolder(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm kb-ctrl-btn"
+                  disabled={!selected.length || !bulkFolder.trim()}
+                  onClick={() => {
+                    void runBulkFolder();
+                  }}
+                >
+                  套用資料夾
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
+                  匯出 MD
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm kb-ctrl-btn kb-ctrl-btn--danger"
+                  disabled={!selected.length}
+                  onClick={() => {
+                    void runBulkDelete();
+                  }}
+                >
+                  刪除選取
+                </button>
+              </div>
+            )}
+
+            {showTemplates && (
+              <div className="card kb-templates">
+                <h2 className="font-display" style={{ fontSize: "1rem", marginBottom: "0.7rem" }}>
+                  從範本建立
+                </h2>
+                <div className="grid-3">
+                  {NOTE_TEMPLATES.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="surface"
+                      disabled={creating}
+                      onClick={() => {
+                        void createFromTemplate(t.id);
+                      }}
+                      style={{
+                        padding: "0.9rem",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        border: "1px solid var(--border)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 650 }}>{t.label}</div>
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 4 }}>
+                        {t.hint}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {createError && (
+              <p style={{ color: "var(--danger)", fontSize: "0.85rem", marginBottom: "0.85rem" }}>
+                {createError}
+              </p>
+            )}
+          </div>
+
+          <div className="kb-scroll">
           {tab === "notes" && (
             <section>
               {filteredNotes.length === 0 ? (
@@ -557,6 +560,7 @@ function LibraryPageInner() {
               )}
             </section>
           )}
+          </div>
         </main>
 
         {chatOpen && (

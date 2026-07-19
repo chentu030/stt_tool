@@ -51,7 +51,7 @@ export default function DatabasesIndexPage() {
 
   return (
     <div className="cdb-index">
-      <div className="cdb-index-head">
+      <div className="cdb-index-head page-chrome">
         <div>
           <ScrambleText words="資料庫" as="h1" className="page-title font-display" />
           <p className="page-sub">表格、屬性、多視圖 — 也可插入筆記中。</p>

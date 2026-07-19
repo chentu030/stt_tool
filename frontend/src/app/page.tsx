@@ -83,7 +83,7 @@ export default function HomePage() {
 
   return (
     <div>
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+      <motion.div className="page-chrome" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="page-title font-display">總覽</h1>
         <p className="page-sub">
           <TypeWriter
