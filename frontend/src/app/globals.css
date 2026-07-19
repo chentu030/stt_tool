@@ -1898,11 +1898,13 @@ button, input, textarea, select {
 .doc-body-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   flex: 1;
+  min-height: 0;
 }
 .doc-workspace.has-aside:not(.is-focus) .doc-body-row {
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  min-height: calc(100vh - 5.6rem);
 }
 .doc-page {
   max-width: min(var(--page-max), 100%);
@@ -2041,26 +2043,27 @@ button, input, textarea, select {
   flex: 1;
 }
 
-/* Note aside */
+/* Note aside ? full-height right rail */
 .note-aside {
   position: sticky;
   top: 5.6rem;
-  align-self: start;
-  max-height: calc(100vh - 6.5rem);
-  overflow: auto;
+  align-self: stretch;
+  height: calc(100vh - 5.6rem);
+  max-height: calc(100vh - 5.6rem);
+  min-height: calc(100vh - 5.6rem);
+  overflow: hidden;
   border-left: 1px solid var(--border);
   background: var(--bg-elevated);
   display: flex;
   flex-direction: column;
-  min-height: 50vh;
+  border-radius: 0;
 }
 .note-aside-tabs {
   display: flex;
   gap: 2px;
   padding: 0.45rem;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   background: var(--bg-elevated);
   z-index: 2;
 }
@@ -2085,6 +2088,8 @@ button, input, textarea, select {
   flex-direction: column;
   gap: 0.75rem;
   flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .note-aside-ai { min-height: 360px; }
 .note-aside-hint { font-size: 0.72rem; color: var(--text-muted); line-height: 1.45; }
@@ -2211,12 +2216,19 @@ button, input, textarea, select {
 @media (max-width: 1100px) {
   .doc-workspace.has-aside:not(.is-focus) .doc-body-row {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
   .note-aside {
     position: static;
+    height: auto;
     max-height: none;
+    min-height: 0;
     border-left: none;
     border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+  .note-aside-body {
+    overflow: visible;
   }
   .doc-link-grid { grid-template-columns: 1fr; }
 }
