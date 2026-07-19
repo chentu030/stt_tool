@@ -5,6 +5,7 @@
  * Vercel env:
  *   VERTEX_API_KEYS=key1,key2,key3   (comma/newline separated, 3-key rotate)
  *   VERTEX_MODEL=gemini-3-flash-preview
+ *   VERTEX_IMAGE_MODEL=gemini-3-pro-image   (optional; AI /create-photo)
  *   VERTEX_LOCATION=global
  *   VERTEX_PROJECT_ID=your-gcp-project   (optional; enables project-scoped URL)
  */
@@ -42,6 +43,17 @@ export type VertexChatMessage = {
   role: "user" | "model";
   text: string;
 };
+
+export type VertexImageResult = {
+  mimeType: string;
+  /** Raw base64 (no data: prefix) */
+  data: string;
+  caption?: string;
+  model: string;
+  keyIndex: number;
+};
+
+const DEFAULT_IMAGE_MODEL = "gemini-3-pro-image";
 
 export async function vertexGenerateContent(prompt: string, opts?: {
   system?: string;
@@ -127,6 +139,104 @@ export async function vertexGenerateContent(prompt: string, opts?: {
   throw new Error(`Vertex AI 全部金鑰嘗試失敗：${lastError}`);
 }
 
+/** Generate an image with gemini-3-pro-image (Nano Banana Pro). */
+export async function vertexGenerateImage(
+  prompt: string,
+  opts?: { aspectRatio?: string }
+): Promise<VertexImageResult> {
+  const keys = getKeys();
+  if (!keys.length) {
+    throw new Error("VERTEX_API_KEYS 未設定（請在 Vercel 環境變數加入逗號分隔的 3 組金鑰）");
+  }
+
+  const model = process.env.VERTEX_IMAGE_MODEL || DEFAULT_IMAGE_MODEL;
+  const url = endpoint(model);
+  const aspectRatio = opts?.aspectRatio || "1:1";
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt.trim() }],
+      },
+    ],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      imageConfig: {
+        aspectRatio,
+      },
+    },
+  };
+
+  let lastError = "unknown";
+  const start = rotateIndex;
+
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const keyIndex = (start + attempt) % keys.length;
+    const apiKey = keys[keyIndex];
+    rotateIndex = (keyIndex + 1) % keys.length;
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        lastError = data?.error?.message || `${res.status} ${res.statusText}`;
+        if ([401, 403, 429, 500, 503].includes(res.status)) continue;
+        throw new Error(lastError);
+      }
+
+      const parts: Array<{
+        text?: string;
+        inlineData?: { mimeType?: string; data?: string };
+        inline_data?: { mime_type?: string; data?: string };
+      }> = data?.candidates?.[0]?.content?.parts || [];
+
+      let caption = "";
+      let mimeType = "";
+      let b64 = "";
+
+      for (const part of parts) {
+        if (part.text) caption += part.text;
+        const inline = part.inlineData
+          ? { mimeType: part.inlineData.mimeType, data: part.inlineData.data }
+          : part.inline_data
+            ? { mimeType: part.inline_data.mime_type, data: part.inline_data.data }
+            : null;
+        if (inline?.data) {
+          b64 = inline.data;
+          mimeType = inline.mimeType || "image/png";
+        }
+      }
+
+      if (!b64) {
+        lastError = data?.candidates?.[0]?.finishReason
+          ? `未產出圖片（${data.candidates[0].finishReason}）`
+          : "模型未回傳圖片";
+        continue;
+      }
+
+      return {
+        mimeType,
+        data: b64,
+        caption: caption.trim() || undefined,
+        model,
+        keyIndex,
+      };
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  throw new Error(`圖片生成失敗：${lastError}`);
+}
+
 /** Exposed for health checks — does not leak key values */
 export function vertexConfigStatus() {
   const keys = getKeys();
@@ -134,6 +244,7 @@ export function vertexConfigStatus() {
     configured: keys.length > 0,
     keyCount: keys.length,
     model: process.env.VERTEX_MODEL || DEFAULT_MODEL,
+    imageModel: process.env.VERTEX_IMAGE_MODEL || DEFAULT_IMAGE_MODEL,
     location: process.env.VERTEX_LOCATION || DEFAULT_LOCATION,
     project: process.env.VERTEX_PROJECT_ID || null,
     host: "aiplatform.googleapis.com",

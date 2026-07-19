@@ -366,6 +366,56 @@ export default function RichNoteEditor({
     }
   }, [userId, noteId]);
 
+  const createAiPhoto = useCallback(async () => {
+    if (!userId || !noteId) {
+      setUploadError("請先開啟已儲存的筆記再生成圖片");
+      return;
+    }
+    const desc = window.prompt(
+      "描述要生成的圖片（可用中文）",
+      "溫暖的書房裡，桌上有一杯咖啡與打開的筆記本，柔和自然光"
+    );
+    if (desc == null || !desc.trim()) return;
+    const ratio =
+      window.prompt(
+        "畫面比例（1:1 / 16:9 / 9:16 / 4:3 / 3:4，留空=1:1）",
+        "1:1"
+      ) || "1:1";
+    setUploadError("");
+    setUploadPct(5);
+    try {
+      const res = await fetch("/api/ai/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: desc.trim(),
+          aspectRatio: ratio.trim() || "1:1",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "圖片生成失敗");
+      setUploadPct(40);
+      const mime = String(data.mimeType || "image/png");
+      const b64 = String(data.data || "");
+      if (!b64) throw new Error("未收到圖片資料");
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const ext = mime.includes("jpeg") || mime.includes("jpg") ? "jpg" : "png";
+      const file = new File([bytes], `ai-photo-${Date.now()}.${ext}`, { type: mime });
+      const { url } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
+      const alt = (data.caption || desc).trim().slice(0, 120);
+      editorRef.current?.chain().focus().setImage({ src: url, alt }).run();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "圖片生成失敗");
+    } finally {
+      setUploadPct(null);
+    }
+  }, [userId, noteId]);
+
+  const createAiPhotoRef = useRef(createAiPhoto);
+  createAiPhotoRef.current = createAiPhoto;
+
   const insertEmbedFromPrompt = useCallback((hint: string) => {
     const url = promptInsertUrl(hint);
     if (!url) return;
@@ -457,6 +507,14 @@ export default function RichNoteEditor({
       app("journal", "日誌", "/journal", "日記與行事曆"),
       app("graph", "圖譜", "/graph", "關聯圖譜"),
       { id: "image", label: "圖片", hint: "/image 上傳圖片", run: () => imageRef.current?.click() },
+      {
+        id: "create-photo",
+        label: "AI 生成圖片",
+        hint: "/create-photo · gemini-3-pro-image",
+        run: () => {
+          void createAiPhotoRef.current();
+        },
+      },
       { id: "pdf", label: "PDF 預覽", hint: "/pdf 上傳 PDF", run: () => pdfRef.current?.click() },
       {
         id: "bookmark",

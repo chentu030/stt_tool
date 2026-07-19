@@ -162,12 +162,15 @@ export const CADENCE_AI_ACTIONS: CadenceAiAction[] = [
 ];
 
 export const AI_SLASH_ALIASES: Record<string, string[]> = {
-  ai: CADENCE_AI_ACTIONS.map((a) => `ai-${a.id}`),
+  ai: CADENCE_AI_ACTIONS.map((a) => `ai-${a.id}`).concat(["create-photo"]),
   ask: ["ai-ask"],
   summarize: ["ai-summarize"],
   draft: ["ai-draft-meeting", "ai-draft-email", "ai-draft-outline"],
   mermaid: ["ai-mermaid"],
   table: ["ai-table"],
+  photo: ["create-photo"],
+  "create-photo": ["create-photo"],
+  image: ["create-photo", "image", "imglink"],
 };
 
 export function findCadenceAiAction(id: string): CadenceAiAction | undefined {
