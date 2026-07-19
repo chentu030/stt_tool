@@ -342,6 +342,7 @@ export default function RichNoteEditor({
             kind: "pdf",
             title: name,
             original: url,
+            frameable: emb.frameable,
           }).run();
         }
       } else if (/\.(ppt|pptx)$/i.test(lower)) {
@@ -352,6 +353,7 @@ export default function RichNoteEditor({
             kind: "ppt",
             title: name,
             original: url,
+            frameable: emb.frameable,
           }).run();
         }
       } else {
@@ -435,6 +437,7 @@ export default function RichNoteEditor({
         kind: emb.kind,
         title: emb.title,
         original: emb.original,
+        frameable: emb.frameable,
       }).run();
     })();
   }, []);
@@ -1150,7 +1153,14 @@ export default function RichNoteEditor({
       if (node.type.name !== "noteEmbed") return;
       const original = node.attrs.original || node.attrs.src;
       const emb = resolveEmbedUrl(original || "", node.attrs.title || "");
-      if (emb && emb.src !== node.attrs.src) {
+      if (!emb) return;
+      const nextFrameable = emb.frameable;
+      const curFrameable = node.attrs.frameable !== false && node.attrs.frameable !== "0";
+      if (
+        emb.src !== node.attrs.src ||
+        emb.kind !== node.attrs.kind ||
+        nextFrameable !== curFrameable
+      ) {
         editor.commands.command(({ tr }) => {
           tr.setNodeMarkup(pos, undefined, {
             ...node.attrs,
@@ -1158,6 +1168,7 @@ export default function RichNoteEditor({
             kind: emb.kind,
             title: node.attrs.title || emb.title,
             original: emb.original,
+            frameable: emb.frameable,
           });
           return true;
         });

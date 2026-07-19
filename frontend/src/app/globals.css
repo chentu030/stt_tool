@@ -3089,6 +3089,52 @@ button, input, textarea, select {
   padding: 0.4rem 0.75rem;
   color: var(--accent);
   border-top: 1px solid var(--border);
+  text-decoration: none;
+  font-weight: 600;
+}
+.rich-embed-open:hover { background: var(--accent-soft); }
+.rich-embed--card .rich-embed-card-body {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding: 1rem 1rem 0.85rem;
+}
+.rich-embed-favicon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--bg-muted);
+  margin-top: 0.1rem;
+}
+.rich-embed-card-text { min-width: 0; flex: 1; }
+.rich-embed-card-host {
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.rich-embed-card-title {
+  margin-top: 0.2rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-main);
+  word-break: break-all;
+  line-height: 1.4;
+}
+.rich-embed-card-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.rich-embed--vimeo .rich-embed-frame,
+.rich-embed--loom .rich-embed-frame,
+.rich-embed--figma .rich-embed-frame {
+  aspect-ratio: 16 / 9;
+  height: auto;
+  max-height: none;
+  min-height: 280px;
 }
 .rich-math-inline {
   display: inline-block;

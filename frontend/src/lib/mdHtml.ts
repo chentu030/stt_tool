@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import TurndownService from "turndown";
+import { resolveEmbedUrl } from "@/lib/embedUrls";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -327,7 +328,13 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   });
 
   s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {
-    return `<div class="rich-embed rich-embed--${escapeAttr(kind)}" data-note-embed="1" data-kind="${escapeAttr(kind)}" data-title="${escapeAttr(title || kind)}" data-src="${escapeAttr(original)}" data-original="${escapeAttr(original)}"></div>`;
+    const emb = resolveEmbedUrl(String(original), String(title || ""));
+    const k = emb?.kind || kind || "web";
+    const src = emb?.src || original;
+    const t = title || emb?.title || k;
+    const frameable = emb ? emb.frameable : k !== "link" && k !== "web";
+    const cardClass = frameable ? "" : " rich-embed--card";
+    return `<div class="rich-embed rich-embed--${escapeAttr(k)}${cardClass}" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(original)}" data-frameable="${frameable ? "1" : "0"}"></div>`;
   });
 
   s = s.replace(/\[bookmark\|([^\]]*)\]\(([^)]+)\)/g, (_m, title, href) => {

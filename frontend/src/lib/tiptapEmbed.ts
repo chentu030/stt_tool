@@ -16,6 +16,7 @@ declare module "@tiptap/core" {
         kind: string;
         title?: string;
         original?: string;
+        frameable?: boolean;
       }) => ReturnType;
     };
   }
@@ -183,6 +184,7 @@ export const NoteEmbed = Node.create({
       kind: { default: "web" },
       title: { default: "嵌入" },
       original: { default: null },
+      frameable: { default: true },
     };
   },
   parseHTML() {
@@ -191,11 +193,13 @@ export const NoteEmbed = Node.create({
         tag: "div[data-note-embed]",
         getAttrs: (el) => {
           const d = el as HTMLElement;
+          const frameAttr = d.getAttribute("data-frameable");
           return {
             src: d.getAttribute("data-src"),
             kind: d.getAttribute("data-kind") || "web",
             title: d.getAttribute("data-title") || "嵌入",
             original: d.getAttribute("data-original"),
+            frameable: frameAttr == null ? true : frameAttr !== "0",
           };
         },
       },
@@ -206,56 +210,88 @@ export const NoteEmbed = Node.create({
     const kind = HTMLAttributes.kind || "web";
     const title = HTMLAttributes.title || "嵌入";
     const original = HTMLAttributes.original || src;
-    const isPdfDirect = kind === "pdf" && !/drive\.google|officeapps/i.test(src);
-
-    const inner = isPdfDirect
-      ? [
-          "iframe",
-          {
-            class: "rich-embed-frame",
-            src,
-            title,
-            loading: "lazy",
-          },
-        ]
-      : [
-          "iframe",
-          {
-            class: "rich-embed-frame",
-            src,
-            title,
-            loading: "lazy",
-            allow:
-              "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen",
-            allowfullscreen: "true",
-            referrerpolicy: "no-referrer-when-downgrade",
-          },
-        ];
+    const frameable = HTMLAttributes.frameable !== false && HTMLAttributes.frameable !== "0";
 
     return [
       "div",
       mergeAttributes({
-        class: `rich-embed rich-embed--${kind}`,
+        class: `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}`,
         "data-note-embed": "1",
         "data-src": src,
         "data-kind": kind,
         "data-title": title,
         "data-original": original,
+        "data-frameable": frameable ? "1" : "0",
         contenteditable: "false",
       }),
-      ["div", { class: "rich-embed-label" }, title],
-      inner,
-      [
-        "a",
-        {
-          class: "rich-embed-open",
-          href: original,
-          target: "_blank",
-          rel: "noopener noreferrer",
-        },
-        "開啟原始連結",
-      ],
     ];
+  },
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement("div");
+      const sync = (n: typeof node) => {
+        const src = String(n.attrs.src || "");
+        const kind = String(n.attrs.kind || "web");
+        const title = String(n.attrs.title || "嵌入");
+        const original = String(n.attrs.original || src);
+        const frameable = n.attrs.frameable !== false && n.attrs.frameable !== "0";
+        let host = title;
+        try {
+          host = new URL(original).hostname;
+        } catch {
+          /* keep */
+        }
+
+        dom.className = `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}`;
+        dom.setAttribute("data-note-embed", "1");
+        dom.setAttribute("data-src", src);
+        dom.setAttribute("data-kind", kind);
+        dom.setAttribute("data-title", title);
+        dom.setAttribute("data-original", original);
+        dom.setAttribute("data-frameable", frameable ? "1" : "0");
+        dom.contentEditable = "false";
+
+        if (!frameable || kind === "link") {
+          const fav =
+            typeof window !== "undefined"
+              ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
+              : "";
+          dom.innerHTML = `
+            <div class="rich-embed-card-body">
+              ${fav ? `<img class="rich-embed-favicon" src="${fav}" alt="" width="28" height="28" />` : ""}
+              <div class="rich-embed-card-text">
+                <div class="rich-embed-card-host">${escapeHtml(host)}</div>
+                <div class="rich-embed-card-title">${escapeHtml(title === host ? original : title)}</div>
+                <p class="rich-embed-card-hint">此網站不允許內嵌預覽（安全限制），請開啟原始連結瀏覽。</p>
+              </div>
+            </div>
+            <a class="rich-embed-open" href="${escapeAttr(original)}" target="_blank" rel="noopener noreferrer">開啟原始連結</a>
+          `;
+          return;
+        }
+
+        const isPdfDirect = kind === "pdf" && !/drive\.google|officeapps|docs\.google/i.test(src);
+        const allow = isPdfDirect
+          ? ""
+          : ` allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"`;
+        const referrer = isPdfDirect ? "" : ` referrerpolicy="no-referrer-when-downgrade"`;
+        dom.innerHTML = `
+          <div class="rich-embed-label">${escapeHtml(title)}</div>
+          <iframe class="rich-embed-frame" src="${escapeAttr(src)}" title="${escapeAttr(title)}" loading="lazy"${allow}${referrer}${isPdfDirect ? "" : " allowfullscreen"}></iframe>
+          <a class="rich-embed-open" href="${escapeAttr(original)}" target="_blank" rel="noopener noreferrer">開啟原始連結</a>
+        `;
+      };
+
+      sync(node);
+      return {
+        dom,
+        update: (updated) => {
+          if (updated.type.name !== "noteEmbed") return false;
+          sync(updated);
+          return true;
+        },
+      };
+    };
   },
   addCommands() {
     return {
@@ -266,3 +302,15 @@ export const NoteEmbed = Node.create({
     };
   },
 });
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function escapeAttr(s: string) {
+  return escapeHtml(s).replace(/'/g, "&#39;");
+}
