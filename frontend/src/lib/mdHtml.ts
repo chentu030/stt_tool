@@ -109,6 +109,25 @@ turndown.addRule("highlight", {
   },
 });
 
+turndown.addRule("textColor", {
+  filter: (node) => {
+    if (node.nodeName !== "SPAN") return false;
+    const el = node as HTMLElement;
+    if (el.getAttribute("data-math-inline") === "1") return false;
+    if (el.getAttribute("data-text-color")) return true;
+    const color = el.style?.color;
+    return !!color && color !== "inherit" && color !== "";
+  },
+  replacement: (content, node) => {
+    const el = node as HTMLElement;
+    const color = normalizeCssColor(
+      el.getAttribute("data-text-color") || el.style?.color || ""
+    );
+    if (!color || !content.trim()) return content;
+    return `{c:${color}}${content}{/c}`;
+  },
+});
+
 function normalizeCssColor(c: string): string {
   const s = c.trim();
   if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s.toLowerCase();
@@ -170,6 +189,12 @@ function enrichMarkdown(md: string): string {
   s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {
     // src resolved at render time in TipTap from original via data; store original as both
     return `<div class="rich-embed rich-embed--${escapeAttr(kind)}" data-note-embed="1" data-kind="${escapeAttr(kind)}" data-title="${escapeAttr(title || kind)}" data-src="${escapeAttr(original)}" data-original="${escapeAttr(original)}"></div>`;
+  });
+
+  // Colored text: {c:#rrggbb}text{/c}
+  s = s.replace(/\{c:([^}\n]+)\}([\s\S]*?)\{\/c\}/g, (_m, color: string, text: string) => {
+    const c = escapeAttr(String(color).trim());
+    return `<span style="color: ${c}" data-text-color="${c}">${escapeHtml(text)}</span>`;
   });
 
   s = s.replace(/@@FENCE(\d+)@@/g, (_m, i) => fences[Number(i)] || "");

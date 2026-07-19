@@ -2773,6 +2773,24 @@ button, input, textarea, select {
   padding: 0 0.4rem;
   font-size: 0.78rem;
 }
+.hl-clear {
+  width: 100%;
+  justify-content: center;
+}
+.tx-swatch-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 2px;
+  font-weight: 700;
+}
+.tx-swatch {
+  display: block;
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+}
 .rich-prose hr {
   border: none;
   border-top: 1px solid var(--border);

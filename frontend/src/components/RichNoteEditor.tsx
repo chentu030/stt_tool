@@ -12,6 +12,8 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
 import Typography from "@tiptap/extension-typography";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
@@ -67,12 +69,13 @@ export default function RichNoteEditor({
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [hlOpen, setHlOpen] = useState(false);
-  const [hlColor, setHlColor] = useState(() => {
-    if (typeof window === "undefined") return "#fde047";
-    return localStorage.getItem("cadence_hl_color") || "#fde047";
-  });
-  const [hlCustoms, setHlCustoms] = useState<string[]>(() => loadHlCustoms());
+  const [txOpen, setTxOpen] = useState(false);
+  const [hlColor, setHlColor] = useState(() => loadStoredColor("cadence_hl_color", "#fde047"));
+  const [txColor, setTxColor] = useState(() => loadStoredColor("cadence_tx_color", "#dc2626"));
+  const [hlCustoms, setHlCustoms] = useState<string[]>(() => loadCustomColors("cadence_hl_customs", HL_PRESETS));
+  const [txCustoms, setTxCustoms] = useState<string[]>(() => loadCustomColors("cadence_tx_customs", TX_PRESETS));
   const hlPanelRef = useRef<HTMLDivElement>(null);
+  const txPanelRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const showFind = findOpen ?? false;
   const onChangeRef = useRef(onChangeMd);
@@ -89,6 +92,14 @@ export default function RichNoteEditor({
 
   useEffect(() => {
     try {
+      localStorage.setItem("cadence_tx_color", txColor);
+    } catch {
+      /* ignore */
+    }
+  }, [txColor]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem("cadence_hl_customs", JSON.stringify(hlCustoms));
     } catch {
       /* ignore */
@@ -96,13 +107,23 @@ export default function RichNoteEditor({
   }, [hlCustoms]);
 
   useEffect(() => {
-    if (!hlOpen) return;
+    try {
+      localStorage.setItem("cadence_tx_customs", JSON.stringify(txCustoms));
+    } catch {
+      /* ignore */
+    }
+  }, [txCustoms]);
+
+  useEffect(() => {
+    if (!hlOpen && !txOpen) return;
     const onDoc = (e: MouseEvent) => {
-      if (!hlPanelRef.current?.contains(e.target as Node)) setHlOpen(false);
+      const t = e.target as Node;
+      if (hlOpen && hlPanelRef.current && !hlPanelRef.current.contains(t)) setHlOpen(false);
+      if (txOpen && txPanelRef.current && !txPanelRef.current.contains(t)) setTxOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [hlOpen]);
+  }, [hlOpen, txOpen]);
 
   const applyHighlight = (color?: string) => {
     const ed = editorRef.current;
@@ -123,34 +144,48 @@ export default function RichNoteEditor({
     if (!next) return;
     setHlColor(next);
     const ed = editorRef.current;
-    if (!ed) return;
-    if (ed.state.selection.empty) return;
+    if (!ed || ed.state.selection.empty) return;
     ed.chain().focus().setHighlight({ color: next }).run();
   };
 
-  const pickPreset = (c: string) => {
-    setHighlightColor(c);
-    applyHighlight(c);
+  const applyTextColor = (color?: string) => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    const c = color || txColor;
+    const cur = ed.getAttributes("textStyle").color as string | undefined;
+    if (cur && normalizeHex(cur) === normalizeHex(c) && !color) {
+      ed.chain().focus().unsetColor().run();
+      return;
+    }
+    ed.chain().focus().setColor(c).run();
   };
 
-  const addCustomColor = () => {
-    const next = normalizeHex(hlColor);
+  const setTextColor = (color: string) => {
+    const next = normalizeHex(color);
     if (!next) return;
-    if (HL_PRESETS.includes(next) || hlCustoms.includes(next)) return;
+    setTxColor(next);
+    const ed = editorRef.current;
+    if (!ed || ed.state.selection.empty) return;
+    ed.chain().focus().setColor(next).run();
+  };
+
+  const clearTextColor = () => {
+    const ed = editorRef.current;
+    if (!ed) return;
+    ed.chain().focus().unsetColor().run();
+  };
+
+  const addHlCustom = () => {
+    const next = normalizeHex(hlColor);
+    if (!next || HL_PRESETS.includes(next) || hlCustoms.includes(next)) return;
     setHlCustoms((prev) => [next, ...prev].slice(0, 16));
   };
 
-  const removeCustomColor = (c: string) => {
-    setHlCustoms((prev) => prev.filter((x) => x !== c));
+  const addTxCustom = () => {
+    const next = normalizeHex(txColor);
+    if (!next || TX_PRESETS.includes(next) || txCustoms.includes(next)) return;
+    setTxCustoms((prev) => [next, ...prev].slice(0, 16));
   };
-
-  const canAddCustom = (() => {
-    const next = normalizeHex(hlColor);
-    if (!next) return false;
-    return !HL_PRESETS.includes(next) && !hlCustoms.includes(next);
-  })();
-
-  const rgb = hexToRgb(hlColor);
 
   const imageRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -324,6 +359,8 @@ export default function RichNoteEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       Underline,
+      TextStyle,
+      Color,
       Highlight.configure({ multicolor: true }),
       Typography,
       NoteAudio,
@@ -513,120 +550,79 @@ export default function RichNoteEditor({
             className={`rich-tool-btn hl-caret${hlOpen ? " is-active" : ""}`}
             title="螢光筆顏色"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setHlOpen((v) => !v)}
+            onClick={() => {
+              setTxOpen(false);
+              setHlOpen((v) => !v);
+            }}
           >
             ▾
           </button>
           {hlOpen && (
-            <div className="hl-panel">
-              <div className="hl-section">
-                <p className="hl-section-label">預設</p>
-                <div className="hl-presets">
-                  {HL_PRESETS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className={`hl-preset${hlColor === c ? " is-on" : ""}`}
-                      style={{ background: c }}
-                      title={c}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => pickPreset(c)}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="hl-section">
-                <div className="hl-section-head">
-                  <p className="hl-section-label">我的顏色</p>
-                  <button
-                    type="button"
-                    className="hl-add-btn"
-                    disabled={!canAddCustom}
-                    title={canAddCustom ? "把目前顏色加入常用" : "已在色盤中"}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={addCustomColor}
-                  >
-                    + 新增
-                  </button>
-                </div>
-                {hlCustoms.length === 0 ? (
-                  <p className="hl-empty">用下方色盤調色後按「+ 新增」</p>
-                ) : (
-                  <div className="hl-presets hl-presets--custom">
-                    {hlCustoms.map((c) => (
-                      <div key={c} className="hl-custom-slot">
-                        <button
-                          type="button"
-                          className={`hl-preset${hlColor === c ? " is-on" : ""}`}
-                          style={{ background: c }}
-                          title={c}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => pickPreset(c)}
-                        />
-                        <button
-                          type="button"
-                          className="hl-remove"
-                          title="移除"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => removeCustomColor(c)}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <label className="hl-row">
-                <span>色盤</span>
-                <input
-                  type="color"
-                  value={normalizeHex(hlColor) || "#fde047"}
-                  onChange={(e) => setHighlightColor(e.target.value)}
-                />
-              </label>
-              <div className="hl-rgb">
-                {(["r", "g", "b"] as const).map((ch) => (
-                  <label key={ch}>
-                    <span>{ch.toUpperCase()}</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={255}
-                      value={rgb[ch]}
-                      onChange={(e) => {
-                        const n = Math.min(255, Math.max(0, Number(e.target.value) || 0));
-                        const next = { ...rgb, [ch]: n };
-                        setHighlightColor(rgbToHex(next.r, next.g, next.b));
-                      }}
-                    />
-                  </label>
-                ))}
-              </div>
-              <div className="hl-hex-row">
-                <span>HEX</span>
-                <input
-                  className="input"
-                  value={hlColor}
-                  onChange={(e) => {
-                    const v = e.target.value.trim();
-                    setHlColor(v);
-                    if (normalizeHex(v)) setHighlightColor(v);
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-sm btn-soft"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    applyHighlight(hlColor);
-                    setHlOpen(false);
-                  }}
-                >
-                  套用
-                </button>
-              </div>
-            </div>
+            <ColorPickerPanel
+              color={hlColor}
+              presets={HL_PRESETS}
+              customs={hlCustoms}
+              onColorChange={setHighlightColor}
+              onColorDraft={setHlColor}
+              onPick={(c) => {
+                setHighlightColor(c);
+                applyHighlight(c);
+              }}
+              onAddCustom={addHlCustom}
+              onRemoveCustom={(c) => setHlCustoms((prev) => prev.filter((x) => x !== c))}
+              onApply={() => {
+                applyHighlight(hlColor);
+                setHlOpen(false);
+              }}
+            />
+          )}
+        </div>
+        <div className="hl-wrap" ref={txPanelRef}>
+          <ToolbarBtn
+            active={!!editor.getAttributes("textStyle").color}
+            onClick={() => applyTextColor()}
+            title="文字顏色"
+          >
+            <span className="tx-swatch-wrap">
+              A
+              <span className="tx-swatch" style={{ background: txColor }} />
+            </span>
+          </ToolbarBtn>
+          <button
+            type="button"
+            className={`rich-tool-btn hl-caret${txOpen ? " is-active" : ""}`}
+            title="文字顏色"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setHlOpen(false);
+              setTxOpen((v) => !v);
+            }}
+          >
+            ▾
+          </button>
+          {txOpen && (
+            <ColorPickerPanel
+              color={txColor}
+              presets={TX_PRESETS}
+              customs={txCustoms}
+              onColorChange={setTextColor}
+              onColorDraft={setTxColor}
+              onPick={(c) => {
+                setTextColor(c);
+                applyTextColor(c);
+              }}
+              onAddCustom={addTxCustom}
+              onRemoveCustom={(c) => setTxCustoms((prev) => prev.filter((x) => x !== c))}
+              onApply={() => {
+                applyTextColor(txColor);
+                setTxOpen(false);
+              }}
+              onClear={() => {
+                clearTextColor();
+                setTxOpen(false);
+              }}
+              clearLabel="清除顏色"
+            />
           )}
         </div>
         <span className="rich-toolbar-sep" />
@@ -757,6 +753,156 @@ function ToolbarBtn({
   );
 }
 
+function ColorPickerPanel({
+  color,
+  presets,
+  customs,
+  onColorChange,
+  onColorDraft,
+  onPick,
+  onAddCustom,
+  onRemoveCustom,
+  onApply,
+  onClear,
+  clearLabel,
+}: {
+  color: string;
+  presets: string[];
+  customs: string[];
+  onColorChange: (c: string) => void;
+  onColorDraft: (c: string) => void;
+  onPick: (c: string) => void;
+  onAddCustom: () => void;
+  onRemoveCustom: (c: string) => void;
+  onApply: () => void;
+  onClear?: () => void;
+  clearLabel?: string;
+}) {
+  const rgb = hexToRgb(color);
+  const normalized = normalizeHex(color);
+  const canAdd =
+    !!normalized && !presets.includes(normalized) && !customs.includes(normalized);
+
+  return (
+    <div className="hl-panel">
+      <div className="hl-section">
+        <p className="hl-section-label">預設</p>
+        <div className="hl-presets">
+          {presets.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`hl-preset${normalized === c ? " is-on" : ""}`}
+              style={{ background: c }}
+              title={c}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onPick(c)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="hl-section">
+        <div className="hl-section-head">
+          <p className="hl-section-label">我的顏色</p>
+          <button
+            type="button"
+            className="hl-add-btn"
+            disabled={!canAdd}
+            title={canAdd ? "把目前顏色加入常用" : "已在色盤中"}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onAddCustom}
+          >
+            + 新增
+          </button>
+        </div>
+        {customs.length === 0 ? (
+          <p className="hl-empty">用下方色盤調色後按「+ 新增」</p>
+        ) : (
+          <div className="hl-presets hl-presets--custom">
+            {customs.map((c) => (
+              <div key={c} className="hl-custom-slot">
+                <button
+                  type="button"
+                  className={`hl-preset${normalized === c ? " is-on" : ""}`}
+                  style={{ background: c }}
+                  title={c}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onPick(c)}
+                />
+                <button
+                  type="button"
+                  className="hl-remove"
+                  title="移除"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onRemoveCustom(c)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <label className="hl-row">
+        <span>色盤</span>
+        <input
+          type="color"
+          value={normalized || presets[0]}
+          onChange={(e) => onColorChange(e.target.value)}
+        />
+      </label>
+      <div className="hl-rgb">
+        {(["r", "g", "b"] as const).map((ch) => (
+          <label key={ch}>
+            <span>{ch.toUpperCase()}</span>
+            <input
+              type="number"
+              min={0}
+              max={255}
+              value={rgb[ch]}
+              onChange={(e) => {
+                const n = Math.min(255, Math.max(0, Number(e.target.value) || 0));
+                const next = { ...rgb, [ch]: n };
+                onColorChange(rgbToHex(next.r, next.g, next.b));
+              }}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="hl-hex-row">
+        <span>HEX</span>
+        <input
+          className="input"
+          value={color}
+          onChange={(e) => {
+            const v = e.target.value.trim();
+            onColorDraft(v);
+            if (normalizeHex(v)) onColorChange(v);
+          }}
+        />
+        <button
+          type="button"
+          className="btn btn-sm btn-soft"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onApply}
+        >
+          套用
+        </button>
+      </div>
+      {onClear && (
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost hl-clear"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={onClear}
+        >
+          {clearLabel || "清除"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 const HL_PRESETS = [
   "#fde047",
   "#86efac",
@@ -768,19 +914,37 @@ const HL_PRESETS = [
   "#e2e8f0",
 ];
 
-const HL_CUSTOMS_KEY = "cadence_hl_customs";
+const TX_PRESETS = [
+  "#0f172a",
+  "#dc2626",
+  "#ea580c",
+  "#ca8a04",
+  "#16a34a",
+  "#0891b2",
+  "#2563eb",
+  "#7c3aed",
+];
 
-function loadHlCustoms(): string[] {
+function loadStoredColor(key: string, fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  try {
+    return normalizeHex(localStorage.getItem(key) || "") || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function loadCustomColors(key: string, presets: string[]): string[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(HL_CUSTOMS_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map((x) => (typeof x === "string" ? normalizeHex(x) : null))
       .filter((x): x is string => !!x)
-      .filter((c, i, arr) => arr.indexOf(c) === i && !HL_PRESETS.includes(c))
+      .filter((c, i, arr) => arr.indexOf(c) === i && !presets.includes(c))
       .slice(0, 16);
   } catch {
     return [];
