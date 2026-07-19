@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Segment, parseTranscript, segmentsToTimestampedText, segmentsToPlainText,
   toSrt, toVtt, downloadText, applyReplace, formatClock,
@@ -10,10 +10,12 @@ export default function TranscriptEditor({
   initialText,
   filename = "transcript",
   onSave,
+  onChange,
 }: {
   initialText: string;
   filename?: string;
   onSave?: (text: string) => Promise<void> | void;
+  onChange?: (text: string) => void;
 }) {
   const [segs, setSegs] = useState<Segment[]>(() => parseTranscript(initialText || ""));
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -24,6 +26,10 @@ export default function TranscriptEditor({
   const [msg, setMsg] = useState("");
 
   const plainPreview = useMemo(() => segmentsToPlainText(segs), [segs]);
+
+  useEffect(() => {
+    onChange?.(segmentsToTimestampedText(segs));
+  }, [segs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateSeg = (id: string, text: string) => {
     setSegs((prev) => prev.map((s) => (s.id === id ? { ...s, text } : s)));
