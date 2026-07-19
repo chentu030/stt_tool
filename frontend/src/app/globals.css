@@ -8910,6 +8910,32 @@ button, input, textarea, select {
 .dr-export-pop button:hover {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+.dr-activity {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+}
+.dr-activity-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+.dr-activity-toggle span {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.dr-activity .dr-log {
+  margin-top: 0.45rem;
+  max-height: 12rem;
+}
 .dr-head-actions {
   display: flex;
   gap: 0.35rem;

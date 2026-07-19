@@ -175,12 +175,28 @@ function parseJsonLoose<T>(text: string): T | null {
   }
 }
 
+function tokenizeQuery(query: string): string[] {
+  const q = query.toLowerCase().trim();
+  const parts = q
+    .split(/[\s,，、/|；;。.！!？?（）()【】\[\]「」]+/)
+    .filter((t) => t.length >= 2);
+  const out = new Set<string>(parts);
+  // CJK bigrams so Chinese topics match excerpts without spaces
+  const cjk = q.replace(/[^\u4e00-\u9fff]/g, "");
+  for (let i = 0; i < cjk.length - 1; i++) {
+    out.add(cjk.slice(i, i + 2));
+  }
+  if (cjk.length >= 3) {
+    for (let i = 0; i < cjk.length - 2; i += 2) {
+      out.add(cjk.slice(i, i + 3));
+    }
+  }
+  return Array.from(out).filter(Boolean).slice(0, 48);
+}
+
 function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 5): NoteSnippet[] {
   if (!notes.length) return [];
-  const tokens = query
-    .toLowerCase()
-    .split(/[\s,，、/|]+/)
-    .filter((t) => t.length >= 2);
+  const tokens = tokenizeQuery(query);
   if (!tokens.length) return notes.slice(0, limit);
 
   const scored = notes
@@ -190,8 +206,8 @@ function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 5): Note
       const hay = `${title}\n${excerpt}`;
       let score = 0;
       for (const t of tokens) {
-        if (title.includes(t)) score += t.length >= 4 ? 8 : 4;
-        else if (excerpt.includes(t)) score += t.length >= 4 ? 3 : 1;
+        if (title.includes(t)) score += t.length >= 4 ? 8 : t.length >= 2 ? 5 : 3;
+        else if (excerpt.includes(t)) score += t.length >= 4 ? 3 : 1.5;
       }
       // phrase boost
       if (hay.includes(query.toLowerCase().slice(0, 40))) score += 6;
@@ -251,7 +267,11 @@ ${opts?.answers ? `\n使用者對先前澄清問題的回答：\n${opts.answers.
       assumedIntent: String(parsed.assumedIntent || topic).slice(0, 200),
     };
   }
-  return { clear: true, clarifyingQuestions: [], assumedIntent: topic };
+  return {
+    clear: false,
+    clarifyingQuestions: ["請補充研究範圍（產業／對象）、時間區間與期望產出形式"],
+    assumedIntent: topic,
+  };
 }
 
 export async function buildResearchPlan(
@@ -342,14 +362,14 @@ ${summary.slice(0, 2500)}
     reason?: string;
     retryQuery?: string;
   }>(res.text);
-  if (parsed) {
+  if (parsed && typeof parsed.adequate === "boolean") {
     return {
-      adequate: parsed.adequate !== false,
+      adequate: parsed.adequate,
       reason: String(parsed.reason || ""),
       retryQuery: (parsed.retryQuery || "").trim() || undefined,
     };
   }
-  // Heuristic fallback
+  // Heuristic fallback when JSON missing or ambiguous
   const adequate = summary.length > 120 && (webCount > 0 || noteCount > 0);
   return {
     adequate,
@@ -653,7 +673,7 @@ function mergeAllSources(findings: ResearchFinding[]): CitationSource[] {
   return out;
 }
 
-/** Simple concurrency pool */
+/** Simple concurrency pool — fail-fast aborts siblings on first error */
 async function mapPool<T, R>(
   items: T[],
   concurrency: number,
@@ -662,18 +682,40 @@ async function mapPool<T, R>(
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let cursor = 0;
-  const workers = Array.from(
-    { length: Math.max(1, Math.min(concurrency, items.length || 1)) },
-    async () => {
-      while (true) {
-        throwIfAborted(signal);
-        const i = cursor++;
-        if (i >= items.length) break;
-        results[i] = await fn(items[i], i);
+  let firstError: unknown = null;
+  const local = new AbortController();
+  const onParent = () => local.abort();
+  signal?.addEventListener("abort", onParent);
+
+  const check = () => {
+    if (signal?.aborted || local.signal.aborted) throw new ResearchAbortedError();
+    if (firstError) throw firstError;
+  };
+
+  try {
+    const workers = Array.from(
+      { length: Math.max(1, Math.min(concurrency, items.length || 1)) },
+      async () => {
+        while (true) {
+          check();
+          const i = cursor++;
+          if (i >= items.length) break;
+          try {
+            results[i] = await fn(items[i], i);
+          } catch (e) {
+            if (!firstError) firstError = e;
+            local.abort();
+            throw e;
+          }
+        }
       }
-    }
-  );
-  await Promise.all(workers);
+    );
+    await Promise.allSettled(workers);
+  } finally {
+    signal?.removeEventListener("abort", onParent);
+  }
+  if (firstError) throw firstError;
+  throwIfAborted(signal);
   return results;
 }
 
@@ -737,18 +779,22 @@ ${citeBlock || "（無明確網址，請標「待查證」）"}
 
 請寫完整 Markdown 研究報告（繁體中文），結構：
 1. 執行摘要（5～8 句，獨立成段）
-2. 背景與範圍
-3. 主要發現（分節，關鍵陳述加 [n]）
-4. 與你的筆記的對話（若有筆記來源：指出一致／補充／衝突；引用筆記時用 [n]）
-5. 比較／對照（若適用）
-6. 風險與限制
-7. 結論與可執行建議
-8. 參考來源（重列清單，區分【網路】與【筆記】）
+2. 可信度分層（必須獨立成章，標題用「## 可信度分層」）：
+   - ### 已確立 — 至少兩處獨立來源支持的結論（每點標 [n]）
+   - ### 仍有爭議 — 來源互相衝突的論點（並列雙方並標 [n]，勿擅自選邊）
+   - ### 不確定／待查證 — 單來源、過時或資料缺口（列出還缺什麼）
+3. 背景與範圍
+4. 主要發現（分節，關鍵陳述加 [n]；重要結論可在句末加標籤如〔已確立〕〔爭議〕〔不確定〕）
+5. 與你的筆記的對話（若有筆記來源：指出一致／補充／衝突；引用筆記時用 [n]）
+6. 比較／對照（若適用）
+7. 風險與限制
+8. 結論與可執行建議（最多 5 點，優先可驗證行動）
+9. 參考來源（重列清單，區分【網路】與【筆記】）
 
-要求：長文、條理清楚；有衝突證據時並列；筆記與網路皆用 [n] 腳註（系統稍後會轉成 wiki／連結）。`,
+要求：長文、條理清楚；有衝突證據時並列；筆記與網路皆用 [n] 腳註（系統稍後會轉成 wiki／連結）。不要省略「可信度分層」章節。`,
     {
       system:
-        "你是首席研究分析師。產出可給決策者閱讀的長文，並嚴格使用提供的 [n] 腳註。繁體中文 Markdown。不要輸出 JSON。",
+        "你是首席研究分析師。產出可給決策者閱讀的長文，嚴格使用 [n] 腳註，並明確標示已確立／爭議／不確定。繁體中文 Markdown。不要輸出 JSON。",
       temperature: 0.4,
       maxOutputTokens: 8192,
       model: opts?.model,
@@ -978,76 +1024,80 @@ export async function runDeepResearch(
     questions,
     concurrency,
     async (q, i) => {
-    throwIfAborted(signal);
-    if (runId) {
-      const tips = drainResearchGuidance(runId);
-      for (const t of tips) {
-        emit?.({ type: "guidance_applied", text: t });
-        emit?.({
-          type: "log",
-          level: "warn",
-          message: `已注入方向：${t.slice(0, 120)}`,
-        });
-        extraKeywords = [
-          ...extraKeywords,
-          ...t.split(/[\s,，]+/).filter(Boolean).slice(0, 4),
-        ];
-        extraContextBits.push(t);
+      throwIfAborted(signal);
+      const myTips: string[] = [];
+      if (runId) {
+        const tips = drainResearchGuidance(runId);
+        for (const t of tips) {
+          myTips.push(t);
+          emit?.({ type: "guidance_applied", text: t });
+          emit?.({
+            type: "log",
+            level: "warn",
+            message: `已注入方向：${t.slice(0, 120)}`,
+          });
+          extraKeywords = [
+            ...extraKeywords,
+            ...t.split(/[\s,，]+/).filter(Boolean).slice(0, 4),
+          ];
+          extraContextBits.push(t);
+        }
       }
-    }
 
-    emit?.({ type: "question", index: i + 1, total: questions.length, question: q });
-    emit?.({
-      type: "phase",
-      phase: "analyze",
-      detail: `閱讀與萃取（${i + 1}/${questions.length}）`,
-    });
+      emit?.({ type: "question", index: i + 1, total: questions.length, question: q });
 
-    const finding = await gatherOnQuestion(topic, q, {
-      model,
-      libraryNotes,
-      keywordPool: extraKeywords,
-      citeStart: i * 50 + 1,
-      maxRetries,
-      preferredDomains,
-      signal,
-      emit,
-    });
+      const finding = await gatherOnQuestion(topic, q, {
+        model,
+        libraryNotes,
+        keywordPool: [
+          ...extraKeywords,
+          ...myTips.flatMap((t) => t.split(/[\s,，]+/).filter(Boolean).slice(0, 4)),
+        ],
+        citeStart: i * 50 + 1,
+        maxRetries,
+        preferredDomains,
+        signal,
+        emit,
+      });
 
-    if (extraContextBits.length) {
-      finding.summary = `${finding.summary}\n\n（使用者中途補充：${extraContextBits.slice(-2).join("；")}）`;
-    }
+      if (myTips.length) {
+        finding.summary = `${finding.summary}\n\n（使用者中途補充：${myTips.join("；")}）`;
+      }
 
-    doneCount += 1;
-    emit?.({
-      type: "question_done",
-      index: i + 1,
-      total: questions.length,
-      adequate: finding.adequate,
-    });
-    emit?.({
-      type: "finding",
-      index: i + 1,
-      total: questions.length,
-      finding: {
-        question: finding.question,
-        summary: finding.summary.slice(0, 1200),
+      doneCount += 1;
+      emit?.({
+        type: "question_done",
+        index: i + 1,
+        total: questions.length,
         adequate: finding.adequate,
-        retries: finding.retries,
-        sources: finding.sources.slice(0, 8),
-        noteHits: finding.noteHits.slice(0, 4),
-      },
-    });
-    emitProgress(emit, doneCount, questions.length, huntStarted, "hunt");
-    emit?.({
-      type: "log",
-      level: "ok",
-      message: `已完成子問題 ${i + 1}/${questions.length}${
-        finding.retries ? `（含 ${finding.retries} 次自我修正）` : ""
-      }`,
-    });
-    return finding;
-  },
+      });
+      emit?.({
+        type: "finding",
+        index: i + 1,
+        total: questions.length,
+        finding: {
+          question: finding.question,
+          summary: finding.summary.slice(0, 1200),
+          adequate: finding.adequate,
+          retries: finding.retries,
+          // omit provisional indices — final [n] remap happens after hunt
+          sources: finding.sources.slice(0, 8).map((s) => ({
+            ...s,
+            index: 0,
+          })),
+          noteHits: finding.noteHits.slice(0, 4),
+        },
+      });
+      emitProgress(emit, doneCount, questions.length, huntStarted, "hunt");
+      emit?.({
+        type: "log",
+        level: "ok",
+        message: `已完成子問題 ${i + 1}/${questions.length}${
+          finding.retries ? `（含 ${finding.retries} 次自我修正）` : ""
+        }`,
+      });
+      return finding;
+    },
     signal
   );
 

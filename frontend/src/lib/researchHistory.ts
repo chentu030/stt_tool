@@ -16,6 +16,12 @@ export type ResearchFindingSnap = {
   }>;
 };
 
+export type ResearchActivitySnap = {
+  message: string;
+  level?: "info" | "ok" | "warn" | "retry";
+  at: number;
+};
+
 export type ResearchHistoryItem = {
   id: string;
   topic: string;
@@ -24,11 +30,16 @@ export type ResearchHistoryItem = {
   at: number;
   depth?: string;
   model?: string;
+  /** Preferred domains string as typed by user */
+  domains?: string;
+  context?: string;
   webCount?: number;
   noteCount?: number;
   /** Firebase note id of auto-saved / saved report */
   savedNoteId?: string;
   sourceNoteId?: string;
+  /** Compact run activity for restore */
+  activity?: ResearchActivitySnap[];
   report: {
     title: string;
     summary: string;
@@ -86,10 +97,31 @@ export function loadResearchHistory(uid: string): ResearchHistoryItem[] {
   }
 }
 
+function slimItem(item: ResearchHistoryItem): ResearchHistoryItem {
+  return {
+    ...item,
+    context: item.context?.slice(0, 4000),
+    activity: (item.activity || []).slice(-24),
+    report: {
+      ...item.report,
+      markdown: item.report.markdown.slice(0, 120000),
+      findings: (item.report.findings || []).map((f) => ({
+        ...f,
+        summary: f.summary.slice(0, 800),
+        noteHits: (f.noteHits || []).map((n) => ({
+          id: n.id,
+          title: n.title,
+          excerpt: (n.excerpt || "").slice(0, 120),
+        })),
+      })),
+    },
+  };
+}
+
 export function saveResearchHistoryItem(
   uid: string,
   item: Omit<ResearchHistoryItem, "id" | "at"> & { id?: string; at?: number }
-): ResearchHistoryItem[] {
+): { list: ResearchHistoryItem[]; ok: boolean } {
   const next: ResearchHistoryItem = {
     ...item,
     id: item.id || `rh_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -99,25 +131,17 @@ export function saveResearchHistoryItem(
   const list = [next, ...prev].slice(0, MAX);
   try {
     localStorage.setItem(key(uid), JSON.stringify(list));
+    return { list, ok: true };
   } catch {
-    /* quota — drop findings excerpts */
+    /* quota — slim then retry */
     try {
-      const slim = {
-        ...next,
-        report: {
-          ...next.report,
-          findings: (next.report.findings || []).map((f) => ({
-            ...f,
-            summary: f.summary.slice(0, 600),
-          })),
-        },
-      };
-      localStorage.setItem(key(uid), JSON.stringify([slim, ...prev].slice(0, MAX)));
+      const slimList = [slimItem(next), ...prev.map(slimItem)].slice(0, MAX);
+      localStorage.setItem(key(uid), JSON.stringify(slimList));
+      return { list: slimList, ok: true };
     } catch {
-      /* ignore */
+      return { list: prev.slice(0, MAX), ok: false };
     }
   }
-  return list;
 }
 
 export function deleteResearchHistoryItem(uid: string, id: string): ResearchHistoryItem[] {

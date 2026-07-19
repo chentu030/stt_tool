@@ -115,8 +115,14 @@ export function formatResearchNoteBody(opts: {
     [...(opts.webSources || []), ...(opts.noteSources || [])].sort(
       (a, b) => a.index - b.index
     );
-  const md = rewriteCitationsForNotebook(opts.markdown, allSources);
+  let md = rewriteCitationsForNotebook(opts.markdown, allSources);
   const summary = rewriteCitationsForNotebook(opts.summary, allSources);
+
+  // Avoid double H1 / duplicate 來源 blocks from the model
+  md = md.replace(/^#\s+.+\n+/, "");
+  md = md
+    .replace(/\n+##\s*(參考來源|來源|References)\b[\s\S]*$/i, "")
+    .trim();
 
   const webList = (opts.webSources || [])
     .map((s) => `${s.index}. [${s.title}](${s.uri})`)

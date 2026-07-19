@@ -251,9 +251,20 @@ function DeepResearchPageInner() {
     }[]
   >([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const runIdRef = useRef("");
+  const runGenRef = useRef(0);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  const isAbortError = (e: unknown) =>
+    (e instanceof DOMException && e.name === "AbortError") ||
+    (e instanceof Error && (e.name === "AbortError" || /aborted|中止/i.test(e.message)));
+
+  const scrollToHeading = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -334,6 +345,22 @@ function DeepResearchPageInner() {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [busy]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(e.target as Node)) setExportOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExportOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [exportOpen]);
 
   const libraryNotes = useMemo(() => toLibraryNotes(notes), [notes]);
 
@@ -429,6 +456,7 @@ function DeepResearchPageInner() {
 
   const cancelRun = () => {
     abortRef.current?.abort();
+    runGenRef.current += 1; // invalidate in-flight finally / SSE
     abortRef.current = null;
     setBusy(false);
     setRunId("");
@@ -504,16 +532,23 @@ function DeepResearchPageInner() {
       pushLog("自動存筆記失敗，仍保留本機歷史", "warn");
     }
 
-    const list = saveResearchHistoryItem(user.uid, {
+    const saved = saveResearchHistoryItem(user.uid, {
       topic: topicText,
       title: r.title,
       summary: r.summary,
       depth,
       model: r.model,
+      domains: domains.trim() || undefined,
+      context: context.trim().slice(0, 6000) || undefined,
       webCount: r.webSources?.length || 0,
       noteCount: r.noteSources?.length || 0,
       savedNoteId: noteId || undefined,
       sourceNoteId: sourceNoteId || undefined,
+      activity: logs.slice(-40).map((l) => ({
+        message: l.message,
+        level: l.level,
+        at: l.at,
+      })),
       report: {
         title: r.title,
         summary: r.summary,
@@ -539,27 +574,38 @@ function DeepResearchPageInner() {
         model: r.model,
       },
     });
-    setHistory(list);
+    setHistory(saved.list);
+    if (!saved.ok) pushLog("本機歷史寫入失敗（空間不足）", "warn");
   };
 
   const consumeStream = async (
     res: Response,
-    opts?: { onDone?: (r: Report) => void }
+    opts?: { onDone?: (r: Report) => void; gen?: number }
   ) => {
     const reader = res.body?.getReader();
     if (!reader) throw new Error("無法讀取串流回應");
     const decoder = new TextDecoder();
     let buffer = "";
     let streamModel = "gemini-3.1-pro-preview";
+    const mine = () => opts?.gen == null || runGenRef.current === opts.gen;
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (!mine()) {
+        try {
+          reader.cancel();
+        } catch {
+          /* ignore */
+        }
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split("\n\n");
       buffer = parts.pop() || "";
 
       for (const chunk of parts) {
+        if (!mine()) break;
         const line = chunk
           .split("\n")
           .map((l) => l.trim())
@@ -616,9 +662,11 @@ function DeepResearchPageInner() {
             const idx = Number(event.index) || 0;
             pushLog(`子問題 ${event.index}/${event.total}：${event.question}`, "info");
             setChecklist((prev) =>
-              prev.map((row, i) =>
-                i === idx - 1 ? { ...row, status: "active", q: String(event.question || row.q) } : row
-              )
+              prev.map((row, i) => {
+                if (i === idx - 1) return { ...row, status: "active", q: String(event.question || row.q) };
+                if (row.status === "active") return { ...row, status: "pending" };
+                return row;
+              })
             );
           } else if (type === "question_done") {
             const idx = Number(event.index) || 0;
@@ -685,6 +733,7 @@ function DeepResearchPageInner() {
     resetLogs?: boolean;
   }) => {
     if (!topic.trim() || busy) return;
+    const gen = ++runGenRef.current;
     setBusy(true);
     setError("");
     setReport(null);
@@ -698,6 +747,7 @@ function DeepResearchPageInner() {
     runIdRef.current = "";
     setLiveFindings([]);
     setExportOpen(false);
+    setShowActivity(false);
     setPhase(opts?.approvedPlan ? "hunt" : "clarify");
     if (opts?.resetLogs !== false) {
       setLogs([]);
@@ -755,20 +805,23 @@ function DeepResearchPageInner() {
         throw new Error(data.error || "研究失敗");
       }
       await consumeStream(res, {
+        gen,
         onDone: (r) => {
           void persistReport(r, topic.trim());
         },
       });
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
+      if (!isAbortError(e)) {
         setError(e instanceof Error ? e.message : "研究失敗");
         pushLog(e instanceof Error ? e.message : "研究失敗", "warn");
       }
     } finally {
-      abortRef.current = null;
-      setBusy(false);
-      setRunId("");
-      runIdRef.current = "";
+      if (runGenRef.current === gen) {
+        abortRef.current = null;
+        setBusy(false);
+        setRunId("");
+        runIdRef.current = "";
+      }
     }
   };
 
@@ -781,6 +834,7 @@ function DeepResearchPageInner() {
       setError("沒有偏弱子問題可重跑");
       return;
     }
+    const gen = ++runGenRef.current;
     setBusy(true);
     setError("");
     setLiveFindings([]);
@@ -816,20 +870,23 @@ function DeepResearchPageInner() {
         throw new Error(data.error || "補強失敗");
       }
       await consumeStream(res, {
+        gen,
         onDone: (r) => {
           void persistReport(r, topic.trim());
         },
       });
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
+      if (!isAbortError(e)) {
         setError(e instanceof Error ? e.message : "補強失敗");
         pushLog(e instanceof Error ? e.message : "補強失敗", "warn");
       }
     } finally {
-      abortRef.current = null;
-      setBusy(false);
-      setRunId("");
-      runIdRef.current = "";
+      if (runGenRef.current === gen) {
+        abortRef.current = null;
+        setBusy(false);
+        setRunId("");
+        runIdRef.current = "";
+      }
     }
   };
 
@@ -972,7 +1029,9 @@ function DeepResearchPageInner() {
       ...prev,
       { id: `u_${Date.now()}`, role: "user", text: `【納入報告】${q}` },
     ]);
+    const gen = ++runGenRef.current;
     setBusy(true);
+    setLiveFindings([]);
     pushLog(`追問並納入報告：${q}`, "retry");
     const ac = new AbortController();
     abortRef.current = ac;
@@ -1004,6 +1063,7 @@ function DeepResearchPageInner() {
         throw new Error(data.error || "納入報告失敗");
       }
       await consumeStream(res, {
+        gen,
         onDone: (r) => {
           void persistReport(r, topic.trim());
           setChat((prev) => [
@@ -1017,14 +1077,16 @@ function DeepResearchPageInner() {
         },
       });
     } catch (e) {
-      if (!(e instanceof DOMException && e.name === "AbortError")) {
+      if (!isAbortError(e)) {
         setError(e instanceof Error ? e.message : "納入報告失敗");
       }
     } finally {
-      abortRef.current = null;
-      setBusy(false);
-      setRunId("");
-      runIdRef.current = "";
+      if (runGenRef.current === gen) {
+        abortRef.current = null;
+        setBusy(false);
+        setRunId("");
+        runIdRef.current = "";
+      }
     }
   };
 
@@ -1068,6 +1130,9 @@ function DeepResearchPageInner() {
 
   const openHistory = (item: ResearchHistoryItem) => {
     setTopic(item.topic);
+    if (item.depth === "max" || item.depth === "standard") setDepth(item.depth);
+    if (item.domains != null) setDomains(item.domains);
+    if (item.context != null) setContext(item.context);
     setReport({
       ...item.report,
       findings: item.report.findings || [],
@@ -1075,13 +1140,34 @@ function DeepResearchPageInner() {
     setModelUsed(item.model || item.report.model || "");
     setSavedId(item.savedNoteId || null);
     setSourceNoteId(item.sourceNoteId || null);
+    setSourceStats({
+      web: item.webCount || item.report.webSources?.length || 0,
+      notes: item.noteCount || item.report.noteSources?.length || 0,
+    });
     setClarifyQs([]);
     setDraftPlan(null);
-    setLogs([]);
+    setLogs(
+      (item.activity || []).map((a, i) => ({
+        id: `h_${item.id}_${i}`,
+        message: a.message,
+        level: a.level || "info",
+        at: a.at,
+      }))
+    );
+    setChecklist(
+      (item.report.plan?.questions || []).map((q) => {
+        const f = (item.report.findings || []).find((x) => x.question === q);
+        return {
+          q,
+          status: f ? (f.adequate ? ("done" as const) : ("weak" as const)) : ("pending" as const),
+        };
+      })
+    );
     setChat([]);
     setTransformOut("");
     setLiveFindings([]);
     setFullscreen(false);
+    setShowActivity(!!(item.activity && item.activity.length));
     pushLog(`已還原報告：${item.title}`, "ok");
   };
 
@@ -1355,10 +1441,19 @@ function DeepResearchPageInner() {
                   type="button"
                   className="btn"
                   onClick={() => {
+                    const maxQ = depth === "max" ? 7 : 5;
+                    let questions = draftPlan.questions.map((q) => q.trim()).filter(Boolean);
+                    if (questions.length > maxQ) {
+                      pushLog(
+                        `子問題超過 ${depth === "max" ? "Max" : "標準"} 上限 ${maxQ}，已截取前 ${maxQ} 題`,
+                        "warn"
+                      );
+                      questions = questions.slice(0, maxQ);
+                    }
                     const cleaned: Plan = {
                       title: draftPlan.title.trim() || topic.slice(0, 40),
                       angle: draftPlan.angle.trim(),
-                      questions: draftPlan.questions.map((q) => q.trim()).filter(Boolean),
+                      questions,
                       keywords: draftPlan.keywords.map((k) => k.trim()).filter(Boolean),
                     };
                     if (!cleaned.questions.length) {
@@ -1552,14 +1647,14 @@ function DeepResearchPageInner() {
                         <p>{f.summary.slice(0, 280)}{f.summary.length > 280 ? "…" : ""}</p>
                         {f.sources.length > 0 && (
                           <div className="dr-live-srcs">
-                            {f.sources.slice(0, 4).map((s) => (
+                            {f.sources.slice(0, 4).map((s, si) => (
                               <a
-                                key={`${f.index}-${s.index}`}
+                                key={`${f.index}-${si}-${s.uri}`}
                                 href={s.uri}
                                 target={s.kind === "web" ? "_blank" : undefined}
                                 rel="noreferrer"
                               >
-                                [{s.index}] {s.title.slice(0, 28)}
+                                {s.title.slice(0, 28)}
                               </a>
                             ))}
                           </div>
@@ -1662,7 +1757,7 @@ function DeepResearchPageInner() {
                   >
                     全螢幕
                   </button>
-                  <div className="dr-export-menu">
+                  <div className="dr-export-menu" ref={exportMenuRef}>
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
@@ -1734,11 +1829,50 @@ function DeepResearchPageInner() {
                   <ul>
                     {toc.map((t) => (
                       <li key={t.id} className={t.level === 3 ? "is-h3" : ""}>
-                        <a href={`#${t.id}`}>{t.text}</a>
+                        <a
+                          href={`#${t.id}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            scrollToHeading(t.id);
+                          }}
+                        >
+                          {t.text}
+                        </a>
                       </li>
                     ))}
                   </ul>
                 </nav>
+              )}
+
+              {logs.length > 0 && (
+                <div className="dr-activity">
+                  <button
+                    type="button"
+                    className="dr-activity-toggle"
+                    onClick={() => setShowActivity((v) => !v)}
+                  >
+                    {showActivity ? "收合研究過程" : "展開研究過程"}
+                    <span>{logs.length}</span>
+                  </button>
+                  {showActivity && (
+                    <ul className="dr-log">
+                      {logs.map((l) => (
+                        <li key={l.id} className={`dr-log-item is-${l.level}`}>
+                          <span className="dr-log-mark">
+                            {l.level === "ok"
+                              ? "✓"
+                              : l.level === "retry"
+                                ? "↻"
+                                : l.level === "warn"
+                                  ? "!"
+                                  : "·"}
+                          </span>
+                          <span>{l.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
 
               {(report.findings?.length || 0) > 0 && (
@@ -1955,9 +2089,7 @@ function DeepResearchPageInner() {
                         href={`#fs-${t.id}`}
                         onClick={(e) => {
                           e.preventDefault();
-                          document
-                            .getElementById(`fs-${t.id}`)
-                            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          scrollToHeading(`fs-${t.id}`);
                         }}
                       >
                         {t.text}
