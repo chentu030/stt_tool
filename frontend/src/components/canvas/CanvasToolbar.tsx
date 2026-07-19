@@ -146,9 +146,9 @@ export default function CanvasToolbar({
       <input ref={fileRef} type="file" hidden multiple onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
 
       <div className="cv-tool-group">
-        <button type="button" className="cv-tool" onClick={onZoomOut}>－</button>
+        <button type="button" className="cv-tool" onClick={onZoomOut} title="Ctrl+-">－</button>
         <span className="cv-zoom">{Math.round(scale * 100)}%</span>
-        <button type="button" className="cv-tool" onClick={onZoomIn}>＋</button>
+        <button type="button" className="cv-tool" onClick={onZoomIn} title="Ctrl+=">＋</button>
         <button type="button" className="cv-tool" onClick={onFit} title="Shift+1 · 看全部">適中</button>
         <button type="button" className="cv-tool" onClick={onReset} title="Shift+0 · 100%">100%</button>
       </div>

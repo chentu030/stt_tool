@@ -632,7 +632,7 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
 }
 
 export const CANVAS_TIPS = [
-  "雙指／滾輪平移；Ctrl+滾輪縮放；Shift+滾輪左右移。",
+  "雙指／滾輪平移；Ctrl+滾輪或 Ctrl+/- 縮放；Shift+滾輪左右移。",
   "右鍵或中鍵拖曳、空白鍵拖曳皆可平移。",
   "Shift+1 看全部；Shift+0 恢復 100%。",
   "工具列可插入圖片／語音／影片／網址／PDF／PPT／檔案，也可拖放上傳。",

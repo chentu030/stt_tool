@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -56,7 +55,13 @@ import {
   tagBuckets,
   topHubs,
 } from "@/lib/graphModel";
-import { applyStageWheel, isDragGesture } from "@/lib/canvasNav";
+import {
+  applyStageWheel,
+  isDragGesture,
+  isZoomInKey,
+  isZoomOutKey,
+  zoomAtClientPoint,
+} from "@/lib/canvasNav";
 import { usePrefs } from "@/components/PrefsProvider";
 
 type DragState =
@@ -87,6 +92,10 @@ export default function GraphDetailPage() {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [scale, setScale] = useState(1);
+  const panRef = useRef(pan);
+  const scaleRef = useRef(scale);
+  panRef.current = pan;
+  scaleRef.current = scale;
   const [spaceDown, setSpaceDown] = useState(false);
   const [pathMode, setPathMode] = useState(false);
   const [pathEnds, setPathEnds] = useState<[string | null, string | null]>([null, null]);
@@ -363,13 +372,67 @@ export default function GraphDetailPage() {
         e.preventDefault();
         setScale(1);
       }
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (isZoomInKey(e) || isZoomOutKey(e))) {
+        e.preventDefault();
+        const rect = stageRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const dir = isZoomInKey(e) ? 1 : -1;
+        const next = zoomAtClientPoint(
+          { pan: panRef.current, scale: scaleRef.current },
+          scaleRef.current + dir * 0.12,
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+          rect
+        );
+        panRef.current = next.pan;
+        scaleRef.current = next.scale;
+        setPan(next.pan);
+        setScale(next.scale);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [painted.nodes]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Non-passive wheel so Ctrl+wheel zooms the graph instead of the browser page
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const next = applyStageWheel(e, rect, { pan: panRef.current, scale: scaleRef.current });
+      panRef.current = next.pan;
+      scaleRef.current = next.scale;
+      setPan(next.pan);
+      setScale(next.scale);
+    };
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", onWheelNative);
+  }, [configReady]);
+
   const onZoom = (delta: number) => {
-    setScale((s) => Math.min(2.5, Math.max(0.35, Math.round((s + delta) * 100) / 100)));
+    const el = stageRef.current;
+    if (!el) {
+      const s = Math.min(2.5, Math.max(0.35, Math.round((scaleRef.current + delta) * 100) / 100));
+      scaleRef.current = s;
+      setScale(s);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const next = zoomAtClientPoint(
+      { pan: panRef.current, scale: scaleRef.current },
+      scaleRef.current + delta,
+      rect.left + rect.width / 2,
+      rect.top + rect.height / 2,
+      rect
+    );
+    next.scale = Math.round(next.scale * 100) / 100;
+    panRef.current = next.pan;
+    scaleRef.current = next.scale;
+    setPan(next.pan);
+    setScale(next.scale);
   };
 
   const rightPanRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
@@ -449,16 +512,6 @@ export default function GraphDetailPage() {
     if (dragRef.current?.kind === "node") persistPositions();
     dragRef.current = null;
     rightPanRef.current = null;
-  };
-
-  const onWheel = (e: ReactWheelEvent) => {
-    e.preventDefault();
-    const el = stageRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const next = applyStageWheel(e, r, { pan, scale });
-    setScale(next.scale);
-    setPan(next.pan);
   };
 
   const askAi = async () => {
@@ -661,7 +714,6 @@ ${orphanLines || "（無）"}`;
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          onWheel={onWheel}
           onContextMenu={(e) => e.preventDefault()}
         >
           {painted.nodes.length === 0 ? (

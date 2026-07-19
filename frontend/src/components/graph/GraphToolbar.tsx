@@ -150,9 +150,9 @@ export default function GraphToolbar({
       </label>
 
       <div className="gp-zoom">
-        <button type="button" className="btn btn-soft btn-sm" onClick={() => onZoom(-0.1)}>−</button>
+        <button type="button" className="btn btn-soft btn-sm" onClick={() => onZoom(-0.1)} title="Ctrl+-">−</button>
         <span>{Math.round(scale * 100)}%</span>
-        <button type="button" className="btn btn-soft btn-sm" onClick={() => onZoom(0.1)}>+</button>
+        <button type="button" className="btn btn-soft btn-sm" onClick={() => onZoom(0.1)} title="Ctrl+=">+</button>
         <button type="button" className="btn btn-soft btn-sm" onClick={onFit} title="Shift+1">Fit</button>
         <button
           type="button"

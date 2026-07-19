@@ -53,7 +53,7 @@ import {
   mediaKindFromFile,
   createMediaItem,
 } from "@/lib/canvasStore";
-import { applyStageWheel, isDragGesture } from "@/lib/canvasNav";
+import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
   listenCanvases,
   listenCanvas,
@@ -818,6 +818,24 @@ export default function CanvasIdPage() {
       }
       const k = e.key.toLowerCase();
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && (isZoomInKey(e) || isZoomOutKey(e))) {
+        e.preventDefault();
+        const rect = stageRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const dir = isZoomInKey(e) ? 1 : -1;
+        setDoc((d) => {
+          const next = zoomAtClientPoint(
+            { pan: d.pan, scale: d.scale },
+            d.scale + dir * 0.12,
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+            rect,
+            clampScale
+          );
+          return { ...d, pan: next.pan, scale: next.scale };
+        });
+        return;
+      }
       if (!mod) {
         if (k === "v") setTool("select");
         if (k === "h") setTool("pan");
@@ -865,6 +883,22 @@ export default function CanvasIdPage() {
       window.removeEventListener("keyup", onKeyUp);
     };
   }, [deleteSelected, doCopy, doCut, doPaste, fitAll, resetZoom, spaceDown]);
+
+  // Non-passive wheel so Ctrl+wheel zooms the canvas instead of the browser page
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      setDoc((d) => {
+        const next = applyStageWheel(e, rect, { pan: d.pan, scale: d.scale }, clampScale);
+        return { ...d, pan: next.pan, scale: next.scale };
+      });
+    };
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", onWheelNative);
+  }, [ready]);
 
   if (loading) return <p style={{ color: "var(--text-muted)", padding: "1rem" }}>載入中…</p>;
   if (!user) {
@@ -1011,15 +1045,6 @@ export default function CanvasIdPage() {
               setSelected([hit]);
               setEditingShape(hit.id);
             }
-          }}
-          onWheel={(e) => {
-            e.preventDefault();
-            const rect = stageRef.current?.getBoundingClientRect();
-            if (!rect) return;
-            setDoc((d) => {
-              const next = applyStageWheel(e, rect, { pan: d.pan, scale: d.scale }, clampScale);
-              return { ...d, pan: next.pan, scale: next.scale };
-            });
           }}
           onDragOver={(e) => {
             e.preventDefault();

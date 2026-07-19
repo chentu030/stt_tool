@@ -110,7 +110,7 @@ export const LAYOUT_OPTIONS: { id: LayoutMode; label: string; hint: string }[] =
 
 export const GRAPH_TIPS = [
   "點選節點可查看入鏈／出鏈與鄰居。",
-  "按住空白鍵或中鍵可平移；滾輪縮放。",
+  "按住空白鍵或中鍵可平移；Ctrl+滾輪或 Ctrl+/- 縮放。",
   "拖曳節點會記住位置，換佈局前可先「重算」。",
   "開啟「標籤邊」可看出共同主題；「資料夾邊」看分組。",
   "幽靈節點代表 [[連結]] 到尚未建立的標題。",

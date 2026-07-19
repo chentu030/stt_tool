@@ -6,6 +6,26 @@ export function clampCanvasScale(s: number, min = 0.35, max = 2.5) {
   return Math.min(max, Math.max(min, s));
 }
 
+/** Zoom keeping the given client point (relative to stage rect) fixed in world space. */
+export function zoomAtClientPoint(
+  state: PanZoom,
+  nextScale: number,
+  clientX: number,
+  clientY: number,
+  rect: DOMRect,
+  clamp = clampCanvasScale
+): PanZoom {
+  const next = clamp(nextScale);
+  const mx = clientX - rect.left;
+  const my = clientY - rect.top;
+  const wx = (mx - state.pan.x) / state.scale;
+  const wy = (my - state.pan.y) / state.scale;
+  return {
+    scale: next,
+    pan: { x: mx - wx * next, y: my - wy * next },
+  };
+}
+
 /**
  * Wheel on stage:
  * - Ctrl/Cmd + wheel → zoom toward cursor
@@ -33,16 +53,9 @@ export function applyStageWheel(
   const dy = e.deltaY * line;
 
   if (e.ctrlKey || e.metaKey) {
-    const factor = Math.exp(-dy * 0.0015);
-    const next = clamp(state.scale * factor);
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const wx = (mx - state.pan.x) / state.scale;
-    const wy = (my - state.pan.y) / state.scale;
-    return {
-      scale: next,
-      pan: { x: mx - wx * next, y: my - wy * next },
-    };
+    // Discrete mouse notches (~100) and trackpad pinch (ctrl+wheel) both work
+    const factor = Math.exp(-dy * 0.0022);
+    return zoomAtClientPoint(state, state.scale * factor, e.clientX, e.clientY, rect, clamp);
   }
 
   if (e.shiftKey) {
@@ -63,4 +76,12 @@ export function applyStageWheel(
 /** True if pointer moved enough to count as a drag (vs click). */
 export function isDragGesture(dx: number, dy: number, threshold = 4) {
   return Math.hypot(dx, dy) >= threshold;
+}
+
+export function isZoomInKey(e: KeyboardEvent) {
+  return e.key === "+" || e.key === "=" || e.code === "Equal" || e.code === "NumpadAdd";
+}
+
+export function isZoomOutKey(e: KeyboardEvent) {
+  return e.key === "-" || e.key === "_" || e.code === "Minus" || e.code === "NumpadSubtract";
 }
