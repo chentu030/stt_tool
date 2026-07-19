@@ -224,11 +224,73 @@ export default function BoardPage() {
           body: summary || "（目前沒有待辦）",
           prompt:
             "用繁體中文，幫我把這些待辦排出今天／本週／可延後三組，並各給一句理由。若清單為空，給我建立看板的建議。",
+          assistant: {
+            name: prefs.aiAssistantName,
+            style: prefs.aiStyle,
+          },
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI 失敗");
       setAiText(data.text);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const runAiScaffold = async (description: string) => {
+    if (!user || aiBusy) return;
+    setAiBusy(true);
+    setAiError("");
+    setAiText("");
+    try {
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "board_scaffold",
+          title: "看板規劃",
+          body: description,
+          prompt: description,
+          assistant: {
+            name: prefs.aiAssistantName,
+            style: prefs.aiStyle,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI 失敗");
+      const raw = String(data.text || "").trim();
+      const jsonMatch = raw.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error("無法解析卡片清單");
+      const items = JSON.parse(jsonMatch[0]) as {
+        title?: string;
+        status?: BoardStatus;
+        priority?: Priority;
+        due?: string;
+        body?: string;
+      }[];
+      if (!Array.isArray(items) || !items.length) throw new Error("沒有可建立的卡片");
+      let created = 0;
+      for (const item of items.slice(0, 12)) {
+        const title = (item.title || "").trim();
+        if (!title) continue;
+        const status: BoardStatus =
+          item.status === "doing" || item.status === "done" ? item.status : "backlog";
+        const priority: Priority = PRIORITIES.some((p) => p.id === item.priority)
+          ? (item.priority as Priority)
+          : "normal";
+        const body = upsertBoardMeta(item.body || "", {
+          priority,
+          due: item.due || undefined,
+        });
+        await createNote(user.uid, title, body, undefined, ["看板"], { status });
+        created += 1;
+      }
+      setAiText(`已建立 ${created} 張卡片。\n\n${raw.slice(0, 800)}`);
+      flash(`AI 已建立 ${created} 張看板卡片`);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -466,6 +528,7 @@ export default function BoardPage() {
         <BoardAside
           stats={stats}
           onAiTriage={() => { void runAiTriage(); }}
+          onAiScaffold={(d) => { void runAiScaffold(d); }}
           aiBusy={aiBusy}
           aiText={aiText}
           aiError={aiError}

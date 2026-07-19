@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   BoardStats,
   PRIORITIES,
@@ -9,6 +10,7 @@ import {
 type Props = {
   stats: BoardStats;
   onAiTriage: () => void;
+  onAiScaffold: (description: string) => void;
   aiBusy: boolean;
   aiText: string;
   aiError: string;
@@ -17,10 +19,12 @@ type Props = {
 export default function BoardAside({
   stats,
   onAiTriage,
+  onAiScaffold,
   aiBusy,
   aiText,
   aiError,
 }: Props) {
+  const [scaffold, setScaffold] = useState("");
   return (
     <aside className="bd-aside">
       <section className="bd-aside-block">
@@ -86,6 +90,27 @@ export default function BoardAside({
         <button type="button" className="btn btn-soft btn-sm" disabled={aiBusy} onClick={onAiTriage}>
           {aiBusy ? "分析中…" : "建議待辦怎麼排"}
         </button>
+        <form
+          className="bd-ai-scaffold"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!scaffold.trim()) return;
+            onAiScaffold(scaffold.trim());
+            setScaffold("");
+          }}
+        >
+          <textarea
+            className="input"
+            rows={2}
+            placeholder="描述專案，AI 幫你生看板卡片…"
+            value={scaffold}
+            disabled={aiBusy}
+            onChange={(e) => setScaffold(e.target.value)}
+          />
+          <button type="submit" className="btn btn-sm" disabled={aiBusy || !scaffold.trim()}>
+            AI 建立卡片
+          </button>
+        </form>
         {aiError && <p className="bd-error">{aiError}</p>}
         {aiText && <div className="bd-ai-out">{aiText}</div>}
       </section>

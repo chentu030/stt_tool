@@ -31,10 +31,12 @@ import {
   upsertJournalMeta,
 } from "@/lib/journalMeta";
 import { downloadText } from "@/lib/libraryIndex";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 export default function JournalPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const prefsCtx = usePrefsOptional();
   const [notes, setNotes] = useState<Note[]>([]);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
@@ -201,11 +203,65 @@ export default function JournalPage() {
         title: `日誌 ${selected}`,
         body: entry?.body_md || "",
         prompt,
+        assistant: {
+          name: prefsCtx?.prefs.aiAssistantName,
+          style: prefsCtx?.prefs.aiStyle,
+        },
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "AI 失敗");
     return data.text as string;
+  };
+
+  const monthlyReview = async () => {
+    if (!user || busy) return;
+    setBusy(true);
+    try {
+      const monthEntries = entries.filter((e) => {
+        const d = parseDateKey(e.dateKey);
+        return d && d.getFullYear() === cursor.year && d.getMonth() === cursor.month;
+      });
+      const pack = monthEntries
+        .map((e) => `### ${e.dateKey}\n${(e.body_md || "").replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim().slice(0, 1200)}`)
+        .join("\n\n");
+      if (!pack.trim()) {
+        flash("本月尚無日誌可復盤");
+        return;
+      }
+      const label = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}`;
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "journal_review",
+          title: `日誌復盤 ${label}`,
+          body: pack.slice(0, 14000),
+          prompt: `請復盤 ${label} 的日誌，給出洞見與下月行動。`,
+          assistant: {
+            name: prefsCtx?.prefs.aiAssistantName,
+            style: prefsCtx?.prefs.aiStyle,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI 失敗");
+      const text = String(data.text || "").trim();
+      const id = await createNote(
+        user.uid,
+        `日誌復盤 — ${label}`,
+        `# 日誌復盤 ${label}\n\n${text}\n`,
+        undefined,
+        ["journal", "復盤"],
+        { folder: "日誌復盤", status: "done" }
+      );
+      flash("已建立月復盤筆記");
+      router.push(`/notes/${id}`);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "復盤失敗");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const weekNeighbors = useMemo(() => {
@@ -248,6 +304,15 @@ export default function JournalPage() {
         <div className="jn-hero-actions">
           <button type="button" className="btn btn-ghost btn-sm" onClick={exportMonth}>
             匯出本月
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => { void monthlyReview(); }}
+            title="AI 復盤本月日誌並建立筆記"
+          >
+            AI 月復盤
           </button>
           <ShinyPill
             style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem" }}

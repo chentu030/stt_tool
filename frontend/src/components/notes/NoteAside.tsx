@@ -10,8 +10,17 @@ import {
   RelatedNote,
 } from "@/lib/noteMeta";
 import { CADENCE_AI_ACTIONS } from "@/lib/cadenceAiActions";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 type ChatMsg = { id: string; role: "user" | "assistant"; text: string };
+
+const ASIDE_SUGGESTIONS = [
+  "用三點摘要這篇",
+  "抽出可執行待辦",
+  "改得更適合對外分享",
+  "幫我寫會議議程",
+  "還有哪些我沒想到的面向？",
+];
 
 export type NoteAsideAiHandle = {
   focusChat: (seed?: string) => void;
@@ -75,7 +84,9 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
+  const prefsCtx = usePrefsOptional();
   const storageKey = noteId ? `cadence-note-ai-${noteId}` : "";
+  const assistantName = prefsCtx?.prefs.aiAssistantName || "Cadence AI";
 
   useEffect(() => {
     hydrated.current = false;
@@ -145,6 +156,10 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
           body: body.slice(0, 8000),
           context: aiContext,
           prompt,
+          assistant: {
+            name: prefsCtx?.prefs.aiAssistantName,
+            style: prefsCtx?.prefs.aiStyle,
+          },
           messages: [...msgs, userMsg]
             .slice(-8)
             .map((m) => ({
@@ -303,11 +318,28 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
 
           <div className="note-ai-msgs" ref={listRef}>
             {msgs.length === 0 && (
-              <p className="note-aside-empty">針對這篇筆記提問，或用上方快捷動作。也可用 Ctrl+J 快速開啟。</p>
+              <>
+                <p className="note-aside-empty">
+                  針對這篇筆記提問，或點快捷建議。Ctrl+J 可快速開啟。
+                </p>
+                <div className="note-ai-actions" style={{ marginBottom: "0.5rem" }}>
+                  {ASIDE_SUGGESTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="note-ai-chip"
+                      disabled={busy}
+                      onClick={() => void send(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
             {msgs.map((m) => (
               <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
-                <span>{m.role === "user" ? "你" : "Cadence AI"}</span>
+                <span>{m.role === "user" ? "你" : assistantName}</span>
                 <p>{m.text}</p>
               </div>
             ))}

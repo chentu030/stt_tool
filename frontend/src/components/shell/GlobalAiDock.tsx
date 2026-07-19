@@ -5,28 +5,42 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, type Note } from "@/lib/firebase";
 import { packLibraryContext } from "@/lib/libraryIndex";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 type Msg = { id: string; role: "user" | "assistant"; text: string };
+
+const DOCK_SUGGESTIONS = [
+  { label: "本週重點", prompt: "根據我的知識庫，整理本週最值得關注的 5 件事" },
+  { label: "找相關筆記", prompt: "幫我找出彼此相關的筆記主題，並說明可如何串起來" },
+  { label: "靈感草稿", prompt: "從最近筆記抽出靈感，寫一段可發展的草稿開頭" },
+  { label: "待辦催收", prompt: "從筆記裡找出未完成待辦，按緊急程度排序" },
+  { label: "會議準備", prompt: "幫我準備一場會議的議程與要帶的問題" },
+];
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/** Floating Cadence AI dock — global assistant entry (P1 skeleton + library ask) */
 export default function GlobalAiDock() {
   const { user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const prefsCtx = usePrefsOptional();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Note[]>([]);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const [atOpen, setAtOpen] = useState(false);
+  const [atQ, setAtQ] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const hydrated = useRef(false);
 
   const onNotePage = pathname?.startsWith("/notes/");
+  const assistantName = prefsCtx?.prefs.aiAssistantName || "Cadence AI";
 
   useEffect(() => {
     if (!user) {
@@ -35,6 +49,32 @@ export default function GlobalAiDock() {
     }
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("cadence-ai-dock");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { msgs?: Msg[]; pinned?: string[] };
+        if (Array.isArray(parsed.msgs)) setMsgs(parsed.msgs.slice(-40));
+        if (Array.isArray(parsed.pinned)) setPinnedIds(parsed.pinned.slice(0, 8));
+      }
+    } catch {
+      /* ignore */
+    }
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    try {
+      sessionStorage.setItem(
+        "cadence-ai-dock",
+        JSON.stringify({ msgs: msgs.slice(-40), pinned: pinnedIds })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [msgs, pinnedIds]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -56,10 +96,29 @@ export default function GlobalAiDock() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, busy]);
 
+  const pinnedNotes = useMemo(
+    () => pinnedIds.map((id) => notes.find((n) => n.id === id)).filter(Boolean) as Note[],
+    [pinnedIds, notes]
+  );
+
+  const atCandidates = useMemo(() => {
+    const q = atQ.trim().toLowerCase();
+    const list = notes.filter((n) => !pinnedIds.includes(n.id));
+    if (!q) return list.slice(0, 8);
+    return list.filter((n) => n.title.toLowerCase().includes(q)).slice(0, 8);
+  }, [notes, pinnedIds, atQ]);
+
   const scopeLabel = useMemo(() => {
-    if (onNotePage) return "目前在筆記頁 — 也可用 Ctrl+J 開側欄 AI";
+    if (pinnedNotes.length) return `已 @ ${pinnedNotes.length} 篇`;
+    if (onNotePage) return "跨庫提問 · 本篇請用 Ctrl+J";
     return `知識庫 ${notes.length} 篇`;
-  }, [onNotePage, notes.length]);
+  }, [onNotePage, notes.length, pinnedNotes.length]);
+
+  const togglePin = (id: string) => {
+    setPinnedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(0, 8)
+    );
+  };
 
   const send = async (text: string) => {
     const prompt = text.trim();
@@ -67,22 +126,24 @@ export default function GlobalAiDock() {
     setBusy(true);
     setError("");
     setInput("");
+    setAtOpen(false);
     const userMsg: Msg = { id: uid(), role: "user", text: prompt };
     setMsgs((p) => [...p, userMsg]);
     try {
-      const packed = packLibraryContext(
-        notes.map((n) => ({
-          id: n.id,
-          title: n.title,
-          body_md: n.body_md,
-          tags: n.tags,
-          folder: n.folder,
-          updated_at: n.updated_at,
-          created_at: n.created_at,
-        })),
-        prompt,
-        { maxNotes: 8, maxChars: 12000 }
-      );
+      const libNotes = notes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        body_md: n.body_md,
+        tags: n.tags,
+        folder: n.folder,
+        updated_at: n.updated_at,
+        created_at: n.created_at,
+      }));
+      const packed = packLibraryContext(libNotes, prompt, {
+        selectedIds: pinnedIds.length ? pinnedIds : undefined,
+        maxNotes: pinnedIds.length ? Math.min(pinnedIds.length, 12) : 10,
+        maxChars: 14000,
+      });
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,6 +151,10 @@ export default function GlobalAiDock() {
           action: "library",
           prompt,
           context: packed.context,
+          assistant: {
+            name: prefsCtx?.prefs.aiAssistantName,
+            style: prefsCtx?.prefs.aiStyle,
+          },
           messages: [...msgs, userMsg]
             .slice(-8)
             .map((m) => ({
@@ -118,7 +183,7 @@ export default function GlobalAiDock() {
       <button
         type="button"
         className={`cadence-ai-fab${open ? " is-open" : ""}`}
-        title="Cadence AI（Ctrl+Shift+A）"
+        title={`${assistantName}（Ctrl+Shift+A）`}
         onClick={() => setOpen((v) => !v)}
       >
         AI
@@ -126,24 +191,100 @@ export default function GlobalAiDock() {
       {open && (
         <div className="cadence-ai-dock">
           <div className="cadence-ai-dock-head">
-            <strong>Cadence AI</strong>
+            <strong>{assistantName}</strong>
             <span className="cadence-ai-dock-scope">{scopeLabel}</span>
+            <button
+              type="button"
+              className="doc-cmd"
+              title="清空對話"
+              onClick={() => setMsgs([])}
+            >
+              清空
+            </button>
             <button type="button" className="doc-cmd" onClick={() => setOpen(false)}>
               關閉
             </button>
           </div>
-          {onNotePage && (
-            <p className="cadence-ai-dock-hint">
-              筆記內建議用側欄 AI（Ctrl+J）以帶入本篇完整脈絡。此處可跨知識庫提問。
-            </p>
+
+          <div className="cadence-ai-dock-pins">
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={() => {
+                setAtOpen((v) => !v);
+                setAtQ("");
+              }}
+            >
+              @ 筆記
+            </button>
+            {pinnedNotes.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                className="cadence-ai-pin"
+                title="再點移除"
+                onClick={() => togglePin(n.id)}
+              >
+                {n.title.slice(0, 16)}
+                {n.title.length > 16 ? "…" : ""} ×
+              </button>
+            ))}
+          </div>
+          {atOpen && (
+            <div className="cadence-ai-at-menu">
+              <input
+                className="input"
+                placeholder="搜尋筆記標題…"
+                value={atQ}
+                onChange={(e) => setAtQ(e.target.value)}
+                autoFocus
+              />
+              {atCandidates.length === 0 ? (
+                <p className="note-aside-empty">沒有可加入的筆記</p>
+              ) : (
+                atCandidates.map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className="cadence-ai-at-item"
+                    onClick={() => {
+                      togglePin(n.id);
+                      setAtOpen(false);
+                    }}
+                  >
+                    <strong>{n.title}</strong>
+                    <span>{n.folder || "未分類"}</span>
+                  </button>
+                ))
+              )}
+            </div>
           )}
+
+          {msgs.length === 0 && (
+            <div className="cadence-ai-dock-suggest">
+              {DOCK_SUGGESTIONS.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  className="note-ai-chip"
+                  disabled={busy}
+                  onClick={() => void send(s.prompt)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="cadence-ai-dock-msgs" ref={listRef}>
             {msgs.length === 0 && (
-              <p className="note-aside-empty">問任何關於你知識庫的問題，或請它整理靈感。</p>
+              <p className="note-aside-empty">
+                用 @ 指定筆記當脈絡，或直接問整個知識庫。
+              </p>
             )}
             {msgs.map((m) => (
               <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
-                <span>{m.role === "user" ? "你" : "助手"}</span>
+                <span>{m.role === "user" ? "你" : assistantName}</span>
                 <p>{m.text}</p>
               </div>
             ))}
@@ -161,7 +302,7 @@ export default function GlobalAiDock() {
               ref={inputRef}
               className="input"
               rows={2}
-              placeholder="問 Cadence AI…"
+              placeholder={`問 ${assistantName}…（可用 @ 指定筆記）`}
               value={input}
               disabled={busy}
               onChange={(e) => setInput(e.target.value)}
@@ -175,6 +316,9 @@ export default function GlobalAiDock() {
             <div className="cadence-ai-dock-actions">
               <button type="button" className="doc-cmd" onClick={() => router.push("/library")}>
                 知識庫
+              </button>
+              <button type="button" className="doc-cmd" onClick={() => router.push("/settings#st-ai")}>
+                偏好
               </button>
               <button type="submit" className="btn btn-sm" disabled={busy || !input.trim()}>
                 送出

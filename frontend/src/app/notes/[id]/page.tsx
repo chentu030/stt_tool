@@ -241,6 +241,10 @@ export default function NotePage() {
           body,
           context: pack.context,
           prompt: prompt || catalog?.prompt,
+          assistant: {
+            name: prefsCtx?.prefs.aiAssistantName,
+            style: prefsCtx?.prefs.aiStyle,
+          },
         }),
       });
       const data = await res.json();

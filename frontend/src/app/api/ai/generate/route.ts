@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { vertexConfigStatus, vertexGenerateContent, VertexChatMessage } from "@/lib/vertex";
+import { assistantSystemPrefix } from "@/lib/aiPrefs";
 
 export const runtime = "nodejs";
 
@@ -28,12 +29,15 @@ type Body = {
     | "write_anything"
     | "make_table"
     | "make_mermaid"
-    | "meeting_pack";
+    | "meeting_pack"
+    | "journal_review"
+    | "board_scaffold";
   title?: string;
   body?: string;
   context?: string;
   selection?: string;
   messages?: VertexChatMessage[];
+  assistant?: { name?: string; style?: "concise" | "balanced" | "detailed" };
 };
 
 function buildPrompt(data: Body): {
@@ -48,6 +52,7 @@ function buildPrompt(data: Body): {
   const context = data.context?.trim() || "";
   const selection = data.selection?.trim() || note;
   const noteBlock = context || (note ? `標題：${title}\n\n${note}` : `標題：${title}`);
+  const asst = assistantSystemPrefix(data.assistant);
 
   if (action === "improve") {
     return {
@@ -162,19 +167,33 @@ function buildPrompt(data: Body): {
   }
   if (action === "meeting_pack") {
     return {
-      system: "你是 Cadence 會議助手。依逐字稿／筆記產出：1) 摘要 2) 決議 3) 待辦 checklist 4) 會後跟進。繁體中文 Markdown。",
+      system: `${asst}你是會議助手。依逐字稿／筆記產出：1) 摘要 2) 決議 3) 待辦 checklist 4) 會後跟進。繁體中文 Markdown。`,
       prompt: `請產出會議整理包：\n\n${noteBlock}`,
+    };
+  }
+  if (action === "journal_review") {
+    return {
+      system: `${asst}你是日誌復盤助手。根據多日日誌產出：本月亮點、挑戰、情緒／能量趨勢、學習、下月 3–5 個具體行動建議。繁體中文 Markdown，可直接存成筆記。`,
+      prompt: `${data.prompt?.trim() || "請做月度復盤"}\n\n${noteBlock}`,
+      temperature: 0.55,
+    };
+  }
+  if (action === "board_scaffold") {
+    return {
+      system: `${asst}你是看板規劃助手。依使用者描述，輸出 JSON 陣列（不要 markdown 圍籬），每項：{"title":"...","status":"backlog"|"doing"|"done","priority":"urgent"|"high"|"normal"|"low","due":"YYYY-MM-DD或空字串","body":"簡短說明"}。最多 12 張卡。`,
+      prompt: `請規劃看板卡片：\n${data.prompt?.trim() || "一個個人專案看板"}\n\n可參考脈絡：\n${noteBlock}`,
+      temperature: 0.4,
     };
   }
 
   if (action === "chat" || action === "library" || action === "note") {
     const history = (data.messages || []).slice(-12);
     const system = [
-      "你是 Cadence 筆記助手。",
-      "使用繁體中文回答，具體、可執行。",
+      asst,
       "優先根據提供的筆記／知識庫脈絡作答；不要捏造沒有的事實。",
       "若使用者要求改寫／插入內容，用 Markdown 清楚標出建議文字。",
       "可用標題、清單、粗體、表格。",
+      "提到具體筆記時，盡量附上路徑如 /notes/ID。",
     ].join("");
 
     const ctxBlock = context || note

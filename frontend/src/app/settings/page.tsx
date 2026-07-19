@@ -478,6 +478,44 @@ export default function SettingsPage() {
             </Row>
           </section>
 
+          <section id="st-ai" className="st-card">
+            <h2>Cadence AI</h2>
+            <Row label="助手名稱">
+              <input
+                className="input"
+                value={prefs.aiAssistantName}
+                onChange={(e) => patch({ aiAssistantName: e.target.value })}
+                placeholder="Cadence AI"
+                maxLength={40}
+              />
+            </Row>
+            <Row label="回答風格">
+              <Seg
+                value={prefs.aiStyle}
+                onChange={(aiStyle) => patch({ aiStyle })}
+                options={[
+                  { id: "concise", label: "精簡" },
+                  { id: "balanced", label: "平衡" },
+                  { id: "detailed", label: "詳細" },
+                ]}
+              />
+            </Row>
+            <Row label="預設脈絡範圍">
+              <Seg
+                value={prefs.aiDefaultScope}
+                onChange={(aiDefaultScope) => patch({ aiDefaultScope })}
+                options={[
+                  { id: "note", label: "本篇" },
+                  { id: "folder", label: "資料夾" },
+                  { id: "library", label: "知識庫" },
+                ]}
+              />
+            </Row>
+            <p className="st-hint">
+              筆記頁用 Ctrl+J 開側欄；全站右下角 AI 或 Ctrl+Shift+A。可用 @ 指定筆記。
+            </p>
+          </section>
+
           <section id="st-capture" className="st-card">
             <h2>捕捉</h2>
             <Row label="預設來源">

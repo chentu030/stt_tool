@@ -84,6 +84,10 @@ export type UserPrefs = {
   /** Shortcuts */
   enableShortcuts: boolean;
   slashMenu: boolean;
+  /** Cadence AI */
+  aiAssistantName: string;
+  aiStyle: "concise" | "balanced" | "detailed";
+  aiDefaultScope: "note" | "folder" | "library";
   /** Workspace */
   favoriteNoteIds: string[];
   recentNoteIds: string[];
@@ -164,6 +168,7 @@ export const SETTINGS_SECTIONS = [
   { id: "library", label: "知識庫" },
   { id: "board", label: "看板" },
   { id: "editor", label: "筆記編輯" },
+  { id: "ai", label: "Cadence AI" },
   { id: "capture", label: "捕捉" },
   { id: "journal", label: "日誌" },
   { id: "views", label: "白板／圖譜" },
@@ -225,6 +230,9 @@ export const DEFAULT_PREFS: UserPrefs = {
   askBeforeDelete: true,
   enableShortcuts: true,
   slashMenu: true,
+  aiAssistantName: "Cadence AI",
+  aiStyle: "balanced",
+  aiDefaultScope: "note",
   favoriteNoteIds: [],
   recentNoteIds: [],
 };
@@ -296,6 +304,15 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
     defaultFolder: String(p.defaultFolder || "").slice(0, 80),
     defaultTags: String(p.defaultTags || "").slice(0, 200),
+    aiAssistantName: String(p.aiAssistantName || "Cadence AI").slice(0, 40) || "Cadence AI",
+    aiStyle:
+      p.aiStyle === "concise" || p.aiStyle === "detailed" || p.aiStyle === "balanced"
+        ? p.aiStyle
+        : "balanced",
+    aiDefaultScope:
+      p.aiDefaultScope === "folder" || p.aiDefaultScope === "library" || p.aiDefaultScope === "note"
+        ? p.aiDefaultScope
+        : "note",
     favoriteNoteIds: fav,
     recentNoteIds: recent,
   };
