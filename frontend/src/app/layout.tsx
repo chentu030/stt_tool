@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
+import AppShell from "@/components/shell/AppShell";
 
 export const metadata: Metadata = {
-  title: "AI 語音轉錄",
-  description: "用 AI 的力量，快速又精準地轉錄語音。",
+  title: "Cadence — 把說話寫成知識",
+  description: "語音驅動的知識工作區：轉錄、編輯、組織筆記。",
 };
 
 export default function RootLayout({
@@ -13,15 +14,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-TW" data-theme="dark">
+    <html lang="zh-TW" data-theme="light">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap"
+          rel="stylesheet"
+        />
+        <link rel="icon" href="/brand/cadence-lockup.svg" type="image/svg+xml" />
       </head>
       <body>
         <AuthProvider>
-          {children}
+          <AppShell>{children}</AppShell>
         </AuthProvider>
       </body>
     </html>

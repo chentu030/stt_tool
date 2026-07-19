@@ -4,13 +4,13 @@ import {
   onAuthStateChanged, User
 } from "firebase/auth";
 import {
-  getFirestore, collection, doc, setDoc,
-  query, where, onSnapshot, updateDoc, deleteDoc,
-  Timestamp, Unsubscribe, getDoc
+  getFirestore, collection, doc, setDoc, getDocs,
+  query, where, orderBy, onSnapshot, updateDoc, deleteDoc,
+  Timestamp, Unsubscribe
 } from "firebase/firestore";
 import {
-  getStorage, ref, uploadBytesResumable, getDownloadURL, getBytes, deleteObject,
-  UploadTaskSnapshot, uploadBytes
+  getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject,
+  UploadTaskSnapshot
 } from "firebase/storage";
 
 const firebaseConfig = {
@@ -59,8 +59,6 @@ export interface Job {
   result_paths: string[];
   transcripts: { filename: string; text: string }[];
   error_message: string;
-  position_label?: string;
-  queue_ahead?: number;
 }
 
 // ─── Firestore helpers ───────────────────────────────────────
@@ -119,28 +117,22 @@ export function listenToUserJobs(
   uid: string,
   callback: (jobs: Job[]) => void
 ): Unsubscribe {
-  // No orderBy here: combining where(==) + orderBy(other field) requires a
-  // Firestore composite index, which silently breaks the query if not created.
-  // We sort client-side by created_at desc instead — no index needed.
-  const q = query(collection(db, "jobs"), where("user_id", "==", uid));
-  return onSnapshot(
-    q,
-    (snap) => {
-      const jobs = snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          created_at: data.created_at?.toDate?.() || new Date(),
-        } as Job;
-      });
-      jobs.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-      callback(jobs);
-    },
-    (err) => {
-      console.error("[listenToUserJobs] snapshot error:", err);
-    }
+  const q = query(
+    collection(db, "jobs"),
+    where("user_id", "==", uid),
+    orderBy("created_at", "desc")
   );
+  return onSnapshot(q, (snap) => {
+    const jobs = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        created_at: data.created_at?.toDate?.() || new Date(),
+      } as Job;
+    });
+    callback(jobs);
+  });
 }
 
 export async function deleteJob(jobId: string, storagePaths: string[], resultPaths: string[]) {
@@ -179,109 +171,4 @@ export function uploadFile(
 
 export async function getFileUrl(path: string): Promise<string> {
   return getDownloadURL(ref(storage, path));
-}
-
-// Fetch a stored .txt transcript's text content directly.
-export async function getResultText(path: string): Promise<string> {
-  const bytes = await getBytes(ref(storage, path));
-  return new TextDecoder("utf-8").decode(bytes);
-}
-
-export async function saveJobTranscripts(
-  jobId: string,
-  uid: string,
-  transcripts: { filename: string; text: string }[],
-  resultPaths: string[] = []
-): Promise<void> {
-  const INLINE_LIMIT = 700_000;
-  const combined = transcripts.reduce((n, t) => n + new TextEncoder().encode(t.text).length, 0);
-
-  const newPaths: string[] = [];
-  for (let i = 0; i < transcripts.length; i++) {
-    const t = transcripts[i];
-    const existing = resultPaths[i];
-    const path = existing || `results/${uid}/${jobId}/${t.filename.replace(/\.[^/.]+$/, "") || "transcript"}.txt`;
-    await uploadBytes(ref(storage, path), new Blob([t.text], { type: "text/plain;charset=utf-8" }));
-    newPaths.push(path);
-  }
-
-  await updateDoc(doc(db, "jobs", jobId), {
-    transcripts: combined <= INLINE_LIMIT ? transcripts : [],
-    result_paths: newPaths,
-  });
-}
-
-// ─── Notes ───────────────────────────────────────────────────
-export interface Note {
-  id: string;
-  user_id: string;
-  title: string;
-  body_md: string;
-  tags: string[];
-  source_job_id?: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export async function createNote(
-  uid: string,
-  title: string,
-  bodyMd: string,
-  sourceJobId?: string,
-  tags: string[] = []
-): Promise<string> {
-  const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  await setDoc(doc(db, "notes", id), {
-    user_id: uid,
-    title: title || "未命名筆記",
-    body_md: bodyMd,
-    tags,
-    source_job_id: sourceJobId || "",
-    created_at: Timestamp.now(),
-    updated_at: Timestamp.now(),
-  });
-  return id;
-}
-
-export async function updateNote(
-  noteId: string,
-  updates: Partial<Pick<Note, "title" | "body_md" | "tags">>
-) {
-  await updateDoc(doc(db, "notes", noteId), {
-    ...updates,
-    updated_at: Timestamp.now(),
-  });
-}
-
-export async function getNote(noteId: string): Promise<Note | null> {
-  const snap = await getDoc(doc(db, "notes", noteId));
-  if (!snap.exists()) return null;
-  const data = snap.data();
-  return {
-    id: snap.id,
-    ...data,
-    created_at: data.created_at?.toDate?.() || new Date(),
-    updated_at: data.updated_at?.toDate?.() || new Date(),
-  } as Note;
-}
-
-export function listenToUserNotes(uid: string, callback: (notes: Note[]) => void): Unsubscribe {
-  const q = query(collection(db, "notes"), where("user_id", "==", uid));
-  return onSnapshot(q, (snap) => {
-    const notes = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        ...data,
-        created_at: data.created_at?.toDate?.() || new Date(),
-        updated_at: data.updated_at?.toDate?.() || new Date(),
-      } as Note;
-    });
-    notes.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
-    callback(notes);
-  });
-}
-
-export async function deleteNote(noteId: string) {
-  await deleteDoc(doc(db, "notes", noteId));
 }
