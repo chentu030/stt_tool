@@ -3,86 +3,359 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
-import { createNote, listenToUserNotes, loginWithGoogle, Note } from "@/lib/firebase";
+import {
+  createNote,
+  listenToUserNotes,
+  loginWithGoogle,
+  updateNote,
+  Note,
+} from "@/lib/firebase";
 import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
+import JournalCalendar from "@/components/journal/JournalCalendar";
+import JournalComposer from "@/components/journal/JournalComposer";
+import JournalAside from "@/components/journal/JournalAside";
+import {
+  MoodId,
+  MOODS,
+  buildMonthGrid,
+  computeJournalStats,
+  dateKeyFromDate,
+  exportMonthMarkdown,
+  parseDateKey,
+  promptForDate,
+  toJournalEntries,
+  upsertJournalMeta,
+} from "@/lib/journalMeta";
+import { downloadText } from "@/lib/libraryIndex";
 
 export default function JournalPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [notes, setNotes] = useState<Note[]>([]);
   const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
+  const [toast, setToast] = useState("");
   const today = journalTitle();
+  const [selected, setSelected] = useState(today);
+  const [cursor, setCursor] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  const [composerKey, setComposerKey] = useState(0);
 
   useEffect(() => {
     if (!user) return;
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
 
-  const journals = useMemo(
-    () => notes
-      .filter((n) => n.journal_date || (n.tags || []).includes("journal") || /^\d{4}-\d{2}-\d{2}$/.test(n.title))
-      .sort((a, b) => (b.journal_date || b.title).localeCompare(a.journal_date || a.title)),
-    [notes]
+  const entries = useMemo(() => toJournalEntries(notes), [notes]);
+  const byDate = useMemo(() => {
+    const m = new Map<string, (typeof entries)[0]>();
+    for (const e of entries) {
+      if (!m.has(e.dateKey)) m.set(e.dateKey, e);
+    }
+    return m;
+  }, [entries]);
+
+  const stats = useMemo(() => computeJournalStats(entries), [entries]);
+  const cells = useMemo(
+    () => buildMonthGrid(cursor.year, cursor.month, byDate),
+    [cursor, byDate]
   );
 
-  const todayNote = journals.find((n) => n.journal_date === today || n.title === today);
+  const selectedEntry = byDate.get(selected);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return entries;
+    return entries.filter(
+      (e) =>
+        e.dateKey.includes(s) ||
+        e.title.toLowerCase().includes(s) ||
+        e.body_md.toLowerCase().includes(s) ||
+        (e.meta.mood && MOODS.find((m) => m.id === e.meta.mood)?.label.includes(s))
+    );
+  }, [entries, q]);
 
-  const openToday = async () => {
-    if (!user || busy) return;
-    if (todayNote) {
-      router.push(`/notes/${todayNote.id}`);
-      return;
+  const flash = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2200);
+  };
+
+  const ensureNote = async (dateKey: string, seedBody?: string, meta?: { mood?: MoodId; energy?: number }) => {
+    if (!user) throw new Error("未登入");
+    const existing = byDate.get(dateKey);
+    const daily = NOTE_TEMPLATES.find((x) => x.id === "daily")!;
+    let body = seedBody ?? existing?.body_md ?? daily.body;
+    if (meta) body = upsertJournalMeta(body, meta);
+    else if (!existing) body = upsertJournalMeta(body, {});
+
+    if (existing) {
+      await updateNote(existing.id, {
+        body_md: body,
+        title: dateKey,
+        tags: Array.from(new Set([...(existing.tags || []), "journal"])),
+        journal_date: dateKey,
+        folder: existing.folder || "日誌",
+      });
+      return existing.id;
     }
+    return createNote(user.uid, dateKey, body, undefined, ["journal"], {
+      journal_date: dateKey,
+      folder: "日誌",
+    });
+  };
+
+  const openOrCreate = async (dateKey: string) => {
+    if (!user || busy) return;
     setBusy(true);
     try {
-      const t = NOTE_TEMPLATES.find((x) => x.id === "daily")!;
-      const id = await createNote(user.uid, today, t.body, undefined, t.tags, { journal_date: today });
+      const id = await ensureNote(dateKey);
       router.push(`/notes/${id}`);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "無法開啟");
     } finally {
       setBusy(false);
     }
   };
 
+  const saveComposer = async (payload: {
+    text: string;
+    mood?: MoodId;
+    energy?: number;
+    appendTemplate?: string;
+  }) => {
+    if (!user || busy) return;
+    setBusy(true);
+    try {
+      const existing = byDate.get(selected);
+      let text = payload.text;
+      if (payload.appendTemplate) {
+        text = `${text.trim()}${text.trim() ? "\n\n" : ""}${payload.appendTemplate}`;
+      }
+      // Keep existing body sections if user only set mood on empty quick save with existing note
+      if (!text.trim() && existing) text = existing.body_md.replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim();
+      if (!text.trim()) {
+        text = `${NOTE_TEMPLATES.find((x) => x.id === "daily")!.body}\n\n## 提問回應\n${promptForDate(selected)}\n\n`;
+      }
+      const body = upsertJournalMeta(text, {
+        mood: payload.mood,
+        energy: payload.energy,
+      });
+      const id = await ensureNote(selected, body, {
+        mood: payload.mood,
+        energy: payload.energy,
+      });
+      flash(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
+      setComposerKey((k) => k + 1);
+      if (payload.appendTemplate) {
+        // stay on page; data refreshes via listener
+      } else {
+        // optional: stay
+      }
+      void id;
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const shiftMonth = (delta: number) => {
+    setCursor((c) => {
+      const d = new Date(c.year, c.month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+  };
+
+  const goToday = () => {
+    const d = new Date();
+    setCursor({ year: d.getFullYear(), month: d.getMonth() });
+    setSelected(today);
+    setComposerKey((k) => k + 1);
+  };
+
+  const onSelectDay = (dateKey: string) => {
+    setSelected(dateKey);
+    const d = parseDateKey(dateKey);
+    if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
+    setComposerKey((k) => k + 1);
+  };
+
+  const exportMonth = () => {
+    const md = exportMonthMarkdown(entries, cursor.year, cursor.month);
+    downloadText(`cadence-journal-${cursor.year}-${cursor.month + 1}.md`, md);
+    flash("已匯出本月 Markdown");
+  };
+
+  const askAi = async (prompt: string) => {
+    const entry = selectedEntry;
+    const res = await fetch("/api/ai/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "note",
+        title: `日誌 ${selected}`,
+        body: entry?.body_md || "",
+        prompt,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "AI 失敗");
+    return data.text as string;
+  };
+
+  const weekNeighbors = useMemo(() => {
+    const d = parseDateKey(selected);
+    if (!d) return [];
+    const keys: string[] = [];
+    for (let i = -3; i <= 3; i++) {
+      const x = new Date(d);
+      x.setDate(d.getDate() + i);
+      keys.push(dateKeyFromDate(x));
+    }
+    return keys.map((k) => ({ dateKey: k, entry: byDate.get(k) }));
+  }, [selected, byDate]);
+
   if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
   if (!user) {
     return (
-      <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
-        <ScrambleText words="Journal" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後開始每日筆記。</p>
+      <div className="jn-page jn-guest">
+        <ScrambleText words="日誌" as="h1" className="page-title font-display" />
+        <p className="page-sub">登入後用月曆與情緒追蹤，把每天寫成可回顧的節奏。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
   }
 
+  const composerBody = selectedEntry
+    ? selectedEntry.body_md.replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim()
+    : "";
+
   return (
-    <div style={{ maxWidth: 720 }}>
-      <ScrambleText words="Journal" as="h1" className="page-title font-display" />
-      <p className="page-sub">每天一則日誌，累積你的節奏。今天是 {today}。</p>
+    <div className="jn-page">
+      <header className="jn-hero">
+        <div>
+          <ScrambleText words="日誌" as="h1" className="page-title font-display" speed={22} />
+          <p className="page-sub">
+            月曆 · 連續寫作 · 情緒能量 · 快速起筆。今天是 {today}
+            {stats.streak > 0 ? ` · 已連續 ${stats.streak} 天` : ""}。
+          </p>
+        </div>
+        <div className="jn-hero-actions">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={exportMonth}>
+            匯出本月
+          </button>
+          <ShinyPill
+            style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem" }}
+            disabled={busy}
+            onClick={() => { void openOrCreate(today); }}
+          >
+            {byDate.has(today) ? "打開今日" : "建立今日"}
+          </ShinyPill>
+        </div>
+      </header>
 
-      <ShinyPill onClick={() => { void openToday(); }} disabled={busy}>
-        {busy ? "開啟中…" : todayNote ? "打開今日日誌" : "建立今日日誌"}
-      </ShinyPill>
+      <div className="jn-layout">
+        <div className="jn-left">
+          <JournalCalendar
+            year={cursor.year}
+            month={cursor.month}
+            cells={cells}
+            selected={selected}
+            onSelect={onSelectDay}
+            onPrev={() => shiftMonth(-1)}
+            onNext={() => shiftMonth(1)}
+            onToday={goToday}
+          />
 
-      <section style={{ marginTop: "1.5rem" }}>
-        <h2 className="font-display" style={{ fontSize: "1.05rem", marginBottom: "0.7rem" }}>過往日誌</h2>
-        {journals.length === 0 ? (
-          <p style={{ color: "var(--text-muted)" }}>尚無日誌。</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
-            {journals.map((n) => (
-              <Link key={n.id} href={`/notes/${n.id}`} className="card" style={{ padding: "0.85rem 1rem", display: "block" }}>
-                <div style={{ fontWeight: 650 }}>{n.title}</div>
-                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 4 }}>
-                  {n.updated_at.toLocaleString("zh-TW")}
-                </div>
-              </Link>
-            ))}
+          <div className="jn-week-strip">
+            <h3>鄰近日子</h3>
+            <div className="jn-week-row">
+              {weekNeighbors.map(({ dateKey, entry }) => (
+                <button
+                  key={dateKey}
+                  type="button"
+                  className={`jn-week-pill${dateKey === selected ? " is-on" : ""}${entry ? " has" : ""}`}
+                  onClick={() => onSelectDay(dateKey)}
+                >
+                  <strong>{dateKey.slice(5)}</strong>
+                  <span>{entry ? `${entry.wordCount} 字` : "空"}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        )}
-      </section>
+
+          <section className="jn-list-section">
+            <div className="jn-list-head">
+              <h3>過往日誌</h3>
+              <input
+                className="input"
+                style={{ maxWidth: 200 }}
+                placeholder="搜尋…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            {filtered.length === 0 ? (
+              <p className="jn-muted">還沒有日誌。從右側快速寫下今天吧。</p>
+            ) : (
+              <div className="jn-list">
+                {filtered.map((e, i) => (
+                  <motion.div
+                    key={e.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(i * 0.02, 0.2) }}
+                    className={`jn-card${e.dateKey === selected ? " is-on" : ""}`}
+                  >
+                    <button type="button" className="jn-card-main" onClick={() => onSelectDay(e.dateKey)}>
+                      <div className="jn-card-top">
+                        <strong>{e.dateKey}</strong>
+                        {e.meta.mood && (
+                          <span
+                            className="jn-mood-dot"
+                            style={{ background: MOODS.find((m) => m.id === e.meta.mood)?.color }}
+                          >
+                            {MOODS.find((m) => m.id === e.meta.mood)?.label}
+                          </span>
+                        )}
+                      </div>
+                      <p>{e.snippet}</p>
+                      <div className="jn-card-meta">
+                        <span>{e.wordCount} 字</span>
+                        {e.meta.energy ? <span>能量 {e.meta.energy}/5</span> : null}
+                        <span>{e.updated_at.toLocaleString("zh-TW")}</span>
+                      </div>
+                    </button>
+                    <Link href={`/notes/${e.id}`} className="jn-card-open">開啟</Link>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="jn-center">
+          <JournalComposer
+            key={`${selected}-${composerKey}-${selectedEntry?.updated_at?.getTime?.() || 0}`}
+            dateKey={selected}
+            initialText={composerBody}
+            mood={selectedEntry?.meta.mood}
+            energy={selectedEntry?.meta.energy || 3}
+            busy={busy}
+            onSave={(p) => { void saveComposer(p); }}
+            onOpenFull={() => { void openOrCreate(selected); }}
+          />
+        </div>
+
+        <JournalAside stats={stats} dateKey={selected} onAskAi={askAi} />
+      </div>
+
+      {toast && <p className="jn-toast">{toast}</p>}
     </div>
   );
 }
