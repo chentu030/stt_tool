@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
       approvedPlan?: ResearchPlan;
       requirePlanApproval?: boolean;
       preferredDomains?: string[];
+      timeRange?: "any" | "ytd" | "1y" | "2y";
       mode?: "research" | "refine";
       findings?: ResearchFinding[];
       refineQuestions?: string[];
@@ -117,6 +118,10 @@ export async function POST(req: NextRequest) {
     const cfg = depthConfig(depth);
     const researchModel = resolveResearchModel(data.model || data.assistant?.model);
     const approvedPlan = normalizePlan(data.approvedPlan);
+    const timeRange: "any" | "ytd" | "1y" | "2y" =
+      data.timeRange === "ytd" || data.timeRange === "1y" || data.timeRange === "2y"
+        ? data.timeRange
+        : "any";
     const preferredDomains = (data.preferredDomains || [])
       .map((d) => String(d).trim())
       .filter(Boolean)
@@ -166,6 +171,7 @@ export async function POST(req: NextRequest) {
             questions: data.refineQuestions?.map(String).filter(Boolean),
             addQuestions: data.addQuestions?.map(String).filter(Boolean),
             signal,
+            timeRange,
             onProgress: send,
           });
         } finally {
@@ -230,6 +236,7 @@ export async function POST(req: NextRequest) {
       preferredDomains,
       runId,
       concurrency: depth === "max" ? 3 : 2,
+      timeRange,
     };
 
     if (!stream) {

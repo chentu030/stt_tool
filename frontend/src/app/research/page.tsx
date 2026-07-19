@@ -117,7 +117,44 @@ const TRANSFORMS: { id: string; label: string; action: string; prompt: string }[
     action: "outline",
     prompt: "把報告改成適合簡報的 Markdown 大綱（## 為投影片）",
   },
+  {
+    id: "faq",
+    label: "FAQ",
+    action: "chat",
+    prompt:
+      "把這份研究報告改寫成 FAQ（常見問題集）。用繁體中文，8～12 組 Q&A，先列最可能被問的問題；答案要簡短可驗證，能引用處保留 [n]。",
+  },
+  {
+    id: "brief",
+    label: "一頁簡報",
+    action: "chat",
+    prompt:
+      "把報告濃縮成一頁決策簡報（繁體中文）：背景三句、已確立三點、爭議一點、不確定一點、下一步三項。",
+  },
 ];
+
+function extractToc(md: string): { id: string; text: string; level: number }[] {
+  const out: { id: string; text: string; level: number }[] = [];
+  let inFence = false;
+  for (const line of (md || "").split("\n")) {
+    if (/^```/.test(line.trim())) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = /^(#{2,3})\s+(.+)$/.exec(line.trim());
+    if (!m) continue;
+    const text = m[2].replace(/\[(\d+)\]/g, "").trim();
+    const slug = text
+      .toLowerCase()
+      .replace(/[^\w\u4e00-\u9fff-]+/g, "-")
+      .replace(/-+/g, "-")
+      .slice(0, 40);
+    const id = `toc-${out.length}-${slug || "h"}`;
+    out.push({ id, text, level: m[1].length });
+  }
+  return out.slice(0, 24);
+}
 
 function toLibraryNotes(notes: Note[]): LibraryNote[] {
   return notes.map((n) => ({
@@ -165,18 +202,6 @@ function linkCitations(html: string, sources: Citation[]): string {
   });
 }
 
-function extractToc(md: string): { id: string; text: string; level: number }[] {
-  const out: { id: string; text: string; level: number }[] = [];
-  for (const line of (md || "").split("\n")) {
-    const m = /^(#{2,3})\s+(.+)$/.exec(line.trim());
-    if (!m) continue;
-    const text = m[2].replace(/\[(\d+)\]/g, "").trim();
-    const id = `toc-${out.length}-${text.slice(0, 24)}`;
-    out.push({ id, text, level: m[1].length });
-  }
-  return out.slice(0, 24);
-}
-
 function reportExportBody(report: Report, sourceTitle?: string): string {
   return formatResearchNoteBody({
     title: report.title,
@@ -207,6 +232,7 @@ function DeepResearchPageInner() {
   const [context, setContext] = useState("");
   const [domains, setDomains] = useState("");
   const [depth, setDepth] = useState<Depth>("standard");
+  const [timeRange, setTimeRange] = useState<"any" | "ytd" | "1y" | "2y">("1y");
   const [sourceNoteId, setSourceNoteId] = useState<string | null>(null);
   const [sourceNoteTitle, setSourceNoteTitle] = useState("");
   const [scopeIds, setScopeIds] = useState<string[]>([]);
@@ -257,6 +283,16 @@ function DeepResearchPageInner() {
   const runIdRef = useRef("");
   const runGenRef = useRef(0);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const logsRef = useRef<LogItem[]>([]);
+  const savedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    logsRef.current = logs;
+  }, [logs]);
+
+  useEffect(() => {
+    savedIdRef.current = savedId;
+  }, [savedId]);
 
   const isAbortError = (e: unknown) =>
     (e instanceof DOMException && e.name === "AbortError") ||
@@ -424,11 +460,15 @@ function DeepResearchPageInner() {
     try {
       let html = markdownToHtml(report.markdown);
       html = linkCitations(html, report.sources || []);
+      html = html
+        .replace(/〔已確立〕/g, '<span class="dr-tag-ok">〔已確立〕</span>')
+        .replace(/〔爭議〕/g, '<span class="dr-tag-warn">〔爭議〕</span>')
+        .replace(/〔不確定〕/g, '<span class="dr-tag-uncertain">〔不確定〕</span>');
       // inject heading ids for TOC
       let i = 0;
       html = html.replace(/<(h[23])>(.*?)<\/\1>/gi, (_m, tag, inner) => {
         const item = toc[i++];
-        const id = item?.id || `h-${i}`;
+        const id = (item?.id || `h-${i}`).replace(/"/g, "");
         return `<${tag} id="${id}">${inner}</${tag}>`;
       });
       return html;
@@ -497,9 +537,13 @@ function DeepResearchPageInner() {
     }
   };
 
-  const persistReport = async (r: Report, topicText: string) => {
+  const persistReport = async (
+    r: Report,
+    topicText: string,
+    opts?: { forceNewNote?: boolean }
+  ) => {
     if (!user) return;
-    let noteId = savedId;
+    let noteId = opts?.forceNewNote ? null : savedIdRef.current;
     try {
       const body = formatResearchNoteBody({
         title: r.title,
@@ -526,11 +570,18 @@ function DeepResearchPageInner() {
           }
         );
         setSavedId(noteId);
+        savedIdRef.current = noteId;
         pushLog(`已自動存成筆記（可在知識庫「深度研究」資料夾找到）`, "ok");
       }
     } catch {
       pushLog("自動存筆記失敗，仍保留本機歷史", "warn");
     }
+
+    const activity = logsRef.current.slice(-40).map((l) => ({
+      message: l.message,
+      level: l.level,
+      at: l.at,
+    }));
 
     const saved = saveResearchHistoryItem(user.uid, {
       topic: topicText,
@@ -544,11 +595,7 @@ function DeepResearchPageInner() {
       noteCount: r.noteSources?.length || 0,
       savedNoteId: noteId || undefined,
       sourceNoteId: sourceNoteId || undefined,
-      activity: logs.slice(-40).map((l) => ({
-        message: l.message,
-        level: l.level,
-        at: l.at,
-      })),
+      activity,
       report: {
         title: r.title,
         summary: r.summary,
@@ -662,11 +709,11 @@ function DeepResearchPageInner() {
             const idx = Number(event.index) || 0;
             pushLog(`子問題 ${event.index}/${event.total}：${event.question}`, "info");
             setChecklist((prev) =>
-              prev.map((row, i) => {
-                if (i === idx - 1) return { ...row, status: "active", q: String(event.question || row.q) };
-                if (row.status === "active") return { ...row, status: "pending" };
-                return row;
-              })
+              prev.map((row, i) =>
+                i === idx - 1
+                  ? { ...row, status: "active", q: String(event.question || row.q) }
+                  : row
+              )
             );
           } else if (type === "question_done") {
             const idx = Number(event.index) || 0;
@@ -738,6 +785,7 @@ function DeepResearchPageInner() {
     setError("");
     setReport(null);
     setSavedId(null);
+    savedIdRef.current = null;
     setClarifyQs([]);
     setDraftPlan(null);
     setProgressPct(0);
@@ -792,6 +840,7 @@ function DeepResearchPageInner() {
           model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
           depth,
           preferredDomains,
+          timeRange,
           skipClarify: !!opts?.skipClarify || !!opts?.approvedPlan,
           clarifyAnswers: opts?.answers || undefined,
           approvedPlan: opts?.approvedPlan || undefined,
@@ -807,7 +856,7 @@ function DeepResearchPageInner() {
       await consumeStream(res, {
         gen,
         onDone: (r) => {
-          void persistReport(r, topic.trim());
+          void persistReport(r, topic.trim(), { forceNewNote: true });
         },
       });
     } catch (e) {
@@ -854,6 +903,7 @@ function DeepResearchPageInner() {
           model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
           depth,
           preferredDomains,
+          timeRange,
           approvedPlan: report.plan,
           findings: report.findings,
           refineQuestions: qs,
@@ -1047,6 +1097,7 @@ function DeepResearchPageInner() {
           model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
           depth,
           preferredDomains,
+          timeRange,
           approvedPlan: report.plan,
           findings: report.findings,
           addQuestions: [q],
@@ -1113,6 +1164,10 @@ function DeepResearchPageInner() {
           prompt: t.prompt,
           body: report.markdown.slice(0, 14000),
           title: report.title,
+          context:
+            t.action === "chat"
+              ? `報告標題：${report.title}\n\n摘要：\n${report.summary}\n\n正文：\n${report.markdown.slice(0, 12000)}`
+              : undefined,
           assistant: {
             model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
           },
@@ -1139,6 +1194,7 @@ function DeepResearchPageInner() {
     });
     setModelUsed(item.model || item.report.model || "");
     setSavedId(item.savedNoteId || null);
+    savedIdRef.current = item.savedNoteId || null;
     setSourceNoteId(item.sourceNoteId || null);
     setSourceStats({
       web: item.webCount || item.report.webSources?.length || 0,
@@ -1292,6 +1348,30 @@ function DeepResearchPageInner() {
               >
                 Max
               </button>
+            </div>
+          </div>
+
+          <div className="dr-depth">
+            <span className="dr-depth-label">時間範圍（新鮮度）</span>
+            <div className="dr-depth-btns">
+              {(
+                [
+                  { id: "any" as const, label: "不限" },
+                  { id: "ytd" as const, label: "今年" },
+                  { id: "1y" as const, label: "近 1 年" },
+                  { id: "2y" as const, label: "近 2 年" },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  className={`btn btn-sm${timeRange === o.id ? "" : " btn-ghost"}`}
+                  disabled={busy}
+                  onClick={() => setTimeRange(o.id)}
+                >
+                  {o.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -1806,7 +1886,10 @@ function DeepResearchPageInner() {
                         <button
                           type="button"
                           onClick={() => {
-                            downloadPptOutline(report.title, report.markdown);
+                            downloadPptOutline(
+                              report.title,
+                              reportExportBody(report, sourceNoteTitle || undefined)
+                            );
                             setExportOpen(false);
                           }}
                         >

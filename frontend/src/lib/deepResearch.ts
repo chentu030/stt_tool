@@ -6,7 +6,10 @@
  */
 
 import { vertexGenerateContent, type VertexGroundingSource } from "@/lib/vertex";
-import { drainResearchGuidance } from "@/lib/researchRunStore";
+import { listResearchGuidance, clearResearchGuidance } from "@/lib/researchRunStore";
+import { tokenizeQuery } from "@/lib/researchTokens";
+
+export { tokenizeQuery } from "@/lib/researchTokens";
 
 export type NoteSnippet = {
   id: string;
@@ -173,25 +176,6 @@ function parseJsonLoose<T>(text: string): T | null {
     }
     return null;
   }
-}
-
-function tokenizeQuery(query: string): string[] {
-  const q = query.toLowerCase().trim();
-  const parts = q
-    .split(/[\s,，、/|；;。.！!？?（）()【】\[\]「」]+/)
-    .filter((t) => t.length >= 2);
-  const out = new Set<string>(parts);
-  // CJK bigrams so Chinese topics match excerpts without spaces
-  const cjk = q.replace(/[^\u4e00-\u9fff]/g, "");
-  for (let i = 0; i < cjk.length - 1; i++) {
-    out.add(cjk.slice(i, i + 2));
-  }
-  if (cjk.length >= 3) {
-    for (let i = 0; i < cjk.length - 2; i += 2) {
-      out.add(cjk.slice(i, i + 3));
-    }
-  }
-  return Array.from(out).filter(Boolean).slice(0, 48);
 }
 
 function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 5): NoteSnippet[] {
@@ -673,11 +657,25 @@ function mergeAllSources(findings: ResearchFinding[]): CitationSource[] {
   return out;
 }
 
-/** Simple concurrency pool — fail-fast aborts siblings on first error */
+/** Merge abort signals — aborts when any input aborts. */
+function anyAbortSignal(...signals: (AbortSignal | undefined)[]): AbortSignal {
+  const ac = new AbortController();
+  for (const s of signals) {
+    if (!s) continue;
+    if (s.aborted) {
+      ac.abort();
+      return ac.signal;
+    }
+    s.addEventListener("abort", () => ac.abort(), { once: true });
+  }
+  return ac.signal;
+}
+
+/** Simple concurrency pool — fail-fast aborts sibling Vertex calls */
 async function mapPool<T, R>(
   items: T[],
   concurrency: number,
-  fn: (item: T, index: number) => Promise<R>,
+  fn: (item: T, index: number, signal: AbortSignal) => Promise<R>,
   signal?: AbortSignal
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
@@ -686,6 +684,7 @@ async function mapPool<T, R>(
   const local = new AbortController();
   const onParent = () => local.abort();
   signal?.addEventListener("abort", onParent);
+  const workerSignal = anyAbortSignal(signal, local.signal);
 
   const check = () => {
     if (signal?.aborted || local.signal.aborted) throw new ResearchAbortedError();
@@ -701,7 +700,7 @@ async function mapPool<T, R>(
           const i = cursor++;
           if (i >= items.length) break;
           try {
-            results[i] = await fn(items[i], i);
+            results[i] = await fn(items[i], i, workerSignal);
           } catch (e) {
             if (!firstError) firstError = e;
             local.abort();
@@ -717,6 +716,48 @@ async function mapPool<T, R>(
   if (firstError) throw firstError;
   throwIfAborted(signal);
   return results;
+}
+
+function analyzeSourceDiversity(sources: CitationSource[]): {
+  domains: number;
+  topShare: number;
+  topDomain?: string;
+} {
+  const counts = new Map<string, number>();
+  for (const s of sources) {
+    if (s.kind !== "web" || !s.uri) continue;
+    try {
+      const host = new URL(s.uri).hostname.replace(/^www\./i, "").toLowerCase();
+      if (!host) continue;
+      counts.set(host, (counts.get(host) || 0) + 1);
+    } catch {
+      /* ignore bad uris */
+    }
+  }
+  const total = Array.from(counts.values()).reduce((a, b) => a + b, 0) || 1;
+  let top = 0;
+  let topDomain: string | undefined;
+  for (const [d, c] of counts) {
+    if (c > top) {
+      top = c;
+      topDomain = d;
+    }
+  }
+  return { domains: counts.size, topShare: top / total, topDomain };
+}
+
+export function timeRangeInstruction(range?: string): string {
+  const y = new Date().getFullYear();
+  switch (range) {
+    case "1y":
+      return `時間範圍：優先 ${y - 1}–${y} 年資料；若引用更早來源，必須標明年份並說明為何仍相關。`;
+    case "2y":
+      return `時間範圍：優先 ${y - 2}–${y} 年資料；過時數據請標明年份。`;
+    case "ytd":
+      return `時間範圍：優先 ${y} 年以來的最新資料與發展。`;
+    default:
+      return "";
+  }
 }
 
 function emitProgress(
@@ -850,6 +891,8 @@ export type RunDeepResearchOpts = {
   runId?: string;
   /** Abort between Vertex calls / pool workers */
   signal?: AbortSignal;
+  /** Freshness preference: any | ytd | 1y | 2y */
+  timeRange?: "any" | "ytd" | "1y" | "2y";
   onProgress?: (e: ResearchProgressEvent) => void;
 };
 
@@ -899,6 +942,8 @@ export async function runDeepResearch(
   );
   const runId = opts?.runId;
   const signal = opts?.signal;
+  const timeRange = opts?.timeRange || "any";
+  const timeLine = timeRangeInstruction(timeRange);
 
   emit?.({
     type: "log",
@@ -909,6 +954,9 @@ export async function runDeepResearch(
       type: "log",
       message: `來源偏好（site:）：${preferredDomains.map(normalizeDomainHost).join("、")}`,
     });
+  }
+  if (timeLine) {
+    emit?.({ type: "log", message: timeLine });
   }
 
   // ── 1. Clarify ──────────────────────────────────────────
@@ -1018,17 +1066,20 @@ export async function runDeepResearch(
   let doneCount = 0;
   let extraKeywords = [...plan.keywords];
   const extraContextBits: string[] = [];
+  const seenGuidance = new Set<string>();
   emitProgress(emit, 0, questions.length, huntStarted, "hunt");
 
   const findings = await mapPool(
     questions,
     concurrency,
-    async (q, i) => {
-      throwIfAborted(signal);
+    async (q, i, workerSignal) => {
+      throwIfAborted(workerSignal);
       const myTips: string[] = [];
       if (runId) {
-        const tips = drainResearchGuidance(runId);
+        const tips = listResearchGuidance(runId);
         for (const t of tips) {
+          if (seenGuidance.has(t)) continue;
+          seenGuidance.add(t);
           myTips.push(t);
           emit?.({ type: "guidance_applied", text: t });
           emit?.({
@@ -1046,22 +1097,27 @@ export async function runDeepResearch(
 
       emit?.({ type: "question", index: i + 1, total: questions.length, question: q });
 
+      const allTips = runId ? listResearchGuidance(runId) : [];
       const finding = await gatherOnQuestion(topic, q, {
         model,
         libraryNotes,
         keywordPool: [
           ...extraKeywords,
-          ...myTips.flatMap((t) => t.split(/[\s,，]+/).filter(Boolean).slice(0, 4)),
+          ...allTips.flatMap((t) => t.split(/[\s,，]+/).filter(Boolean).slice(0, 3)),
+          ...(timeLine ? [timeLine.slice(0, 40)] : []),
         ],
         citeStart: i * 50 + 1,
         maxRetries,
         preferredDomains,
-        signal,
+        signal: workerSignal,
         emit,
       });
 
       if (myTips.length) {
         finding.summary = `${finding.summary}\n\n（使用者中途補充：${myTips.join("；")}）`;
+      }
+      if (timeLine) {
+        finding.summary = `${finding.summary}\n\n（${timeLine}）`;
       }
 
       doneCount += 1;
@@ -1080,7 +1136,6 @@ export async function runDeepResearch(
           summary: finding.summary.slice(0, 1200),
           adequate: finding.adequate,
           retries: finding.retries,
-          // omit provisional indices — final [n] remap happens after hunt
           sources: finding.sources.slice(0, 8).map((s) => ({
             ...s,
             index: 0,
@@ -1101,6 +1156,8 @@ export async function runDeepResearch(
     signal
   );
 
+  if (runId) clearResearchGuidance(runId);
+
   {
     const all = mergeAllSources(findings);
     emit?.({
@@ -1108,6 +1165,17 @@ export async function runDeepResearch(
       web: all.filter((s) => s.kind === "web").length,
       notes: all.filter((s) => s.kind === "note").length,
     });
+    const div = analyzeSourceDiversity(all);
+    if (div.domains > 0) {
+      emit?.({
+        type: "log",
+        level: div.topShare > 0.45 || div.domains < 3 ? "warn" : "ok",
+        message:
+          div.topShare > 0.45
+            ? `來源偏集中：${div.topDomain} 約占 ${Math.round(div.topShare * 100)}%（共 ${div.domains} 網域）— 解讀時請交叉驗證`
+            : `來源多樣性：${div.domains} 個網域`,
+      });
+    }
   }
 
   // ── 5. Report ───────────────────────────────────────────
@@ -1129,6 +1197,7 @@ export async function runDeepResearch(
 
   const synthContext = [
     opts?.context,
+    timeLine,
     extraContextBits.length
       ? `使用者中途補充方向：\n${extraContextBits.join("\n")}`
       : "",
@@ -1188,12 +1257,14 @@ export async function refineResearchReport(
     /** Brand-new sub-questions to hunt and merge */
     addQuestions?: string[];
     signal?: AbortSignal;
+    timeRange?: "any" | "ytd" | "1y" | "2y";
     onProgress?: (e: ResearchProgressEvent) => void;
   }
 ): Promise<ResearchReport> {
   const emit = opts?.onProgress;
   const model = opts?.model;
   const signal = opts?.signal;
+  const timeLine = timeRangeInstruction(opts?.timeRange);
   const libraryNotes = opts?.libraryNotes || [];
   const preferredDomains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
   const maxRetries = opts?.maxRetries ?? 2;
@@ -1248,7 +1319,10 @@ export async function refineResearchReport(
     const updated = await gatherOnQuestion(topic, f.question, {
       model,
       libraryNotes,
-      keywordPool: plan.keywords,
+      keywordPool: [
+        ...plan.keywords,
+        ...(timeLine ? [timeLine.slice(0, 40)] : []),
+      ],
       citeStart: citeCursor,
       maxRetries,
       preferredDomains,
@@ -1289,7 +1363,10 @@ export async function refineResearchReport(
     const finding = await gatherOnQuestion(topic, q, {
       model,
       libraryNotes,
-      keywordPool: plan.keywords,
+      keywordPool: [
+        ...plan.keywords,
+        ...(timeLine ? [timeLine.slice(0, 40)] : []),
+      ],
       citeStart: citeCursor,
       maxRetries,
       preferredDomains,
@@ -1340,7 +1417,7 @@ export async function refineResearchReport(
     sources,
     {
       model,
-      context: opts?.context,
+      context: [opts?.context, timeLine].filter(Boolean).join("\n\n") || undefined,
       intent: opts?.intent || plan.angle || topic,
       signal,
     }

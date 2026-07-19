@@ -50,6 +50,20 @@ export function drainResearchGuidance(runId: string): string[] {
   return out;
 }
 
+/** Read all pending guidance without clearing (for parallel hunt fan-out). */
+export function listResearchGuidance(runId: string): string[] {
+  const s = runs.get(runId);
+  if (!s?.guidance.length) return [];
+  return [...s.guidance];
+}
+
+export function clearResearchGuidance(runId: string) {
+  const s = runs.get(runId);
+  if (!s) return;
+  s.guidance = [];
+  s.updatedAt = Date.now();
+}
+
 export function endResearchRun(runId: string) {
   runs.delete(runId);
 }

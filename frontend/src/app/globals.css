@@ -9337,6 +9337,7 @@ button, input, textarea, select {
 .prose-dr h1, .prose-dr h2, .prose-dr h3 {
   letter-spacing: -0.02em;
   margin: 1.1em 0 0.4em;
+  scroll-margin-top: 4.5rem;
 }
 .prose-dr p { margin: 0.55em 0; }
 .prose-dr ul, .prose-dr ol { padding-left: 1.25rem; }
@@ -9348,6 +9349,21 @@ button, input, textarea, select {
   vertical-align: super;
 }
 .prose-dr a.dr-fn:hover { text-decoration: underline; }
+.prose-dr .dr-tag-ok {
+  color: #2f6b4f;
+  font-size: 0.78em;
+  font-weight: 650;
+}
+.prose-dr .dr-tag-warn {
+  color: #a15c1a;
+  font-size: 0.78em;
+  font-weight: 650;
+}
+.prose-dr .dr-tag-uncertain {
+  color: #6b5b8c;
+  font-size: 0.78em;
+  font-weight: 650;
+}
 .dr-follow {
   padding: 0.85rem 1rem;
   border-radius: 10px;

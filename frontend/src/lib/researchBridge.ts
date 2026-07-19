@@ -1,3 +1,5 @@
+import { tokenizeQuery } from "@/lib/researchTokens";
+
 /**
  * Bridge between Cadence notes and Deep Research.
  * URL seeds, insert handoff, report body formatting, notebook citations.
@@ -229,15 +231,17 @@ export function notesToResearchSnippets(
     pool = notes.filter((n) => selected.has(n.id));
   } else if (opts?.query?.trim()) {
     const q = opts.query.trim().toLowerCase();
-    const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
+    const tokens = tokenizeQuery(q);
     pool = [...notes]
       .map((n) => {
-        const hay = `${n.title}\n${n.body_md || ""}`.toLowerCase();
+        const title = (n.title || "").toLowerCase();
+        const hay = `${title}\n${n.body_md || ""}`.toLowerCase();
         let score = 0;
         for (const t of tokens) {
-          if (hay.includes(t)) score += t.length >= 4 ? 3 : 1;
+          if (title.includes(t)) score += t.length >= 4 ? 5 : 3;
+          else if (hay.includes(t)) score += t.length >= 4 ? 3 : 1;
         }
-        if ((n.title || "").toLowerCase().includes(tokens[0] || q)) score += 5;
+        if (title.includes(tokens[0] || q.slice(0, 12))) score += 5;
         return { n, score };
       })
       .filter((x) => x.score > 0)
