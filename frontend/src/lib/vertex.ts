@@ -38,10 +38,17 @@ export type VertexGenerateResult = {
   keyIndex: number;
 };
 
+export type VertexChatMessage = {
+  role: "user" | "model";
+  text: string;
+};
+
 export async function vertexGenerateContent(prompt: string, opts?: {
   system?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  /** Multi-turn history before the current `prompt` (user turn). */
+  history?: VertexChatMessage[];
 }): Promise<VertexGenerateResult> {
   const keys = getKeys();
   if (!keys.length) {
@@ -50,8 +57,16 @@ export async function vertexGenerateContent(prompt: string, opts?: {
 
   const model = process.env.VERTEX_MODEL || DEFAULT_MODEL;
   const url = endpoint(model);
+  const history = (opts?.history || [])
+    .filter((m) => m.text?.trim())
+    .map((m) => ({
+      role: m.role === "model" ? "model" : "user",
+      parts: [{ text: m.text.trim() }],
+    }));
+
   const body = {
     contents: [
+      ...history,
       {
         role: "user",
         parts: [{ text: prompt }],
