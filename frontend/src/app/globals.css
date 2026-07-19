@@ -879,6 +879,129 @@ button, input, textarea, select {
   background: var(--accent-soft);
 }
 
+/* ── Custom menu select (no native <select>) ── */
+.menu-select {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.menu-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-main);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.menu-select--pill .menu-select-trigger {
+  background: var(--bg-muted);
+  border-radius: 999px;
+  padding: 0.28rem 0.65rem 0.28rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.menu-select--pill .menu-select-trigger:hover,
+.menu-select--pill.is-open .menu-select-trigger {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.menu-select--soft .menu-select-trigger {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.38rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.menu-select--soft .menu-select-trigger:hover,
+.menu-select--soft.is-open .menu-select-trigger {
+  border-color: var(--accent);
+}
+.menu-select--ghost .menu-select-trigger {
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.menu-select--ghost .menu-select-trigger:hover,
+.menu-select--ghost.is-open .menu-select-trigger {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.menu-select-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.menu-select-caret {
+  font-size: 0.65rem;
+  opacity: 0.55;
+  line-height: 1;
+  transform: translateY(-0.5px);
+}
+.menu-select.is-open .menu-select-caret {
+  transform: rotate(180deg) translateY(0.5px);
+}
+.menu-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 168px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.14);
+}
+.menu-select-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  padding: 0.5rem 0.55rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.menu-select-option:hover {
+  background: var(--bg-muted);
+}
+.menu-select-option.is-active {
+  background: var(--accent-soft);
+}
+.menu-select-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.menu-select-option-text strong {
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+.menu-select-option-text em {
+  font-style: normal;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.menu-select-check {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 /* ── Knowledge base workspace ── */
 .kb-page {
   max-width: 1600px;

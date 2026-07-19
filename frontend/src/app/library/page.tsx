@@ -21,6 +21,7 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
 import KnowledgeChat from "@/components/library/KnowledgeChat";
 import LibraryRail from "@/components/library/LibraryRail";
+import MenuSelect, { noteStatusLabel } from "@/components/MenuSelect";
 import {
   SortKey,
   ViewMode,
@@ -32,6 +33,14 @@ import {
   searchNotes,
   tagBuckets,
 } from "@/lib/libraryIndex";
+
+const SORT_OPTIONS = [
+  { value: "updated" as const, label: "最近更新" },
+  { value: "created" as const, label: "最近建立" },
+  { value: "title" as const, label: "標題" },
+  { value: "length" as const, label: "篇幅" },
+  { value: "relevance" as const, label: "相關度" },
+];
 
 export default function LibraryPage() {
   const { user, loading } = useAuth();
@@ -237,18 +246,13 @@ export default function LibraryPage() {
                 轉錄 {filteredJobs.length}
               </button>
             </div>
-            <select
-              className="input"
-              style={{ width: "auto" }}
+            <MenuSelect
+              variant="soft"
+              ariaLabel="排序"
               value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-            >
-              <option value="updated">最近更新</option>
-              <option value="created">最近建立</option>
-              <option value="title">標題</option>
-              <option value="length">篇幅</option>
-              <option value="relevance">相關度</option>
-            </select>
+              options={SORT_OPTIONS}
+              onChange={setSort}
+            />
             <div className="kb-seg">
               {(["list", "grid", "compact"] as ViewMode[]).map((v) => (
                 <button
@@ -271,7 +275,7 @@ export default function LibraryPage() {
                 </span>
               )}
               {tagFilter && <span className="kb-chip">#{tagFilter}</span>}
-              {statusFilter && <span className="kb-chip">狀態：{statusFilter}</span>}
+              {statusFilter && <span className="kb-chip">狀態：{noteStatusLabel(statusFilter)}</span>}
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
@@ -415,7 +419,7 @@ export default function LibraryPage() {
                               {(n.tags || []).slice(0, 4).map((t) => (
                                 <span key={t}>#{t}</span>
                               ))}
-                              {n.status ? <span>{n.status}</span> : null}
+                              {n.status ? <span>{noteStatusLabel(n.status)}</span> : null}
                               <span>{n.updated_at.toLocaleString("zh-TW")}</span>
                               {q.trim() && n.score > 0 ? <span>相關 {Math.round(n.score)}</span> : null}
                             </div>

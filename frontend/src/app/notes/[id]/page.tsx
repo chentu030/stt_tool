@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import { getNote, updateNote, listenToUserNotes, pushNoteVersion, listNoteVersions, Note, NoteVersion } from "@/lib/firebase";
 import RichNoteEditor from "@/components/RichNoteEditor";
+import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { downloadDocx, downloadMarkdown, downloadPdfViaPrint, downloadPptOutline, bodyToSlides } from "@/lib/exportNote";
 import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle } from "@/lib/wiki";
 
@@ -281,19 +282,16 @@ export default function NotePage() {
           onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
         />
-        <select
-          className="doc-prop-input"
-          value={note.status || "backlog"}
-          onChange={(e) => {
-            const s = e.target.value as Note["status"];
+        <MenuSelect
+          variant="pill"
+          ariaLabel="筆記狀態"
+          value={(note.status === "doing" || note.status === "done" ? note.status : "backlog")}
+          options={NOTE_STATUS_OPTIONS}
+          onChange={(s) => {
             setNote({ ...note, status: s });
             void updateNote(note.id, { status: s });
           }}
-        >
-          <option value="backlog">待辦</option>
-          <option value="doing">進行中</option>
-          <option value="done">完成</option>
-        </select>
+        />
         {note.source_job_id && (
           <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
             來源逐字稿
