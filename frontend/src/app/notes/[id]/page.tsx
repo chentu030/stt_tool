@@ -34,6 +34,7 @@ export default function NotePage() {
   const [slideIdx, setSlideIdx] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
+  const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef({ title: "", body: "", tags: [] as string[], folder: "" });
 
@@ -170,7 +171,10 @@ export default function NotePage() {
   };
 
   return (
-    <div className="doc-page">
+    <div className="doc-workspace">
+      <div className="doc-ribbon" ref={setRibbonHost} />
+
+      <div className="doc-page">
       <div className="doc-topbar">
         <Link href="/library" style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>知識庫</Link>
         <div className="doc-topbar-actions">
@@ -306,6 +310,7 @@ export default function NotePage() {
           placeholder="輸入文字，或輸入 / 插入區塊…"
           findOpen={findOpen}
           onFindOpenChange={setFindOpen}
+          toolbarHost={ribbonHost}
         />
       </div>
 
@@ -357,6 +362,7 @@ export default function NotePage() {
           </pre>
         </div>
       )}
+      </div>
     </div>
   );
 }

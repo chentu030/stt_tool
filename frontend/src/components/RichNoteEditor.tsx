@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
@@ -20,6 +21,8 @@ type Props = {
   placeholder?: string;
   findOpen?: boolean;
   onFindOpenChange?: (open: boolean) => void;
+  /** Mount formatting ribbon at page top (Word-style). */
+  toolbarHost?: HTMLElement | null;
 };
 
 type SlashItem = {
@@ -63,6 +66,7 @@ export default function RichNoteEditor({
   placeholder,
   findOpen,
   onFindOpenChange,
+  toolbarHost,
 }: Props) {
   const skip = useRef(false);
   const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
@@ -74,6 +78,7 @@ export default function RichNoteEditor({
   const showFind = findOpen ?? false;
   const onChangeRef = useRef(onChangeMd);
   onChangeRef.current = onChangeMd;
+  const [, setTick] = useState(0);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -144,6 +149,7 @@ export default function RichNoteEditor({
       skip.current = true;
       onChangeRef.current(htmlToMarkdown(ed.getHTML()));
     },
+    onSelectionUpdate: () => setTick((t) => t + 1),
   });
 
   const applySlash = useCallback(
@@ -197,9 +203,9 @@ export default function RichNoteEditor({
 
   const slashItems = slash ? filterSlash(slash.query) : [];
 
-  return (
-    <div className="rich-editor">
-      <div className="rich-toolbar">
+  const ribbon = (
+    <div className="doc-ribbon-inner">
+      <div className="rich-toolbar rich-toolbar--ribbon">
         <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()} title="粗體">B</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} title="斜體"><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()} title="底線"><u>U</u></ToolbarBtn>
@@ -226,15 +232,20 @@ export default function RichNoteEditor({
         </ToolbarBtn>
         <ToolbarBtn onClick={() => onFindOpenChange?.(true)}>尋找</ToolbarBtn>
       </div>
-
       {showFind && (
-        <div className="rich-find">
+        <div className="rich-find rich-find--ribbon">
           <input className="input" placeholder="尋找…" value={findQ} onChange={(e) => setFindQ(e.target.value)} autoFocus />
           <input className="input" placeholder="取代為…" value={replaceQ} onChange={(e) => setReplaceQ(e.target.value)} />
           <button type="button" className="btn btn-sm btn-soft" onClick={replaceAll}>全部取代</button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => onFindOpenChange?.(false)}>關閉</button>
         </div>
       )}
+    </div>
+  );
+
+  return (
+    <div className="rich-editor">
+      {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
 
       <BubbleMenu editor={editor} className="rich-bubble">
         <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>B</ToolbarBtn>
@@ -276,7 +287,7 @@ function ToolbarBtn({
   active,
   title,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
   active?: boolean;
   title?: string;

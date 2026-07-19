@@ -696,11 +696,32 @@ button, input, textarea, select {
 .editor-area:focus { border-color: var(--accent); }
 
 /* ── Document / block editor (immersive) ── */
+.doc-workspace {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.doc-ribbon {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  min-height: 2.75rem;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+.doc-ribbon-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.4rem 1rem 0.45rem;
+  max-width: 100%;
+}
 .doc-page {
   max-width: min(var(--page-max), 100%);
   width: 100%;
   margin: 0 auto;
-  padding: 2rem 2.5rem 6rem;
+  padding: 1.5rem 2.5rem 6rem;
 }
 .doc-topbar {
   display: flex;
@@ -947,6 +968,22 @@ button, input, textarea, select {
   z-index: 8;
   width: fit-content;
   max-width: 100%;
+}
+.rich-toolbar--ribbon {
+  position: static;
+  width: 100%;
+  max-width: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  gap: 3px;
+}
+.rich-find--ribbon {
+  border: none;
+  background: var(--bg-muted);
+  border-radius: 8px;
+  margin-top: 0.1rem;
 }
 .rich-toolbar-sep {
   width: 1px;
