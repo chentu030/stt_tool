@@ -6,7 +6,7 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import { getNote, updateNote, listenToUserNotes, pushNoteVersion, listNoteVersions, Note, NoteVersion } from "@/lib/firebase";
-import BlockEditor from "@/components/BlockEditor";
+import RichNoteEditor from "@/components/RichNoteEditor";
 import { downloadDocx, downloadMarkdown, downloadPdfViaPrint, downloadPptOutline, bodyToSlides } from "@/lib/exportNote";
 import { extractTagsFromText, extractWikiLinks, findBacklinks, findNoteByTitle } from "@/lib/wiki";
 
@@ -302,17 +302,12 @@ export default function NotePage() {
       </div>
 
       <div className="doc-editor-shell">
-        <BlockEditor
+        <RichNoteEditor
           valueMd={body}
           onChangeMd={(md) => { setBody(md); markDirty(); }}
-          placeholder="輸入文字，或按 / 插入區塊…"
+          placeholder="輸入文字，或輸入 / 插入區塊…"
           findOpen={findOpen}
           onFindOpenChange={setFindOpen}
-          wikiNotes={allNotes.map((n) => ({ id: n.id, title: n.title, body_md: n.body_md }))}
-          onOpenWiki={(noteTitle) => {
-            const hit = findNoteByTitle(allNotes, noteTitle);
-            if (hit) router.push(`/notes/${hit.id}`);
-          }}
         />
       </div>
 

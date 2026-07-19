@@ -23,7 +23,7 @@
   --radius-xl: 28px;
   --sidebar-w: 240px;
   --bottom-h: 64px;
-  --page-max: 1100px;
+  --page-max: min(1400px, 100%);
 }
 
 [data-theme="light"] {
@@ -44,7 +44,7 @@
   --ok: #0F7B6C;
   --shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
   --logo-filter: none;
-  --page-max: 720px;
+  --page-max: min(1400px, 100%);
 }
 
 * {
@@ -665,4 +665,216 @@ button, input, textarea, select {
 @keyframes pulse-soft {
   from { opacity: 0.55; }
   to { opacity: 1; }
+}
+
+/* ── TipTap rich note editor ── */
+.rich-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 50vh;
+}
+.rich-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  align-items: center;
+  padding: 0.3rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  position: sticky;
+  top: 0.5rem;
+  z-index: 8;
+  width: fit-content;
+  max-width: 100%;
+}
+.rich-toolbar-sep {
+  width: 1px;
+  height: 1.1rem;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+.rich-tool-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.32rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.rich-tool-btn:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.rich-tool-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.rich-find {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.45rem 0.5rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.rich-find .input {
+  min-width: 10rem;
+  flex: 1;
+}
+.rich-bubble {
+  display: flex;
+  gap: 2px;
+  padding: 0.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+}
+.rich-canvas {
+  position: relative;
+  min-height: 40vh;
+}
+.rich-prose {
+  outline: none;
+  min-height: 40vh;
+  font-size: 1.05rem;
+  line-height: 1.75;
+  color: var(--text-main);
+}
+.rich-prose > * + * {
+  margin-top: 0.55em;
+}
+.rich-prose h1 {
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  margin-top: 1.4em;
+}
+.rich-prose h2 {
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  margin-top: 1.25em;
+}
+.rich-prose h3 {
+  font-size: 1.2rem;
+  font-weight: 650;
+  margin-top: 1.1em;
+}
+.rich-prose p.is-editor-empty:first-child::before {
+  color: var(--text-muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.55;
+}
+.rich-prose ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.rich-prose ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.rich-prose li {
+  margin: 0.15em 0;
+}
+.rich-prose ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.15em;
+}
+.rich-prose ul[data-type="taskList"] li {
+  display: flex;
+  gap: 0.5em;
+  align-items: flex-start;
+}
+.rich-prose ul[data-type="taskList"] li > label {
+  margin-top: 0.35em;
+}
+.rich-prose blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.15em 0 0.15em 0.9em;
+  color: var(--text-muted);
+}
+.rich-prose pre {
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+.rich-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+.rich-prose :not(pre) > code {
+  background: var(--bg-muted);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.rich-prose mark {
+  background: rgba(250, 204, 21, 0.35);
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+.rich-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.4em 0;
+}
+.rich-prose .rich-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rich-prose .rich-image {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 0.5em 0;
+}
+.rich-slash {
+  top: 2.2rem;
+  left: 0;
+}
+.rich-slash-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  margin: 0;
+}
+.slash-menu button {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+.slash-menu button span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.slash-menu button:hover,
+.slash-menu button.is-active {
+  background: var(--accent-soft);
 }
