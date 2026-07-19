@@ -159,7 +159,7 @@ export default function SettingsPage() {
       <header className="st-hero">
         <div>
           <ScrambleText words="設定" as="h1" className="page-title font-display" speed={22} />
-          <p className="page-sub">外觀、工作流與本機偏好 · {formatPrefsSummary(prefs)}</p>
+          <p className="page-sub">{formatPrefsSummary(prefs)}</p>
         </div>
         <div className="st-hero-actions">
           <button type="button" className="btn btn-soft btn-sm" onClick={doExport}>

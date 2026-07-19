@@ -491,7 +491,7 @@ export default function CanvasPage() {
     return (
       <div className="cv-page cv-guest">
         <ScrambleText words="白板" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後在空間畫布上擺筆記、便利貼與連線。</p>
+        <p className="page-sub">登入後使用白板。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
@@ -506,8 +506,8 @@ export default function CanvasPage() {
         <div>
           <ScrambleText words="白板" as="h1" className="page-title font-display" speed={22} />
           <p className="page-sub">
-            空間思考：筆記卡、便利貼、框架與連線。空白拖曳平移，滾輪縮放。
-            {connectFrom ? " · 連線中…" : ""}
+            {doc.notes.length + doc.stickies.length} 物件
+            {connectFrom ? " · 連線中" : ""}
           </p>
         </div>
         <div className="cv-hero-actions">

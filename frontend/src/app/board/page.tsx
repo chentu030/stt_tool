@@ -241,7 +241,7 @@ export default function BoardPage() {
     return (
       <div className="bd-page bd-guest">
         <ScrambleText words="看板" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後用看板追蹤筆記進度、優先級與 WIP。</p>
+          <p className="page-sub">登入後使用看板。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
@@ -253,8 +253,8 @@ export default function BoardPage() {
         <div>
           <ScrambleText words="看板" as="h1" className="page-title font-display" speed={22} />
           <p className="page-sub">
-            拖曳卡片、設優先級與截止日。進行中建議 ≤ 5 張
-            {!stats.wipOk ? "（目前已超限）" : ""}。
+            {stats.total} 張
+            {!stats.wipOk ? " · WIP 超限" : ""}
           </p>
         </div>
         <div className="bd-hero-actions">

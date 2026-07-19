@@ -76,10 +76,10 @@ export default function KnowledgeChat({
   );
 
   const scopeLabel = selectedIds.length
-    ? `已選 ${selectedIds.length} 篇`
+    ? `已選 ${selectedIds.length}`
     : notes.length === 0
-      ? "尚無筆記"
-      : `全庫 ${notes.length} 篇`;
+      ? "無筆記"
+      : `${notes.length} 篇`;
 
   const send = async (text: string) => {
     const prompt = text.trim();
@@ -194,8 +194,6 @@ export default function KnowledgeChat({
       <div className="kb-chat-messages" ref={listRef}>
         {empty ? (
           <div className="kb-chat-empty">
-            <p className="kb-chat-empty-lead">問知識庫任何問題</p>
-            <p>摘要、找關聯、補缺漏，或產出行動清單。左側勾選筆記可鎖定範圍。</p>
             <div className="kb-chat-suggestions">
               {AI_SUGGESTIONS.map((s) => (
                 <button
@@ -237,7 +235,7 @@ export default function KnowledgeChat({
             {busy && (
               <div className="kb-msg kb-msg--assistant">
                 <div className="kb-msg-role">助手</div>
-                <div className="kb-msg-body kb-msg-typing">正在讀取知識庫…</div>
+                <div className="kb-msg-body kb-msg-typing">回答中…</div>
               </div>
             )}
           </>
@@ -281,7 +279,7 @@ export default function KnowledgeChat({
         <textarea
           className="kb-chat-input"
           rows={2}
-          placeholder="對知識庫提問… Enter 送出"
+          placeholder="提問…"
           value={input}
           disabled={busy}
           onChange={(e) => setInput(e.target.value)}

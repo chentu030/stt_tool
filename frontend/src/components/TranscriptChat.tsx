@@ -164,7 +164,7 @@ export default function TranscriptChat({
         <div className="kb-chat-title">
           <h2 className="font-display">逐字稿助手</h2>
           <span className="kb-chat-badge">
-            {charHint > 0 ? `已載入 ${charHint.toLocaleString()} 字` : "等待內容"}
+            {charHint > 0 ? `${charHint.toLocaleString()} 字` : "無內容"}
           </span>
         </div>
         <button
@@ -181,8 +181,6 @@ export default function TranscriptChat({
       <div className="kb-chat-messages" ref={listRef}>
         {empty ? (
           <div className="kb-chat-empty">
-            <p className="kb-chat-empty-lead">針對這份逐字稿提問</p>
-            <p>可要求摘要、大綱、金句、待辦，或釐清專有名詞。</p>
             <div className="kb-chat-suggestions">
               {SUGGESTIONS.map((s) => (
                 <button
@@ -211,7 +209,7 @@ export default function TranscriptChat({
             {busy && (
               <div className="kb-msg kb-msg--assistant">
                 <div className="kb-msg-role">助手</div>
-                <div className="kb-msg-body kb-msg-typing">正在閱讀逐字稿…</div>
+                <div className="kb-msg-body kb-msg-typing">回答中…</div>
               </div>
             )}
           </>
@@ -250,7 +248,7 @@ export default function TranscriptChat({
         <textarea
           className="kb-chat-input"
           rows={2}
-          placeholder="問這份逐字稿… Enter 送出"
+          placeholder="提問…"
           value={input}
           disabled={busy}
           onChange={(e) => setInput(e.target.value)}

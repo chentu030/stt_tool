@@ -86,10 +86,9 @@ export default function HomePage() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="page-title font-display">總覽</h1>
         <p className="page-sub">
-          歡迎回來。{" "}
           <TypeWriter
             prefix=""
-            texts={["從捕捉一段聲音開始", "打開知識庫繼續寫", "把逐字稿整理成筆記"]}
+            texts={["開始捕捉", "打開知識庫", "整理逐字稿"]}
             typedColor="var(--text-muted)"
             cursorColor="var(--accent-2)"
             typeMs={40}

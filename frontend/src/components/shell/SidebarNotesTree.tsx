@@ -138,7 +138,7 @@ export default function SidebarNotesTree() {
   if (!user) {
     return (
       <div className="sb-tree sb-tree--guest">
-        <p>登入後顯示筆記與資料夾。</p>
+        <p>登入後顯示筆記。</p>
       </div>
     );
   }
@@ -170,7 +170,7 @@ export default function SidebarNotesTree() {
 
       <input
         className="sb-tree-search"
-        placeholder="篩選筆記…"
+        placeholder="篩選…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
@@ -178,7 +178,7 @@ export default function SidebarNotesTree() {
       <div className="sb-tree-list">
         {rows.length === 0 ? (
           <p className="sb-tree-empty">
-            {notes.length === 0 ? "尚無筆記" : "沒有符合的項目"}
+            {notes.length === 0 ? "無筆記" : "無結果"}
           </p>
         ) : (
           rows.map((row) => {
@@ -246,7 +246,7 @@ export default function SidebarNotesTree() {
 
       <div className="sb-tree-foot">
         <Link href="/library" className="sb-tree-all">
-          開啟知識庫 · {tree.total}
+          知識庫 · {tree.total}
         </Link>
       </div>
     </div>

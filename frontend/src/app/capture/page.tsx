@@ -199,7 +199,7 @@ export default function CapturePage() {
       <div className="capture-page">
         <div className="capture-stage">
           <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" />
-          <p className="capture-lead">登入後即可上傳、貼連結或錄音，轉成可編輯筆記。</p>
+          <p className="capture-lead">登入後開始捕捉。</p>
           <ShinyPill onClick={() => loginWithGoogle()}>登入開始</ShinyPill>
         </div>
       </div>
@@ -217,7 +217,7 @@ export default function CapturePage() {
       >
         <header className="capture-head">
           <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" speed={22} />
-          <p className="capture-lead">把聲音丟進來。轉錄完成後會進入逐字稿工作區。</p>
+          <p className="capture-lead">上傳、貼連結或錄音。</p>
         </header>
 
         <input
@@ -257,7 +257,7 @@ export default function CapturePage() {
             ))}
           </div>
           <p className="capture-drop-title">拖放音訊或影片到這裡</p>
-          <p className="capture-drop-hint">也可點擊選擇檔案 · mp3 / wav / m4a / mp4 …</p>
+          <p className="capture-drop-hint">mp3 / wav / m4a / mp4</p>
           <button
             type="button"
             className="btn btn-soft btn-sm"

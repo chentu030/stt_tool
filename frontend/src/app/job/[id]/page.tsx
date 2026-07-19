@@ -73,11 +73,17 @@ export default function JobPage() {
           </Link>
           <h1 className="page-title font-display tx-title">{title}</h1>
           <p className="page-sub">
-            狀態：{job.status}
-            {job.status === "processing" ? ` · ${job.progress}%` : ""}
-            {job.status === "queued" && (job.queue_ahead ?? 0) > 0
-              ? ` · 前面還有 ${job.queue_ahead} 個`
-              : ""}
+            {job.status === "done"
+              ? "完成"
+              : job.status === "processing"
+                ? `處理中 ${job.progress}%`
+                : job.status === "queued"
+                  ? (job.queue_ahead ?? 0) > 0
+                    ? `排隊中 · 前面 ${job.queue_ahead}`
+                    : "排隊中"
+                  : job.status === "error"
+                    ? "失敗"
+                    : job.status}
           </p>
         </div>
         {showWorkspace && (

@@ -447,7 +447,7 @@ ${orphanLines || "（無）"}`;
     return (
       <div className="gp-page gp-guest">
         <ScrambleText words="圖譜" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後探索筆記雙向連結、樞紐與幽靈節點。</p>
+        <p className="page-sub">登入後查看圖譜。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
@@ -466,8 +466,7 @@ ${orphanLines || "（無）"}`;
         <div>
           <ScrambleText words="圖譜" as="h1" className="page-title font-display" speed={22} />
           <p className="page-sub">
-            知識關係圖 · {stats.notes} 筆記 · {stats.wikiEdges} 條 Wiki 連線 · {stats.components}{" "}
-            個連通分量
+            {stats.notes} 筆記 · {stats.wikiEdges} 連線
           </p>
         </div>
         <div className="gp-hero-actions">

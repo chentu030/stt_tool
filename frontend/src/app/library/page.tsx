@@ -187,7 +187,7 @@ function LibraryPageInner() {
     return (
       <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
         <ScrambleText words="知識庫" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後即可瀏覽筆記、轉錄，並與知識庫對話。</p>
+          <p className="page-sub">登入後瀏覽筆記與轉錄。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
@@ -199,7 +199,7 @@ function LibraryPageInner() {
         <div>
           <ScrambleText words="知識庫" as="h1" className="page-title font-display" speed={22} />
           <p className="page-sub">
-            搜尋、分類、批量整理，右側可直接問 AI——它會讀你的筆記再回答。
+            {stats.noteCount} 筆記 · {stats.jobCount} 轉錄
           </p>
         </div>
         <div className="kb-hero-actions">
@@ -254,7 +254,7 @@ function LibraryPageInner() {
           <div className="kb-toolbar">
             <input
               className="input kb-ctrl"
-              placeholder="搜尋標題、內文、標籤、資料夾…"
+              placeholder="搜尋…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />

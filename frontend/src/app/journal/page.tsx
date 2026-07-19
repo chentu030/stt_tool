@@ -225,7 +225,7 @@ export default function JournalPage() {
     return (
       <div className="jn-page jn-guest">
         <ScrambleText words="日誌" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後用月曆與情緒追蹤，把每天寫成可回顧的節奏。</p>
+        <p className="page-sub">登入後寫日誌。</p>
         <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
       </div>
     );
@@ -241,8 +241,8 @@ export default function JournalPage() {
         <div>
           <ScrambleText words="日誌" as="h1" className="page-title font-display" speed={22} />
           <p className="page-sub">
-            月曆 · 連續寫作 · 情緒能量 · 快速起筆。今天是 {today}
-            {stats.streak > 0 ? ` · 已連續 ${stats.streak} 天` : ""}。
+            {today}
+            {stats.streak > 0 ? ` · 連續 ${stats.streak} 天` : ""}
           </p>
         </div>
         <div className="jn-hero-actions">
