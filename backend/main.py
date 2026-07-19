@@ -1706,7 +1706,7 @@ def _dict_sources(slug: str):
             "cf": True,
             # Cloud Run IP 幾乎必被 CF 擋；Jina + CSS 選擇器才能拿到真釋義
             "prefer_jina": True,
-            "jina_selectors": [".content.definitions", ".dictentry", "main", "article"],
+            "jina_selectors": [".dictentry", ".content.definitions", "main", "article"],
             "urls": [
                 f"https://www.collinsdictionary.com/dictionary/english/{q}",
                 f"https://www.collinsdictionary.com/dictionary/english-chinese/{q}",
