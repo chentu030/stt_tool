@@ -267,9 +267,27 @@ turndown.addRule("table", {
     if (!rows.length) return "";
     const lines: string[] = [];
     rows.forEach((tr, i) => {
-      const cells = Array.from(tr.querySelectorAll("th,td")).map((c) =>
-        (c.textContent || "").replace(/\|/g, "\\|").trim()
-      );
+      const cells = Array.from(tr.querySelectorAll("th,td")).map((c) => {
+        const el = c as HTMLElement;
+        // Preserve inline math / marks inside cells
+        let inner = "";
+        el.childNodes.forEach((child) => {
+          if (child.nodeType === 3) {
+            inner += child.textContent || "";
+          } else if (child.nodeType === 1) {
+            const he = child as HTMLElement;
+            if (he.getAttribute("data-math-inline") === "1") {
+              inner += `$${he.getAttribute("data-formula") || ""}$`;
+            } else if (he.getAttribute("data-math-block") === "1") {
+              inner += `$$${he.getAttribute("data-formula") || ""}$$`;
+            } else {
+              inner += he.textContent || "";
+            }
+          }
+        });
+        if (!inner.trim()) inner = el.textContent || "";
+        return inner.replace(/\|/g, "\\|").replace(/\n+/g, " ").trim();
+      });
       lines.push(`| ${cells.join(" | ")} |`);
       if (i === 0) {
         lines.push(`| ${cells.map(() => "---").join(" | ")} |`);

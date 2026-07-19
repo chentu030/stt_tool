@@ -1,5 +1,6 @@
 import { askPrompt } from "@/lib/dialogs";
-import { Node, mergeAttributes } from "@tiptap/core";
+import { InputRule, Node, mergeAttributes, nodeInputRule } from "@tiptap/core";
+import type { NodeViewRendererProps } from "@tiptap/core";
 import katex from "katex";
 
 declare module "@tiptap/core" {
@@ -36,11 +37,32 @@ function renderKatex(formula: string, displayMode: boolean): string {
   }
 }
 
+function attachMathEditor(
+  dom: HTMLElement,
+  opts: {
+    label: string;
+    getFormula: () => string;
+    apply: (next: string) => void;
+  }
+) {
+  dom.title = "雙擊編輯公式";
+  dom.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void (async () => {
+      const next = await askPrompt(opts.label, opts.getFormula());
+      if (next === null) return;
+      opts.apply(next.trim());
+    })();
+  });
+}
+
 export const MathInline = Node.create({
   name: "mathInline",
   group: "inline",
   inline: true,
   atom: true,
+  selectable: true,
   addAttributes() {
     return {
       formula: { default: "" },
@@ -66,29 +88,31 @@ export const MathInline = Node.create({
         "data-formula": formula,
         contenteditable: "false",
       }),
-      ["span", { class: "rich-math-render" }, ""],
     ];
   },
   addNodeView() {
-    return ({ node }) => {
+    return ({ node, getPos, editor }: NodeViewRendererProps) => {
       const dom = document.createElement("span");
       dom.className = "rich-math-inline";
       dom.setAttribute("data-math-inline", "1");
       dom.setAttribute("data-formula", node.attrs.formula || "");
       dom.contentEditable = "false";
       dom.innerHTML = renderKatex(node.attrs.formula || "", false);
-      dom.title = "雙擊編輯公式";
-      dom.addEventListener("dblclick", () => {
-        void (async () => {
-          const next = await askPrompt("LaTeX 行內公式", node.attrs.formula || "");
-          if (next === null) return;
-          dom.dispatchEvent(
-            new CustomEvent("cadence-edit-math", {
-              bubbles: true,
-              detail: { type: "mathInline", formula: next, pos: null },
+      attachMathEditor(dom, {
+        label: "行內 LaTeX（可插在文字中）",
+        getFormula: () => dom.getAttribute("data-formula") || "",
+        apply: (next) => {
+          const pos = typeof getPos === "function" ? getPos() : null;
+          if (typeof pos !== "number") return;
+          editor
+            .chain()
+            .focus()
+            .command(({ tr }) => {
+              tr.setNodeMarkup(pos, undefined, { formula: next });
+              return true;
             })
-          );
-        })();
+            .run();
+        },
       });
       return {
         dom,
@@ -101,12 +125,25 @@ export const MathInline = Node.create({
       };
     };
   },
+  addInputRules() {
+    return [
+      // Type $E=mc^2$ → inline math (Notion-style)
+      nodeInputRule({
+        find: /\$([^$\n]+)\$$/,
+        type: this.type,
+        getAttributes: (match) => ({ formula: String(match[1] || "").trim() }),
+      }),
+    ];
+  },
   addCommands() {
     return {
       setMathInline:
         (formula) =>
         ({ commands }) =>
-          commands.insertContent({ type: this.name, attrs: { formula } }),
+          commands.insertContent([
+            { type: this.name, attrs: { formula } },
+            { type: "text", text: " " },
+          ]),
     };
   },
 });
@@ -116,6 +153,7 @@ export const MathBlock = Node.create({
   group: "block",
   atom: true,
   defining: true,
+  selectable: true,
   addAttributes() {
     return {
       formula: { default: "" },
@@ -144,14 +182,29 @@ export const MathBlock = Node.create({
     ];
   },
   addNodeView() {
-    return ({ node }) => {
+    return ({ node, getPos, editor }: NodeViewRendererProps) => {
       const dom = document.createElement("div");
       dom.className = "rich-math-block";
       dom.setAttribute("data-math-block", "1");
       dom.setAttribute("data-formula", node.attrs.formula || "");
       dom.contentEditable = "false";
       dom.innerHTML = renderKatex(node.attrs.formula || "", true);
-      dom.title = "雙擊編輯公式";
+      attachMathEditor(dom, {
+        label: "區塊 LaTeX",
+        getFormula: () => dom.getAttribute("data-formula") || "",
+        apply: (next) => {
+          const pos = typeof getPos === "function" ? getPos() : null;
+          if (typeof pos !== "number") return;
+          editor
+            .chain()
+            .focus()
+            .command(({ tr }) => {
+              tr.setNodeMarkup(pos, undefined, { formula: next });
+              return true;
+            })
+            .run();
+        },
+      });
       return {
         dom,
         update: (updated) => {
@@ -162,6 +215,18 @@ export const MathBlock = Node.create({
         },
       };
     };
+  },
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /\$\$([^$\n]+)\$\$$/,
+        handler: ({ range, match, chain }) => {
+          const formula = String(match[1] || "").trim();
+          if (!formula) return null;
+          chain().deleteRange(range).insertContent({ type: this.name, attrs: { formula } }).run();
+        },
+      }),
+    ];
   },
   addCommands() {
     return {

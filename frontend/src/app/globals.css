@@ -4323,6 +4323,12 @@ button, input, textarea, select {
   border: none;
   border-top: 1px solid var(--border);
   margin: 1.4em 0;
+  height: 0;
+}
+.rich-prose hr.ProseMirror-selectednode {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 4px;
+  border-radius: 2px;
 }
 .rich-prose .rich-link {
   color: var(--accent);
@@ -4455,9 +4461,14 @@ button, input, textarea, select {
   min-height: 280px;
 }
 .rich-math-inline {
-  display: inline-block;
-  padding: 0 0.15em;
-  vertical-align: middle;
+  display: inline;
+  padding: 0 0.12em;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.rich-math-inline .katex {
+  font-size: 1.05em;
+  line-height: 1;
 }
 .rich-math-block {
   margin: 0.85em 0;

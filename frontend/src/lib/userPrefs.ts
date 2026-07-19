@@ -436,6 +436,7 @@ export const SHORTCUT_HELP: { keys: string; action: string }[] = [
   { keys: "Del / Backspace", action: "側欄／知識庫刪除選取" },
   { keys: "Esc", action: "取消選取／關閉選單" },
   { keys: "/", action: "筆記內斜線選單" },
+  { keys: "$…$ / $$…$$", action: "行內／區塊 LaTeX" },
   { keys: "[[", action: "Wiki 連結建議" },
   { keys: "Space（圖譜／白板）", action: "暫時平移" },
   { keys: "⌘/Ctrl + S（日誌）", action: "儲存當日快速寫入" },

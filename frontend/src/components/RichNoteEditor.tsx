@@ -100,10 +100,15 @@ const SLASH_ALIASES: Record<string, string[]> = {
   todo: ["todo"],
   number: ["numbered"],
   numbered: ["numbered"],
+  equation: ["mathi", "math"],
+  math: ["mathi", "math"],
+  latex: ["mathi", "math"],
+  inline: ["mathi"],
+  table: ["table"],
+  grid: ["table"],
   divider: ["hr"],
   hr: ["hr"],
-  equation: ["math", "mathi"],
-  math: ["math", "mathi"],
+  sep: ["hr"],
   bookmark: ["bookmark", "web"],
   web: ["web", "bookmark"],
   embed: ["web", "youtube", "drive"],
@@ -525,8 +530,35 @@ export default function RichNoteEditor({
       {
         id: "table",
         label: "表格",
-        hint: "/table 內嵌表格",
+        hint: "/table 簡易表格（非資料庫）",
         run: (e) => e.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+      },
+      {
+        id: "mathi",
+        label: "行內公式",
+        hint: "$μ$ 插在文字中",
+        run: (e) => {
+          void (async () => {
+            const { from, to } = e.state.selection;
+            const selected = e.state.doc.textBetween(from, to, "");
+            const f = await askPrompt("行內 LaTeX（插在字與字之間）", selected || "\\mu");
+            if (f) {
+              if (from !== to) e.chain().focus().deleteSelection().run();
+              e.chain().focus().setMathInline(f).run();
+            }
+          })();
+        },
+      },
+      {
+        id: "math",
+        label: "公式區塊",
+        hint: "$$...$$ 獨立一列",
+        run: (e) => {
+          void (async () => {
+            const f = await askPrompt("區塊 LaTeX", "E = mc^2");
+            if (f) e.chain().focus().setMathBlock(f).run();
+          })();
+        },
       },
       app("board", "看板", "/board", "/board Kanban"),
       app("calendar", "行事曆／日誌", "/journal", "/calendar 日誌"),
@@ -536,7 +568,7 @@ export default function RichNoteEditor({
       {
         id: "database",
         label: "資料庫",
-        hint: "/database 插入 Notion 式表格",
+        hint: "/database 可篩選／屬性資料庫（與簡易表格不同）",
         run: (e) => {
           void (async () => {
             if (!userId) {
@@ -720,28 +752,6 @@ export default function RichNoteEditor({
             const title = await askPrompt("筆記標題", "");
             if (!title?.trim()) return;
             e.chain().focus().insertContent(`[[${title.trim()}]]`).run();
-          })();
-        },
-      },
-      {
-        id: "math",
-        label: "數學公式",
-        hint: "/equation 區塊 $$",
-        run: (e) => {
-          void (async () => {
-            const f = await askPrompt("LaTeX 公式", "E = mc^2");
-            if (f) e.chain().focus().setMathBlock(f).run();
-          })();
-        },
-      },
-      {
-        id: "mathi",
-        label: "行內公式",
-        hint: "$...$",
-        run: (e) => {
-          void (async () => {
-            const f = await askPrompt("行內 LaTeX", "x^2");
-            if (f) e.chain().focus().setMathInline(f).run();
           })();
         },
       },
@@ -1535,6 +1545,12 @@ export default function RichNoteEditor({
         >
           表
         </ToolbarBtn>
+        <ToolbarBtn
+          title="分隔線"
+          onClick={() => editor.chain().focus().setHorizontalRule().run()}
+        >
+          ─
+        </ToolbarBtn>
         {editor.isActive("table") && (
           <>
             <ToolbarBtn title="左增欄" onClick={() => editor.chain().focus().addColumnBefore().run()}>◀欄</ToolbarBtn>
@@ -1549,13 +1565,29 @@ export default function RichNoteEditor({
         <ToolbarBtn
           onClick={() => {
             void (async () => {
-              const f = await askPrompt("LaTeX 公式", "E = mc^2");
+              const { from, to } = editor.state.selection;
+              const selected = editor.state.doc.textBetween(from, to, "");
+              const f = await askPrompt("行內 LaTeX（插在字與字之間）", selected || "\\mu");
+              if (!f) return;
+              const chain = editor.chain().focus();
+              if (from !== to) chain.deleteSelection();
+              chain.setMathInline(f).run();
+            })();
+          }}
+          title="行內公式 $...$"
+        >
+          ∑
+        </ToolbarBtn>
+        <ToolbarBtn
+          onClick={() => {
+            void (async () => {
+              const f = await askPrompt("區塊 LaTeX（獨立一列）", "E = mc^2");
               if (f) editor.chain().focus().setMathBlock(f).run();
             })();
           }}
-          title="LaTeX"
+          title="公式區塊 $$...$$"
         >
-          ∑
+          ∑∑
         </ToolbarBtn>
         <ToolbarBtn onClick={setLink} active={editor.isActive("link")}>連結</ToolbarBtn>
         <span className="rich-toolbar-sep" />
