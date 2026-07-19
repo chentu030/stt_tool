@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { createNote, Note, Job } from "@/lib/firebase";
+import { createNote, deleteNote, updateNote, Note, Job } from "@/lib/firebase";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
-import { parseDefaultTags } from "@/lib/userPrefs";
+import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
 import {
   boardNoteUrl,
   canvasNoteUrl,
@@ -13,6 +13,9 @@ import {
   graphNoteUrl,
 } from "@/lib/navApps";
 import { buildResearchUrl } from "@/lib/researchBridge";
+import { askConfirm, askPrompt } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
+import { normalizeFolderPath } from "@/lib/noteTree";
 
 type Props = {
   open: boolean;
@@ -66,8 +69,101 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     const s = q.trim().toLowerCase();
     const out: Row[] = [];
 
+    const pushManageActions = (n: Note, prefix = "") => {
+      const label = n.title || "未命名";
+      const isFav = favIds.includes(n.id);
+      out.push({
+        kind: "action",
+        id: `${prefix}rename-${n.id}`,
+        label: `重新命名「${label}」`,
+        hint: "管理",
+        run: () => {
+          void (async () => {
+            const next = await askPrompt({
+              title: "重新命名筆記",
+              defaultValue: n.title || "未命名",
+              confirmLabel: "重新命名",
+            });
+            if (next == null) return;
+            await updateNote(n.id, { title: next || "未命名" });
+            toast("已重新命名");
+            onClose();
+          })();
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}move-${n.id}`,
+        label: `移動「${label}」…`,
+        hint: "管理",
+        run: () => {
+          void (async () => {
+            const next = await askPrompt({
+              title: "移動筆記",
+              message: "輸入資料夾路徑（空白＝未分類）",
+              defaultValue: normalizeFolderPath(n.folder) || "",
+              confirmLabel: "移動",
+            });
+            if (next == null) return;
+            await updateNote(n.id, { folder: normalizeFolderPath(next), parent_id: "" });
+            toast("已移動");
+            onClose();
+          })();
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}fav-${n.id}`,
+        label: isFav ? `取消收藏「${label}」` : `收藏「${label}」`,
+        hint: "管理",
+        run: () => {
+          prefsCtx?.setPrefs((p) => toggleFavoriteId(p, n.id));
+          toast(isFav ? "已取消收藏" : "已加入收藏");
+          onClose();
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}copy-${n.id}`,
+        label: `複製「${label}」連結`,
+        hint: "管理",
+        run: () => {
+          void (async () => {
+            await navigator.clipboard.writeText(`${window.location.origin}/notes/${n.id}`);
+            toast("已複製連結");
+            onClose();
+          })();
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}del-${n.id}`,
+        label: `刪除「${label}」`,
+        hint: "危險",
+        run: () => {
+          void (async () => {
+            if (
+              !(await askConfirm({
+                title: "刪除此筆記？",
+                message: "此操作無法復原。",
+                danger: true,
+                confirmLabel: "刪除",
+              }))
+            ) {
+              return;
+            }
+            await deleteNote(n.id);
+            toast("已刪除");
+            onClose();
+            if (pathname?.startsWith(`/notes/${n.id}`)) router.push("/library");
+          })();
+        },
+      });
+    };
+
     const pushNoteActions = (n: Note, prefix = "") => {
       const label = n.title || "未命名";
+      pushManageActions(n, prefix);
       out.push({
         kind: "action",
         id: `${prefix}research-${n.id}`,
@@ -176,7 +272,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
           });
         }
       }
-      return out.slice(0, 22);
+      return out.slice(0, 28);
     }
 
     for (const n of CMD_NAV) {
@@ -209,8 +305,41 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         out.push({ kind: "job", id: j.id, label: String(title), hint: "逐字稿" });
       }
     }
-    return out.slice(0, 28);
-  }, [q, notes, jobs, favIds, recentIds, userId, prefsCtx, router, onClose, contextNote]);
+
+    if (userId && q.trim()) {
+      const title = q.trim();
+      out.push({
+        kind: "action",
+        id: "create-from-q",
+        label: `建立筆記「${title}」`,
+        hint: "建立",
+        run: () => {
+          void (async () => {
+            const id = await createNote(
+              userId,
+              title,
+              "",
+              undefined,
+              parseDefaultTags(prefsCtx?.prefs.defaultTags || ""),
+              {
+                folder: prefsCtx?.prefs.defaultFolder || "",
+                status: prefsCtx?.prefs.defaultStatus || "backlog",
+              }
+            );
+            toast("已建立筆記");
+            onClose();
+            router.push(`/notes/${id}`);
+          })();
+        },
+      });
+    }
+
+    if (!out.length && !userId) {
+      return out;
+    }
+
+    return out.slice(0, 32);
+  }, [q, notes, jobs, favIds, recentIds, userId, prefsCtx, router, onClose, contextNote, pathname]);
 
   useEffect(() => {
     setIndex(0);
@@ -298,7 +427,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
             ))
           )}
         </div>
-        <p className="cmdk-foot">↑↓ 選擇 · Enter 開啟 · Esc 關閉</p>
+        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 隨時開啟</p>
       </div>
     </div>
   );

@@ -3158,6 +3158,11 @@ button, input, textarea, select {
 .doc-cmd.is-on { background: var(--accent-soft); color: var(--accent); }
 .doc-cmd:disabled { opacity: 0.45; cursor: not-allowed; }
 .doc-more-wrap { position: relative; }
+@media (max-width: 720px) {
+  .doc-command-actions .doc-cmd:not(.doc-cmd--keep) {
+    display: none;
+  }
+}
 .doc-more-menu {
   position: absolute;
   right: 0;
@@ -3241,6 +3246,22 @@ button, input, textarea, select {
   padding: 0.45rem 0.9rem;
   font-size: 0.8rem;
   box-shadow: var(--shadow);
+}
+.app-toast {
+  position: fixed;
+  bottom: 1.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 500;
+  max-width: min(90vw, 360px);
+  background: var(--text-main);
+  color: var(--bg-card);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  text-align: center;
 }
 .doc-versions {
   margin-bottom: 1.25rem;
@@ -6553,10 +6574,22 @@ body.is-sidebar-resizing iframe {
 .sb-row--folder:hover .sb-row-more {
   opacity: 1;
 }
-.sb-row-add:hover,
-.sb-row-more:hover {
+.sb-row-more:hover,
+.sb-row-add:hover {
   background: var(--accent-soft);
   color: var(--accent);
+}
+@media (hover: none), (pointer: coarse) {
+  .sb-row-more,
+  .sb-fav,
+  .sb-row-add {
+    opacity: 1;
+    width: 28px;
+    height: 28px;
+  }
+  .sb-row {
+    min-height: 36px;
+  }
 }
 .sb-hint {
   display: flex;

@@ -425,11 +425,17 @@ export function clearLocalWorkspaceCaches(uid?: string) {
 }
 
 export const SHORTCUT_HELP: { keys: string; action: string }[] = [
+  { keys: "⌘/Ctrl + K", action: "命令列" },
   { keys: "⌘/Ctrl + S", action: "儲存筆記" },
-  { keys: "⌘/Ctrl + K", action: "命令列（若頁面支援）" },
-  { keys: "⌘/Ctrl + \\", action: "收合／展開側欄" },
+  { keys: "⌘/Ctrl + F", action: "筆記內尋找" },
+  { keys: "⌘/Ctrl + J", action: "開啟筆記 AI 側欄" },
+  { keys: "⌘/Ctrl + Shift + F", action: "專注模式" },
+  { keys: "⌘/Ctrl + .", action: "切換寫作／簡報" },
+  { keys: "⌘/Ctrl + \\", action: "收合側欄／筆記屬性側欄" },
+  { keys: "F2", action: "側欄重新命名選取筆記" },
+  { keys: "Del / Backspace", action: "側欄／知識庫刪除選取" },
+  { keys: "Esc", action: "取消選取／關閉選單" },
   { keys: "/", action: "筆記內斜線選單" },
   { keys: "[[", action: "Wiki 連結建議" },
   { keys: "Space（圖譜／白板）", action: "暫時平移" },
-  { keys: "Esc", action: "取消選取／關閉選單" },
 ];

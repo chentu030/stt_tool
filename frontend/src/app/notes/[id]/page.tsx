@@ -979,99 +979,99 @@ function NotePageInner() {
           )}
           <button
             type="button"
-            className={`doc-cmd${(prefsCtx?.prefs.favoriteNoteIds || []).includes(note.id) ? " is-on" : ""}`}
+            className={`doc-cmd doc-cmd--keep${(prefsCtx?.prefs.favoriteNoteIds || []).includes(note.id) ? " is-on" : ""}`}
             title="收藏"
             onClick={() => prefsCtx?.setPrefs((p) => toggleFavoriteId(p, note.id))}
           >
             ★
           </button>
           {viewMode === "write" && (
-            <>
-              <button
-                type="button"
-                className="doc-cmd"
-                title="新增子頁面"
-                onClick={() => {
-                  if (!user) return;
-                  void (async () => {
-                    const name = await askPrompt("子頁面標題", "未命名子頁");
-                    if (name == null) return;
-                    const t = name.trim() || "未命名子頁";
-                    const id = await createNote(user.uid, t, "", undefined, [], {
-                      parent_id: note.id,
-                      status: "backlog",
-                      folder: folder || "",
-                    });
-                    const nextBody = `${body.trim()}${body.trim() ? "\n\n" : ""}[[${t}]]\n`;
-                    setBody(nextBody);
-                    latest.current = { ...latest.current, body: nextBody };
-                    try {
-                      await updateNote(note.id, {
-                        title: latest.current.title,
-                        body_md: nextBody,
-                        tags: latest.current.tags,
-                        folder: latest.current.folder,
-                        icon: latest.current.icon,
-                        color: latest.current.color || "",
-                        cover: latest.current.cover,
-                        parent_id: latest.current.parent_id,
-                      });
-                    } catch {
-                      markDirty();
-                    }
-                    flash(`已建立子頁：${t}`);
-                    router.push(`/notes/${id}`);
-                  })();
-                }}
-              >
-                子頁
-              </button>
-              <button type="button" className="doc-cmd" onClick={() => setFindOpen(true)}>尋找</button>
-              <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("summarize")}>
-                {aiBusy ? "AI…" : "摘要"}
-              </button>
-              <button type="button" className="doc-cmd" disabled={aiBusy || !body.trim()} onClick={() => void runAi("actions")}>
-                抽待辦
-              </button>
-              <button type="button" className={`doc-cmd${focusMode ? " is-on" : ""}`} onClick={() => setFocusMode((v) => !v)}>
-                專注
-              </button>
-              <button
-                type="button"
-                className={`doc-cmd${pageMode ? " is-on" : ""}`}
-                title="頁面模式（A4）"
-                onClick={() => {
-                  setPageMode((v) => {
-                    const next = !v;
-                    try {
-                      localStorage.setItem("cadence_page_mode", next ? "1" : "0");
-                    } catch {
-                      /* ignore */
-                    }
-                    return next;
-                  });
-                }}
-              >
-                頁面
-              </button>
-            </>
+            <button type="button" className="doc-cmd doc-cmd--keep" title="尋找 ⌘F" onClick={() => setFindOpen(true)}>
+              尋找
+            </button>
           )}
           <button
             type="button"
-            className={`doc-cmd${noteShare?.enabled ? " is-on" : ""}`}
+            className={`doc-cmd doc-cmd--keep${noteShare?.enabled ? " is-on" : ""}`}
             title="分享筆記"
             onClick={() => setShareOpen(true)}
           >
             分享
           </button>
-          <button type="button" className={`doc-cmd${asideOpen ? " is-on" : ""}`} onClick={() => setAsideOpen((v) => !v)}>
+          <button
+            type="button"
+            className={`doc-cmd doc-cmd--keep${asideOpen ? " is-on" : ""}`}
+            title="側欄 ⌘\\"
+            onClick={() => setAsideOpen((v) => !v)}
+          >
             側欄
           </button>
           <div className="doc-more-wrap">
-            <button type="button" className="doc-cmd" onClick={() => setMoreOpen((v) => !v)}>更多</button>
+            <button type="button" className="doc-cmd doc-cmd--keep" onClick={() => setMoreOpen((v) => !v)}>
+              更多
+            </button>
             {moreOpen && (
               <div className="doc-more-menu">
                 {[
+                  ...(viewMode === "write"
+                    ? [
+                        {
+                          label: "新增子頁面",
+                          fn: () => {
+                            if (!user) return;
+                            void (async () => {
+                              const name = await askPrompt("子頁面標題", "未命名子頁");
+                              if (name == null) return;
+                              const t = name.trim() || "未命名子頁";
+                              const id = await createNote(user.uid, t, "", undefined, [], {
+                                parent_id: note.id,
+                                status: "backlog",
+                                folder: folder || "",
+                              });
+                              const nextBody = `${body.trim()}${body.trim() ? "\n\n" : ""}[[${t}]]\n`;
+                              setBody(nextBody);
+                              latest.current = { ...latest.current, body: nextBody };
+                              try {
+                                await updateNote(note.id, {
+                                  title: latest.current.title,
+                                  body_md: nextBody,
+                                  tags: latest.current.tags,
+                                  folder: latest.current.folder,
+                                  icon: latest.current.icon,
+                                  color: latest.current.color || "",
+                                  cover: latest.current.cover,
+                                  parent_id: latest.current.parent_id,
+                                });
+                              } catch {
+                                markDirty();
+                              }
+                              flash(`已建立子頁：${t}`);
+                              router.push(`/notes/${id}`);
+                            })();
+                          },
+                        },
+                        { label: "摘要", fn: () => runAi("summarize") },
+                        { label: "抽待辦", fn: () => runAi("actions") },
+                        {
+                          label: focusMode ? "離開專注" : "專注模式 ⌘⇧F",
+                          fn: () => setFocusMode((v) => !v),
+                        },
+                        {
+                          label: pageMode ? "關閉頁面模式" : "頁面模式（A4）",
+                          fn: () => {
+                            setPageMode((v) => {
+                              const next = !v;
+                              try {
+                                localStorage.setItem("cadence_page_mode", next ? "1" : "0");
+                              } catch {
+                                /* ignore */
+                              }
+                              return next;
+                            });
+                          },
+                        },
+                      ]
+                    : []),
                   { label: "改寫", fn: () => runAi("rewrite") },
                   { label: "擴寫", fn: () => runAi("expand") },
                   { label: "產出大綱", fn: () => runAi("outline") },
@@ -1091,14 +1091,17 @@ function NotePageInner() {
                   { label: "匯出 PDF", fn: () => downloadPdfViaPrint(title, body) },
                   { label: "匯出 DOCX", fn: () => { void downloadDocx(title, body); } },
                   { label: "匯出簡報大綱", fn: () => downloadPptOutline(title, body) },
-                  { label: "手動儲存", fn: () => save(false) },
+                  { label: "手動儲存 ⌘S", fn: () => save(false) },
                   { label: "刪除筆記", fn: () => remove(), danger: true },
                 ].map((item) => (
                   <button
                     key={item.label}
                     type="button"
-                    className={`doc-more-item${item.danger ? " is-danger" : ""}`}
-                    onClick={() => { void item.fn(); setMoreOpen(false); }}
+                    className={`doc-more-item${"danger" in item && item.danger ? " is-danger" : ""}`}
+                    onClick={() => {
+                      void item.fn();
+                      setMoreOpen(false);
+                    }}
                   >
                     {item.label}
                   </button>

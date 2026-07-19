@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
 import { PrefsProvider } from "@/components/PrefsProvider";
 import DialogProvider from "@/components/DialogProvider";
+import ToastProvider from "@/components/ToastProvider";
 import AppShell from "@/components/shell/AppShell";
 
 export const metadata: Metadata = {
@@ -64,7 +65,9 @@ export default function RootLayout({
         <AuthProvider>
           <PrefsProvider>
             <DialogProvider>
-              <AppShell>{children}</AppShell>
+              <ToastProvider>
+                <AppShell>{children}</AppShell>
+              </ToastProvider>
             </DialogProvider>
           </PrefsProvider>
         </AuthProvider>

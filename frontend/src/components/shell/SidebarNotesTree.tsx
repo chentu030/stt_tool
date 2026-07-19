@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent as REMouseEvent,
+  type PointerEvent as RPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -684,6 +685,15 @@ export default function SidebarNotesTree() {
         { type: "sep" },
         { type: "item", label: "複製筆記", action: () => duplicateNote(note) },
         { type: "item", label: "複製連結", action: () => copyNoteLink(note.id) },
+        {
+          type: "item",
+          label: (prefs?.favoriteNoteIds || []).includes(note.id) ? "取消收藏" : "收藏",
+          action: () => {
+            const wasFav = (prefs?.favoriteNoteIds || []).includes(note.id);
+            toggleFav(note.id);
+            flash(wasFav ? "已取消收藏" : "已加入收藏");
+          },
+        },
         { type: "item", label: "新增子頁面", action: () => newNote("", note.id) },
         { type: "sep" },
         {
@@ -794,6 +804,29 @@ export default function SidebarNotesTree() {
     setCtx({ ...pos, target });
   };
 
+  const bindLongPress = (target: CtxTarget) => ({
+    onPointerDown: (e: RPointerEvent) => {
+      if (e.button !== 0) return;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const timer = window.setTimeout(() => {
+        openCtxAt(startX, startY, target);
+      }, 520);
+      const clear = () => {
+        window.clearTimeout(timer);
+        window.removeEventListener("pointerup", clear);
+        window.removeEventListener("pointercancel", clear);
+        window.removeEventListener("pointermove", onMove);
+      };
+      const onMove = (ev: PointerEvent) => {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) > 10) clear();
+      };
+      window.addEventListener("pointerup", clear);
+      window.addEventListener("pointercancel", clear);
+      window.addEventListener("pointermove", onMove);
+    },
+  });
+
   const renderNoteLink = (note: Note, depth: number) => {
     const active = note.id === activeNoteId;
     const isSelected = selected.has(note.id);
@@ -822,6 +855,7 @@ export default function SidebarNotesTree() {
           }}
           onContextMenu={(e) => openCtx(e, { kind: "note", noteId: note.id })}
           onClick={(e) => onNoteClick(e, note.id)}
+          {...bindLongPress({ kind: "note", noteId: note.id })}
         >
           {kids.length > 0 ? (
             <button
@@ -1115,6 +1149,7 @@ export default function SidebarNotesTree() {
                       if (id) void onDropToFolder(dropKey, id);
                     }}
                     onContextMenu={(e) => openCtx(e, { kind: "folder", path: dropKey })}
+                    {...bindLongPress({ kind: "folder", path: dropKey })}
                   >
                     <button
                       type="button"

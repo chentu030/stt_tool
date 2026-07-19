@@ -9,6 +9,7 @@ import {
   listenToUserNotes,
   updateNote,
   createNote,
+  deleteNote,
   loginWithGoogle,
   Note,
 } from "@/lib/firebase";
@@ -244,12 +245,50 @@ export default function BoardByIdPage() {
     setBusy(true);
     try {
       await Promise.all(selected.map((id) => updateNote(id, { status })));
+      const n = selected.length;
       setSelected([]);
-      flash(`已移動 ${selected.length} 張`);
+      flash(`已移動 ${n} 張`);
     } finally {
       setBusy(false);
     }
   };
+
+  const deleteSelected = async () => {
+    if (!selected.length) return;
+    if (
+      !(await askConfirm({
+        title: `刪除選取的 ${selected.length} 張卡片？`,
+        message: "此操作無法復原。",
+        danger: true,
+        confirmLabel: "刪除",
+      }))
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const n = selected.length;
+      await Promise.all(selected.map((id) => deleteNote(id)));
+      setSelected([]);
+      flash(`已刪除 ${n} 張`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = (document.activeElement as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (!selected.length) return;
+      e.preventDefault();
+      void deleteSelected();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   const cyclePriority = async (id: string) => {
     const note = notes.find((n) => n.id === id);
@@ -877,6 +916,17 @@ export default function BoardByIdPage() {
           ))}
           <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { void setDueOnSelected(); }}>
             設截止日
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            style={{ color: "var(--danger)" }}
+            onClick={() => {
+              void deleteSelected();
+            }}
+          >
+            刪除
           </button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelected([])}>
             取消選取
