@@ -51,7 +51,7 @@ export default function JobPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.8rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
         <div>
           <Link href="/library" style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>← 知識庫</Link>
           <h1 className="page-title font-display" style={{ marginTop: "0.4rem" }}>
@@ -65,7 +65,8 @@ export default function JobPage() {
         </div>
         {job.status === "done" && current && (
           <button
-            className="btn"
+            className="btn btn-sm"
+            style={{ marginTop: "1.6rem", flexShrink: 0 }}
             disabled={busy}
             onClick={async () => {
               setBusy(true);
@@ -83,7 +84,7 @@ export default function JobPage() {
               }
             }}
           >
-            轉成筆記
+            {busy ? "建立中…" : "轉成筆記"}
           </button>
         )}
       </div>
