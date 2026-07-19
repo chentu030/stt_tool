@@ -428,6 +428,7 @@ export const SHORTCUT_HELP: { keys: string; action: string }[] = [
   { keys: "⌘/Ctrl + K", action: "命令列" },
   { keys: "⌘/Ctrl + S", action: "儲存筆記" },
   { keys: "⌘/Ctrl + F", action: "筆記內尋找" },
+  { keys: "⌘/Ctrl + Shift + A", action: "開關全域 AI 右側欄" },
   { keys: "⌘/Ctrl + J", action: "開啟筆記 AI 側欄" },
   { keys: "⌘/Ctrl + Shift + F", action: "專注模式" },
   { keys: "⌘/Ctrl + .", action: "切換寫作／簡報" },

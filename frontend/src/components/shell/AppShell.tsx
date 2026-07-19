@@ -10,7 +10,7 @@ import CadenceLogo from "@/components/CadenceLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
-import GlobalAiDock from "@/components/shell/GlobalAiDock";
+import GlobalAiDock, { toggleGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import {
   listenUserTeams,
   listenChannels,
@@ -391,6 +391,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <button
               type="button"
               className="btn btn-sm btn-ghost"
+              title="Cadence AI"
+              onClick={() => toggleGlobalAiRail()}
+            >
+              AI
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
               title="搜尋 ⌘K"
               onClick={() => setCmdOpen(true)}
             >
@@ -465,6 +473,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="sidebar-brand-links">
             {!sidebarCollapsed && (
               <>
+                <button
+                  type="button"
+                  className="sidebar-brand-links a"
+                  title="Cadence AI ⌘⇧A"
+                  onClick={() => toggleGlobalAiRail()}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    padding: "0.35rem",
+                    fontWeight: 700,
+                    fontSize: "0.72rem",
+                  }}
+                >
+                  AI
+                </button>
                 <button
                   type="button"
                   className="sidebar-brand-links a"
