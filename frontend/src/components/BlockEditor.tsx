@@ -11,6 +11,7 @@ import {
   markdownToBlocks,
   blocksToMarkdown,
   wrapSelection,
+  DEFAULT_TABLE,
 } from "@/lib/blocks";
 import { suggestWikiTitles, NoteLite } from "@/lib/wiki";
 
@@ -33,6 +34,10 @@ function typeLabel(type: BlockType): string {
     case "numbered": return "1.";
     case "todo": return "☐";
     case "quote": return "❝";
+    case "callout": return "!";
+    case "code": return "</>";
+    case "toggle": return "▸";
+    case "table": return "▦";
     case "divider": return "—";
     case "image": return "▣";
     default: return "¶";
@@ -58,7 +63,7 @@ export default function BlockEditor({
   const [replaceQuery, setReplaceQuery] = useState("");
   const [internalFind, setInternalFind] = useState(false);
   const skipSync = useRef(false);
-  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const inputRefs = useRef<Record<string, HTMLInputElement | HTMLTextAreaElement | null>>({});
   const selRef = useRef<{ id: string; start: number; end: number } | null>(null);
 
   const showFind = findOpen ?? internalFind;
@@ -157,6 +162,26 @@ export default function BlockEditor({
       next.splice(i + 1, 0, nb);
       commit(next);
       focusBlock(nb.id);
+    } else if (item.type === "table") {
+      const next = [...blocks];
+      next[i] = { ...b, type: "table", text: DEFAULT_TABLE, src: undefined, checked: undefined };
+      commit(next);
+      focusBlock(blockId);
+    } else if (item.type === "toggle") {
+      const next = [...blocks];
+      next[i] = { ...b, type: "toggle", text: "詳細內容\n", checked: true, src: undefined };
+      commit(next);
+      focusBlock(blockId);
+    } else if (item.type === "code") {
+      const next = [...blocks];
+      next[i] = { ...b, type: "code", text: "", src: "", checked: undefined };
+      commit(next);
+      focusBlock(blockId);
+    } else if (item.type === "callout") {
+      const next = [...blocks];
+      next[i] = { ...b, type: "callout", text: text || "", src: item.src || "info", checked: undefined };
+      commit(next);
+      focusBlock(blockId);
     } else {
       const next = [...blocks];
       next[i] = {
@@ -569,6 +594,124 @@ export default function BlockEditor({
                       placeholder="替代文字"
                       value={block.text}
                       onChange={(e) => updateBlock(block.id, { text: e.target.value })}
+                    />
+                  </div>
+                ) : block.type === "code" ? (
+                  <div style={{ width: "100%" }}>
+                    <input
+                      className="input"
+                      style={{ padding: "0.3rem 0.55rem", fontSize: "0.75rem", marginBottom: 6, maxWidth: 140 }}
+                      placeholder="language"
+                      value={block.src || ""}
+                      onChange={(e) => updateBlock(block.id, { src: e.target.value })}
+                    />
+                    <textarea
+                      ref={(el) => { inputRefs.current[block.id] = el as unknown as HTMLInputElement; }}
+                      className="input"
+                      value={block.text}
+                      onChange={(e) => onTextChange(block.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && e.shiftKey) return;
+                        if (e.key === "Enter") e.stopPropagation();
+                      }}
+                      onFocus={() => setFocusId(block.id)}
+                      rows={Math.min(16, Math.max(3, block.text.split("\n").length + 1))}
+                      style={{
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                        fontSize: "0.88rem",
+                        lineHeight: 1.5,
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                ) : block.type === "table" ? (
+                  <textarea
+                    ref={(el) => { inputRefs.current[block.id] = el as unknown as HTMLInputElement; }}
+                    className="input"
+                    value={block.text}
+                    onChange={(e) => updateBlock(block.id, { text: e.target.value })}
+                    onFocus={() => setFocusId(block.id)}
+                    rows={Math.min(12, Math.max(4, block.text.split("\n").length + 1))}
+                    style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.85rem", resize: "vertical" }}
+                  />
+                ) : block.type === "toggle" ? (
+                  <div style={{ width: "100%" }}>
+                    <button
+                      type="button"
+                      onClick={() => updateBlock(block.id, { checked: !block.checked })}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        marginRight: 6,
+                      }}
+                    >
+                      {block.checked ? "▾" : "▸"}
+                    </button>
+                    <input
+                      ref={(el) => { inputRefs.current[block.id] = el; }}
+                      className="block-input"
+                      value={block.text.split("\n")[0] || ""}
+                      onChange={(e) => {
+                        const rest = block.text.split("\n").slice(1).join("\n");
+                        updateBlock(block.id, { text: rest ? `${e.target.value}\n${rest}` : e.target.value });
+                      }}
+                      onFocus={() => setFocusId(block.id)}
+                      placeholder="Toggle 標題"
+                      style={{
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        color: "var(--text-main)",
+                        fontWeight: 650,
+                        fontSize: "0.98rem",
+                        width: "calc(100% - 28px)",
+                      }}
+                    />
+                    {block.checked && (
+                      <textarea
+                        className="input"
+                        style={{ marginTop: 6, fontSize: "0.9rem" }}
+                        value={block.text.split("\n").slice(1).join("\n")}
+                        onChange={(e) => {
+                          const title = block.text.split("\n")[0] || "詳細";
+                          updateBlock(block.id, { text: `${title}\n${e.target.value}` });
+                        }}
+                        rows={3}
+                        placeholder="摺疊內容…"
+                      />
+                    )}
+                  </div>
+                ) : block.type === "callout" ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      width: "100%",
+                      padding: "0.65rem 0.75rem",
+                      borderRadius: 10,
+                      background: "var(--accent-soft)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    <span style={{ fontSize: "1.1rem" }}>💡</span>
+                    <input
+                      ref={(el) => { inputRefs.current[block.id] = el; }}
+                      className="block-input"
+                      value={block.text}
+                      placeholder="Callout 內容…"
+                      onChange={(e) => onTextChange(block.id, e.target.value)}
+                      onKeyDown={(e) => onKeyDown(e, block)}
+                      onFocus={() => setFocusId(block.id)}
+                      style={{
+                        flex: 1,
+                        border: "none",
+                        outline: "none",
+                        background: "transparent",
+                        color: "var(--text-main)",
+                        fontSize: "0.95rem",
+                      }}
                     />
                   </div>
                 ) : (
