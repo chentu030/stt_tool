@@ -12,7 +12,8 @@ export type HomePage =
   | "/journal"
   | "/board"
   | "/canvas"
-  | "/graph";
+  | "/graph"
+  | "/research";
 export type LibraryViewPref = "list" | "grid" | "compact" | "table";
 export type LibrarySortPref = "updated" | "created" | "title" | "length";
 export type BoardSortPref = "updated" | "priority" | "due" | "age" | "title";
@@ -152,6 +153,7 @@ export const HOME_OPTIONS: { id: HomePage; label: string }[] = [
   { id: "/library", label: "知識庫" },
   { id: "/capture", label: "捕捉" },
   { id: "/journal", label: "日誌" },
+  { id: "/research", label: "深度研究" },
   { id: "/board", label: "看板" },
   { id: "/canvas", label: "白板" },
   { id: "/graph", label: "圖譜" },

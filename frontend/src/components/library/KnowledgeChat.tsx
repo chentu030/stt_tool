@@ -8,6 +8,8 @@ import {
   packLibraryContext,
 } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import { buildResearchUrl } from "@/lib/researchBridge";
+import { libraryFolderUrl, RESEARCH_FOLDER } from "@/lib/navApps";
 
 export type ChatMessage = {
   id: string;
@@ -203,6 +205,19 @@ export default function KnowledgeChat({
           )}
         </div>
       )}
+
+      <div className="kb-chat-handoff">
+        <Link
+          href={
+            selectedIds.length
+              ? buildResearchUrl({ notes: selectedIds })
+              : "/research"
+          }
+        >
+          {selectedIds.length ? `深度研究已選 ${selectedIds.length}` : "深度研究"}
+        </Link>
+        <Link href={libraryFolderUrl(RESEARCH_FOLDER)}>深度研究資料夾</Link>
+      </div>
 
       <div className="kb-chat-messages" ref={listRef}>
         {empty ? (

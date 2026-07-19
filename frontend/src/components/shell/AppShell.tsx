@@ -23,27 +23,7 @@ import {
   type Channel,
   type TeamNotification,
 } from "@/lib/teamStore";
-
-const NAV_APPS = [
-  { href: "/library", label: "知識庫", icon: LibraryIcon },
-  { href: "/journal", label: "日誌", icon: JournalIcon },
-  { href: "/capture", label: "捕捉", icon: MicIcon },
-  { href: "/board", label: "看板", icon: BoardIcon },
-  { href: "/db", label: "資料庫", icon: DatabaseIcon },
-  { href: "/canvas", label: "白板", icon: CanvasIcon },
-  { href: "/graph", label: "圖譜", icon: GraphIcon },
-  { href: "/team", label: "團隊", icon: TeamIcon },
-  { href: "/research", label: "研究", icon: ResearchIcon },
-];
-
-function ResearchIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="11" cy="11" r="7" />
-      <path d="M21 21l-4.3-4.3M11 8v6M8 11h6" />
-    </svg>
-  );
-}
+import { NAV_APPS, MOBILE_BOTTOM } from "@/lib/navApps";
 
 function HomeIcon() {
   return (
@@ -123,6 +103,14 @@ function MicIcon() {
     </svg>
   );
 }
+function ResearchIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M21 21l-4.3-4.3M11 8v6M8 11h6" />
+    </svg>
+  );
+}
 function SettingsIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -131,6 +119,19 @@ function SettingsIcon() {
     </svg>
   );
 }
+
+const NAV_ICONS: Record<string, () => ReactNode> = {
+  library: LibraryIcon,
+  journal: JournalIcon,
+  capture: MicIcon,
+  board: BoardIcon,
+  db: DatabaseIcon,
+  canvas: CanvasIcon,
+  graph: GraphIcon,
+  team: TeamIcon,
+  research: ResearchIcon,
+  settings: SettingsIcon,
+};
 
 function useIsMobile(breakpoint = 900) {
   const [mobile, setMobile] = useState(() => {
@@ -328,27 +329,32 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </header>
         <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{children}</main>
         <nav className="mobile-bottom">
-          <Link href="/library" className={isActive("/library") ? "active" : ""}>
-            <LibraryIcon />
-            知識庫
-          </Link>
-          <Link href="/journal" className={isActive("/journal") ? "active" : ""}>
-            <JournalIcon />
-            日誌
-          </Link>
-          <Link href="/capture" className={isActive("/capture") ? "active" : ""}>
-            <span className="capture-fab">
-              <MicIcon />
-            </span>
-          </Link>
-          <Link href="/board" className={isActive("/board") ? "active" : ""}>
-            <BoardIcon />
-            看板
-          </Link>
-          <Link href="/settings" className={isActive("/settings") ? "active" : ""}>
-            <SettingsIcon />
-            設定
-          </Link>
+          {MOBILE_BOTTOM.map((item) => {
+            const Icon = NAV_ICONS[item.id] || LibraryIcon;
+            if (item.fab) {
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className={isActive(item.href) ? "active" : ""}
+                >
+                  <span className="capture-fab">
+                    <Icon />
+                  </span>
+                </Link>
+              );
+            }
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={isActive(item.href) ? "active" : ""}
+              >
+                <Icon />
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
         {palette}
         <GlobalAiDock />
@@ -389,11 +395,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar-apps" aria-label="應用">
-          {NAV_APPS.map((item) =>
-            item.href === "/team" ? (
+          {NAV_APPS.map((item) => {
+            const Icon = NAV_ICONS[item.id] || LibraryIcon;
+            return item.href === "/team" ? (
               <div key={item.href} className="sidebar-team-item-wrap" ref={notifWrapRef}>
                 <Link href={item.href} className={isActive(item.href) ? "is-on" : ""} title={item.label}>
-                  <item.icon />
+                  <Icon />
                   <span>{item.label}</span>
                 </Link>
                 {teamUnread + mentionUnread > 0 && (
@@ -460,11 +467,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 className={isActive(item.href) ? "is-on" : ""}
                 title={item.label}
               >
-                <item.icon />
+                <Icon />
                 <span>{item.label}</span>
               </Link>
-            )
-          )}
+            );
+          })}
         </nav>
 
         <div className="sidebar-tree-wrap">

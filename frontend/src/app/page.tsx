@@ -148,7 +148,7 @@ export default function HomePage() {
         <section className="card" style={{ padding: "1.2rem" }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.8rem" }}>
             <h2 className="font-display" style={{ fontSize: "1.15rem" }}>最近轉錄</h2>
-            <Link href="/library" style={{ color: "var(--accent-2)", fontSize: "0.85rem" }}>全部</Link>
+            <Link href="/library?tab=jobs" style={{ color: "var(--accent-2)", fontSize: "0.85rem" }}>全部</Link>
           </div>
           {recentJobs.length === 0 ? (
             <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>尚無轉錄紀錄。</p>

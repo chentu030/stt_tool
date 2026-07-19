@@ -6,6 +6,7 @@ import { createNote, Note, Job } from "@/lib/firebase";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
+import { CMD_NAV } from "@/lib/navApps";
 
 type Props = {
   open: boolean;
@@ -14,17 +15,6 @@ type Props = {
   jobs?: Job[];
   userId?: string;
 };
-
-const NAV = [
-  { href: "/", label: "總覽" },
-  { href: "/library", label: "知識庫" },
-  { href: "/capture", label: "捕捉" },
-  { href: "/journal", label: "日誌" },
-  { href: "/board", label: "看板" },
-  { href: "/canvas", label: "白板" },
-  { href: "/graph", label: "圖譜" },
-  { href: "/settings", label: "設定" },
-];
 
 type Row =
   | { kind: "nav"; href: string; label: string; hint: string }
@@ -62,7 +52,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
           out.push({ kind: "note", id: n.id, label: n.title, hint: "收藏" });
         }
       }
-      for (const n of NAV) out.push({ kind: "nav", href: n.href, label: n.label, hint: "前往" });
+      for (const n of CMD_NAV) out.push({ kind: "nav", href: n.href, label: n.label, hint: "前往" });
       if (userId) {
         out.push({
           kind: "action",
@@ -109,7 +99,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
       return out.slice(0, 18);
     }
 
-    for (const n of NAV) {
+    for (const n of CMD_NAV) {
       if (n.label.includes(s) || n.href.includes(s)) {
         out.push({ kind: "nav", href: n.href, label: n.label, hint: "前往" });
       }

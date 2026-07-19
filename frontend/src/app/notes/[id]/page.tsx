@@ -54,6 +54,7 @@ import {
 import { buildNoteAiContext } from "@/lib/noteAiContext";
 import { findCadenceAiAction } from "@/lib/cadenceAiActions";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import ContinueChips, { noteContinueChips } from "@/components/shell/ContinueChips";
 import { toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { splitFolderPath } from "@/lib/noteTree";
@@ -899,6 +900,17 @@ function NotePageInner() {
           </div>
         </div>
       </div>
+      {viewMode === "write" && !focusMode && (
+        <ContinueChips
+          className="doc-continue"
+          chips={noteContinueChips({
+            noteId: note.id,
+            title,
+            sourceJobId: note.source_job_id,
+            folder: folder || null,
+          })}
+        />
+      )}
       </div>
 
       <div className="doc-body-row">
@@ -1226,7 +1238,10 @@ function NotePageInner() {
           </div>
 
           <section className="doc-backlinks">
-            <h3>連結圖譜</h3>
+            <div className="doc-backlinks-head">
+              <h3>連結圖譜</h3>
+              <Link href="/graph">開啟圖譜 →</Link>
+            </div>
             <div className="doc-link-grid">
               <div>
                 <p className="doc-link-label">此頁連出</p>

@@ -1,0 +1,157 @@
+"use client";
+
+import Link from "next/link";
+import { buildResearchUrl } from "@/lib/researchBridge";
+import { libraryFolderUrl, libraryJobsUrl, RESEARCH_FOLDER } from "@/lib/navApps";
+
+export type ContinueChip = {
+  href: string;
+  label: string;
+  primary?: boolean;
+  external?: boolean;
+};
+
+type Props = {
+  chips: ContinueChip[];
+  className?: string;
+  label?: string;
+};
+
+/** Compact cross-app handoff row — matches doc-cmd / kb-shortcuts language. */
+export default function ContinueChips({
+  chips,
+  className = "",
+  label = "繼續",
+}: Props) {
+  if (!chips.length) return null;
+  return (
+    <nav className={`continue-chips ${className}`.trim()} aria-label={label}>
+      <span className="continue-chips-label">{label}</span>
+      <div className="continue-chips-row">
+        {chips.map((c) => (
+          <Link
+            key={`${c.href}-${c.label}`}
+            href={c.href}
+            className={`continue-chip${c.primary ? " is-primary" : ""}`}
+            {...(c.external ? { target: "_blank", rel: "noreferrer" } : {})}
+          >
+            {c.label}
+          </Link>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+export function noteContinueChips(opts: {
+  noteId: string;
+  title?: string;
+  sourceJobId?: string | null;
+  folder?: string | null;
+}): ContinueChip[] {
+  const chips: ContinueChip[] = [
+    {
+      href: buildResearchUrl({
+        from: opts.noteId,
+        topic: opts.title || undefined,
+        returnTo: true,
+      }),
+      label: "深度研究",
+      primary: true,
+    },
+    { href: "/graph", label: "圖譜" },
+    { href: "/board", label: "看板" },
+    { href: "/canvas", label: "白板" },
+    { href: "/library", label: "知識庫" },
+  ];
+  if (opts.sourceJobId) {
+    chips.splice(1, 0, { href: `/job/${opts.sourceJobId}`, label: "來源逐字稿" });
+  }
+  if (opts.folder) {
+    chips.push({ href: libraryFolderUrl(opts.folder), label: `資料夾 · ${opts.folder}` });
+  }
+  return chips;
+}
+
+export function researchContinueChips(opts?: {
+  savedNoteId?: string | null;
+  sourceNoteId?: string | null;
+}): ContinueChip[] {
+  const chips: ContinueChip[] = [
+    {
+      href: libraryFolderUrl(RESEARCH_FOLDER),
+      label: "知識庫 · 深度研究",
+      primary: true,
+    },
+    { href: "/library", label: "知識庫" },
+    { href: "/graph", label: "圖譜" },
+    { href: "/board", label: "看板" },
+  ];
+  if (opts?.savedNoteId) {
+    chips.unshift({ href: `/notes/${opts.savedNoteId}`, label: "開啟報告筆記", primary: true });
+  }
+  if (opts?.sourceNoteId) {
+    chips.push({ href: `/notes/${opts.sourceNoteId}`, label: "回來源筆記" });
+  }
+  return chips;
+}
+
+export function jobContinueChips(opts: {
+  jobId: string;
+  noteId?: string | null;
+  title?: string;
+}): ContinueChip[] {
+  const chips: ContinueChip[] = [
+    { href: libraryJobsUrl(), label: "全部轉錄" },
+    { href: "/library", label: "知識庫" },
+    { href: "/capture", label: "再捕捉" },
+  ];
+  if (opts.noteId) {
+    chips.unshift(
+      { href: `/notes/${opts.noteId}`, label: "開啟筆記", primary: true },
+      {
+        href: buildResearchUrl({
+          from: opts.noteId,
+          topic: opts.title || undefined,
+          returnTo: true,
+        }),
+        label: "深度研究",
+      }
+    );
+  } else {
+    chips.unshift({
+      href: buildResearchUrl({
+        topic: opts.title || undefined,
+      }),
+      label: "深度研究此主題",
+      primary: true,
+    });
+  }
+  return chips;
+}
+
+export function libraryContinueChips(opts?: {
+  selectedIds?: string[];
+  folder?: string;
+}): ContinueChip[] {
+  const chips: ContinueChip[] = [
+    {
+      href: libraryFolderUrl(RESEARCH_FOLDER),
+      label: "深度研究資料夾",
+      primary: true,
+    },
+    { href: "/research", label: "啟動研究" },
+    { href: libraryJobsUrl(), label: "轉錄" },
+    { href: "/capture", label: "捕捉" },
+    { href: "/graph", label: "圖譜" },
+    { href: "/journal", label: "日誌" },
+  ];
+  if (opts?.selectedIds?.length) {
+    chips.unshift({
+      href: buildResearchUrl({ notes: opts.selectedIds }),
+      label: `研究已選 ${opts.selectedIds.length} 則`,
+      primary: true,
+    });
+  }
+  return chips;
+}

@@ -27,6 +27,7 @@ import MenuSelect, { noteStatusLabel } from "@/components/MenuSelect";
 import { usePrefs } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
 import { buildResearchUrl } from "@/lib/researchBridge";
+import ContinueChips, { libraryContinueChips } from "@/components/shell/ContinueChips";
 import {
   SortKey,
   ViewMode,
@@ -73,6 +74,11 @@ function LibraryPageInner() {
   useEffect(() => {
     setFolderFilter(folderFromUrl);
   }, [folderFromUrl]);
+
+  useEffect(() => {
+    const t = searchParams.get("tab");
+    if (t === "jobs" || t === "notes") setTab(t);
+  }, [searchParams]);
 
   useEffect(() => {
     if (prefsReady) return;
@@ -231,6 +237,14 @@ function LibraryPageInner() {
           </ShinyPill>
         </div>
       </header>
+
+      <ContinueChips
+        className="kb-continue"
+        chips={libraryContinueChips({
+          selectedIds: selected,
+          folder: folderFilter || undefined,
+        })}
+      />
 
       <div className={`kb-layout${chatOpen ? " kb-layout--chat" : ""}`}>
         <LibraryRail

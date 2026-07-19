@@ -39,6 +39,8 @@ import {
   takeResearchSelection,
 } from "@/lib/researchBridge";
 import { extractWikiLinks } from "@/lib/wiki";
+import ContinueChips, { researchContinueChips } from "@/components/shell/ContinueChips";
+import { libraryFolderUrl, RESEARCH_FOLDER } from "@/lib/navApps";
 
 type Citation = {
   index: number;
@@ -1253,7 +1255,7 @@ function DeepResearchPageInner() {
           </p>
         </div>
         <div className="dr-head-actions">
-          <Link href={`/library?folder=${encodeURIComponent("深度研究")}`} className="btn btn-sm btn-soft">
+          <Link href={libraryFolderUrl(RESEARCH_FOLDER)} className="btn btn-sm btn-soft">
             知識庫 · 深度研究
           </Link>
           <Link href="/library" className="btn btn-sm btn-ghost">
@@ -1261,6 +1263,14 @@ function DeepResearchPageInner() {
           </Link>
         </div>
       </header>
+
+      <ContinueChips
+        className="dr-continue"
+        chips={researchContinueChips({
+          savedNoteId: savedId,
+          sourceNoteId,
+        })}
+      />
 
       <div className="dr-layout">
         <section className="dr-form">
@@ -1605,7 +1615,7 @@ function DeepResearchPageInner() {
               <h3>最近報告</h3>
               <p className="dr-hint">
                 自動存檔也在{" "}
-                <Link href={`/library?folder=${encodeURIComponent("深度研究")}`}>
+                <Link href={libraryFolderUrl(RESEARCH_FOLDER)}>
                   知識庫「深度研究」
                 </Link>
               </p>

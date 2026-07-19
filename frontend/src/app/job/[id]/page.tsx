@@ -9,6 +9,7 @@ import {
   getResultText,
   saveJobTranscripts,
   createNote,
+  listenToUserNotes,
   Job,
 } from "@/lib/firebase";
 import TranscriptEditor from "@/components/TranscriptEditor";
@@ -16,6 +17,7 @@ import TranscriptChat from "@/components/TranscriptChat";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import ContinueChips, { jobContinueChips } from "@/components/shell/ContinueChips";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,11 +30,20 @@ export default function JobPage() {
   const [busy, setBusy] = useState(false);
   const [liveText, setLiveText] = useState("");
   const [tplOpen, setTplOpen] = useState(false);
+  const [linkedNoteId, setLinkedNoteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     return listenToJob(id, setJob);
   }, [id]);
+
+  useEffect(() => {
+    if (!user || !id) return;
+    return listenToUserNotes(user.uid, (notes) => {
+      const hit = notes.find((n) => n.source_job_id === id);
+      setLinkedNoteId(hit?.id || null);
+    });
+  }, [user, id]);
 
   useEffect(() => {
     if (!job || job.status !== "done") return;
@@ -126,6 +137,7 @@ export default function JobPage() {
                             job.id,
                             t.tags
                           );
+                          setLinkedNoteId(noteId);
                           router.push(`/notes/${noteId}`);
                         } finally {
                           setBusy(false);
@@ -187,6 +199,7 @@ export default function JobPage() {
                     job.id,
                     ["會議", ...(meeting?.tags || [])]
                   );
+                  setLinkedNoteId(noteId);
                   router.push(`/notes/${noteId}`);
                 } catch (e) {
                   alert(e instanceof Error ? e.message : "會議整理失敗");
@@ -210,6 +223,7 @@ export default function JobPage() {
                     plain,
                     job.id
                   );
+                  setLinkedNoteId(noteId);
                   router.push(`/notes/${noteId}`);
                 } finally {
                   setBusy(false);
@@ -221,6 +235,15 @@ export default function JobPage() {
           </div>
         )}
       </div>
+
+      <ContinueChips
+        className="tx-continue"
+        chips={jobContinueChips({
+          jobId: job.id,
+          noteId: linkedNoteId,
+          title: typeof title === "string" ? title : undefined,
+        })}
+      />
 
       {job.status === "error" && (
         <div className="card tx-alert" style={{ color: "var(--danger)" }}>
