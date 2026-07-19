@@ -1,37 +1,74 @@
 /**
- * Deep Research orchestration — mirrors industry pattern:
- * Plan → multi-query grounded search → synthesize cited report
- * (OpenAI / Gemini Deep Research style, using Vertex + Google Search grounding)
+ * Deep Research agent — Vertex Gemini 3.x + Google Search grounding.
+ *
+ * Agentic loop (industry Deep Research pattern):
+ *   Clarify → Plan → Hybrid Hunt (web + notes) → Analyze/Retry → Report
  */
 
 import { vertexGenerateContent, type VertexGroundingSource } from "@/lib/vertex";
+
+export type NoteSnippet = {
+  id: string;
+  title: string;
+  excerpt: string;
+  updatedAt?: string;
+};
 
 export type ResearchPlan = {
   title: string;
   angle: string;
   questions: string[];
+  keywords: string[];
+};
+
+export type CitationSource = {
+  /** Footnote index starting at 1 */
+  index: number;
+  kind: "web" | "note";
+  title: string;
+  uri: string;
+  noteId?: string;
 };
 
 export type ResearchFinding = {
   question: string;
   summary: string;
-  sources: VertexGroundingSource[];
+  sources: CitationSource[];
   searchQueries: string[];
+  retries: number;
+  noteHits: NoteSnippet[];
+  adequate: boolean;
 };
 
 export type ResearchReport = {
   title: string;
+  summary: string;
   markdown: string;
   plan: ResearchPlan;
   findings: ResearchFinding[];
-  sources: VertexGroundingSource[];
+  sources: CitationSource[];
+  webSources: CitationSource[];
+  noteSources: CitationSource[];
   searchQueries: string[];
 };
 
+export type ClarifyResult = {
+  clear: boolean;
+  clarifyingQuestions: string[];
+  assumedIntent: string;
+};
+
 export type ResearchProgressEvent =
-  | { type: "phase"; phase: "plan" | "gather" | "synthesize"; detail: string }
+  | { type: "log"; message: string; level?: "info" | "ok" | "warn" | "retry" }
+  | {
+      type: "phase";
+      phase: "clarify" | "plan" | "hunt" | "analyze" | "report";
+      detail: string;
+    }
+  | { type: "clarify"; questions: string[]; assumedIntent: string }
+  | { type: "plan"; plan: ResearchPlan }
   | { type: "question"; index: number; total: number; question: string }
-  | { type: "sources"; count: number }
+  | { type: "sources"; web: number; notes: number }
   | { type: "done"; report: ResearchReport }
   | { type: "error"; message: string };
 
@@ -55,23 +92,96 @@ function parseJsonLoose<T>(text: string): T | null {
   }
 }
 
-export async function buildResearchPlan(
-  topic: string,
-  opts?: { model?: string; context?: string }
-): Promise<ResearchPlan> {
-  const res = await vertexGenerateContent(
-    `研究主題：${topic}
-${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 4000)}` : ""}
+function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 4): NoteSnippet[] {
+  if (!notes.length) return [];
+  const tokens = query
+    .toLowerCase()
+    .split(/[\s,，、/|]+/)
+    .filter((t) => t.length >= 2);
+  if (!tokens.length) return notes.slice(0, limit);
 
-請輸出 JSON（不要 markdown 解釋）：
+  const scored = notes
+    .map((n) => {
+      const hay = `${n.title}\n${n.excerpt}`.toLowerCase();
+      let score = 0;
+      for (const t of tokens) {
+        if (hay.includes(t)) score += t.length >= 4 ? 3 : 1;
+      }
+      if (n.title.toLowerCase().includes(tokens[0])) score += 4;
+      return { n, score };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length) return scored.slice(0, limit).map((x) => x.n);
+  return notes.slice(0, Math.min(2, limit));
+}
+
+function formatNoteBlock(notes: NoteSnippet[]): string {
+  if (!notes.length) return "（本次無相關個人筆記）";
+  return notes
+    .map(
+      (n, i) =>
+        `[筆記${i + 1}] 標題：${n.title}\n路徑：/notes/${n.id}\n摘要：\n${n.excerpt.slice(0, 900)}`
+    )
+    .join("\n\n---\n\n");
+}
+
+export async function clarifyTopic(
+  topic: string,
+  opts?: { model?: string; context?: string; answers?: string }
+): Promise<ClarifyResult> {
+  const res = await vertexGenerateContent(
+    `使用者研究主題：${topic}
+${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 3000)}` : ""}
+${opts?.answers ? `\n使用者對先前澄清問題的回答：\n${opts.answers.slice(0, 2000)}` : ""}
+
+判斷主題是否夠清楚可開始深度研究。輸出 JSON：
 {
-  "title": "報告標題（繁中）",
-  "angle": "研究切入角度一句話",
-  "questions": ["子問題1", "子問題2", "...共 4 到 6 個可獨立上網查證的子問題"]
+  "clear": true/false,
+  "clarifyingQuestions": ["若不清楚，最多 3 個短問句"],
+  "assumedIntent": "若 clear=true，用一句話重述確定的研究意圖；否則寫目前猜測"
 }`,
     {
       system:
-        "你是資深研究分析師。把使用者主題拆成可驗證的子問題，涵蓋背景、現況、比較、風險、結論。只用繁體中文。只輸出 JSON。",
+        "你是研究規劃顧問。主題若缺少範圍（產業/技術/投資）、時間或受眾，就設 clear=false 並反問。若使用者已回答澄清問題，通常可設 clear=true。只用繁體中文。只輸出 JSON。",
+      temperature: 0.2,
+      maxOutputTokens: 1024,
+      model: opts?.model,
+      grounding: false,
+    }
+  );
+
+  const parsed = parseJsonLoose<ClarifyResult>(res.text);
+  if (parsed) {
+    return {
+      clear: !!parsed.clear,
+      clarifyingQuestions: (parsed.clarifyingQuestions || []).map(String).filter(Boolean).slice(0, 3),
+      assumedIntent: String(parsed.assumedIntent || topic).slice(0, 200),
+    };
+  }
+  return { clear: true, clarifyingQuestions: [], assumedIntent: topic };
+}
+
+export async function buildResearchPlan(
+  topic: string,
+  opts?: { model?: string; context?: string; intent?: string }
+): Promise<ResearchPlan> {
+  const res = await vertexGenerateContent(
+    `研究主題：${topic}
+確定意圖：${opts?.intent || topic}
+${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 4000)}` : ""}
+
+請輸出 JSON：
+{
+  "title": "報告標題（繁中）",
+  "angle": "研究切入角度一句話",
+  "questions": ["子問題1", "...共 5 到 7 個可獨立查證的子問題"],
+  "keywords": ["搜尋關鍵字組合1", "...共 6 到 10 組，可含英文專有名詞"]
+}`,
+    {
+      system:
+        "你是資深研究分析師。把主題拆成可驗證子問題與搜尋關鍵字，涵蓋背景、現況、比較、數據、風險、結論。只用繁體中文。只輸出 JSON。",
       temperature: 0.3,
       maxOutputTokens: 2048,
       model: opts?.model,
@@ -84,11 +194,11 @@ ${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 4000)}` : ""}
     return {
       title: parsed.title || topic.slice(0, 40),
       angle: parsed.angle || "",
-      questions: parsed.questions.map(String).filter(Boolean).slice(0, 6),
+      questions: parsed.questions.map(String).filter(Boolean).slice(0, 7),
+      keywords: (parsed.keywords || []).map(String).filter(Boolean).slice(0, 10),
     };
   }
 
-  // Fallback plan
   return {
     title: topic.slice(0, 60) || "研究報告",
     angle: "全面盤點現況、關鍵論點與可執行建議",
@@ -99,23 +209,88 @@ ${opts?.context ? `\n補充脈絡：\n${opts.context.slice(0, 4000)}` : ""}
       `${topic}：風險、爭議與限制`,
       `${topic}：對實務的建議`,
     ],
+    keywords: [topic, `${topic} 趨勢`, `${topic} 案例`, `${topic} 風險`],
   };
 }
 
-export async function gatherOnQuestion(
-  topic: string,
+async function evaluateFinding(
   question: string,
+  summary: string,
+  webCount: number,
+  noteCount: number,
   opts?: { model?: string }
-): Promise<ResearchFinding> {
+): Promise<{ adequate: boolean; reason: string; retryQuery?: string }> {
   const res = await vertexGenerateContent(
-    `總主題：${topic}
+    `子問題：${question}
+網路來源數：${webCount}
+筆記命中數：${noteCount}
+調查摘要：
+${summary.slice(0, 2500)}
 
-請針對以下子問題做「有來源」的調查，用繁體中文寫 3～6 點精要發現（每點可附具體事實／數據／觀點）。不要寫完整報告。
-
-子問題：${question}`,
+判斷資料是否足夠寫進最終報告。輸出 JSON：
+{
+  "adequate": true/false,
+  "reason": "一句話原因",
+  "retryQuery": "若 inadequate，給一組更好的搜尋關鍵字（可中英混合）；否則空字串"
+}`,
     {
       system:
-        "你是調查研究員。必須善用網路搜尋取得最新可驗證資訊。條列重點，標明不確定之處。繁體中文。",
+        "你是研究品質審核員。若摘要空洞、過時、離題，或幾乎無來源，設 adequate=false。繁體中文。只輸出 JSON。",
+      temperature: 0.1,
+      maxOutputTokens: 512,
+      model: opts?.model,
+      grounding: false,
+    }
+  );
+  const parsed = parseJsonLoose<{
+    adequate?: boolean;
+    reason?: string;
+    retryQuery?: string;
+  }>(res.text);
+  if (parsed) {
+    return {
+      adequate: parsed.adequate !== false,
+      reason: String(parsed.reason || ""),
+      retryQuery: (parsed.retryQuery || "").trim() || undefined,
+    };
+  }
+  // Heuristic fallback
+  const adequate = summary.length > 120 && (webCount > 0 || noteCount > 0);
+  return {
+    adequate,
+    reason: adequate ? "啟發式通過" : "摘要過短或無來源",
+    retryQuery: adequate ? undefined : `${question} 最新 2025 2026`,
+  };
+}
+
+async function huntOnce(
+  topic: string,
+  question: string,
+  searchHint: string,
+  noteHits: NoteSnippet[],
+  opts?: { model?: string }
+): Promise<{
+  summary: string;
+  webSources: VertexGroundingSource[];
+  searchQueries: string[];
+}> {
+  const res = await vertexGenerateContent(
+    `總主題：${topic}
+子問題：${question}
+建議搜尋方向：${searchHint}
+
+—— 使用者個人筆記（內部知識庫，可引用）——
+${formatNoteBlock(noteHits)}
+
+請針對子問題做「有來源」的調查，用繁體中文寫 4～8 點精要發現。
+規則：
+- 優先引用可驗證的網路事實／數據
+- 若筆記觀點相關，明確寫「與你的筆記《標題》一致／補充／不同」並指出差異
+- 標明不確定之處
+- 不要寫完整長報告`,
+    {
+      system:
+        "你是混合研究調查員：同時運用 Google 搜尋與使用者筆記。條列重點，繁體中文。",
       temperature: 0.35,
       maxOutputTokens: 4096,
       model: opts?.model,
@@ -124,21 +299,164 @@ export async function gatherOnQuestion(
   );
 
   return {
-    question,
     summary: res.text.trim(),
-    sources: res.sources || [],
+    webSources: res.sources || [],
     searchQueries: res.searchQueries || [],
   };
 }
 
-function mergeSources(findings: ResearchFinding[]): VertexGroundingSource[] {
+function toCitations(
+  web: VertexGroundingSource[],
+  notes: NoteSnippet[],
+  startIndex: number
+): { citations: CitationSource[]; nextIndex: number } {
+  const citations: CitationSource[] = [];
+  let idx = startIndex;
   const seen = new Set<string>();
-  const out: VertexGroundingSource[] = [];
+
+  for (const s of web) {
+    if (!s.uri || seen.has(s.uri)) continue;
+    seen.add(s.uri);
+    citations.push({
+      index: idx++,
+      kind: "web",
+      title: s.title || s.uri,
+      uri: s.uri,
+    });
+  }
+  for (const n of notes) {
+    const key = `note:${n.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    citations.push({
+      index: idx++,
+      kind: "note",
+      title: n.title,
+      uri: `/notes/${n.id}`,
+      noteId: n.id,
+    });
+  }
+  return { citations, nextIndex: idx };
+}
+
+export async function gatherOnQuestion(
+  topic: string,
+  question: string,
+  opts?: {
+    model?: string;
+    libraryNotes?: NoteSnippet[];
+    keywordPool?: string[];
+    citeStart?: number;
+    emit?: (e: ResearchProgressEvent) => void;
+  }
+): Promise<ResearchFinding> {
+  const emit = opts?.emit;
+  const library = opts?.libraryNotes || [];
+  const noteHits = pickNotesForQuery(library, question, 4);
+  const hint =
+    opts?.keywordPool?.slice(0, 3).join(" / ") || question;
+
+  if (noteHits.length) {
+    emit?.({
+      type: "log",
+      level: "ok",
+      message: `整合筆記庫 ${noteHits.length} 則：${noteHits.map((n) => n.title).join("、")}`,
+    });
+  } else {
+    emit?.({ type: "log", message: "筆記庫無直接命中，以網路搜尋為主" });
+  }
+
+  emit?.({
+    type: "log",
+    message: `正在搜尋「${hint.slice(0, 60)}」…`,
+  });
+
+  let retries = 0;
+  let result = await huntOnce(topic, question, hint, noteHits, { model: opts?.model });
+  let evalResult = await evaluateFinding(
+    question,
+    result.summary,
+    result.webSources.length,
+    noteHits.length,
+    { model: opts?.model }
+  );
+
+  if (!evalResult.adequate && evalResult.retryQuery) {
+    retries = 1;
+    emit?.({
+      type: "log",
+      level: "retry",
+      message: `資料不足（${evalResult.reason}），切換關鍵字再搜：「${evalResult.retryQuery}」`,
+    });
+    const retryNotes = pickNotesForQuery(
+      library,
+      `${question} ${evalResult.retryQuery}`,
+      4
+    );
+    const retry = await huntOnce(
+      topic,
+      question,
+      evalResult.retryQuery,
+      retryNotes.length ? retryNotes : noteHits,
+      { model: opts?.model }
+    );
+    // Prefer richer retry
+    if (
+      retry.summary.length >= result.summary.length * 0.8 ||
+      retry.webSources.length > result.webSources.length
+    ) {
+      result = retry;
+      if (retryNotes.length) noteHits.splice(0, noteHits.length, ...retryNotes);
+    }
+    evalResult = await evaluateFinding(
+      question,
+      result.summary,
+      result.webSources.length,
+      noteHits.length,
+      { model: opts?.model }
+    );
+    emit?.({
+      type: "log",
+      level: evalResult.adequate ? "ok" : "warn",
+      message: evalResult.adequate
+        ? "重試後資料足夠，繼續下一題"
+        : `仍偏弱（${evalResult.reason}），先保留現有發現`,
+    });
+  } else {
+    emit?.({
+      type: "log",
+      level: "ok",
+      message: evalResult.reason || "本子問題資料足夠",
+    });
+  }
+
+  const { citations } = toCitations(
+    result.webSources,
+    noteHits,
+    opts?.citeStart ?? 1
+  );
+
+  return {
+    question,
+    summary: result.summary,
+    sources: citations,
+    searchQueries: result.searchQueries,
+    retries,
+    noteHits: [...noteHits],
+    adequate: evalResult.adequate,
+  };
+}
+
+function mergeAllSources(findings: ResearchFinding[]): CitationSource[] {
+  const seen = new Set<string>();
+  const out: CitationSource[] = [];
+  let idx = 1;
   for (const f of findings) {
     for (const s of f.sources) {
-      if (!s.uri || seen.has(s.uri)) continue;
-      seen.add(s.uri);
-      out.push(s);
+      const key = s.kind === "note" ? `note:${s.noteId}` : s.uri;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...s, index: idx++ });
     }
   }
   return out;
@@ -148,47 +466,52 @@ export async function synthesizeReport(
   topic: string,
   plan: ResearchPlan,
   findings: ResearchFinding[],
-  opts?: { model?: string; context?: string }
-): Promise<string> {
-  const sourceList = mergeSources(findings);
+  sources: CitationSource[],
+  opts?: { model?: string; context?: string; intent?: string }
+): Promise<{ markdown: string; summary: string }> {
   const findingBlock = findings
     .map(
       (f, i) =>
-        `### 子問題 ${i + 1}：${f.question}\n${f.summary}\n來源：${
-          f.sources.map((s) => s.title || s.uri).join("；") || "（無）"
+        `### 子問題 ${i + 1}：${f.question}\n重試次數：${f.retries}\n${f.summary}\n引用：${
+          f.sources.map((s) => `[${s.index}] ${s.title}`).join("；") || "（無）"
         }`
     )
     .join("\n\n");
 
-  const citeBlock = sourceList
-    .map((s, i) => `[${i + 1}] ${s.title} — ${s.uri}`)
+  const citeBlock = sources
+    .map((s) => {
+      const tag = s.kind === "note" ? "筆記" : "網路";
+      return `[${s.index}] (${tag}) ${s.title} — ${s.uri}`;
+    })
     .join("\n");
 
   const res = await vertexGenerateContent(
     `總主題：${topic}
+確定意圖：${opts?.intent || topic}
 報告標題：${plan.title}
 切入角度：${plan.angle}
 ${opts?.context ? `\n使用者脈絡：\n${opts.context.slice(0, 3000)}\n` : ""}
 
-以下是各子問題的調查筆記：
+調查筆記：
 ${findingBlock}
 
-可用引用清單：
-${citeBlock || "（本次搜尋未回傳明確網址，請依內容標註「待查證」）"}
+引用清單（報告中必須用 [n] 標註，網路與筆記皆可引用）：
+${citeBlock || "（無明確網址，請標「待查證」）"}
 
-請寫一份完整 Markdown 研究報告（繁體中文），結構建議：
-1. 執行摘要（5～8 句）
+請寫完整 Markdown 研究報告（繁體中文），結構：
+1. 執行摘要（5～8 句，獨立成段）
 2. 背景與範圍
-3. 主要發現（分節，必要處用 [n] 引用）
-4. 比較／對照（若適用）
-5. 風險與限制
-6. 結論與可執行建議
-7. 參考來源（重列清單）
+3. 主要發現（分節，關鍵陳述加 [n]）
+4. 與你的筆記的對話（若有筆記來源：指出一致／補充／衝突）
+5. 比較／對照（若適用）
+6. 風險與限制
+7. 結論與可執行建議
+8. 參考來源（重列清單，區分【網路】與【筆記】）
 
-要求：完整、條理清楚、避免空話；有衝突證據時並列說明。`,
+要求：長文、條理清楚；有衝突證據時並列；筆記引用用 [n] 指向 /notes/…`,
     {
       system:
-        "你是首席研究分析師。輸出可直接給決策者閱讀的長文報告。繁體中文 Markdown。不要輸出 JSON。",
+        "你是首席研究分析師。產出可給決策者閱讀的長文，並嚴格使用提供的 [n] 腳註。繁體中文 Markdown。不要輸出 JSON。",
       temperature: 0.4,
       maxOutputTokens: 8192,
       model: opts?.model,
@@ -196,61 +519,202 @@ ${citeBlock || "（本次搜尋未回傳明確網址，請依內容標註「待�
     }
   );
 
-  return res.text.trim();
+  const markdown = res.text.trim();
+
+  const sumRes = await vertexGenerateContent(
+    `從以下研究報告抽出 4～6 句「卡片摘要」（繁體中文，不要標題、不要 bullet）：\n\n${markdown.slice(0, 6000)}`,
+    {
+      system: "只輸出摘要正文。",
+      temperature: 0.2,
+      maxOutputTokens: 512,
+      model: opts?.model,
+      grounding: false,
+    }
+  );
+
+  return {
+    markdown,
+    summary: sumRes.text.trim() || markdown.slice(0, 280),
+  };
 }
 
-/** Full pipeline (server-side). */
+export type RunDeepResearchOpts = {
+  model?: string;
+  context?: string;
+  /** Pre-ranked personal notes from client */
+  libraryNotes?: NoteSnippet[];
+  /** Skip clarify phase (user already answered or chose skip) */
+  skipClarify?: boolean;
+  /** Answers to clarifying questions */
+  clarifyAnswers?: string;
+  maxQuestions?: number;
+  onProgress?: (e: ResearchProgressEvent) => void;
+};
+
+/**
+ * Full agent pipeline. May emit `clarify` and return early (report=null via throw path).
+ * When clarification needed, throws ClarifyNeededError.
+ */
+export class ClarifyNeededError extends Error {
+  questions: string[];
+  assumedIntent: string;
+  constructor(questions: string[], assumedIntent: string) {
+    super("NEED_CLARIFY");
+    this.name = "ClarifyNeededError";
+    this.questions = questions;
+    this.assumedIntent = assumedIntent;
+  }
+}
+
 export async function runDeepResearch(
   topic: string,
-  opts?: {
-    model?: string;
-    context?: string;
-    onProgress?: (e: ResearchProgressEvent) => void;
-    maxQuestions?: number;
-  }
+  opts?: RunDeepResearchOpts
 ): Promise<ResearchReport> {
   const emit = opts?.onProgress;
   const model = opts?.model;
+  const libraryNotes = opts?.libraryNotes || [];
 
-  emit?.({ type: "phase", phase: "plan", detail: "擬定研究計畫與子問題…" });
-  const plan = await buildResearchPlan(topic, { model, context: opts?.context });
-  const questions = plan.questions.slice(0, opts?.maxQuestions ?? 5);
+  // ── 1. Clarify ──────────────────────────────────────────
+  emit?.({ type: "phase", phase: "clarify", detail: "釐清研究意圖…" });
+  emit?.({ type: "log", message: "正在判斷主題是否夠清楚…" });
 
+  let intent = topic;
+  if (!opts?.skipClarify) {
+    const clarified = await clarifyTopic(topic, {
+      model,
+      context: opts?.context,
+      answers: opts?.clarifyAnswers,
+    });
+    intent = clarified.assumedIntent || topic;
+
+    if (!clarified.clear && clarified.clarifyingQuestions.length && !opts?.clarifyAnswers) {
+      emit?.({
+        type: "clarify",
+        questions: clarified.clarifyingQuestions,
+        assumedIntent: clarified.assumedIntent,
+      });
+      emit?.({
+        type: "log",
+        level: "warn",
+        message: "主題不夠清楚，需要你補充幾點再繼續",
+      });
+      throw new ClarifyNeededError(clarified.clarifyingQuestions, clarified.assumedIntent);
+    }
+    emit?.({
+      type: "log",
+      level: "ok",
+      message: `意圖確認：${intent}`,
+    });
+  } else if (opts?.clarifyAnswers) {
+    intent = `${topic}（補充：${opts.clarifyAnswers.slice(0, 300)}）`;
+    emit?.({ type: "log", level: "ok", message: `已套用你的補充說明` });
+  }
+
+  // ── 2. Plan ─────────────────────────────────────────────
+  emit?.({ type: "phase", phase: "plan", detail: "擬定研究計畫書…" });
+  emit?.({ type: "log", message: "正在規劃研究路徑與關鍵字組合…" });
+  const plan = await buildResearchPlan(topic, {
+    model,
+    context: opts?.context,
+    intent,
+  });
+  const questions = plan.questions.slice(0, opts?.maxQuestions ?? 6);
+  emit?.({ type: "plan", plan: { ...plan, questions } });
   emit?.({
-    type: "phase",
-    phase: "gather",
-    detail: `開始調查 ${questions.length} 個子問題…`,
+    type: "log",
+    level: "ok",
+    message: `計畫完成：${questions.length} 個子問題、${plan.keywords.length} 組關鍵字`,
   });
 
-  const findings: ResearchFinding[] = [];
-  for (let i = 0; i < questions.length; i++) {
-    const q = questions[i];
-    emit?.({ type: "question", index: i + 1, total: questions.length, question: q });
-    const finding = await gatherOnQuestion(topic, q, { model });
-    findings.push(finding);
+  // ── 3–4. Hunt + Analyze (with retry) ────────────────────
+  emit?.({
+    type: "phase",
+    phase: "hunt",
+    detail: `混合搜尋：網路 + ${libraryNotes.length} 則筆記庫`,
+  });
+  if (libraryNotes.length) {
     emit?.({
-      type: "sources",
-      count: mergeSources(findings).length,
+      type: "log",
+      message: `已載入筆記庫 ${libraryNotes.length} 則供內部檢索`,
     });
   }
 
-  emit?.({ type: "phase", phase: "synthesize", detail: "彙整為完整引用報告…" });
-  const markdown = await synthesizeReport(topic, plan, findings, {
+  const findings: ResearchFinding[] = [];
+  let citeCursor = 1;
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    emit?.({ type: "question", index: i + 1, total: questions.length, question: q });
+    emit?.({
+      type: "phase",
+      phase: "analyze",
+      detail: `閱讀與萃取（${i + 1}/${questions.length}）`,
+    });
+
+    const finding = await gatherOnQuestion(topic, q, {
+      model,
+      libraryNotes,
+      keywordPool: plan.keywords,
+      citeStart: citeCursor,
+      emit,
+    });
+    citeCursor += finding.sources.length;
+    findings.push(finding);
+
+    const all = mergeAllSources(findings);
+    emit?.({
+      type: "sources",
+      web: all.filter((s) => s.kind === "web").length,
+      notes: all.filter((s) => s.kind === "note").length,
+    });
+    emit?.({
+      type: "log",
+      level: "ok",
+      message: `已完成子問題 ${i + 1}/${questions.length}${
+        finding.retries ? `（含 ${finding.retries} 次自我修正）` : ""
+      }`,
+    });
+  }
+
+  // ── 5. Report ───────────────────────────────────────────
+  emit?.({ type: "phase", phase: "report", detail: "撰寫完整引用報告…" });
+  emit?.({ type: "log", message: "正在整合發現、對照筆記並加上腳註…" });
+
+  const sources = mergeAllSources(findings);
+  // Re-index findings to match merged list
+  const uriToIndex = new Map(sources.map((s) => [s.kind === "note" ? `note:${s.noteId}` : s.uri, s.index]));
+  for (const f of findings) {
+    f.sources = f.sources.map((s) => ({
+      ...s,
+      index: uriToIndex.get(s.kind === "note" ? `note:${s.noteId}` : s.uri) || s.index,
+    }));
+  }
+
+  const { markdown, summary } = await synthesizeReport(topic, plan, findings, sources, {
     model,
     context: opts?.context,
+    intent,
   });
 
-  const sources = mergeSources(findings);
-  const searchQueries = Array.from(
-    new Set(findings.flatMap((f) => f.searchQueries))
-  );
+  const webSources = sources.filter((s) => s.kind === "web");
+  const noteSources = sources.filter((s) => s.kind === "note");
+  const searchQueries = Array.from(new Set(findings.flatMap((f) => f.searchQueries)));
+
+  emit?.({
+    type: "log",
+    level: "ok",
+    message: `報告完成：${webSources.length} 個網路來源、${noteSources.length} 則筆記引用`,
+  });
 
   const report: ResearchReport = {
     title: plan.title,
+    summary,
     markdown,
     plan: { ...plan, questions },
     findings,
     sources,
+    webSources,
+    noteSources,
     searchQueries,
   };
   emit?.({ type: "done", report });
