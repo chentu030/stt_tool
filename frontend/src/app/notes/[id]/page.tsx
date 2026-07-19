@@ -38,7 +38,8 @@ import RichNoteEditor from "@/components/RichNoteEditor";
 import ShareDialog from "@/components/ShareDialog";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
-import NoteAside, { type NoteAsideAiHandle } from "@/components/notes/NoteAside";
+import NoteAside from "@/components/notes/NoteAside";
+import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NoteSplitPane from "@/components/notes/NoteSplitPane";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 import {
@@ -135,7 +136,7 @@ function NotePageInner() {
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
   const [asideOpen, setAsideOpen] = useState(true);
-  const [asideTab, setAsideTab] = useState<"outline" | "ai" | "info">("outline");
+  const [asideTab, setAsideTab] = useState<"outline" | "info">("outline");
   const [asideWidth, setAsideWidth] = useState(() => {
     if (typeof window === "undefined") return 300;
     try {
@@ -169,7 +170,6 @@ function NotePageInner() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRestored = useRef<string | null>(null);
-  const asideAiRef = useRef<NoteAsideAiHandle | null>(null);
   const insertMdRef = useRef<((md: string) => void) | null>(null);
   const latest = useRef({
     title: "",
@@ -509,8 +509,6 @@ function NotePageInner() {
 
     setAiBusy(true);
     setAiError("");
-    setAsideTab("ai");
-    setAsideOpen(true);
     try {
       const pack = buildNoteAiContext({
         title,
@@ -784,10 +782,8 @@ function NotePageInner() {
       }
       if (mod && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        setAsideOpen(true);
-        setAsideTab("ai");
         setFocusMode(false);
-        setTimeout(() => asideAiRef.current?.focusChat(), 50);
+        openGlobalAiRail();
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
@@ -1468,22 +1464,9 @@ function NotePageInner() {
               noteTitle={title}
               aiContext={aiPack.context}
               insertMdRef={insertMdRef}
-              onOpenAiAssistant={(opts) => {
-                setAsideOpen(true);
-                setAsideTab("ai");
+              onOpenAiAssistant={() => {
                 setFocusMode(false);
-                if (opts?.selection) {
-                  setTimeout(
-                    () =>
-                      asideAiRef.current?.seedSelection(
-                        opts.selection!,
-                        opts.question
-                      ),
-                    50
-                  );
-                } else if (opts?.focusChat) {
-                  setTimeout(() => asideAiRef.current?.focusChat(), 50);
-                }
+                openGlobalAiRail();
               }}
               onDeepResearchSelection={(selection) => {
                 router.push(
@@ -1592,44 +1575,12 @@ function NotePageInner() {
         </div>
 
         <NoteAside
-          ref={asideAiRef}
-          noteId={note.id}
           open={asideOpen && !focusMode}
           tab={asideTab}
           onTab={setAsideTab}
-          title={title}
-          body={body}
-          aiContext={aiPack.context}
-          aiChip={aiPack.chip}
           stats={stats}
           outline={outline}
           related={related}
-          aiBusy={aiBusy}
-          onAiAction={(a, prompt) => { void runAi(a, prompt); }}
-          onInsertAtCursor={(md) => {
-            if (insertMdRef.current) {
-              insertMdRef.current(md);
-              toast("已插入游標處");
-            } else {
-              setBody((b) => `${b.trim()}\n\n${md}`);
-              markDirty();
-              toast("已附加到筆記");
-            }
-          }}
-          onInsertAppend={(md) => {
-            setBody((b) => b + md);
-            markDirty();
-            toast("已附加文末");
-          }}
-          onDeepResearch={() =>
-            router.push(
-              buildResearchUrl({
-                from: note.id,
-                topic: title || undefined,
-                returnTo: true,
-              })
-            )
-          }
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
           slidePreview={
