@@ -87,8 +87,14 @@ type SlashItem = {
   id: string;
   label: string;
   hint: string;
-  run: (editor: Editor) => void;
+  run: (editor: Editor, arg?: string) => void;
 };
+
+type SlashState = { query: string; arg: string; index: number };
+
+/** Text after `/` up to cursor — command may include trailing args (Notion-style). */
+const SLASH_TAIL_RE = /(?:^|\n)\/([^\n]*)$/;
+const SLASH_LOOKBACK = 200;
 
 const SLASH_ALIASES: Record<string, string[]> = {
   text: ["p"],
@@ -127,10 +133,32 @@ const SLASH_ALIASES: Record<string, string[]> = {
   callout: ["callout"],
   toggle: ["toggle"],
   page: ["page"],
+  subpage: ["page"],
+  child: ["page"],
+  file: ["file"],
+  upload: ["file", "image", "pdf", "video", "audio", "ppt"],
+  youtube: ["youtube"],
+  yt: ["youtube"],
+  image: ["image"],
+  img: ["image"],
+  photo: ["image"],
+  pdf: ["pdf"],
+  video: ["video"],
+  audio: ["audio"],
+  ppt: ["ppt"],
+  drive: ["drive"],
+  imglink: ["imglink"],
   turn: ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote", "turn-callout"],
   "turn into": ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote"],
   ...AI_SLASH_ALIASES,
 };
+
+function parseSlashTail(raw: string): { query: string; arg: string } {
+  const t = raw.replace(/\u00a0/g, " ");
+  const sp = t.search(/\s/);
+  if (sp < 0) return { query: t, arg: "" };
+  return { query: t.slice(0, sp), arg: t.slice(sp + 1).replace(/^\s+/, "") };
+}
 
 function filterSlash(items: SlashItem[], q: string) {
   const s = q.toLowerCase().trim();
@@ -146,6 +174,29 @@ function filterSlash(items: SlashItem[], q: string) {
       i.hint.toLowerCase().includes(s) ||
       i.id.toLowerCase().includes(s) ||
       i.id.toLowerCase().startsWith(s)
+  );
+}
+
+/** Prefer exact id / alias, then prefix — so `/page` + Enter hits 子頁面. */
+function rankSlash(items: SlashItem[], q: string): SlashItem[] {
+  const s = q.toLowerCase().trim();
+  const filtered = filterSlash(items, s);
+  if (!s) return filtered;
+  const score = (i: SlashItem): number => {
+    const id = i.id.toLowerCase();
+    if (id === s) return 1000;
+    const exactAlias = SLASH_ALIASES[s];
+    if (exactAlias?.includes(i.id)) return 950;
+    if (id.startsWith(s)) return 800;
+    for (const [key, ids] of Object.entries(SLASH_ALIASES)) {
+      if (key.startsWith(s) && ids.includes(i.id)) return 700;
+    }
+    if (i.label.toLowerCase().startsWith(s)) return 600;
+    if (id.includes(s)) return 400;
+    return 100;
+  };
+  return [...filtered].sort(
+    (a, b) => score(b) - score(a) || a.label.localeCompare(b.label, "zh-Hant")
   );
 }
 
@@ -178,7 +229,7 @@ export default function RichNoteEditor({
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
   const slashEnabled = prefsCtx?.prefs.slashMenu !== false;
   const skip = useRef(false);
-  const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
+  const [slash, setSlash] = useState<SlashState | null>(null);
   const [wiki, setWiki] = useState<{ query: string; index: number } | null>(null);
   const [atMenu, setAtMenu] = useState<{ query: string; index: number } | null>(null);
   const slashRef = useRef(slash);
@@ -187,7 +238,7 @@ export default function RichNoteEditor({
   wikiRef.current = wiki;
   const atRef = useRef(atMenu);
   atRef.current = atMenu;
-  const applySlashRef = useRef<(item: SlashItem) => void>(() => {});
+  const applySlashRef = useRef<(item: SlashItem, arg?: string) => void>(() => {});
   const applyWikiRef = useRef<(title: string) => void>(() => {});
   const applyAtRef = useRef<(item: AtItem) => void>(() => {});
   const wikiNotesRef = useRef(wikiNotes);
@@ -442,31 +493,36 @@ export default function RichNoteEditor({
   const createAiPhotoRef = useRef(createAiPhoto);
   createAiPhotoRef.current = createAiPhoto;
 
-  const insertEmbedFromPrompt = useCallback((hint: string) => {
-    void (async () => {
-      const url = await promptInsertUrl(hint);
-      if (!url) return;
-      const emb = resolveEmbedUrl(url);
-      if (!emb) {
-        setUploadError("無法辨識此連結");
-        return;
-      }
-      editorRef.current?.chain().focus().setNoteEmbed({
-        src: emb.src,
-        kind: emb.kind,
-        title: emb.title,
-        original: emb.original,
-        frameable: emb.frameable,
-      }).run();
-      if (emb.kind === "youtube") {
-        onTranscribableMediaRef.current?.({
-          kind: "youtube",
-          youtubeUrl: emb.original,
-          label: emb.title || "YouTube",
-        });
-      }
-    })();
+  const insertEmbedUrl = useCallback((url: string) => {
+    const emb = resolveEmbedUrl(url);
+    if (!emb) {
+      setUploadError("無法辨識此連結");
+      return false;
+    }
+    editorRef.current?.chain().focus().setNoteEmbed({
+      src: emb.src,
+      kind: emb.kind,
+      title: emb.title,
+      original: emb.original,
+      frameable: emb.frameable,
+    }).run();
+    if (emb.kind === "youtube") {
+      onTranscribableMediaRef.current?.({
+        kind: "youtube",
+        youtubeUrl: emb.original,
+        label: emb.title || "YouTube",
+      });
+    }
+    return true;
   }, []);
+
+  const insertEmbedFromPrompt = useCallback((hint: string, presetUrl?: string) => {
+    void (async () => {
+      const url = (presetUrl || "").trim() || (await promptInsertUrl(hint));
+      if (!url?.trim()) return;
+      insertEmbedUrl(url.trim());
+    })();
+  }, [insertEmbedUrl]);
 
   const onCreateSubpageRef = useRef(onCreateSubpage);
   onCreateSubpageRef.current = onCreateSubpage;
@@ -494,14 +550,12 @@ export default function RichNoteEditor({
       items.push({
         id: "page",
         label: "子頁面",
-        hint: "/page 新增巢狀筆記",
-        run: (e) => {
+        hint: "/page 或 /page 標題 ⏎",
+        run: (e, arg) => {
           void (async () => {
             const create = onCreateSubpageRef.current;
             if (!create) return;
-            const name = await askPrompt("子頁面標題", "未命名子頁");
-            if (name == null) return;
-            const title = name.trim() || "未命名子頁";
+            const title = (arg || "").trim() || "未命名子頁";
             const created = await create(title);
             if (!created) return;
             e.chain().focus().insertContent(`[[${created.title}]]\n`).run();
@@ -536,12 +590,12 @@ export default function RichNoteEditor({
       {
         id: "mathi",
         label: "行內公式",
-        hint: "$μ$ 插在文字中",
-        run: (e) => {
+        hint: "$μ$ 或 /mathi 公式 ⏎",
+        run: (e, arg) => {
           void (async () => {
             const { from, to } = e.state.selection;
             const selected = e.state.doc.textBetween(from, to, "");
-            const f = await askPrompt("行內 LaTeX（插在字與字之間）", selected || "\\mu");
+            const f = (arg || "").trim() || (await askPrompt("行內 LaTeX（插在字與字之間）", selected || "\\mu"));
             if (f) {
               if (from !== to) e.chain().focus().deleteSelection().run();
               e.chain().focus().setMathInline(f).run();
@@ -552,10 +606,10 @@ export default function RichNoteEditor({
       {
         id: "math",
         label: "公式區塊",
-        hint: "$$...$$ 獨立一列",
-        run: (e) => {
+        hint: "$$...$$ 或 /math 公式 ⏎",
+        run: (e, arg) => {
           void (async () => {
-            const f = await askPrompt("區塊 LaTeX", "E = mc^2");
+            const f = (arg || "").trim() || (await askPrompt("區塊 LaTeX", "E = mc^2"));
             if (f) e.chain().focus().setMathBlock(f).run();
           })();
         },
@@ -568,15 +622,17 @@ export default function RichNoteEditor({
       {
         id: "database",
         label: "資料庫",
-        hint: "/database 可篩選／屬性資料庫（與簡易表格不同）",
-        run: (e) => {
+        hint: "/database 或 /database 名稱 ⏎",
+        run: (e, arg) => {
           void (async () => {
             if (!userId) {
               setUploadError("請先登入以建立資料庫");
               return;
             }
             const name =
-              (await askPrompt("資料庫名稱", "任務清單"))?.trim() || "未命名資料庫";
+              (arg || "").trim() ||
+              (await askPrompt("資料庫名稱", "任務清單"))?.trim() ||
+              "未命名資料庫";
             const id = await createDatabase(userId, name, "tasks");
             e.chain().focus().setCadenceDatabase({ databaseId: id, viewId: "v_table" }).run();
           })();
@@ -585,7 +641,7 @@ export default function RichNoteEditor({
       app("library", "知識庫", "/library", "筆記庫"),
       app("journal", "日誌", "/journal", "日記與行事曆"),
       app("graph", "圖譜", "/graph", "關聯圖譜"),
-      { id: "image", label: "圖片", hint: "/image 上傳圖片", run: () => imageRef.current?.click() },
+      { id: "image", label: "圖片", hint: "/image ⏎ 上傳圖片", run: () => imageRef.current?.click() },
       {
         id: "create-photo",
         label: "AI 生成圖片",
@@ -594,14 +650,14 @@ export default function RichNoteEditor({
           void createAiPhotoRef.current();
         },
       },
-      { id: "pdf", label: "PDF 預覽", hint: "/pdf 上傳 PDF", run: () => pdfRef.current?.click() },
+      { id: "pdf", label: "PDF 預覽", hint: "/pdf ⏎ 上傳 PDF", run: () => pdfRef.current?.click() },
       {
         id: "bookmark",
         label: "網頁書籤",
-        hint: "/bookmark 書籤卡片",
-        run: (e) => {
+        hint: "/bookmark 網址 ⏎",
+        run: (e, arg) => {
           void (async () => {
-            const url = await askPrompt("書籤網址", "https://");
+            const url = (arg || "").trim() || (await askPrompt("書籤網址", "https://"));
             if (!url?.trim()) return;
             let title = url.trim();
             try {
@@ -609,7 +665,9 @@ export default function RichNoteEditor({
             } catch {
               /* keep */
             }
-            const custom = await askPrompt("書籤標題", title);
+            const custom = arg?.trim()
+              ? title
+              : await askPrompt("書籤標題", title);
             e.chain()
               .focus()
               .setBookmark({ href: url.trim(), title: (custom || title).trim() })
@@ -617,36 +675,36 @@ export default function RichNoteEditor({
           })();
         },
       },
-      { id: "video", label: "影片檔", hint: "/video 上傳影片", run: () => videoRef.current?.click() },
-      { id: "audio", label: "語音／音訊", hint: "/audio 上傳音訊", run: () => audioRef.current?.click() },
+      { id: "video", label: "影片檔", hint: "/video ⏎ 上傳影片", run: () => videoRef.current?.click() },
+      { id: "audio", label: "語音／音訊", hint: "/audio ⏎ 上傳音訊", run: () => audioRef.current?.click() },
       { id: "code", label: "程式碼", hint: "/code Code block", run: (e) => e.chain().focus().toggleCodeBlock().run() },
-      { id: "file", label: "檔案", hint: "/file 上傳任意檔案", run: () => fileRef.current?.click() },
+      { id: "file", label: "檔案", hint: "/file ⏎ 上傳任意檔案", run: () => fileRef.current?.click() },
       {
         id: "web",
         label: "嵌入網頁",
-        hint: "/embed /web 外部頁面",
-        run: () => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）"),
+        hint: "/embed 網址 ⏎",
+        run: (_e, arg) => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）", arg),
       },
       {
         id: "youtube",
         label: "YouTube",
-        hint: "貼上影片連結",
-        run: () => insertEmbedFromPrompt("YouTube 連結"),
+        hint: "/youtube 連結 ⏎",
+        run: (_e, arg) => insertEmbedFromPrompt("YouTube 連結", arg),
       },
       {
         id: "drive",
         label: "Google Drive",
-        hint: "貼上分享連結",
-        run: () => insertEmbedFromPrompt("Google Drive / Docs 分享連結"),
+        hint: "/drive 分享連結 ⏎",
+        run: (_e, arg) => insertEmbedFromPrompt("Google Drive / Docs 分享連結", arg),
       },
-      { id: "ppt", label: "PPT 預覽", hint: "上傳簡報檔", run: () => pptRef.current?.click() },
+      { id: "ppt", label: "PPT 預覽", hint: "/ppt ⏎ 上傳簡報", run: () => pptRef.current?.click() },
       {
         id: "imglink",
         label: "圖片網址",
-        hint: "用 URL 插入",
-        run: (e) => {
+        hint: "/imglink 網址 ⏎",
+        run: (e, arg) => {
           void (async () => {
-            const url = await askPrompt("圖片網址", "https://");
+            const url = (arg || "").trim() || (await askPrompt("圖片網址", "https://"));
             if (url) e.chain().focus().setImage({ src: url }).run();
           })();
         },
@@ -982,7 +1040,7 @@ export default function RichNoteEditor({
           ) {
             event.preventDefault();
             ed.chain().focus().insertContent("/ai").run();
-            setSlash({ query: "ai", index: 0 });
+            setSlash({ query: "ai", arg: "", index: 0 });
             setWiki(null);
             setAtMenu(null);
             return true;
@@ -1088,23 +1146,29 @@ export default function RichNoteEditor({
         }
         const cur = slashRef.current;
         if (!cur || !ed) return false;
-        const items = filterSlash(buildSlash(ed), cur.query);
+        const items = rankSlash(buildSlash(ed), cur.query);
+        const active = Math.min(cur.index, Math.max(items.length - 1, 0));
         if (event.key === "ArrowDown") {
           event.preventDefault();
-          setSlash({ ...cur, index: (cur.index + 1) % Math.max(items.length, 1) });
+          setSlash({ ...cur, index: (active + 1) % Math.max(items.length, 1) });
           return true;
         }
         if (event.key === "ArrowUp") {
           event.preventDefault();
           setSlash({
             ...cur,
-            index: (cur.index - 1 + items.length) % Math.max(items.length, 1),
+            index: (active - 1 + items.length) % Math.max(items.length, 1),
           });
           return true;
         }
-        if (event.key === "Enter" && items[cur.index]) {
+        if (event.key === "Enter" && items[active]) {
           event.preventDefault();
-          applySlashRef.current(items[cur.index]);
+          applySlashRef.current(items[active], cur.arg);
+          return true;
+        }
+        if (event.key === "Tab" && items[active]) {
+          event.preventDefault();
+          applySlashRef.current(items[active], cur.arg);
           return true;
         }
         if (event.key === "Escape") {
@@ -1117,7 +1181,7 @@ export default function RichNoteEditor({
     },
     onUpdate: ({ editor: ed }) => {
       const text = ed.state.doc.textBetween(
-        Math.max(0, ed.state.selection.from - 60),
+        Math.max(0, ed.state.selection.from - SLASH_LOOKBACK),
         ed.state.selection.from,
         "\n"
       );
@@ -1134,9 +1198,15 @@ export default function RichNoteEditor({
           setSlash(null);
         } else {
           setAtMenu(null);
-          const m = slashEnabled ? text.match(/(?:^|\n)\/([^\s/]*)$/) : null;
-          if (m) setSlash({ query: m[1], index: 0 });
-          else setSlash(null);
+          const m = slashEnabled ? text.match(SLASH_TAIL_RE) : null;
+          if (m) {
+            const { query, arg } = parseSlashTail(m[1]);
+            setSlash((prev) => ({
+              query,
+              arg,
+              index: prev && prev.query === query ? prev.index : 0,
+            }));
+          } else setSlash(null);
         }
       }
       skip.current = true;
@@ -1185,15 +1255,18 @@ export default function RichNoteEditor({
   }, [insertMdRef, editor]);
 
   const applySlash = useCallback(
-    (item: SlashItem) => {
+    (item: SlashItem, arg?: string) => {
       if (!editor) return;
       const { from } = editor.state.selection;
-      const text = editor.state.doc.textBetween(Math.max(0, from - 40), from, "\n");
-      const m = text.match(/(?:^|\n)(\/[^\s]*)$/);
+      const text = editor.state.doc.textBetween(Math.max(0, from - SLASH_LOOKBACK), from, "\n");
+      const m = text.match(SLASH_TAIL_RE);
       if (m) {
-        editor.chain().focus().deleteRange({ from: from - m[1].length, to: from }).run();
+        // m[1] is text after `/`; delete `/` + args
+        const len = 1 + m[1].length;
+        editor.chain().focus().deleteRange({ from: from - len, to: from }).run();
       }
-      item.run(editor);
+      const resolvedArg = (arg ?? slashRef.current?.arg ?? "").trim();
+      item.run(editor, resolvedArg);
       setSlash(null);
     },
     [editor]
@@ -1322,7 +1395,7 @@ export default function RichNoteEditor({
 
   if (!editor) return <p style={{ color: "var(--text-muted)" }}>編輯器載入中…</p>;
 
-  const slashItems = slash ? filterSlash(buildSlash(editor), slash.query) : [];
+  const slashItems = slash ? rankSlash(buildSlash(editor), slash.query) : [];
   const wikiItems = wiki ? suggestWikiTitles(wikiNotes, wiki.query) : [];
   const atItems = atMenu
     ? suggestAtMentions({
@@ -1821,10 +1894,10 @@ export default function RichNoteEditor({
               <button
                 key={item.id}
                 type="button"
-                className={idx === slash.index ? "is-active" : ""}
+                className={idx === Math.min(slash.index, slashItems.length - 1) ? "is-active" : ""}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  applySlash(item);
+                  applySlash(item, slash.arg);
                 }}
               >
                 <strong>{item.label}</strong>
