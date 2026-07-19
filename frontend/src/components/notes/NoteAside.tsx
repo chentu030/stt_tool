@@ -27,6 +27,12 @@ export type NoteAsideAiHandle = {
   seedSelection: (selection: string, question?: string) => void;
 };
 
+type SlidePreview = {
+  id: string;
+  index: number;
+  label: string;
+};
+
 type Props = {
   noteId?: string;
   title: string;
@@ -43,6 +49,14 @@ type Props = {
   onDeepResearch?: () => void;
   onJumpHeading?: (item: HeadingItem) => void;
   onOpenSlideForHeading?: (item: HeadingItem) => void;
+  /** Presentation bridge in outline tab */
+  slidePreview?: {
+    slides: SlidePreview[];
+    countHint: number;
+    stale?: boolean;
+    theme: { bg: string; fg: string; accent: string };
+    onEnter: (index?: number) => void;
+  };
   open: boolean;
   tab: "outline" | "ai" | "info";
   onTab: (t: "outline" | "ai" | "info") => void;
@@ -71,6 +85,7 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
     onDeepResearch,
     onJumpHeading,
     onOpenSlideForHeading,
+    slidePreview,
     open,
     tab,
     onTab,
@@ -244,9 +259,61 @@ const NoteAside = forwardRef<NoteAsideAiHandle, Props>(function NoteAside(
 
       {tab === "outline" && (
         <div className="note-aside-body">
+          {slidePreview && (
+            <div className="note-aside-slides">
+              <button
+                type="button"
+                className={`doc-slide-bridge${slidePreview.stale ? " is-stale" : ""}`}
+                onClick={() => slidePreview.onEnter()}
+              >
+                <span className="doc-slide-bridge-main">
+                  {slidePreview.slides.length
+                    ? `編輯簡報 · ${slidePreview.countHint} 頁`
+                    : `產生簡報 · 約 ${slidePreview.countHint} 頁`}
+                </span>
+                <span className="doc-slide-bridge-hint">
+                  {slidePreview.stale && slidePreview.slides.length ? "進入時會自動同步 · " : ""}
+                  點縮圖直達 · ⌘.
+                </span>
+              </button>
+              <div className="doc-slide-strip" role="list" aria-label="投影片預覽">
+                {slidePreview.slides.slice(0, 12).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    role="listitem"
+                    className="doc-slide-strip-item"
+                    style={{
+                      background: slidePreview.theme.bg,
+                      color: slidePreview.theme.fg,
+                      borderColor: slidePreview.theme.accent,
+                    }}
+                    onClick={() => slidePreview.onEnter(s.index)}
+                    title={s.label}
+                  >
+                    <span
+                      className="doc-slide-strip-accent"
+                      style={{ background: slidePreview.theme.accent }}
+                    />
+                    <span className="doc-slide-strip-num">{s.index + 1}</span>
+                    <span className="doc-slide-strip-label">{s.label}</span>
+                  </button>
+                ))}
+                {slidePreview.slides.length > 12 && (
+                  <button
+                    type="button"
+                    className="doc-slide-strip-more"
+                    onClick={() => slidePreview.onEnter(12)}
+                  >
+                    +{slidePreview.slides.length - 12}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <p className="note-aside-hint">
             點標題跳到段落
-            {onOpenSlideForHeading ? "；右側可開對應投影片" : "（依 Markdown 標題）"}。
+            {onOpenSlideForHeading ? "；▷ 開對應投影片" : "（依 Markdown 標題）"}。
           </p>
           {outline.length === 0 ? (
             <p className="note-aside-empty">尚無標題。用 H1／H2 或輸入 # 建立結構。</p>

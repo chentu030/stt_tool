@@ -1415,51 +1415,6 @@ function NotePageInner() {
                 )}
               </div>
 
-              <div className="doc-slide-bridge-block">
-                <button
-                  type="button"
-                  className={`doc-slide-bridge${deckStale ? " is-stale" : ""}`}
-                  onClick={() => enterSlidesAt()}
-                >
-                  <span className="doc-slide-bridge-main">
-                    {deck?.slides?.length ? `編輯簡報 · ${slideCountHint} 頁` : `產生簡報 · 約 ${slideCountHint} 頁`}
-                  </span>
-                  <span className="doc-slide-bridge-hint">
-                    {deckStale && deck?.slides?.length ? "進入時會自動同步筆記 · " : ""}
-                    點下方縮圖直達該頁 · ⌘.
-                  </span>
-                </button>
-                <div className="doc-slide-strip" role="list" aria-label="投影片預覽">
-                  {previewSlides.slice(0, 12).map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      role="listitem"
-                      className="doc-slide-strip-item"
-                      style={{
-                        background: previewTheme.bg,
-                        color: previewTheme.fg,
-                        borderColor: previewTheme.accent,
-                      }}
-                      onClick={() => enterSlidesAt(s.index)}
-                      title={s.label}
-                    >
-                      <span className="doc-slide-strip-accent" style={{ background: previewTheme.accent }} />
-                      <span className="doc-slide-strip-num">{s.index + 1}</span>
-                      <span className="doc-slide-strip-label">{s.label}</span>
-                    </button>
-                  ))}
-                  {previewSlides.length > 12 && (
-                    <button
-                      type="button"
-                      className="doc-slide-strip-more"
-                      onClick={() => enterSlidesAt(12)}
-                    >
-                      +{previewSlides.length - 12}
-                    </button>
-                  )}
-                </div>
-              </div>
             </>
           )}
 
@@ -1468,7 +1423,7 @@ function NotePageInner() {
               <button type="button" className="doc-cmd" onClick={enterWrite}>
                 ← 回寫作
               </button>
-              <span>同一則筆記 · 左側大綱可跳投影片</span>
+              <span>同一則筆記 · 右側大綱可跳投影片</span>
             </div>
           )}
 
@@ -1677,6 +1632,21 @@ function NotePageInner() {
           }
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
+          slidePreview={
+            viewMode === "write"
+              ? {
+                  slides: previewSlides,
+                  countHint: slideCountHint,
+                  stale: deckStale,
+                  theme: {
+                    bg: previewTheme.bg,
+                    fg: previewTheme.fg,
+                    accent: previewTheme.accent,
+                  },
+                  onEnter: (index) => enterSlidesAt(index),
+                }
+              : undefined
+          }
           widthPx={asideWidth}
           onResizeWidth={onAsideResize}
         />

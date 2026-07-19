@@ -2925,7 +2925,7 @@ button, input, textarea, select {
 .note-tabs-main {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden; /* scroll lives in .doc-main-stack, not the whole note */
   display: flex;
   flex-direction: column;
 }
@@ -3138,7 +3138,9 @@ button, input, textarea, select {
 /* ?? Document / block editor (immersive) ?? */
 .doc-workspace {
   --page-max: 780px;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
 }
@@ -3267,7 +3269,6 @@ button, input, textarea, select {
 }
 .doc-workspace.has-aside:not(.is-focus) .doc-body-row {
   grid-template-columns: minmax(0, 1fr) var(--note-aside-w, 300px);
-  min-height: calc(100vh - 5.6rem);
 }
 .doc-main-stack {
   min-width: 0;
@@ -3441,14 +3442,13 @@ button, input, textarea, select {
   flex: 1;
 }
 
-/* Note aside ? full-height right rail */
+/* Note aside ? pinned right rail (main column scrolls independently) */
 .note-aside {
-  position: sticky;
-  top: 5.6rem;
+  position: relative;
   align-self: stretch;
-  height: calc(100vh - 5.6rem);
-  max-height: calc(100vh - 5.6rem);
-  min-height: calc(100vh - 5.6rem);
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
   overflow: hidden;
   border-left: 1px solid var(--border);
   background: var(--bg-elevated);
@@ -3642,6 +3642,14 @@ button, input, textarea, select {
 }
 
 @media (max-width: 1100px) {
+  .note-tabs-main {
+    overflow: auto;
+  }
+  .doc-workspace {
+    height: auto;
+    min-height: 100%;
+    flex: none;
+  }
   .doc-workspace.has-aside:not(.is-focus) .doc-body-row {
     grid-template-columns: 1fr;
     min-height: 0;
@@ -8213,15 +8221,54 @@ body.is-sidebar-resizing iframe {
   }
 }
 
-/* Slide UX pass3: preview strip + outline bridge */
+/* Slide UX: preview strip in aside */
 .doc-slide-bridge-block {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  margin: 0.35rem 0 0.85rem;
+  margin: 0;
 }
 .doc-slide-bridge-block .doc-slide-bridge {
   margin: 0;
+}
+.note-aside-slides {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.15rem;
+}
+.note-aside-slides .doc-slide-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-x: visible;
+  overflow-y: auto;
+  max-height: min(42vh, 320px);
+  padding: 0.1rem 0 0.25rem;
+  scrollbar-width: thin;
+}
+.note-aside-slides .doc-slide-strip-item {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  height: 3.35rem;
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem 0.35rem 0.55rem;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.note-aside-slides .doc-slide-strip-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.1);
+}
+.note-aside-slides .doc-slide-strip-more {
+  width: 100%;
 }
 .doc-slide-strip {
   display: flex;
