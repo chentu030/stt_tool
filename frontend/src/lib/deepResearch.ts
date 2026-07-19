@@ -101,7 +101,7 @@ function parseJsonLoose<T>(text: string): T | null {
   }
 }
 
-function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 4): NoteSnippet[] {
+function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 5): NoteSnippet[] {
   if (!notes.length) return [];
   const tokens = query
     .toLowerCase()
@@ -111,12 +111,18 @@ function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 4): Note
 
   const scored = notes
     .map((n) => {
-      const hay = `${n.title}\n${n.excerpt}`.toLowerCase();
+      const title = n.title.toLowerCase();
+      const excerpt = (n.excerpt || "").toLowerCase();
+      const hay = `${title}\n${excerpt}`;
       let score = 0;
       for (const t of tokens) {
-        if (hay.includes(t)) score += t.length >= 4 ? 3 : 1;
+        if (title.includes(t)) score += t.length >= 4 ? 8 : 4;
+        else if (excerpt.includes(t)) score += t.length >= 4 ? 3 : 1;
       }
-      if (n.title.toLowerCase().includes(tokens[0])) score += 4;
+      // phrase boost
+      if (hay.includes(query.toLowerCase().slice(0, 40))) score += 6;
+      // denser excerpts rank slightly higher
+      score += Math.min(3, Math.floor((n.excerpt || "").length / 600));
       return { n, score };
     })
     .filter((x) => x.score > 0)
@@ -131,7 +137,7 @@ function formatNoteBlock(notes: NoteSnippet[]): string {
   return notes
     .map(
       (n, i) =>
-        `[筆記${i + 1}] 標題：${n.title}\n路徑：/notes/${n.id}\n摘要：\n${n.excerpt.slice(0, 900)}`
+        `[筆記${i + 1}] 標題：${n.title}\n路徑：/notes/${n.id}\n內容摘錄：\n${n.excerpt.slice(0, 1800)}`
     )
     .join("\n\n---\n\n");
 }
@@ -527,13 +533,13 @@ ${citeBlock || "（無明確網址，請標「待查證」）"}
 1. 執行摘要（5～8 句，獨立成段）
 2. 背景與範圍
 3. 主要發現（分節，關鍵陳述加 [n]）
-4. 與你的筆記的對話（若有筆記來源：指出一致／補充／衝突）
+4. 與你的筆記的對話（若有筆記來源：指出一致／補充／衝突；引用筆記時用 [n]）
 5. 比較／對照（若適用）
 6. 風險與限制
 7. 結論與可執行建議
 8. 參考來源（重列清單，區分【網路】與【筆記】）
 
-要求：長文、條理清楚；有衝突證據時並列；筆記引用用 [n] 指向 /notes/…`,
+要求：長文、條理清楚；有衝突證據時並列；筆記與網路皆用 [n] 腳註（系統稍後會轉成 wiki／連結）。`,
     {
       system:
         "你是首席研究分析師。產出可給決策者閱讀的長文，並嚴格使用提供的 [n] 腳註。繁體中文 Markdown。不要輸出 JSON。",
@@ -824,7 +830,7 @@ export async function runDeepResearch(
 }
 
 /**
- * Re-hunt weak (or selected) findings and rewrite the report — selective refine.
+ * Re-hunt weak findings and/or add new questions, then rewrite the report.
  */
 export async function refineResearchReport(
   topic: string,
@@ -837,8 +843,10 @@ export async function refineResearchReport(
     libraryNotes?: NoteSnippet[];
     preferredDomains?: string[];
     maxRetries?: number;
-    /** If omitted, re-hunt all inadequate findings */
+    /** Re-hunt these existing questions; if omitted and no addQuestions, re-hunt inadequate */
     questions?: string[];
+    /** Brand-new sub-questions to hunt and merge */
+    addQuestions?: string[];
     onProgress?: (e: ResearchProgressEvent) => void;
   }
 ): Promise<ResearchReport> {
@@ -847,28 +855,37 @@ export async function refineResearchReport(
   const libraryNotes = opts?.libraryNotes || [];
   const preferredDomains = (opts?.preferredDomains || []).filter(Boolean).slice(0, 8);
   const maxRetries = opts?.maxRetries ?? 2;
+  const addQuestions = (opts?.addQuestions || [])
+    .map((q) => q.trim())
+    .filter(Boolean)
+    .slice(0, 4);
 
   const targets = new Set(
-    (opts?.questions?.length
-      ? opts.questions
-      : findings.filter((f) => !f.adequate).map((f) => f.question)
+    (
+      opts?.questions?.length
+        ? opts.questions
+        : addQuestions.length
+          ? []
+          : findings.filter((f) => !f.adequate).map((f) => f.question)
     ).map((q) => q.trim())
   );
 
-  if (!targets.size) {
-    throw new Error("沒有需要重跑的子問題");
+  if (!targets.size && !addQuestions.length) {
+    throw new Error("沒有需要重跑或新增的子問題");
   }
 
-  emit?.({
-    type: "phase",
-    phase: "hunt",
-    detail: `重跑 ${targets.size} 個偏弱子問題…`,
-  });
-  emit?.({
-    type: "log",
-    level: "retry",
-    message: `選擇性補強：${Array.from(targets).join("；")}`,
-  });
+  if (targets.size) {
+    emit?.({
+      type: "phase",
+      phase: "hunt",
+      detail: `重跑 ${targets.size} 個子問題…`,
+    });
+    emit?.({
+      type: "log",
+      level: "retry",
+      message: `選擇性補強：${Array.from(targets).join("；")}`,
+    });
+  }
 
   const next: ResearchFinding[] = [];
   let citeCursor = 1;
@@ -876,7 +893,6 @@ export async function refineResearchReport(
   for (let i = 0; i < findings.length; i++) {
     const f = findings[i];
     if (!targets.has(f.question.trim())) {
-      // re-index later
       next.push(f);
       continue;
     }
@@ -899,7 +915,39 @@ export async function refineResearchReport(
     next.push(updated);
   }
 
-  // Re-index all
+  for (let i = 0; i < addQuestions.length; i++) {
+    const q = addQuestions[i];
+    emit?.({
+      type: "phase",
+      phase: "hunt",
+      detail: `追問調查 ${i + 1}/${addQuestions.length}`,
+    });
+    emit?.({
+      type: "question",
+      index: next.length + 1,
+      total: next.length + addQuestions.length - i,
+      question: q,
+    });
+    const finding = await gatherOnQuestion(topic, q, {
+      model,
+      libraryNotes,
+      keywordPool: plan.keywords,
+      citeStart: citeCursor,
+      maxRetries,
+      preferredDomains,
+      emit,
+    });
+    citeCursor += finding.sources.length;
+    next.push(finding);
+  }
+
+  const mergedPlan: ResearchPlan = {
+    ...plan,
+    questions: Array.from(
+      new Set([...plan.questions, ...addQuestions.map((q) => q.trim())])
+    ).slice(0, 10),
+  };
+
   const sources = mergeAllSources(next);
   const uriToIndex = new Map(
     sources.map((s) => [s.kind === "note" ? `note:${s.noteId}` : s.uri, s.index])
@@ -911,18 +959,24 @@ export async function refineResearchReport(
     }));
   }
 
-  emit?.({ type: "phase", phase: "report", detail: "依補強結果重寫報告…" });
-  const { markdown, summary } = await synthesizeReport(topic, plan, next, sources, {
-    model,
-    context: opts?.context,
-    intent: opts?.intent || plan.angle || topic,
-  });
+  emit?.({ type: "phase", phase: "report", detail: "依補強／追問結果重寫報告…" });
+  const { markdown, summary } = await synthesizeReport(
+    topic,
+    mergedPlan,
+    next,
+    sources,
+    {
+      model,
+      context: opts?.context,
+      intent: opts?.intent || plan.angle || topic,
+    }
+  );
 
   const report: ResearchReport = {
-    title: plan.title,
+    title: mergedPlan.title,
     summary,
     markdown,
-    plan,
+    plan: mergedPlan,
     findings: next,
     sources,
     webSources: sources.filter((s) => s.kind === "web"),
@@ -932,7 +986,7 @@ export async function refineResearchReport(
   emit?.({
     type: "log",
     level: "ok",
-    message: `補強完成：仍偏弱 ${next.filter((f) => !f.adequate).length} 題`,
+    message: `更新完成：${next.length} 個子問題、${sources.length} 個來源`,
   });
   emit?.({ type: "done", report });
   return report;

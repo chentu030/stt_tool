@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
       mode?: "research" | "refine";
       findings?: ResearchFinding[];
       refineQuestions?: string[];
+      addQuestions?: string[];
       assistant?: { model?: string };
     };
 
@@ -147,6 +148,7 @@ export async function POST(req: NextRequest) {
           preferredDomains,
           maxRetries: cfg.maxRetries + 1,
           questions: data.refineQuestions?.map(String).filter(Boolean),
+          addQuestions: data.addQuestions?.map(String).filter(Boolean),
           onProgress: send,
         });
       };

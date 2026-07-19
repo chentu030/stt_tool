@@ -1182,6 +1182,16 @@ function NotePageInner() {
                   setTimeout(() => asideAiRef.current?.focusChat(), 50);
                 }
               }}
+              onDeepResearchSelection={(selection) => {
+                router.push(
+                  buildResearchUrl({
+                    from: note.id,
+                    topic: selection.slice(0, 80).replace(/\s+/g, " "),
+                    selection,
+                    returnTo: true,
+                  })
+                );
+              }}
               onRunAiAction={(apiAction, prompt) => {
                 void runAi(apiAction, prompt);
               }}

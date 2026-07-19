@@ -26,6 +26,9 @@ export type ResearchHistoryItem = {
   model?: string;
   webCount?: number;
   noteCount?: number;
+  /** Firebase note id of auto-saved / saved report */
+  savedNoteId?: string;
+  sourceNoteId?: string;
   report: {
     title: string;
     summary: string;

@@ -12,7 +12,7 @@ import {
   updateNote,
   type Note,
 } from "@/lib/firebase";
-import { searchNotes, type LibraryNote } from "@/lib/libraryIndex";
+import { searchNotes, packLibraryContext, type LibraryNote } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
 import { markdownToHtml } from "@/lib/mdHtml";
@@ -34,8 +34,11 @@ import {
   formatResearchNoteBody,
   notesToResearchSnippets,
   parseNotesParam,
+  expandScopeWithWiki,
   stashResearchInsert,
+  takeResearchSelection,
 } from "@/lib/researchBridge";
+import { extractWikiLinks } from "@/lib/wiki";
 
 type Citation = {
   index: number;
@@ -138,11 +141,17 @@ function buildLibraryPayload(
   selectedIds?: string[]
 ) {
   if (selectedIds?.length) {
-    return notesToResearchSnippets(notes, { selectedIds, limit: 40 });
+    return notesToResearchSnippets(notes, {
+      selectedIds,
+      limit: 40,
+      excerptChars: 1800,
+    });
   }
-  const ranked = searchNotes(notes, topic, { sort: topic.trim() ? "relevance" : "updated" });
-  const pool = (ranked.length ? ranked : notes).slice(0, 28);
-  return notesToResearchSnippets(pool, { limit: 28 });
+  return notesToResearchSnippets(notes, {
+    query: topic,
+    limit: 28,
+    excerptChars: 1800,
+  });
 }
 
 function linkCitations(html: string, sources: Citation[]): string {
@@ -242,7 +251,7 @@ function DeepResearchPageInner() {
     const notesParam = parseNotesParam(searchParams.get("notes"));
     const topicParam = searchParams.get("topic");
     const returnTo = searchParams.get("returnTo") === "1";
-    if (!from && !notesParam.length && !topicParam) {
+    if (!from && !notesParam.length && !topicParam && searchParams.get("sel") !== "1") {
       seededRef.current = true;
       return;
     }
@@ -251,15 +260,27 @@ function DeepResearchPageInner() {
     if (notesParam.length) setScopeIds(notesParam);
     if (topicParam) setTopic(topicParam);
 
+    if (searchParams.get("sel") === "1") {
+      const sel = takeResearchSelection();
+      if (sel) {
+        setContext((prev) =>
+          prev.trim()
+            ? prev
+            : `使用者框選內容：\n${sel.slice(0, 4000)}`
+        );
+        if (!topicParam) setTopic(sel.slice(0, 80).replace(/\s+/g, " "));
+      }
+    }
+
     if (from) {
       setSourceNoteId(from);
       setScopeIds((prev) => (prev.includes(from) ? prev : [from, ...prev].slice(0, 40)));
       void getNote(from).then((n) => {
         if (!n || n.user_id !== user.uid) return;
         setSourceNoteTitle(n.title || "未命名");
-        if (!topicParam) setTopic(n.title || "");
+        if (!topicParam && !searchParams.get("sel")) setTopic(n.title || "");
         const body = (n.body_md || "").trim();
-        if (body) {
+        if (body && searchParams.get("sel") !== "1") {
           setContext((prev) =>
             prev.trim()
               ? prev
@@ -275,6 +296,24 @@ function DeepResearchPageInner() {
   }, [logs]);
 
   const libraryNotes = useMemo(() => toLibraryNotes(notes), [notes]);
+
+  // When scope notes change, enrich context with packed library (multi-note)
+  useEffect(() => {
+    if (!scopeIds.length || !libraryNotes.length) return;
+    if (context.trim().length > 500) return;
+    const packed = packLibraryContext(libraryNotes, topic || sourceNoteTitle || "研究", {
+      selectedIds: scopeIds,
+      maxNotes: Math.min(8, scopeIds.length),
+      maxChars: 10000,
+    });
+    if (packed.context.trim()) {
+      setContext((prev) =>
+        prev.trim() ? prev : `—— 研究範圍筆記 ——\n${packed.context}`
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeIds.join(","), libraryNotes.length]);
+
   const notePreview = useMemo(() => {
     if (scopeIds.length) {
       return libraryNotes.filter((n) => scopeIds.includes(n.id)).slice(0, 8);
@@ -355,8 +394,41 @@ function DeepResearchPageInner() {
     pushLog("已中止研究", "warn");
   };
 
-  const persistReport = (r: Report, topicText: string) => {
+  const persistReport = async (r: Report, topicText: string) => {
     if (!user) return;
+    let noteId = savedId;
+    try {
+      const body = formatResearchNoteBody({
+        title: r.title,
+        summary: r.summary,
+        markdown: r.markdown,
+        model: r.model,
+        sourceNoteTitle: sourceNoteTitle || undefined,
+        webSources: r.webSources,
+        noteSources: r.noteSources,
+        sources: r.sources,
+      });
+      if (noteId) {
+        await updateNote(noteId, { title: r.title, body_md: body });
+      } else {
+        noteId = await createNote(
+          user.uid,
+          r.title,
+          body,
+          undefined,
+          ["深度研究", "自動存檔"],
+          {
+            folder: "深度研究",
+            parent_id: sourceNoteId || undefined,
+          }
+        );
+        setSavedId(noteId);
+        pushLog(`已自動存成筆記（可在知識庫「深度研究」資料夾找到）`, "ok");
+      }
+    } catch {
+      pushLog("自動存筆記失敗，仍保留本機歷史", "warn");
+    }
+
     const list = saveResearchHistoryItem(user.uid, {
       topic: topicText,
       title: r.title,
@@ -365,6 +437,8 @@ function DeepResearchPageInner() {
       model: r.model,
       webCount: r.webSources?.length || 0,
       noteCount: r.noteSources?.length || 0,
+      savedNoteId: noteId || undefined,
+      sourceNoteId: sourceNoteId || undefined,
       report: {
         title: r.title,
         summary: r.summary,
@@ -500,10 +574,18 @@ function DeepResearchPageInner() {
       pushLog("依核准計畫繼續執行…", "ok");
     }
 
+    const expanded = scopeIds.length
+      ? expandScopeWithWiki(libraryNotes, scopeIds, extractWikiLinks)
+      : scopeIds;
+    if (expanded.length > scopeIds.length) {
+      setScopeIds(expanded);
+      pushLog(`已依 [[wiki]] 擴充研究範圍至 ${expanded.length} 則`, "ok");
+    }
+
     const libraryPayload = buildLibraryPayload(
       libraryNotes,
       topic.trim(),
-      scopeIds.length ? scopeIds : undefined
+      expanded.length ? expanded : undefined
     );
     if (libraryPayload.length && opts?.resetLogs !== false) {
       pushLog(`已打包 ${libraryPayload.length} 則相關筆記`, "ok");
@@ -536,7 +618,9 @@ function DeepResearchPageInner() {
         throw new Error(data.error || "研究失敗");
       }
       await consumeStream(res, {
-        onDone: (r) => persistReport(r, topic.trim()),
+        onDone: (r) => {
+          void persistReport(r, topic.trim());
+        },
       });
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {
@@ -591,7 +675,9 @@ function DeepResearchPageInner() {
         throw new Error(data.error || "補強失敗");
       }
       await consumeStream(res, {
-        onDone: (r) => persistReport(r, topic.trim()),
+        onDone: (r) => {
+          void persistReport(r, topic.trim());
+        },
       });
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) {
@@ -614,7 +700,13 @@ function DeepResearchPageInner() {
       sourceNoteTitle: sourceNoteTitle || undefined,
       webSources: report.webSources,
       noteSources: report.noteSources,
+      sources: report.sources,
     });
+    if (savedId) {
+      await updateNote(savedId, { title: report.title, body_md: body });
+      if (wantReturn && sourceNoteId) router.push(`/notes/${sourceNoteId}`);
+      return;
+    }
     const id = await createNote(
       user.uid,
       report.title,
@@ -654,6 +746,7 @@ function DeepResearchPageInner() {
       summary: report.summary,
       markdown: report.markdown,
       mode,
+      sources: report.sources,
     });
     try {
       const parent = await getNote(sourceNoteId);
@@ -727,6 +820,69 @@ function DeepResearchPageInner() {
     }
   };
 
+  /** Grounded follow-up: hunt as new sub-question and rewrite report */
+  const followUpIntoReport = async () => {
+    if (!report || !followUp.trim() || busy) return;
+    const q = followUp.trim();
+    setFollowUp("");
+    setChat((prev) => [
+      ...prev,
+      { id: `u_${Date.now()}`, role: "user", text: `【納入報告】${q}` },
+    ]);
+    setBusy(true);
+    pushLog(`追問並納入報告：${q}`, "retry");
+    const ac = new AbortController();
+    abortRef.current = ac;
+    try {
+      const res = await fetch("/api/ai/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          mode: "refine",
+          topic: topic.trim(),
+          context: context.trim() || undefined,
+          model: prefs?.prefs.aiModel || "gemini-3.1-pro-preview",
+          depth,
+          preferredDomains,
+          approvedPlan: report.plan,
+          findings: report.findings,
+          addQuestions: [q],
+          libraryNotes: buildLibraryPayload(
+            libraryNotes,
+            topic.trim(),
+            scopeIds.length ? scopeIds : undefined
+          ),
+          stream: true,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "納入報告失敗");
+      }
+      await consumeStream(res, {
+        onDone: (r) => {
+          void persistReport(r, topic.trim());
+          setChat((prev) => [
+            ...prev,
+            {
+              id: `a_${Date.now()}`,
+              role: "assistant",
+              text: `已調查並重寫報告。新增子問題：「${q}」`,
+            },
+          ]);
+        },
+      });
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        setError(e instanceof Error ? e.message : "納入報告失敗");
+      }
+    } finally {
+      abortRef.current = null;
+      setBusy(false);
+    }
+  };
+
   const appendChatToReport = (text: string) => {
     if (!report) return;
     const next = {
@@ -734,7 +890,7 @@ function DeepResearchPageInner() {
       markdown: `${report.markdown}\n\n## 追問補充\n\n${text}\n`,
     };
     setReport(next);
-    persistReport(next, topic.trim() || next.title);
+    void persistReport(next, topic.trim() || next.title);
   };
 
   const runTransform = async (t: (typeof TRANSFORMS)[0]) => {
@@ -766,13 +922,18 @@ function DeepResearchPageInner() {
   };
 
   const openHistory = (item: ResearchHistoryItem) => {
+    if (item.savedNoteId) {
+      router.push(`/notes/${item.savedNoteId}`);
+      return;
+    }
     setTopic(item.topic);
     setReport({
       ...item.report,
       findings: item.report.findings || [],
     });
     setModelUsed(item.model || item.report.model || "");
-    setSavedId(null);
+    setSavedId(item.savedNoteId || null);
+    setSourceNoteId(item.sourceNoteId || null);
     setClarifyQs([]);
     setDraftPlan(null);
     setLogs([]);
@@ -1425,7 +1586,7 @@ function DeepResearchPageInner() {
                     className="input"
                     placeholder="針對報告追問…"
                     value={followUp}
-                    disabled={followBusy}
+                    disabled={followBusy || busy}
                     onChange={(e) => setFollowUp(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void askFollowUp();
@@ -1437,7 +1598,16 @@ function DeepResearchPageInner() {
                     disabled={followBusy || !followUp.trim()}
                     onClick={() => void askFollowUp()}
                   >
-                    {followBusy ? "…" : "送出"}
+                    {followBusy ? "…" : "追問"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-soft"
+                    disabled={busy || !followUp.trim()}
+                    title="上網搜尋此問題並重寫整份報告"
+                    onClick={() => void followUpIntoReport()}
+                  >
+                    納入報告
                   </button>
                 </div>
               </div>

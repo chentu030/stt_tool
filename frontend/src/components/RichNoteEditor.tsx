@@ -66,6 +66,8 @@ type Props = {
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
   /** Open Cadence AI aside / chat */
   onOpenAiAssistant?: (opts?: { selection?: string; question?: string; focusChat?: boolean }) => void;
+  /** Launch deep research with selected text */
+  onDeepResearchSelection?: (selection: string) => void;
   /** Run a named AI action (api action id) */
   onRunAiAction?: (apiAction: string, prompt?: string) => void;
   /** Parent registers insert-at-cursor */
@@ -154,6 +156,7 @@ export default function RichNoteEditor({
   noteTitle = "",
   onCreateSubpage,
   onOpenAiAssistant,
+  onDeepResearchSelection,
   onRunAiAction,
   insertMdRef,
   aiContext,
@@ -1613,6 +1616,7 @@ export default function RichNoteEditor({
                 }
               : undefined
           }
+          onDeepResearch={onDeepResearchSelection}
         />
       )}
 

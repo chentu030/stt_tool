@@ -35,6 +35,7 @@ type Props = {
   from: number;
   to: number;
   onSendToAside?: (selection: string, question?: string) => void;
+  onDeepResearch?: (selection: string) => void;
 };
 
 export default function SelectionAiPanel({
@@ -48,6 +49,7 @@ export default function SelectionAiPanel({
   from,
   to,
   onSendToAside,
+  onDeepResearch,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const [prompt, setPrompt] = useState("");
@@ -246,6 +248,19 @@ export default function SelectionAiPanel({
           }}
         >
           送到側欄繼續聊
+        </button>
+      )}
+      {!result && onDeepResearch && selectionText.trim() && (
+        <button
+          type="button"
+          className="doc-cmd is-on"
+          style={{ width: "100%", marginTop: 6 }}
+          onClick={() => {
+            onDeepResearch(selectionText.trim());
+            onClose();
+          }}
+        >
+          深度研究這段
         </button>
       )}
     </div>
