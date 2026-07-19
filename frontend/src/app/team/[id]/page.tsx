@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 import { createNote } from "@/lib/firebase";
+import { colorForUid } from "@/lib/presence";
 import {
   getTeam,
   getMember,
@@ -30,6 +31,16 @@ import {
   setTyping,
   clearTyping,
   listenActivity,
+  editMessage,
+  deleteMessage,
+  toggleMessagePin,
+  uploadTeamFile,
+  updateChannelMembers,
+  renameTeam,
+  deleteTeam,
+  setChannelPresence,
+  clearChannelPresence,
+  listenChannelPresence,
   REACTION_EMOJIS,
   type Team,
   type Member,
@@ -72,9 +83,10 @@ function memberLabel(m: Member): string {
   return m.display_name || m.uid.slice(0, 6);
 }
 
-export default function TeamRoomPage() {
+function TeamRoomInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
 
   const [team, setTeam] = useState<Team | null>(null);
@@ -118,6 +130,18 @@ export default function TeamRoomPage() {
   const [activity, setActivity] = useState<TeamActivity[]>([]);
   const [activityOpen, setActivityOpen] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+  const [membersDialogSelected, setMembersDialogSelected] = useState<Set<string>>(new Set());
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const [presencePeople, setPresencePeople] = useState<{ uid: string; name: string; color: string }[]>([]);
+
+  const deepLinkRef = useRef(false);
+
   useEffect(() => {
     if (!id || !user) return;
     let cancelled = false;
@@ -144,10 +168,16 @@ export default function TeamRoomPage() {
       id,
       (list) => {
         setChannels(list);
-        setActiveChannel((cur) => cur || list[0]?.id || null);
+        setActiveChannel((cur) => {
+          if (cur) return cur;
+          const fromQuery = searchParams.get("channel");
+          if (fromQuery && list.some((c) => c.id === fromQuery)) return fromQuery;
+          return list[0]?.id || null;
+        });
       },
       user.uid
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, member, user]);
 
   useEffect(() => {
@@ -184,6 +214,20 @@ export default function TeamRoomPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, activeChannel]);
 
+  // Deep link: scroll to & flash a specific message once it's loaded (?msg=…).
+  useEffect(() => {
+    const msgId = searchParams.get("msg");
+    if (!msgId || deepLinkRef.current || messages.length === 0) return;
+    const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+    if (!el) return;
+    deepLinkRef.current = true;
+    window.requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("is-flash");
+      setTimeout(() => el.classList.remove("is-flash"), 2200);
+    });
+  }, [messages, searchParams]);
+
   useEffect(() => {
     if (!id || !activeChannel) {
       setTypingPeople([]);
@@ -201,6 +245,32 @@ export default function TeamRoomPage() {
     };
   }, [id, activeChannel, user]);
 
+  // Channel presence: heartbeat + live listener, reset whenever the channel changes.
+  useEffect(() => {
+    if (!id || !activeChannel) {
+      setPresencePeople([]);
+      return;
+    }
+    const unsub = listenChannelPresence(id, activeChannel, setPresencePeople);
+    return () => {
+      unsub();
+      setPresencePeople([]);
+    };
+  }, [id, activeChannel]);
+
+  useEffect(() => {
+    if (!id || !activeChannel || !user) return;
+    const name = user.displayName || member?.display_name || "訪客";
+    const color = colorForUid(user.uid);
+    const beat = () => void setChannelPresence(id, activeChannel, user.uid, name, color);
+    beat();
+    const interval = setInterval(beat, 12000);
+    return () => {
+      clearInterval(interval);
+      void clearChannelPresence(id, activeChannel, user.uid);
+    };
+  }, [id, activeChannel, user, member?.display_name]);
+
   const activeChannelObj = useMemo(
     () => channels.find((c) => c.id === activeChannel) || null,
     [channels, activeChannel]
@@ -208,6 +278,11 @@ export default function TeamRoomPage() {
 
   const topMessages = useMemo(
     () => messages.filter((m) => !m.thread_id),
+    [messages]
+  );
+
+  const pinnedMessages = useMemo(
+    () => messages.filter((m) => m.pinned && !m.deleted),
     [messages]
   );
 
@@ -453,6 +528,116 @@ export default function TeamRoomPage() {
     }
   };
 
+  const doEditMessage = async (m: Message) => {
+    if (!id || !activeChannel) return;
+    const next = await askPrompt({ title: "編輯訊息", defaultValue: m.text, multiline: true });
+    if (next == null || !next.trim() || next.trim() === m.text) return;
+    try {
+      await editMessage(id, activeChannel, m.id, next.trim());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "編輯失敗");
+    }
+  };
+
+  const doDeleteMessage = async (m: Message) => {
+    if (!id || !activeChannel) return;
+    const ok = await askConfirm({ title: "刪除訊息", message: "確定要刪除這則訊息嗎？", danger: true });
+    if (!ok) return;
+    try {
+      await deleteMessage(id, activeChannel, m.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除失敗");
+    }
+  };
+
+  const doTogglePin = async (m: Message) => {
+    if (!id || !activeChannel) return;
+    try {
+      await toggleMessagePin(id, activeChannel, m.id, !m.pinned);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "釘選失敗");
+    }
+  };
+
+  const scrollToMessage = (messageId: string) => {
+    const el = document.querySelector(`[data-msg-id="${messageId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("is-flash");
+    setTimeout(() => el.classList.remove("is-flash"), 2200);
+  };
+
+  const pickFile = () => fileInputRef.current?.click();
+
+  const onFileChosen = async (file: File | null) => {
+    if (!file || !user || !id || !activeChannel) return;
+    setUploading(true);
+    try {
+      const uploaded = await uploadTeamFile(id, activeChannel, file);
+      await sendMessage(id, activeChannel, {
+        author_id: user.uid,
+        author_name: user.displayName || "",
+        text: uploaded.name,
+        kind: "file",
+        file_url: uploaded.url,
+        file_name: uploaded.name,
+        file_mime: uploaded.mime,
+        members,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "上傳失敗");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const openMembersDialog = () => {
+    setMembersDialogSelected(new Set(activeChannelObj?.member_ids || []));
+    setMembersDialogOpen(true);
+  };
+
+  const saveMembersDialog = async () => {
+    if (!id || !activeChannel || !activeChannelObj) return;
+    const ids = new Set(membersDialogSelected);
+    ids.add(activeChannelObj.created_by);
+    try {
+      await updateChannelMembers(id, activeChannel, Array.from(ids));
+      setMembersDialogOpen(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新成員失敗");
+    }
+  };
+
+  const doRenameTeam = async () => {
+    if (!id || !team) return;
+    const name = await askPrompt({ title: "重新命名團隊", defaultValue: team.name });
+    if (name == null || !name.trim() || name.trim() === team.name) return;
+    try {
+      await renameTeam(id, name.trim());
+      setTeam((t) => (t ? { ...t, name: name.trim() } : t));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "重新命名失敗");
+    }
+  };
+
+  const doDeleteTeam = async () => {
+    if (!id || !team) return;
+    const ok = await askConfirm({
+      title: "刪除團隊",
+      message: `確定要刪除「${team.name}」嗎？此操作無法復原。`,
+      danger: true,
+      confirmLabel: "刪除",
+    });
+    if (!ok) return;
+    try {
+      await deleteTeam(id, members.map((m) => m.uid));
+      router.push("/team");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除團隊失敗");
+    }
+  };
+
   if (loading || !checked) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
   if (!team) return <p style={{ padding: "2rem" }}>找不到此團隊。</p>;
@@ -581,6 +766,11 @@ export default function TeamRoomPage() {
               邀請成員
             </button>
           )}
+          {canAdmin && (
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setSettingsOpen(true)}>
+              ⚙ 設定
+            </button>
+          )}
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => void doLeave()}>
             離開團隊
           </button>
@@ -599,6 +789,25 @@ export default function TeamRoomPage() {
           )}
           {activeChannelObj?.topic && <span className="tm-channel-topic">{activeChannelObj.topic}</span>}
 
+          {presencePeople.filter((p) => p.uid !== user.uid).length > 0 && (
+            <div
+              className="tm-presence-avatars"
+              title={presencePeople
+                .filter((p) => p.uid !== user.uid)
+                .map((p) => p.name)
+                .join("、")}
+            >
+              {presencePeople
+                .filter((p) => p.uid !== user.uid)
+                .slice(0, 5)
+                .map((p) => (
+                  <span key={p.uid} className="tm-presence-avatar" style={{ background: p.color }}>
+                    {(p.name || "?").slice(0, 1)}
+                  </span>
+                ))}
+            </div>
+          )}
+
           <div className="tm-main-head-actions">
             <input
               className="input tm-search"
@@ -608,6 +817,12 @@ export default function TeamRoomPage() {
             />
             {searchQuery.trim() && (
               <span className="tm-search-count">符合 {filteredMessages.length} 筆</span>
+            )}
+            {activeChannelObj?.is_private &&
+              (canAdmin || activeChannelObj.created_by === user.uid) && (
+              <button type="button" className="btn btn-sm btn-ghost" onClick={openMembersDialog}>
+                管理成員
+              </button>
             )}
             <button
               type="button"
@@ -619,6 +834,23 @@ export default function TeamRoomPage() {
             </button>
           </div>
         </div>
+
+        {pinnedMessages.length > 0 && (
+          <div className="tm-pinned-strip">
+            <span className="tm-pinned-strip-label">📌 已釘選</span>
+            {pinnedMessages.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="tm-pinned-strip-item"
+                onClick={() => scrollToMessage(p.id)}
+              >
+                <strong>{p.author_name || "匿名"}</strong>
+                <span>{p.kind === "file" ? `📎 ${p.file_name || p.text}` : p.text.slice(0, 60)}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {error && <p className="note-aside-error" style={{ padding: "0 1rem" }}>{error}</p>}
 
@@ -669,6 +901,7 @@ export default function TeamRoomPage() {
                 key={m.id}
                 m={m}
                 mine={m.author_id === user.uid}
+                mentioned={!!m.mentions?.includes(user.uid)}
                 replyCount={replyCounts[m.id] || 0}
                 converting={convertingId === m.id}
                 flashNoteId={noteFlash[m.id]}
@@ -679,12 +912,15 @@ export default function TeamRoomPage() {
                 onReact={(emoji) =>
                   void toggleMessageReaction(id, activeChannel!, m.id, user.uid, emoji)
                 }
-                onPin={
+                onPinNote={
                   m.note_id
                     ? () => void pinNote(id, m.note_id!, m.note_title || "筆記", user.uid)
                     : undefined
                 }
                 onNoteify={() => void convertMessageToNote(m)}
+                onTogglePin={() => void doTogglePin(m)}
+                onEdit={() => void doEditMessage(m)}
+                onDelete={() => void doDeleteMessage(m)}
               />
             ))
           )}
@@ -726,6 +962,21 @@ export default function TeamRoomPage() {
               }}
             />
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            hidden
+            onChange={(e) => void onFileChosen(e.target.files?.[0] || null)}
+          />
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            title="上傳檔案"
+            disabled={!activeChannel || uploading}
+            onClick={pickFile}
+          >
+            {uploading ? "上傳中…" : "📎"}
+          </button>
           <button type="button" className="btn btn-sm" disabled={!draft.trim() || sending} onClick={() => void send()}>
             送出
           </button>
@@ -887,30 +1138,126 @@ export default function TeamRoomPage() {
           </div>
         </div>
       )}
+
+      {membersDialogOpen && activeChannelObj && (
+        <div
+          className="cadence-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setMembersDialogOpen(false);
+          }}
+        >
+          <div className="cadence-dialog" role="dialog" aria-modal="true">
+            <h2 className="cadence-dialog-title">管理成員 · #{activeChannelObj.name}</h2>
+            <p className="cadence-dialog-msg">選擇可以看到並發言於此私人頻道的成員。</p>
+            <ul className="tm-member-checklist">
+              {members.map((m) => {
+                const isCreator = m.uid === activeChannelObj.created_by;
+                const checked = isCreator || membersDialogSelected.has(m.uid);
+                return (
+                  <li key={m.uid} className="tm-member-checkitem">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={isCreator}
+                        onChange={(e) => {
+                          setMembersDialogSelected((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(m.uid);
+                            else next.delete(m.uid);
+                            return next;
+                          });
+                        }}
+                      />
+                      {memberLabel(m)}
+                      {isCreator ? "（建立者）" : ""}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="cadence-dialog-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setMembersDialogOpen(false)}>
+                取消
+              </button>
+              <button type="button" className="btn" onClick={() => void saveMembersDialog()}>
+                儲存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div
+          className="cadence-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setSettingsOpen(false);
+          }}
+        >
+          <div className="cadence-dialog" role="dialog" aria-modal="true">
+            <h2 className="cadence-dialog-title">團隊設定</h2>
+            <p className="cadence-dialog-msg">管理「{team.name}」的名稱與生命週期。</p>
+            <div className="cadence-dialog-actions" style={{ justifyContent: "flex-start", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm btn-soft" onClick={() => void doRenameTeam()}>
+                重新命名
+              </button>
+              {member.role === "owner" && (
+                <button type="button" className="btn btn-sm btn-danger" onClick={() => void doDeleteTeam()}>
+                  刪除團隊
+                </button>
+              )}
+            </div>
+            <div className="cadence-dialog-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setSettingsOpen(false)}>
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function TeamRoomPage() {
+  return (
+    <Suspense fallback={<p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>}>
+      <TeamRoomInner />
+    </Suspense>
   );
 }
 
 function MessageRow({
   m,
   mine,
+  mentioned,
   replyCount,
   converting,
   flashNoteId,
   onReply,
   onReact,
-  onPin,
+  onPinNote,
   onNoteify,
+  onTogglePin,
+  onEdit,
+  onDelete,
 }: {
   m: Message;
   mine: boolean;
+  mentioned?: boolean;
   replyCount: number;
   converting?: boolean;
   flashNoteId?: string;
   onReply: () => void;
   onReact: (emoji: string) => void;
-  onPin?: () => void;
+  onPinNote?: () => void;
   onNoteify?: () => void;
+  onTogglePin: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const reactionGroups = useMemo(() => {
     const map: Record<string, number> = {};
@@ -920,19 +1267,52 @@ function MessageRow({
     return Object.entries(map);
   }, [m.reactions]);
 
+  if (m.deleted) {
+    return (
+      <div
+        className={`tm-msg is-deleted${mine ? " is-mine" : ""}`}
+        data-msg-id={m.id}
+      >
+        <div className="tm-msg-meta">
+          <span className="tm-msg-author">{m.author_name || "匿名"}</span>
+          <span className="tm-msg-time">
+            {m.created_at.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+        <span className="tm-msg-text tm-msg-text-muted">（已刪除）</span>
+      </div>
+    );
+  }
+
   return (
-    <div className={`tm-msg${mine ? " is-mine" : ""}`}>
+    <div
+      className={`tm-msg${mine ? " is-mine" : ""}${mentioned ? " is-mentioned" : ""}${m.pinned ? " is-pinned" : ""}`}
+      data-msg-id={m.id}
+    >
       <div className="tm-msg-meta">
         <span className="tm-msg-author">{m.author_name || "匿名"}</span>
         <span className="tm-msg-time">
           {m.created_at.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
         </span>
+        {m.edited_at && <span className="tm-msg-edited">已編輯</span>}
+        {m.pinned && <span className="tm-msg-pin-flag" title="已釘選">📌</span>}
       </div>
       {m.kind === "note_share" && m.note_id ? (
         <Link href={`/notes/${m.note_id}`} className="tm-note-card">
           <strong>📎 {m.note_title || "筆記"}</strong>
           <span>{renderMentions(m.text)}</span>
         </Link>
+      ) : m.kind === "file" && m.file_url ? (
+        <div className="tm-file-msg">
+          {(m.file_mime || "").startsWith("image/") ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={m.file_url} alt={m.file_name || "圖片"} className="tm-file-msg-img" />
+          ) : (
+            <a href={m.file_url} target="_blank" rel="noreferrer" className="tm-file-msg-link">
+              📎 {m.file_name || "下載檔案"}
+            </a>
+          )}
+        </div>
       ) : (
         <span className="tm-msg-text">{renderMentions(m.text)}</span>
       )}
@@ -959,8 +1339,11 @@ function MessageRow({
         <button type="button" className="doc-cmd" onClick={onReply}>
           回覆{replyCount ? ` (${replyCount})` : ""}
         </button>
-        {onPin && (
-          <button type="button" className="doc-cmd" onClick={onPin}>
+        <button type="button" className="doc-cmd" onClick={onTogglePin}>
+          {m.pinned ? "取消釘訊息" : "釘訊息"}
+        </button>
+        {onPinNote && (
+          <button type="button" className="doc-cmd" onClick={onPinNote}>
             釘選
           </button>
         )}
@@ -968,6 +1351,16 @@ function MessageRow({
           <button type="button" className="doc-cmd" disabled={converting} onClick={onNoteify}>
             {converting ? "轉換中…" : "轉筆記"}
           </button>
+        )}
+        {mine && (
+          <>
+            <button type="button" className="doc-cmd" onClick={onEdit}>
+              編輯
+            </button>
+            <button type="button" className="doc-cmd" onClick={onDelete}>
+              刪除
+            </button>
+          </>
         )}
       </div>
     </div>

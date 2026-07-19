@@ -51,7 +51,7 @@ export type Channel = {
   last_message_preview?: string;
 };
 
-export type MessageKind = "text" | "note_share";
+export type MessageKind = "text" | "note_share" | "file";
 
 export type Message = {
   id: string;
@@ -65,6 +65,12 @@ export type Message = {
   note_title?: string;
   reactions?: Record<string, string>;
   mentions?: string[];
+  edited_at?: Date;
+  deleted?: boolean;
+  pinned?: boolean;
+  file_url?: string;
+  file_name?: string;
+  file_mime?: string;
 };
 
 export type InviteStatus = "pending" | "accepted" | "revoked";
@@ -220,6 +226,12 @@ function messageFromDoc(id: string, data: Record<string, unknown>): Message {
     note_title: data.note_title ? String(data.note_title) : undefined,
     reactions,
     mentions: Array.isArray(data.mentions) ? data.mentions.map(String) : undefined,
+    edited_at: (data.edited_at as { toDate?: () => Date })?.toDate?.(),
+    deleted: !!data.deleted,
+    pinned: !!data.pinned,
+    file_url: data.file_url ? String(data.file_url) : undefined,
+    file_name: data.file_name ? String(data.file_name) : undefined,
+    file_mime: data.file_mime ? String(data.file_mime) : undefined,
   };
 }
 
@@ -417,8 +429,10 @@ export type SendMessageInput = {
   note_id?: string;
   note_title?: string;
   mentions?: string[];
-  /** Used only to resolve @names → uids; not stored. */
   members?: Member[];
+  file_url?: string;
+  file_name?: string;
+  file_mime?: string;
 };
 
 export async function sendMessage(
@@ -442,13 +456,20 @@ export async function sendMessage(
     note_title: msg.note_title || "",
     reactions: {},
     mentions,
+    file_url: msg.file_url || "",
+    file_name: msg.file_name || "",
+    file_mime: msg.file_mime || "",
+    pinned: false,
+    deleted: false,
     created_at: now,
   });
   if (!msg.thread_id) {
     const preview =
       kind === "note_share"
         ? `📎 ${msg.note_title || "筆記"}`
-        : msg.text.slice(0, 80);
+        : kind === "file"
+          ? `📎 ${msg.file_name || msg.text || "檔案"}`
+          : msg.text.slice(0, 80);
     await updateDoc(doc(channelsCol(teamId), channelId), {
       last_message_at: now,
       last_message_preview: preview,
@@ -869,4 +890,118 @@ export async function updateChannelMembers(
   await updateDoc(doc(channelsCol(teamId), channelId), {
     member_ids: memberIds,
   });
+}
+
+export async function editMessage(
+  teamId: string,
+  channelId: string,
+  messageId: string,
+  text: string
+): Promise<void> {
+  await updateDoc(doc(messagesCol(teamId, channelId), messageId), {
+    text,
+    edited_at: Timestamp.now(),
+  });
+}
+
+export async function deleteMessage(
+  teamId: string,
+  channelId: string,
+  messageId: string
+): Promise<void> {
+  await updateDoc(doc(messagesCol(teamId, channelId), messageId), {
+    deleted: true,
+    text: "（已刪除）",
+    file_url: "",
+    file_name: "",
+  });
+}
+
+export async function toggleMessagePin(
+  teamId: string,
+  channelId: string,
+  messageId: string,
+  pinned: boolean
+): Promise<void> {
+  await updateDoc(doc(messagesCol(teamId, channelId), messageId), { pinned });
+}
+
+export async function uploadTeamFile(
+  teamId: string,
+  channelId: string,
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<{ url: string; name: string; mime: string }> {
+  const { uploadFile } = await import("@/lib/firebase");
+  const safe = file.name.replace(/[^\w.\u4e00-\u9fff-]+/g, "_").slice(0, 80);
+  const path = `uploads/teams/${teamId}/${channelId}/${Date.now()}_${safe}`;
+  const url = await uploadFile(path, file, onProgress);
+  return { url, name: file.name, mime: file.type || "application/octet-stream" };
+}
+
+export async function renameTeam(teamId: string, name: string): Promise<void> {
+  const n = name.trim() || "未命名團隊";
+  await updateDoc(doc(teamsCol(), teamId), { name: n });
+}
+
+export async function deleteTeam(teamId: string, memberUids: string[]): Promise<void> {
+  // Best-effort: remove member mirrors then team doc (subcollections may linger — acceptable MVP)
+  await Promise.all(
+    memberUids.map((uid) => deleteDoc(doc(userTeamsCol(uid), teamId)).catch(() => undefined))
+  );
+  await Promise.all(
+    memberUids.map((uid) => deleteDoc(doc(membersCol(teamId), uid)).catch(() => undefined))
+  );
+  await deleteDoc(doc(teamsCol(), teamId));
+}
+
+export async function setChannelPresence(
+  teamId: string,
+  channelId: string,
+  uid: string,
+  name: string,
+  color: string
+): Promise<void> {
+  await setDoc(doc(collection(db, "teams", teamId, "channels", channelId, "presence"), uid), {
+    uid,
+    name,
+    color,
+    at: Timestamp.now(),
+  });
+}
+
+export async function clearChannelPresence(
+  teamId: string,
+  channelId: string,
+  uid: string
+): Promise<void> {
+  await deleteDoc(
+    doc(collection(db, "teams", teamId, "channels", channelId, "presence"), uid)
+  ).catch(() => undefined);
+}
+
+export function listenChannelPresence(
+  teamId: string,
+  channelId: string,
+  cb: (people: { uid: string; name: string; color: string }[]) => void
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, "teams", teamId, "channels", channelId, "presence"),
+    (snap) => {
+      const now = Date.now();
+      const people = snap.docs
+        .map((d) => {
+          const data = d.data();
+          const at = data.at?.toDate?.()?.getTime?.() || 0;
+          if (now - at > 45000) return null;
+          return {
+            uid: String(data.uid || d.id),
+            name: String(data.name || "?"),
+            color: String(data.color || "#0D9488"),
+          };
+        })
+        .filter(Boolean) as { uid: string; name: string; color: string }[];
+      cb(people);
+    }
+  );
 }

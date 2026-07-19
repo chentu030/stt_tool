@@ -7,5 +7,8 @@ service firebase.storage {
     match /results/{uid}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+    match /uploads/teams/{teamId}/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
   }
 }

@@ -8020,6 +8020,187 @@ button, input, textarea, select {
 }
 .tm-invite-roles .share-mode-item { flex: 1; align-items: center; text-align: center; padding: 0.55rem 0.4rem; }
 
+/* v3: edit / delete / pin / mentions */
+.tm-msg.is-mentioned {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}
+.tm-msg.is-pinned { box-shadow: inset 3px 0 0 var(--accent); }
+.tm-msg.is-deleted { opacity: 0.6; }
+.tm-msg-text-muted { color: var(--text-muted); font-style: italic; }
+.tm-msg-edited {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.tm-msg-pin-flag { font-size: 0.72rem; }
+@keyframes tm-flash {
+  0%, 100% { background: var(--bg-elevated); }
+  25%, 75% { background: var(--accent-soft); }
+}
+.tm-msg.is-flash { animation: tm-flash 1.1s ease 2; }
+
+/* v3: pinned messages strip */
+.tm-pinned-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  background: var(--bg-elevated);
+}
+.tm-pinned-strip-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tm-pinned-strip-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.tm-pinned-strip-item:hover { border-color: var(--accent); }
+.tm-pinned-strip-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* v3: file messages */
+.tm-file-msg { display: flex; }
+.tm-file-msg-img {
+  max-width: 280px;
+  max-height: 220px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+.tm-file-msg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--accent);
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+.tm-file-msg-link:hover { border-color: var(--accent); }
+
+/* v3: channel presence avatar stack */
+.tm-presence-avatars {
+  display: inline-flex;
+  align-items: center;
+}
+.tm-presence-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid var(--bg-elevated);
+  margin-left: -7px;
+}
+.tm-presence-avatar:first-child { margin-left: 0; }
+
+/* v3: private-channel member management dialog */
+.tm-member-checklist {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.tm-member-checkitem label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+/* v3: team & mention notifications popover */
+.sidebar-team-item-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.sidebar-team-item-wrap > a { flex: 1; }
+.sidebar-badge { cursor: pointer; }
+.tm-notif-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 80;
+  width: 300px;
+  max-height: 360px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+.tm-notif-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.tm-notif-panel-list {
+  overflow-y: auto;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.tm-notif-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.tm-notif-item:hover { background: var(--bg-muted); }
+.tm-notif-item strong { font-size: 0.8rem; }
+.tm-notif-item span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 @media (max-width: 760px) {
   .tm-room { grid-template-columns: 1fr; }
   .tm-sidebar { display: none; }

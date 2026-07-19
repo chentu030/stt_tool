@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle, logout, listenToUserNotes, listenToUserJobs, type Note, type Job } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -16,9 +16,12 @@ import {
   listenChannels,
   listenChannelReads,
   listenNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
   channelIsUnread,
   type TeamMembership,
   type Channel,
+  type TeamNotification,
 } from "@/lib/teamStore";
 
 const NAV_APPS = [
@@ -136,6 +139,7 @@ function useIsMobile(breakpoint = 900) {
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, loading } = useAuth();
   const prefsCtx = usePrefsOptional();
   const homeHref = prefsCtx?.prefs.homePage || "/";
@@ -150,6 +154,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [teamUnread, setTeamUnread] = useState(0);
   const [mentionUnread, setMentionUnread] = useState(0);
+  const [notifications, setNotifications] = useState<TeamNotification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifWrapRef = useRef<HTMLDivElement | null>(null);
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
@@ -212,12 +219,36 @@ export default function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) {
       setMentionUnread(0);
+      setNotifications([]);
       return;
     }
     return listenNotifications(user.uid, (items) => {
       setMentionUnread(items.filter((n) => n.type === "mention" && !n.read).length);
+      setNotifications(items);
     });
   }, [user]);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (notifWrapRef.current && !notifWrapRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [notifOpen]);
+
+  const goToNotification = (n: TeamNotification) => {
+    if (!user) return;
+    void markNotificationRead(user.uid, n.id);
+    setNotifOpen(false);
+    const params = new URLSearchParams();
+    if (n.channel_id) params.set("channel", n.channel_id);
+    if (n.message_id) params.set("msg", n.message_id);
+    const qs = params.toString();
+    router.push(`/team/${n.team_id}${qs ? `?${qs}` : ""}`);
+  };
 
   useEffect(() => {
     if (!user) {
@@ -348,22 +379,82 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="sidebar-apps" aria-label="應用">
-          {NAV_APPS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={isActive(item.href) ? "is-on" : ""}
-              title={item.label}
-            >
-              <item.icon />
-              <span>{item.label}</span>
-              {item.href === "/team" && teamUnread + mentionUnread > 0 && (
-                <em className="sidebar-badge">
-                  {teamUnread + mentionUnread > 9 ? "9+" : teamUnread + mentionUnread}
-                </em>
-              )}
-            </Link>
-          ))}
+          {NAV_APPS.map((item) =>
+            item.href === "/team" ? (
+              <div key={item.href} className="sidebar-team-item-wrap" ref={notifWrapRef}>
+                <Link href={item.href} className={isActive(item.href) ? "is-on" : ""} title={item.label}>
+                  <item.icon />
+                  <span>{item.label}</span>
+                </Link>
+                {teamUnread + mentionUnread > 0 && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="sidebar-badge"
+                    title="通知"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setNotifOpen((o) => !o);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setNotifOpen((o) => !o);
+                      }
+                    }}
+                  >
+                    {teamUnread + mentionUnread > 9 ? "9+" : teamUnread + mentionUnread}
+                  </span>
+                )}
+                {notifOpen && (
+                  <div className="tm-notif-panel">
+                    <div className="tm-notif-panel-head">
+                      <strong>通知</strong>
+                      {notifications.some((n) => !n.read) && (
+                        <button
+                          type="button"
+                          className="doc-cmd"
+                          onClick={() => user && void markAllNotificationsRead(user.uid, notifications)}
+                        >
+                          全部已讀
+                        </button>
+                      )}
+                    </div>
+                    <div className="tm-notif-panel-list">
+                      {notifications.filter((n) => !n.read).length === 0 ? (
+                        <p className="tm-sidebar-muted">沒有未讀通知。</p>
+                      ) : (
+                        notifications
+                          .filter((n) => !n.read)
+                          .map((n) => (
+                            <button
+                              key={n.id}
+                              type="button"
+                              className="tm-notif-item"
+                              onClick={() => goToNotification(n)}
+                            >
+                              <strong>{n.from_name || "某人"}</strong>
+                              <span>{n.text}</span>
+                            </button>
+                          ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={isActive(item.href) ? "is-on" : ""}
+                title={item.label}
+              >
+                <item.icon />
+                <span>{item.label}</span>
+              </Link>
+            )
+          )}
         </nav>
 
         <div className="sidebar-tree-wrap">

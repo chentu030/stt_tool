@@ -161,6 +161,7 @@ service cloud.firestore {
               resource.data.author_id == request.auth.uid
               || isTeamAdmin(teamId)
               || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+              || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned'])
             );
           allow delete: if canAccessChannel(teamId, channelId)
             && (resource.data.author_id == request.auth.uid || isTeamAdmin(teamId));
@@ -170,6 +171,12 @@ service cloud.firestore {
           allow read: if canAccessChannel(teamId, channelId);
           allow write: if canAccessChannel(teamId, channelId)
             && request.auth.uid == typerId;
+        }
+
+        match /presence/{uid} {
+          allow read: if canAccessChannel(teamId, channelId);
+          allow write: if canAccessChannel(teamId, channelId)
+            && request.auth.uid == uid;
         }
       }
 
