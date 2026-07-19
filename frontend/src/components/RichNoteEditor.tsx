@@ -22,6 +22,8 @@ import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
 import { resolveEmbedUrl, promptInsertUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
+import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt } from "@/lib/moveBlock";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 
 const lowlight = createLowlight(common);
 
@@ -59,6 +61,7 @@ export default function RichNoteEditor({
   userId,
   noteId,
 }: Props) {
+  const prefsCtx = usePrefsOptional();
   const skip = useRef(false);
   const [slash, setSlash] = useState<{ query: string; index: number } | null>(null);
   const slashRef = useRef(slash);
@@ -396,6 +399,18 @@ export default function RichNoteEditor({
         return true;
       },
       handleKeyDown: (_view, event) => {
+        if ((event.altKey || event.metaKey) && !event.shiftKey && !event.ctrlKey) {
+          if (event.key === "ArrowUp" && editorRef.current) {
+            event.preventDefault();
+            moveTopLevelBlock(editorRef.current, -1);
+            return true;
+          }
+          if (event.key === "ArrowDown" && editorRef.current) {
+            event.preventDefault();
+            moveTopLevelBlock(editorRef.current, 1);
+            return true;
+          }
+        }
         const cur = slashRef.current;
         if (!cur || !editorRef.current) return false;
         const items = filterSlash(buildSlash(editorRef.current), cur.query);
@@ -626,6 +641,37 @@ export default function RichNoteEditor({
           )}
         </div>
         <span className="rich-toolbar-sep" />
+        <ToolbarBtn
+          title="上移段落（Alt↑）"
+          onClick={() => moveTopLevelBlock(editor, -1)}
+        >
+          ↑
+        </ToolbarBtn>
+        <ToolbarBtn
+          title="下移段落（Alt↓）"
+          onClick={() => moveTopLevelBlock(editor, 1)}
+        >
+          ↓
+        </ToolbarBtn>
+        <label className="rich-lh" title="行距">
+          <span>行距</span>
+          <select
+            value={String(
+              nearestLineHeight(prefsCtx?.prefs.editorLineHeight ?? 1.65)
+            )}
+            onChange={(e) => {
+              const editorLineHeight = Number(e.target.value);
+              prefsCtx?.setPrefs({ editorLineHeight });
+            }}
+          >
+            {LINE_HEIGHTS.map((v) => (
+              <option key={v} value={String(v)}>
+                {LINE_HEIGHT_LABELS[v] || v.toFixed(2)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="rich-toolbar-sep" />
         <ToolbarBtn active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</ToolbarBtn>
@@ -693,6 +739,18 @@ export default function RichNoteEditor({
           螢
         </ToolbarBtn>
         <ToolbarBtn
+          title="上移段落"
+          onClick={() => moveTopLevelBlock(editor, -1)}
+        >
+          ↑
+        </ToolbarBtn>
+        <ToolbarBtn
+          title="下移段落"
+          onClick={() => moveTopLevelBlock(editor, 1)}
+        >
+          ↓
+        </ToolbarBtn>
+        <ToolbarBtn
           onClick={() => {
             const f = window.prompt("行內 LaTeX", "x^2");
             if (f) editor.chain().focus().setMathInline(f).run();
@@ -704,6 +762,7 @@ export default function RichNoteEditor({
       </BubbleMenu>
 
       <div className="rich-canvas">
+        <BlockDragHandle editor={editor} />
         <EditorContent editor={editor} />
         {slash && slashItems.length > 0 && (
           <div className="slash-menu rich-slash">
@@ -751,6 +810,173 @@ function ToolbarBtn({
       {children}
     </button>
   );
+}
+
+const LINE_HEIGHTS = [1.35, 1.5, 1.65, 1.85, 2.1] as const;
+const LINE_HEIGHT_LABELS: Record<number, string> = {
+  1.35: "緊湊",
+  1.5: "偏緊",
+  1.65: "標準",
+  1.85: "寬鬆",
+  2.1: "更寬",
+};
+
+function nearestLineHeight(v: number): number {
+  return LINE_HEIGHTS.reduce((best, cur) =>
+    Math.abs(cur - v) < Math.abs(best - v) ? cur : best
+  );
+}
+
+function BlockDragHandle({ editor }: { editor: Editor }) {
+  const [grip, setGrip] = useState<{ top: number; from: number; index: number } | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const dragRef = useRef<{ from: number; index: number } | null>(null);
+  const dropRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const root = editor.view.dom;
+    const canvas = root.closest(".rich-canvas") as HTMLElement | null;
+    if (!canvas) return;
+
+    const onMove = (e: MouseEvent) => {
+      if (dragRef.current) return;
+      try {
+        const pos = editor.view.posAtCoords({ left: Math.max(e.clientX, root.getBoundingClientRect().left + 8), top: e.clientY });
+        if (!pos) {
+          setGrip(null);
+          return;
+        }
+        const block = topLevelBlockAt(editor, pos.pos);
+        if (!block) {
+          setGrip(null);
+          return;
+        }
+        const dom = editor.view.nodeDOM(block.from);
+        if (!(dom instanceof HTMLElement)) {
+          setGrip(null);
+          return;
+        }
+        const rect = canvas.getBoundingClientRect();
+        const br = dom.getBoundingClientRect();
+        setGrip({
+          top: br.top - rect.top + canvas.scrollTop,
+          from: block.from,
+          index: block.index,
+        });
+      } catch {
+        setGrip(null);
+      }
+    };
+
+    const onLeave = (e: MouseEvent) => {
+      if (dragRef.current) return;
+      if ((e.relatedTarget as HTMLElement | null)?.closest?.(".block-drag-handle")) return;
+      setGrip(null);
+    };
+
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseleave", onLeave);
+    return () => {
+      canvas.removeEventListener("mousemove", onMove);
+      canvas.removeEventListener("mouseleave", onLeave);
+    };
+  }, [editor]);
+
+  const startDrag = (from: number, index: number) => {
+    dragRef.current = { from, index };
+    dropRef.current = index;
+    setDropIndex(index);
+
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      try {
+        const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+        if (!pos) return;
+        const block = topLevelBlockAt(editor, pos.pos);
+        if (!block) return;
+        let idx = block.index;
+        const dom = editor.view.nodeDOM(block.from);
+        if (dom instanceof HTMLElement) {
+          const br = dom.getBoundingClientRect();
+          if (e.clientY > br.top + br.height / 2) idx = block.index + 1;
+        }
+        dropRef.current = idx;
+        setDropIndex(idx);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onUp = () => {
+      const d = dragRef.current;
+      const target = dropRef.current;
+      dragRef.current = null;
+      dropRef.current = null;
+      setDropIndex(null);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (d && target !== null) {
+        // Re-resolve fromPos after any edits — use current index if possible
+        const still = topLevelBlockAt(editor, d.from + 1) || topLevelBlockAt(editor, d.from);
+        const fromPos = still && still.index === d.index ? still.from : d.from;
+        moveBlockToIndex(editor, fromPos, Math.min(target, editor.state.doc.childCount));
+      }
+      setGrip(null);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  if (!grip && dropIndex === null) return null;
+
+  return (
+    <>
+      {grip && (
+        <button
+          type="button"
+          className={`block-drag-handle${dragRef.current ? " is-dragging" : ""}`}
+          style={{ top: grip.top }}
+          title="拖曳移動段落"
+          aria-label="拖曳移動段落"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startDrag(grip.from, grip.index);
+          }}
+        >
+          ⋮⋮
+        </button>
+      )}
+      {dropIndex !== null && <BlockDropLine editor={editor} index={dropIndex} />}
+    </>
+  );
+}
+
+function BlockDropLine({ editor, index }: { editor: Editor; index: number }) {
+  const canvas = editor.view.dom.closest(".rich-canvas") as HTMLElement | null;
+  if (!canvas) return null;
+  const rect = canvas.getBoundingClientRect();
+  let top = 0;
+  if (editor.state.doc.childCount === 0) return null;
+  if (index >= editor.state.doc.childCount) {
+    let pos = 0;
+    for (let i = 0; i < editor.state.doc.childCount - 1; i++) {
+      pos += editor.state.doc.child(i).nodeSize;
+    }
+    const dom = editor.view.nodeDOM(pos);
+    if (!(dom instanceof HTMLElement)) return null;
+    const br = dom.getBoundingClientRect();
+    top = br.bottom - rect.top + canvas.scrollTop;
+  } else {
+    let pos = 0;
+    for (let i = 0; i < index; i++) pos += editor.state.doc.child(i).nodeSize;
+    const dom = editor.view.nodeDOM(pos);
+    if (!(dom instanceof HTMLElement)) return null;
+    const br = dom.getBoundingClientRect();
+    top = br.top - rect.top + canvas.scrollTop;
+  }
+  return <div className="block-drop-line" style={{ top }} />;
 }
 
 function ColorPickerPanel({
