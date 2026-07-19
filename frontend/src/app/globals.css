@@ -4641,6 +4641,74 @@ button, input, textarea, select {
   background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
   backdrop-filter: blur(8px);
 }
+.note-handoff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.note-handoff a {
+  font-size: 0.72rem;
+  padding: 0.22rem 0.48rem;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.note-handoff a:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.capture-recent {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+}
+.capture-recent-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.45rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.capture-recent-head a {
+  color: var(--accent-2);
+  text-decoration: none;
+}
+.capture-recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.capture-recent-list a {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--text-main);
+}
+.capture-recent-list a:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.capture-recent-list strong {
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.capture-recent-list span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
 .kb-chat-handoff {
   display: flex;
   flex-wrap: wrap;

@@ -6,6 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle } from "@/lib/firebase";
 import { askPrompt } from "@/lib/dialogs";
 import { createTeam, listenUserTeams, type TeamMembership } from "@/lib/teamStore";
+import ContinueChips, { siloContinueChips } from "@/components/shell/ContinueChips";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "擁有者",
@@ -67,6 +68,8 @@ export default function TeamListPage() {
           {busy ? "建立中…" : "＋ 新增團隊"}
         </button>
       </div>
+
+      <ContinueChips className="tm-continue" chips={siloContinueChips()} />
 
       {error && <p className="note-aside-error">{error}</p>}
 

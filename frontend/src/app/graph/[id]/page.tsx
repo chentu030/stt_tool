@@ -795,7 +795,7 @@ ${orphanLines || "（無）"}`;
           items={graphs.map((g) => ({ id: g.id, name: g.name }))}
           currentId={graphId}
           label="圖譜"
-          onSelect={(id) => router.push(`/graph/${id}`)}
+          onSelect={(id) => router.push(`/graph/${id}${window.location.search}`)}
           onCreate={() => void onCreateGraph()}
           onRename={onRenameGraph}
           onDelete={(id) => void onDeleteGraph(id)}

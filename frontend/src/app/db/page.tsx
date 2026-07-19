@@ -12,6 +12,7 @@ import {
 import { askPrompt } from "@/lib/dialogs";
 import { loginWithGoogle } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
+import ContinueChips, { siloContinueChips } from "@/components/shell/ContinueChips";
 
 export default function DatabasesIndexPage() {
   const { user, loading } = useAuth();
@@ -60,6 +61,7 @@ export default function DatabasesIndexPage() {
           {busy ? "…" : "新建資料庫"}
         </button>
       </div>
+      <ContinueChips className="cdb-continue" chips={siloContinueChips()} />
       {list.length === 0 ? (
         <p className="cdb-empty">尚無資料庫。建立一個，或在筆記輸入 /database。</p>
       ) : (

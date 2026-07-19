@@ -13,6 +13,9 @@ import {
   type ShareMode,
 } from "@/lib/share";
 import { updateNote, loginWithGoogle, type Note } from "@/lib/firebase";
+import ContinueChips from "@/components/shell/ContinueChips";
+import { buildResearchUrl } from "@/lib/researchBridge";
+import { graphNoteUrl } from "@/lib/navApps";
 
 export default function ShareNotePage() {
   const { token } = useParams<{ token: string }>();
@@ -146,6 +149,22 @@ export default function ShareNotePage() {
 
       {busy && <p className="share-status">載入中…</p>}
       {error && <p className="share-status is-error">{error}</p>}
+
+      {!busy && note && !error && user && (
+        <ContinueChips
+          className="share-continue"
+          chips={[
+            {
+              href: buildResearchUrl({ topic: title || undefined }),
+              label: "深度研究此主題",
+              primary: true,
+            },
+            { href: "/library", label: "知識庫" },
+            { href: graphNoteUrl(note.id), label: "圖譜" },
+            { href: "/capture", label: "捕捉" },
+          ]}
+        />
+      )}
 
       {!busy && note && !error && (
         <div className="share-doc">

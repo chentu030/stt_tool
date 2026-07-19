@@ -119,19 +119,6 @@ export default function BoardByIdPage() {
   }, [user]);
 
   useEffect(() => {
-    const noteId = searchParams.get("note");
-    if (!noteId || focusApplied.current || notes.length === 0) return;
-    if (!notes.some((n) => n.id === noteId)) return;
-    focusApplied.current = true;
-    setSelected([noteId]);
-    requestAnimationFrame(() => {
-      document
-        .querySelector(`[data-note-id="${CSS.escape(noteId)}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }, [searchParams, notes]);
-
-  useEffect(() => {
     if (!user) return;
     setBoardsReady(false);
     return listenBoards(user.uid, (list) => {
@@ -144,6 +131,24 @@ export default function BoardByIdPage() {
     () => boards.find((b) => b.id === boardId) || null,
     [boards, boardId]
   );
+
+  useEffect(() => {
+    const noteId = searchParams.get("note");
+    if (!noteId || focusApplied.current || notes.length === 0 || !board) return;
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    focusApplied.current = true;
+    setSelected([noteId]);
+    if (!noteMatchesBoard(note, board)) {
+      setToast("此筆記不在目前看板範圍，已選取但可能未顯示在欄位中");
+      setTimeout(() => setToast(""), 3200);
+    }
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-note-id="${CSS.escape(noteId)}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [searchParams, notes, board]);
 
   useEffect(() => {
     if (!user || !boardsReady) return;
@@ -637,7 +642,9 @@ export default function BoardByIdPage() {
               currentId={board.id}
               onSelect={(id) => {
                 persistLast(id);
-                router.push(`/board/${id}`);
+                const note = searchParams.get("note");
+                const qs = note ? `?note=${encodeURIComponent(note)}` : "";
+                router.push(`/board/${id}${qs}`);
               }}
               onCreate={() => {
                 void onCreateBoard();
@@ -978,6 +985,8 @@ export default function BoardByIdPage() {
         <BoardAside
           stats={stats}
           boardTags={tags}
+          selectedNoteId={selected[0] || null}
+          selectedTitle={notes.find((n) => n.id === selected[0])?.title}
           onRenameTag={(tag) => { void renameTagOnBoard(tag); }}
           onDeleteTag={(tag) => { void deleteTagOnBoard(tag); }}
           onAiTriage={() => { void runAiTriage(); }}

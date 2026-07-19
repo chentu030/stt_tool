@@ -1090,7 +1090,7 @@ export default function CanvasIdPage() {
           label="白板"
           items={list}
           currentId={canvasId}
-          onSelect={(id) => router.push(`/canvas/${id}`)}
+          onSelect={(id) => router.push(`/canvas/${id}${window.location.search}`)}
           onCreate={() => {
             void (async () => {
               const id = await createCanvas(user.uid, "新白板");

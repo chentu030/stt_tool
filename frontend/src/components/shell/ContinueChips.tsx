@@ -254,3 +254,43 @@ export function hubContinueChips(): ContinueChip[] {
     { href: "/board", label: "看板" },
   ];
 }
+
+export function siloContinueChips(): ContinueChip[] {
+  return [
+    { href: "/library", label: "知識庫", primary: true },
+    { href: "/research", label: "深度研究" },
+    { href: "/graph", label: "圖譜" },
+    { href: "/board", label: "看板" },
+    { href: "/journal", label: "日誌" },
+    { href: "/capture", label: "捕捉" },
+  ];
+}
+
+/** Compact handoff links for asides when a note is in focus. */
+export function NoteHandoffLinks({
+  noteId,
+  title,
+  className = "",
+}: {
+  noteId: string;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <div className={`note-handoff ${className}`.trim()}>
+      <Link href={`/notes/${noteId}`}>開啟筆記</Link>
+      <Link
+        href={buildResearchUrl({
+          from: noteId,
+          topic: title || undefined,
+          returnTo: true,
+        })}
+      >
+        深度研究
+      </Link>
+      <Link href={graphNoteUrl(noteId)}>圖譜</Link>
+      <Link href={boardNoteUrl(noteId)}>看板</Link>
+      <Link href={canvasNoteUrl(noteId)}>白板</Link>
+    </div>
+  );
+}

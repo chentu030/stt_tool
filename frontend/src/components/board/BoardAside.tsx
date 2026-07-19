@@ -1,15 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   BoardStats,
   PRIORITIES,
   BOARD_COLUMNS,
 } from "@/lib/boardMeta";
+import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
+import { libraryFolderUrl } from "@/lib/navApps";
 
 type Props = {
   stats: BoardStats;
   boardTags: string[];
+  selectedNoteId?: string | null;
+  selectedTitle?: string;
   onRenameTag: (tag: string) => void;
   onDeleteTag: (tag: string) => void;
   onAiTriage: () => void;
@@ -22,6 +27,8 @@ type Props = {
 export default function BoardAside({
   stats,
   boardTags,
+  selectedNoteId,
+  selectedTitle,
   onRenameTag,
   onDeleteTag,
   onAiTriage,
@@ -33,6 +40,16 @@ export default function BoardAside({
   const [scaffold, setScaffold] = useState("");
   return (
     <aside className="bd-aside">
+      {selectedNoteId && (
+        <section className="bd-aside-block">
+          <h3>已選卡片</h3>
+          <p className="bd-muted" style={{ marginBottom: "0.45rem" }}>
+            {selectedTitle || "未命名"}
+          </p>
+          <NoteHandoffLinks noteId={selectedNoteId} title={selectedTitle} />
+        </section>
+      )}
+
       <section className="bd-aside-block">
         <h3>進度</h3>
         <div className="bd-stat-grid">
@@ -94,7 +111,11 @@ export default function BoardAside({
           <ul className="bd-folder-list">
             {stats.byFolder.slice(0, 10).map((f) => (
               <li key={f.name}>
-                <span>{f.name}</span>
+                {f.name === "未分類" ? (
+                  <span>{f.name}</span>
+                ) : (
+                  <Link href={libraryFolderUrl(f.name)}>{f.name}</Link>
+                )}
                 <em>{f.count}</em>
               </li>
             ))}

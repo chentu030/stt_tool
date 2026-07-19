@@ -427,7 +427,13 @@ export default function JournalPage() {
           />
         </div>
 
-        <JournalAside stats={stats} dateKey={selected} onAskAi={askAi} />
+        <JournalAside
+          stats={stats}
+          dateKey={selected}
+          noteId={selectedEntry?.id}
+          noteTitle={selectedEntry?.title}
+          onAskAi={askAi}
+        />
       </div>
 
       {toast && <p className="jn-toast">{toast}</p>}

@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createNote, Note, Job } from "@/lib/firebase";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
-import { CMD_NAV } from "@/lib/navApps";
+import {
+  boardNoteUrl,
+  canvasNoteUrl,
+  CMD_NAV,
+  graphNoteUrl,
+} from "@/lib/navApps";
+import { buildResearchUrl } from "@/lib/researchBridge";
 
 type Props = {
   open: boolean;
@@ -22,26 +28,100 @@ type Row =
   | { kind: "job"; id: string; label: string; hint: string }
   | { kind: "action"; id: string; label: string; hint: string; run: () => void };
 
+function readFocusNoteId(pathname: string | null): string | null {
+  const m = pathname?.match(/^\/notes\/([^/?#]+)/);
+  if (m?.[1]) return m[1];
+  if (typeof window === "undefined") return null;
+  try {
+    return new URLSearchParams(window.location.search).get("note");
+  } catch {
+    return null;
+  }
+}
+
 export default function CommandPalette({ open, onClose, notes, jobs = [], userId }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const prefsCtx = usePrefsOptional();
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
+  const [contextNoteId, setContextNoteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setQ("");
     setIndex(0);
-  }, [open]);
+    setContextNoteId(readFocusNoteId(pathname));
+  }, [open, pathname]);
 
   const favIds = prefsCtx?.prefs.favoriteNoteIds || [];
   const recentIds = prefsCtx?.prefs.recentNoteIds || [];
+
+  const contextNote = useMemo(
+    () => (contextNoteId ? notes.find((n) => n.id === contextNoteId) : null),
+    [contextNoteId, notes]
+  );
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     const out: Row[] = [];
 
+    const pushNoteActions = (n: Note, prefix = "") => {
+      const label = n.title || "未命名";
+      out.push({
+        kind: "action",
+        id: `${prefix}research-${n.id}`,
+        label: `深度研究「${label}」`,
+        hint: "研究",
+        run: () => {
+          onClose();
+          router.push(
+            buildResearchUrl({ from: n.id, topic: n.title || undefined, returnTo: true })
+          );
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}graph-${n.id}`,
+        label: `在圖譜開啟「${label}」`,
+        hint: "圖譜",
+        run: () => {
+          onClose();
+          router.push(graphNoteUrl(n.id));
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}board-${n.id}`,
+        label: `在看板開啟「${label}」`,
+        hint: "看板",
+        run: () => {
+          onClose();
+          router.push(boardNoteUrl(n.id));
+        },
+      });
+      out.push({
+        kind: "action",
+        id: `${prefix}canvas-${n.id}`,
+        label: `在白板開啟「${label}」`,
+        hint: "白板",
+        run: () => {
+          onClose();
+          router.push(canvasNoteUrl(n.id));
+        },
+      });
+    };
+
     if (!s) {
+      if (contextNote) {
+        out.push({
+          kind: "note",
+          id: contextNote.id,
+          label: contextNote.title || "目前筆記",
+          hint: "目前",
+        });
+        pushNoteActions(contextNote, "ctx-");
+      }
       for (const id of recentIds.slice(0, 5)) {
         const n = notes.find((x) => x.id === id);
         if (n) out.push({ kind: "note", id: n.id, label: n.title, hint: "最近" });
@@ -96,7 +176,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
           });
         }
       }
-      return out.slice(0, 18);
+      return out.slice(0, 22);
     }
 
     for (const n of CMD_NAV) {
@@ -104,12 +184,15 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         out.push({ kind: "nav", href: n.href, label: n.label, hint: "前往" });
       }
     }
+
+    const matchedNotes: Note[] = [];
     for (const n of notes) {
       if (
         n.title.toLowerCase().includes(s) ||
         (n.folder || "").toLowerCase().includes(s) ||
         (n.tags || []).some((t) => t.toLowerCase().includes(s))
       ) {
+        matchedNotes.push(n);
         out.push({
           kind: "note",
           id: n.id,
@@ -118,14 +201,16 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         });
       }
     }
+    if (matchedNotes[0]) pushNoteActions(matchedNotes[0], "hit-");
+
     for (const j of jobs) {
       const title = j.filenames?.[0] || j.youtube_url || j.id;
       if (String(title).toLowerCase().includes(s) || j.id.toLowerCase().includes(s)) {
         out.push({ kind: "job", id: j.id, label: String(title), hint: "逐字稿" });
       }
     }
-    return out.slice(0, 24);
-  }, [q, notes, jobs, favIds, recentIds, userId, prefsCtx, router, onClose]);
+    return out.slice(0, 28);
+  }, [q, notes, jobs, favIds, recentIds, userId, prefsCtx, router, onClose, contextNote]);
 
   useEffect(() => {
     setIndex(0);

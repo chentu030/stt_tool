@@ -22,6 +22,17 @@ function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function readFocusNoteId(pathname: string | null): string | null {
+  const m = pathname?.match(/^\/notes\/([^/?#]+)/);
+  if (m?.[1]) return m[1];
+  if (typeof window === "undefined") return null;
+  try {
+    return new URLSearchParams(window.location.search).get("note");
+  } catch {
+    return null;
+  }
+}
+
 export default function GlobalAiDock() {
   const { user } = useAuth();
   const pathname = usePathname();
@@ -37,12 +48,21 @@ export default function GlobalAiDock() {
   const [atOpen, setAtOpen] = useState(false);
   const [atQ, setAtQ] = useState("");
   const [webSearch, setWebSearch] = useState(false);
+  const [focusNoteId, setFocusNoteId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
 
   const onNotePage = pathname?.startsWith("/notes/");
+  const focusNote = useMemo(
+    () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
+    [focusNoteId, notes]
+  );
   const assistantName = prefsCtx?.prefs.aiAssistantName || "Cadence AI";
+
+  useEffect(() => {
+    setFocusNoteId(readFocusNoteId(pathname));
+  }, [pathname, open]);
 
   useEffect(() => {
     if (!user) {
@@ -116,9 +136,10 @@ export default function GlobalAiDock() {
 
   const scopeLabel = useMemo(() => {
     if (pinnedNotes.length) return `已 @ ${pinnedNotes.length} 篇`;
+    if (focusNote) return `對焦 · ${focusNote.title || "筆記"}`;
     if (onNotePage) return "跨庫提問 · 本篇請用 Ctrl+J";
     return `知識庫 ${notes.length} 篇`;
-  }, [onNotePage, notes.length, pinnedNotes.length]);
+  }, [onNotePage, notes.length, pinnedNotes.length, focusNote]);
 
   const togglePin = (id: string) => {
     setPinnedIds((prev) =>
@@ -215,8 +236,7 @@ export default function GlobalAiDock() {
               title="深度研究"
               onClick={() => {
                 setOpen(false);
-                const noteMatch = pathname?.match(/^\/notes\/([^/?#]+)/);
-                const from = noteMatch?.[1];
+                const from = focusNoteId || undefined;
                 const lastUser = [...msgs].reverse().find((m) => m.role === "user");
                 const pinnedTitles = pinnedNotes
                   .map((n) => n.title)
@@ -225,6 +245,7 @@ export default function GlobalAiDock() {
                   .join("、");
                 const topic =
                   lastUser?.text?.trim().slice(0, 120) ||
+                  focusNote?.title ||
                   pinnedTitles ||
                   undefined;
                 router.push(

@@ -2,12 +2,13 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { libraryJobsUrl } from "@/lib/navApps";
 
-/** Legacy route — redirect into the new library. */
+/** Legacy route — redirect into library transcription tab. */
 export default function HistoryRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/library");
+    router.replace(libraryJobsUrl());
   }, [router]);
-  return <p style={{ color: "var(--text-muted)" }}>正在導向知識庫…</p>;
+  return <p style={{ color: "var(--text-muted)" }}>正在導向轉錄紀錄…</p>;
 }

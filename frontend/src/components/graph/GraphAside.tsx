@@ -9,7 +9,8 @@ import {
   GraphBundle,
   neighborsOf,
 } from "@/lib/graphModel";
-import { buildResearchUrl } from "@/lib/researchBridge";
+import { libraryFolderUrl } from "@/lib/navApps";
+import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 
 type Props = {
   stats: GraphStats;
@@ -99,21 +100,7 @@ export default function GraphAside({
             </p>
             <div className="gp-selected-actions">
               {selected.noteId && (
-                <Link href={`/notes/${selected.noteId}`} className="btn btn-soft btn-sm">
-                  開啟筆記
-                </Link>
-              )}
-              {selected.noteId && (
-                <Link
-                  href={buildResearchUrl({
-                    from: selected.noteId,
-                    topic: selected.title || undefined,
-                    returnTo: true,
-                  })}
-                  className="btn btn-soft btn-sm"
-                >
-                  深度研究
-                </Link>
+                <NoteHandoffLinks noteId={selected.noteId} title={selected.title} />
               )}
               {selected.kind === "ghost" && onCreateGhost && (
                 <button
@@ -235,7 +222,11 @@ export default function GraphAside({
         <ul className="gp-bucket">
           {folders.slice(0, 10).map((f) => (
             <li key={f.name}>
-              <span>{f.name}</span>
+              {f.name === "未分類" ? (
+                <span>{f.name}</span>
+              ) : (
+                <Link href={libraryFolderUrl(f.name)}>{f.name}</Link>
+              )}
               <em>{f.count}</em>
             </li>
           ))}

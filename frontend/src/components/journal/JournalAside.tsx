@@ -7,14 +7,17 @@ import {
   heatWeeks,
   JOURNAL_PROMPTS,
 } from "@/lib/journalMeta";
+import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 
 type Props = {
   stats: JournalStats;
   dateKey: string;
+  noteId?: string | null;
+  noteTitle?: string;
   onAskAi: (prompt: string) => Promise<string>;
 };
 
-export default function JournalAside({ stats, dateKey, onAskAi }: Props) {
+export default function JournalAside({ stats, dateKey, noteId, noteTitle, onAskAi }: Props) {
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
@@ -35,6 +38,16 @@ export default function JournalAside({ stats, dateKey, onAskAi }: Props) {
 
   return (
     <aside className="jn-aside">
+      {noteId && (
+        <section className="jn-aside-block">
+          <h3>今日筆記</h3>
+          <p className="jn-muted" style={{ marginBottom: "0.4rem" }}>
+            {noteTitle || dateKey}
+          </p>
+          <NoteHandoffLinks noteId={noteId} title={noteTitle || dateKey} />
+        </section>
+      )}
+
       <section className="jn-aside-block">
         <h3>節奏</h3>
         <div className="jn-stat-grid">

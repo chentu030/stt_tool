@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import type { Note } from "@/lib/firebase";
 import type { CanvasDoc, CanvasAiOp } from "@/lib/canvasStore";
-import { CANVAS_TIPS } from "@/lib/canvasStore";
 import Link from "next/link";
+import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
+import { buildResearchUrl } from "@/lib/researchBridge";
+import { CANVAS_TIPS } from "@/lib/canvasStore";
 
 type ChatMsg = { role: "user" | "assistant"; text: string; ops?: CanvasAiOp[] };
 
@@ -42,6 +44,12 @@ export default function CanvasAside({
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
 
   const pinned = useMemo(() => new Set(doc.notes.map((n) => n.noteId)), [doc.notes]);
+
+  const focusedNoteId = useMemo(() => {
+    const hit = selectedIds.find((id) => id.startsWith("note:"));
+    return hit ? hit.slice(5) : null;
+  }, [selectedIds]);
+  const focusedNote = focusedNoteId ? notes.find((n) => n.id === focusedNoteId) : null;
 
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -83,6 +91,15 @@ export default function CanvasAside({
 
       {tab === "ai" ? (
         <div className="cv-ai-panel">
+          {focusedNoteId && (
+            <div className="cv-aside-block" style={{ marginBottom: "0.55rem" }}>
+              <h3 style={{ marginBottom: "0.35rem" }}>已選筆記</h3>
+              <p className="cv-muted" style={{ marginBottom: "0.4rem" }}>
+                {focusedNote?.title || "未命名"}
+              </p>
+              <NoteHandoffLinks noteId={focusedNoteId} title={focusedNote?.title} />
+            </div>
+          )}
           <div className="cv-stat-grid" style={{ marginBottom: "0.55rem" }}>
             <div>
               <strong>{doc.notes.length}</strong>
@@ -176,6 +193,13 @@ export default function CanvasAside({
                     </button>
                     <Link href={`/notes/${n.id}`} className="cv-open">
                       開
+                    </Link>
+                    <Link
+                      href={buildResearchUrl({ from: n.id, topic: n.title || undefined, returnTo: true })}
+                      className="cv-open"
+                      title="深度研究"
+                    >
+                      研
                     </Link>
                   </li>
                 );

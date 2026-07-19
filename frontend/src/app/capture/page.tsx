@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob,
+  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, type Job,
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import ContinueChips, { captureContinueChips } from "@/components/shell/ContinueChips";
+import Link from "next/link";
+import { libraryJobsUrl } from "@/lib/navApps";
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
@@ -29,6 +31,15 @@ export default function CapturePage() {
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recentJobs, setRecentJobs] = useState<Job[]>([]);
+
+  useEffect(() => {
+    if (!user) {
+      setRecentJobs([]);
+      return;
+    }
+    return listenToUserJobs(user.uid, (jobs) => setRecentJobs(jobs.slice(0, 5)));
+  }, [user]);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState({ status: "", pct: 0, label: "" });
   const [extReady, setExtReady] = useState(false);
@@ -222,6 +233,25 @@ export default function CapturePage() {
         </header>
 
         <ContinueChips className="capture-continue" chips={captureContinueChips()} />
+
+        {recentJobs.length > 0 && (
+          <div className="capture-recent">
+            <div className="capture-recent-head">
+              <span>最近轉錄</span>
+              <Link href={libraryJobsUrl()}>全部</Link>
+            </div>
+            <ul className="capture-recent-list">
+              {recentJobs.map((j) => (
+                <li key={j.id}>
+                  <Link href={`/job/${j.id}`}>
+                    <strong>{j.filenames?.[0] || j.youtube_url || "轉錄"}</strong>
+                    <span>{j.status}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <input
           ref={fileRef}
