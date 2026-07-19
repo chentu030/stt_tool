@@ -4268,14 +4268,35 @@ button, input, textarea, select {
   font-size: var(--editor-font-size, 1.05rem);
   line-height: var(--editor-line-height, 1.65);
   color: var(--text-main);
-  padding-left: 1.75rem;
+  padding-left: 2.75rem;
 }
-.block-drag-handle {
+.block-controls {
   position: absolute;
-  left: 0;
+  left: 0.15rem;
   z-index: 5;
-  width: 1.4rem;
-  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border-radius: 6px;
+  background: transparent;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+  pointer-events: auto;
+}
+.rich-canvas:hover .block-controls,
+.block-controls:hover,
+.block-controls.is-dragging {
+  opacity: 1;
+}
+.block-controls:hover,
+.block-controls.is-dragging {
+  background: var(--bg-muted);
+}
+.block-add-btn,
+.block-drag-handle {
+  width: 1.35rem;
+  height: 1.35rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4283,25 +4304,34 @@ button, input, textarea, select {
   border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
-  cursor: grab;
-  font-size: 0.75rem;
-  letter-spacing: -0.12em;
+  cursor: pointer;
+  font-size: 0.95rem;
   line-height: 1;
-  opacity: 0.55;
   user-select: none;
+  padding: 0;
 }
-.block-drag-handle:hover,
-.block-drag-handle.is-dragging {
-  opacity: 1;
-  background: var(--bg-muted);
+.block-add-btn {
+  font-weight: 500;
+  font-size: 1.05rem;
+}
+.block-drag-handle {
+  cursor: grab;
+  font-size: 0.85rem;
+  letter-spacing: -0.05em;
+}
+.block-add-btn:hover,
+.block-drag-handle:hover {
   color: var(--text-main);
+  background: color-mix(in srgb, var(--bg-card) 80%, var(--accent-soft));
 }
-.block-drag-handle.is-dragging {
+.block-controls.is-dragging .block-drag-handle,
+.block-drag-handle:active {
   cursor: grabbing;
+  color: var(--accent);
 }
 .block-drop-line {
   position: absolute;
-  left: 1.75rem;
+  left: 2.75rem;
   right: 0.5rem;
   height: 2px;
   background: var(--accent);
@@ -7532,11 +7562,11 @@ body.is-sidebar-resizing iframe {
 }
 .rich-page-sheet .rich-prose {
   min-height: calc(297mm - 46mm);
-  padding-left: 1.5rem;
+  padding-left: 2.5rem;
   color: #111;
 }
-.rich-page-sheet .block-drag-handle {
-  left: 0.15rem;
+.rich-page-sheet .block-controls {
+  left: 0.1rem;
 }
 .doc-workspace.is-page .doc-editor {
   max-width: none;

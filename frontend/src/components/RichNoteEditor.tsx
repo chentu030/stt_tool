@@ -1985,7 +1985,7 @@ function nearestLineHeight(v: number): number {
 }
 
 function BlockDragHandle({ editor }: { editor: Editor }) {
-  const [grip, setGrip] = useState<{ top: number; from: number; index: number } | null>(null);
+  const [grip, setGrip] = useState<{ top: number; from: number; to: number; index: number } | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const dragRef = useRef<{ from: number; index: number } | null>(null);
   const dropRef = useRef<number | null>(null);
@@ -1998,7 +1998,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     const onMove = (e: MouseEvent) => {
       if (dragRef.current) return;
       try {
-        const pos = editor.view.posAtCoords({ left: Math.max(e.clientX, root.getBoundingClientRect().left + 8), top: e.clientY });
+        const pos = editor.view.posAtCoords({
+          left: Math.max(e.clientX, root.getBoundingClientRect().left + 8),
+          top: e.clientY,
+        });
         if (!pos) {
           setGrip(null);
           return;
@@ -2016,8 +2019,9 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         const rect = canvas.getBoundingClientRect();
         const br = dom.getBoundingClientRect();
         setGrip({
-          top: br.top - rect.top + canvas.scrollTop,
+          top: br.top - rect.top + canvas.scrollTop + Math.min(4, br.height / 2 - 12),
           from: block.from,
+          to: block.to,
           index: block.index,
         });
       } catch {
@@ -2027,7 +2031,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
 
     const onLeave = (e: MouseEvent) => {
       if (dragRef.current) return;
-      if ((e.relatedTarget as HTMLElement | null)?.closest?.(".block-drag-handle")) return;
+      if ((e.relatedTarget as HTMLElement | null)?.closest?.(".block-controls")) return;
       setGrip(null);
     };
 
@@ -2073,7 +2077,6 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       if (d && target !== null) {
-        // Re-resolve fromPos after any edits — use current index if possible
         const still = topLevelBlockAt(editor, d.from + 1) || topLevelBlockAt(editor, d.from);
         const fromPos = still && still.index === d.index ? still.from : d.from;
         moveBlockToIndex(editor, fromPos, Math.min(target, editor.state.doc.childCount));
@@ -2085,25 +2088,64 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     document.addEventListener("mouseup", onUp);
   };
 
+  /** Notion-style +: insert empty block below and open slash menu */
+  const addBlockBelow = () => {
+    if (!grip) return;
+    const insertAt = grip.to;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertAt, { type: "paragraph" })
+      .setTextSelection(insertAt + 1)
+      .insertContent("/")
+      .run();
+    setGrip(null);
+  };
+
   if (!grip && dropIndex === null) return null;
 
   return (
     <>
       {grip && (
-        <button
-          type="button"
-          className={`block-drag-handle${dragRef.current ? " is-dragging" : ""}`}
+        <div
+          className={`block-controls${dragRef.current ? " is-dragging" : ""}`}
           style={{ top: grip.top }}
-          title="拖曳移動段落"
-          aria-label="拖曳移動段落"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            startDrag(grip.from, grip.index);
-          }}
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          ⋮⋮
-        </button>
+          <button
+            type="button"
+            className="block-add-btn"
+            title="在下方新增區塊"
+            aria-label="在下方新增區塊"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              addBlockBelow();
+            }}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="block-drag-handle"
+            title="拖動以移動 · 或點一下開啟選單"
+            aria-label="拖曳移動段落"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              startDrag(grip.from, grip.index);
+            }}
+            onClick={(e) => {
+              // Click without drag: open slash turn-into by selecting block then inserting /
+              if (dragRef.current) return;
+              e.preventDefault();
+              editor.chain().focus().setTextSelection(grip.from + 1).run();
+            }}
+          >
+            ⠿
+          </button>
+        </div>
       )}
       {dropIndex !== null && <BlockDropLine editor={editor} index={dropIndex} />}
     </>
