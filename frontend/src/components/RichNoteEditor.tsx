@@ -2124,32 +2124,41 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     const onMove = (e: MouseEvent) => {
       if (dragRef.current) return;
       const t = e.target as HTMLElement | null;
+      // Keep handle visible while the pointer is on it (or its hover bridge)
       if (t?.closest?.(".block-controls")) return;
 
       try {
         const next = gripFromPos(e.clientY, e.clientX);
         if (next) {
-          setGrip(next);
+          setGrip((prev) => {
+            if (
+              prev &&
+              prev.from === next.from &&
+              prev.index === next.index &&
+              prev.parentFrom === next.parentFrom &&
+              Math.abs(prev.top - next.top) < 2 &&
+              Math.abs(prev.left - next.left) < 2
+            ) {
+              return prev;
+            }
+            return next;
+          });
           return;
         }
 
+        // Dead zone between text and handle: keep current grip if still beside that block
         const prev = gripRef.current;
         if (prev) {
-          const rootRect = root.getBoundingClientRect();
-          const gutter = gutterWidth();
-          const inApproach =
-            e.clientX >= rootRect.left - gutter &&
-            e.clientX < rootRect.left + gutter + 8 &&
-            e.clientY >= rootRect.top - 4 &&
-            e.clientY <= rootRect.bottom + 4;
-          if (inApproach) {
-            const dom = editor.view.nodeDOM(prev.from);
-            if (dom instanceof HTMLElement) {
-              const br = dom.getBoundingClientRect();
-              if (e.clientY >= br.top - 8 && e.clientY <= br.bottom + 8) return;
-            } else {
-              return;
-            }
+          const dom = editor.view.nodeDOM(prev.from);
+          if (dom instanceof HTMLElement) {
+            const br = dom.getBoundingClientRect();
+            const corridorLeft = br.left - 56;
+            const inCorridor =
+              e.clientX >= corridorLeft - 4 &&
+              e.clientX <= br.left + 12 &&
+              e.clientY >= br.top - 10 &&
+              e.clientY <= br.bottom + 10;
+            if (inCorridor) return;
           }
         }
         setGrip(null);
@@ -2160,7 +2169,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
 
     const onLeave = (e: MouseEvent) => {
       if (dragRef.current) return;
-      if ((e.relatedTarget as HTMLElement | null)?.closest?.(".block-controls")) return;
+      const related = e.relatedTarget as HTMLElement | null;
+      if (related?.closest?.(".block-controls")) return;
       setGrip(null);
     };
 
@@ -2374,6 +2384,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           }`}
           style={{ top: grip.top, left: grip.left }}
           onMouseDown={(e) => e.stopPropagation()}
+          onMouseEnter={() => {
+            // Re-assert grip so crossing the bridge never clears it
+            setGrip((prev) => prev ?? grip);
+          }}
         >
           <button
             type="button"

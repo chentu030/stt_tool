@@ -5061,15 +5061,24 @@ a.sidebar-user-name:hover {
   pointer-events: auto;
   box-sizing: border-box;
 }
+/* Bridge the gap from handle → text so the grip doesn't vanish mid-hover */
 .block-controls::after {
   content: "";
   position: absolute;
-  top: -6px;
-  bottom: -6px;
+  top: -10px;
+  bottom: -10px;
   left: 100%;
-  width: 0.35rem;
-  /* Must not cover task checkboxes / first glyphs of the line */
-  pointer-events: none;
+  width: 2.75rem;
+  pointer-events: auto;
+}
+.block-controls::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  right: 100%;
+  width: 0.5rem;
+  pointer-events: auto;
 }
 .rich-canvas:hover .block-controls,
 .block-controls:hover,
