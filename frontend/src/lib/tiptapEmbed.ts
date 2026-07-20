@@ -553,6 +553,8 @@ export const NoteEmbed = Node.create({
         "data-frameable": frameable ? "1" : "0",
         contenteditable: "false",
       }),
+      // Text fallback so serializers that skip empty atoms still keep the embed
+      `[embed|${kind}|${title}](${original})`,
     ];
   },
   addNodeView() {
@@ -612,12 +614,21 @@ export const NoteEmbed = Node.create({
       };
 
       sync(node);
+      const armInteractive = () => {
+        dom.classList.add("is-interactive");
+      };
+      dom.addEventListener("pointerdown", armInteractive);
       return {
         dom,
         update: (updated) => {
           if (updated.type.name !== "noteEmbed") return false;
+          const wasInteractive = dom.classList.contains("is-interactive");
           sync(updated);
+          if (wasInteractive) dom.classList.add("is-interactive");
           return true;
+        },
+        destroy: () => {
+          dom.removeEventListener("pointerdown", armInteractive);
         },
       };
     };

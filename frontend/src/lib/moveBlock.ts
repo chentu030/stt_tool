@@ -278,6 +278,44 @@ export function draggableBlockAt(editor: Editor, pos: number): DragBlock | null 
   };
 }
 
+/** Find the top-level (or list-item) block whose DOM rect contains clientY. */
+export function draggableBlockAtClientY(editor: Editor, clientY: number): DragBlock | null {
+  const { doc } = editor.state;
+  if (doc.childCount === 0) return null;
+  let offset = 0;
+  for (let i = 0; i < doc.childCount; i++) {
+    const node = doc.child(i);
+    const from = offset;
+    const to = offset + node.nodeSize;
+    if (LIST_PARENT.has(node.type.name) && node.childCount > 0) {
+      let p = from + 1;
+      for (let j = 0; j < node.childCount; j++) {
+        const item = node.child(j);
+        const itemFrom = p;
+        const itemTo = p + item.nodeSize;
+        const dom = editor.view.nodeDOM(itemFrom);
+        if (dom instanceof HTMLElement) {
+          const br = dom.getBoundingClientRect();
+          if (clientY >= br.top - 4 && clientY <= br.bottom + 4) {
+            return { from: itemFrom, to: itemTo, index: j, parentFrom: from };
+          }
+        }
+        p = itemTo;
+      }
+    } else {
+      const dom = editor.view.nodeDOM(from);
+      if (dom instanceof HTMLElement) {
+        const br = dom.getBoundingClientRect();
+        if (clientY >= br.top - 4 && clientY <= br.bottom + 4) {
+          return { from, to, index: i, parentFrom: -1 };
+        }
+      }
+    }
+    offset = to;
+  }
+  return null;
+}
+
 /** Resolve which top-level block contains a document position. */
 export function topLevelBlockAt(editor: Editor, pos: number): { index: number; from: number; to: number } | null {
   const { doc } = editor.state;

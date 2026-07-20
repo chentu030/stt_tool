@@ -5544,6 +5544,7 @@ a.sidebar-user-name:hover {
   border-radius: 12px;
   overflow: hidden;
   background: var(--bg-elevated);
+  position: relative;
 }
 .rich-embed-label {
   font-size: 0.72rem;
@@ -5561,6 +5562,12 @@ a.sidebar-user-name:hover {
   max-height: 480px;
   border: none;
   background: #111;
+  /* iframe steals mousemove — keep off until user clicks the embed */
+  pointer-events: none;
+}
+.rich-embed.is-interactive .rich-embed-frame,
+.rich-embed:focus-within .rich-embed-frame {
+  pointer-events: auto;
 }
 .rich-embed--youtube .rich-embed-frame {
   aspect-ratio: 16 / 9;

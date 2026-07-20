@@ -44,7 +44,7 @@ import { resolveEmbedUrl, promptInsertUrl, isYoutubeUrl } from "@/lib/embedUrls"
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
-import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
@@ -2098,8 +2098,9 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         ? rootRect.left + Math.max(6, parseFloat(getComputedStyle(root).paddingLeft || "0") || 0) + 2
         : Math.max(clientX ?? rootRect.left + 8, rootRect.left + 8);
       const pos = editor.view.posAtCoords({ left: probeX, top: clientY });
-      if (!pos) return null;
-      const block = draggableBlockAt(editor, pos.pos);
+      let block = pos ? draggableBlockAt(editor, pos.pos) : null;
+      // Embeds/iframes often break posAtCoords — fall back to Y hit-test
+      if (!block) block = draggableBlockAtClientY(editor, clientY);
       if (!block) return null;
       const dom = editor.view.nodeDOM(block.from);
       if (!(dom instanceof HTMLElement)) return null;

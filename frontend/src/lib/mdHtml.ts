@@ -124,14 +124,20 @@ turndown.addRule("cadenceDatabase", {
 });
 
 turndown.addRule("noteEmbed", {
-  filter: (node) =>
-    node.nodeName === "DIV" &&
-    (node as HTMLElement).getAttribute("data-note-embed") === "1",
+  filter: (node) => {
+    if (node.nodeName !== "DIV") return false;
+    const el = node as HTMLElement;
+    return (
+      el.getAttribute("data-note-embed") != null ||
+      el.classList?.contains("rich-embed") === true
+    );
+  },
   replacement: (_c, node) => {
     const el = node as HTMLElement;
     const kind = el.getAttribute("data-kind") || "web";
     const title = el.getAttribute("data-title") || "embed";
     const original = el.getAttribute("data-original") || el.getAttribute("data-src") || "";
+    if (!original) return "";
     return `\n\n[embed|${kind}|${title}](${original})\n\n`;
   },
 });
@@ -636,8 +642,8 @@ export function clipboardHasLatex(text: string): boolean {
 
 export function htmlToMarkdown(html: string): string {
   if (!html || html === "<p></p>" || html === "<p><br></p>") return "";
-  // TipTap math nodes serialize as empty <span/div data-formula> atoms. Turndown's
-  // blank-node rule would drop them before our math rules run — expand to $...$ first.
+  // TipTap atom nodes (math / embeds / …) often serialize as empty attribute-only
+  // tags. Turndown's blank-node rule drops them — expand to markdown first.
   let input = html;
   if (typeof DOMParser !== "undefined") {
     try {
@@ -661,6 +667,69 @@ export function htmlToMarkdown(html: string): string {
           return;
         }
         el.replaceWith(doc.createTextNode(`\n\n$$\n${f}\n$$\n\n`));
+      });
+      doc.querySelectorAll("[data-note-embed], .rich-embed").forEach((el) => {
+        const kind = el.getAttribute("data-kind") || "web";
+        const title = el.getAttribute("data-title") || "embed";
+        const original =
+          el.getAttribute("data-original") || el.getAttribute("data-src") || "";
+        if (!original) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(
+          doc.createTextNode(`\n\n[embed|${kind}|${title}](${original})\n\n`)
+        );
+      });
+      doc.querySelectorAll("[data-cadence-database]").forEach((el) => {
+        const id = el.getAttribute("data-database-id") || "";
+        const viewId = el.getAttribute("data-view-id") || "v_table";
+        if (!id) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n[database|${viewId}](${id})\n\n`));
+      });
+      doc.querySelectorAll("[data-note-video]").forEach((el) => {
+        const src = el.getAttribute("src") || "";
+        const title = el.getAttribute("title") || "video";
+        if (!src) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n![video|${title}](${src})\n\n`));
+      });
+      doc.querySelectorAll("[data-note-audio]").forEach((el) => {
+        const src = el.getAttribute("src") || "";
+        const title = el.getAttribute("title") || "audio";
+        if (!src) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n![audio|${title}](${src})\n\n`));
+      });
+      doc.querySelectorAll("a[data-note-file]").forEach((el) => {
+        const href = el.getAttribute("href") || "";
+        const name = el.getAttribute("data-name") || "檔案";
+        const size = el.getAttribute("data-size") || "";
+        if (!href) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(
+          doc.createTextNode(
+            `\n\n[file|${name}${size ? `|${size}` : ""}](${href})\n\n`
+          )
+        );
+      });
+      doc.querySelectorAll("a[data-note-bookmark]").forEach((el) => {
+        const href = el.getAttribute("href") || "";
+        const title = el.getAttribute("data-title") || href;
+        if (!href) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n[bookmark|${title}](${href})\n\n`));
       });
       input = doc.body.innerHTML;
     } catch {
