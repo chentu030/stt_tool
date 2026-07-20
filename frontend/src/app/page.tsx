@@ -53,7 +53,7 @@ export default function HomePage() {
         <div style={{ position: "relative", zIndex: 1 }}>
           <p className="badge" style={{ marginBottom: "1rem" }}>語音驅動的知識工作區</p>
           <ScrambleText
-            words="Cadence"
+            words="Albireus"
             as="h1"
             className="font-display"
             style={{ fontSize: "clamp(2.6rem, 7vw, 4rem)", lineHeight: 1.05, marginBottom: "0.55rem" }}
@@ -69,7 +69,7 @@ export default function HomePage() {
             />
           </h2>
           <p style={{ color: "var(--text-muted)", fontSize: "1.02rem", marginBottom: "1.7rem", maxWidth: 480, marginInline: "auto" }}>
-            錄音與影片轉成可編輯的筆記：捕捉、校對、整理，全部在 Cadence 完成。
+            錄音與影片轉成可編輯的筆記：捕捉、校對、整理，全部在 Albireus 完成。
           </p>
           <div style={{ display: "flex", gap: "0.65rem", justifyContent: "center", flexWrap: "wrap" }}>
             <ShinyPill onClick={() => loginWithGoogle()}>開始使用</ShinyPill>

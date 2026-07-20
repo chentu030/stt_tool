@@ -645,7 +645,7 @@ export default function GraphDetailPage() {
       const hubLines = hubs.map((h) => `- ${h.title}（出${h.outDegree}/入${h.inDegree}）`).join("\n");
       const ghostLines = ghosts.map((g) => `- [[${g.title}]] ×${g.inDegree}`).join("\n");
       const orphanLines = orphans.map((o) => `- ${o.title}`).join("\n");
-      const prompt = `你是知識圖譜分析助手。根據以下 Cadence 筆記圖譜摘要，用繁體中文給出：
+      const prompt = `你是知識圖譜分析助手。根據以下 Albireus 筆記圖譜摘要，用繁體中文給出：
 1) 目前知識結構的 3 個觀察
 2) 建議優先補建的 5 個連結或幽靈筆記
 3) 如何把孤兒筆記接進主網絡

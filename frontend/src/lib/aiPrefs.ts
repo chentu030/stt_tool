@@ -59,7 +59,7 @@ export function resolveAiTextModel(preferred?: string | null): string {
 }
 
 export function assistantSystemPrefix(prefs?: AiPrefPayload | null): string {
-  const name = (prefs?.name || "Cadence AI").trim() || "Cadence AI";
+  const name = (prefs?.name || "Albireus AI").trim() || "Albireus AI";
   const style = prefs?.style || "balanced";
   const styleLine =
     style === "concise"
@@ -70,7 +70,7 @@ export function assistantSystemPrefix(prefs?: AiPrefPayload | null): string {
   const groundingLine = prefs?.grounding
     ? "已啟用 Google 搜尋 grounding：需要最新資訊或事實查證時請上網查詢，並在回答中標明依據。"
     : "";
-  return `你是「${name}」，Cadence 知識工作助手。${styleLine}${groundingLine}使用繁體中文。`;
+  return `你是「${name}」，Albireus 知識工作助手。${styleLine}${groundingLine}使用繁體中文。`;
 }
 
 /** Payload fragment for /api/ai/generate from user prefs */

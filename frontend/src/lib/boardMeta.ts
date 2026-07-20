@@ -216,7 +216,7 @@ export function groupByFolder(cards: BoardCard[]): { lane: string; cards: BoardC
 }
 
 export function exportBoardMarkdown(cards: BoardCard[]): string {
-  const lines = [`# Cadence 看板匯出`, "", `匯出時間：${new Date().toLocaleString("zh-TW")}`, ""];
+  const lines = [`# Albireus 看板匯出`, "", `匯出時間：${new Date().toLocaleString("zh-TW")}`, ""];
   for (const col of BOARD_COLUMNS) {
     const list = cards.filter((c) => c.statusKey === col.id);
     lines.push(`## ${col.label} (${list.length})`, "");

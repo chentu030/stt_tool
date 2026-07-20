@@ -91,11 +91,11 @@ export type UserPrefs = {
   /** Shortcuts */
   enableShortcuts: boolean;
   slashMenu: boolean;
-  /** Cadence AI */
+  /** Albireus AI */
   aiAssistantName: string;
   aiStyle: "concise" | "balanced" | "detailed";
   aiModel: string;
-  /** Default: Grounding with Google Search for Cadence AI */
+  /** Default: Grounding with Google Search for Albireus AI */
   aiGrounding: boolean;
   aiDefaultScope: "note" | "folder" | "library";
   /** Workspace */
@@ -181,7 +181,7 @@ export const SETTINGS_SECTIONS = [
   { id: "library", label: "知識庫" },
   { id: "board", label: "看板" },
   { id: "editor", label: "筆記編輯" },
-  { id: "ai", label: "Cadence AI" },
+  { id: "ai", label: "Albireus AI" },
   { id: "capture", label: "捕捉" },
   { id: "journal", label: "日誌" },
   { id: "views", label: "白板／圖譜" },
@@ -244,7 +244,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   askBeforeDelete: true,
   enableShortcuts: true,
   slashMenu: true,
-  aiAssistantName: "Cadence AI",
+  aiAssistantName: "Albireus AI",
   aiStyle: "balanced",
   aiModel: "gemini-3.5-flash",
   aiGrounding: false,
@@ -321,7 +321,10 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
     defaultFolder: String(p.defaultFolder || "").slice(0, 80),
     defaultTags: String(p.defaultTags || "").slice(0, 200),
-    aiAssistantName: String(p.aiAssistantName || "Cadence AI").slice(0, 40) || "Cadence AI",
+    aiAssistantName: (() => {
+      const raw = String(p.aiAssistantName || "Albireus AI").slice(0, 40) || "Albireus AI";
+      return raw === "Cadence AI" ? "Albireus AI" : raw;
+    })(),
     aiStyle:
       p.aiStyle === "concise" || p.aiStyle === "detailed" || p.aiStyle === "balanced"
         ? p.aiStyle

@@ -789,7 +789,7 @@ export function tagBuckets(bundle: GraphBundle): { name: string; count: number }
 
 export function exportGraphMarkdown(bundle: GraphBundle, stats: GraphStats): string {
   const lines = [
-    `# Cadence 知識圖譜`,
+    `# Albireus 知識圖譜`,
     ``,
     `- 筆記：${stats.notes}`,
     `- 節點：${stats.nodes}`,

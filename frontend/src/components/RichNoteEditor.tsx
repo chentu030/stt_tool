@@ -70,7 +70,7 @@ type Props = {
   noteTitle?: string;
   /** Create a nested page under the current note; return created title for wiki link */
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
-  /** Open Cadence AI aside / chat */
+  /** Open Albireus AI aside / chat */
   onOpenAiAssistant?: (opts?: { selection?: string; question?: string; focusChat?: boolean }) => void;
   /** Launch deep research with selected text */
   onDeepResearchSelection?: (selection: string) => void;

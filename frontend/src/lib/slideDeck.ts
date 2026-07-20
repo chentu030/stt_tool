@@ -161,7 +161,7 @@ export function buildLayoutSlide(
           y: 58,
           w: 76,
           h: 16,
-          text: body.split("\n").filter(Boolean)[0] || "Cadence 簡報",
+          text: body.split("\n").filter(Boolean)[0] || "Albireus 簡報",
           role: "subtitle",
           scale: 1.15,
           align: "center",

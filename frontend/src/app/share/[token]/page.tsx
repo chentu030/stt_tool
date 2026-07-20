@@ -118,7 +118,7 @@ export default function ShareNotePage() {
     <div className="share-page">
       <header className="share-page-head">
         <Link href="/" className="share-brand">
-          Cadence
+          Albireus
         </Link>
         <span className="share-pill">{modeLabel}分享</span>
         {canEdit && saveState && <span className="share-save">{saveState}</span>}

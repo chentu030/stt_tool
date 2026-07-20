@@ -292,7 +292,7 @@ export function packLibraryContext(
   };
 }
 
-export function exportNotesMarkdown(notes: LibraryNote[], title = "Cadence 知識庫匯出"): string {
+export function exportNotesMarkdown(notes: LibraryNote[], title = "Albireus 知識庫匯出"): string {
   const lines = [`# ${title}`, "", `匯出時間：${new Date().toLocaleString("zh-TW")}`, `篇數：${notes.length}`, ""];
   for (const n of notes) {
     lines.push(`## ${n.title}`);

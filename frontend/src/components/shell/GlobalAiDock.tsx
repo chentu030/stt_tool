@@ -199,7 +199,7 @@ export default function GlobalAiDock() {
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
     [focusNoteId, notes]
   );
-  const assistantName = prefsCtx?.prefs.aiAssistantName || "Cadence AI";
+  const assistantName = prefsCtx?.prefs.aiAssistantName || "Albireus AI";
 
   const active = useMemo(
     () => threads.find((t) => t.id === activeId) || null,

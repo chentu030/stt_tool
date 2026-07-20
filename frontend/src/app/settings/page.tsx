@@ -499,13 +499,13 @@ export default function SettingsPage() {
           </section>
 
           <section id="st-ai" className="st-card">
-            <h2>Cadence AI</h2>
+            <h2>Albireus AI</h2>
             <Row label="助手名稱">
               <input
                 className="input"
                 value={prefs.aiAssistantName}
                 onChange={(e) => patch({ aiAssistantName: e.target.value })}
-                placeholder="Cadence AI"
+                placeholder="Albireus AI"
                 maxLength={40}
               />
             </Row>
@@ -779,9 +779,9 @@ export default function SettingsPage() {
           </section>
 
           <section id="st-about" className="st-card">
-            <h2>關於 Cadence</h2>
+            <h2>關於 Albireus</h2>
             <p className="st-about">
-              Cadence 是語音驅動的知識工作區：捕捉聲音、校對逐字稿、寫成可連結的筆記。偏好儲存在本機瀏覽器，換裝置需重新匯入。
+              Albireus 是語音驅動的知識工作區：捕捉聲音、校對逐字稿、寫成可連結的筆記。偏好儲存在本機瀏覽器，換裝置需重新匯入。
             </p>
             <p className="st-muted">
               舊版歷史頁：{" "}

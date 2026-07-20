@@ -1,4 +1,4 @@
-# Cadence Frontend — Vercel Environment Variables
+# Albireus Frontend — Vercel Environment Variables
 
 ## Required (existing Firebase / API)
 

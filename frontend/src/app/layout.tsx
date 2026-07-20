@@ -7,13 +7,13 @@ import ToastProvider from "@/components/ToastProvider";
 import AppShell from "@/components/shell/AppShell";
 
 export const metadata: Metadata = {
-  title: "Cadence — 把說話寫成知識",
+  title: "Albireus — 把說話寫成知識",
   description: "語音驅動的知識工作區：轉錄、編輯、組織筆記。",
-  applicationName: "Cadence",
+  applicationName: "Albireus",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "Cadence",
+    title: "Albireus",
     statusBarStyle: "default",
   },
   icons: {

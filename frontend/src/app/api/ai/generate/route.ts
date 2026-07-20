@@ -98,7 +98,7 @@ function buildPrompt(data: Body): {
   }
   if (action === "ask_selection") {
     return {
-      system: "你是 Cadence 筆記助手。依使用者問題，針對框選文字作答，使用繁體中文。可給出可直接貼回筆記的 Markdown。",
+      system: "你是 Albireus 筆記助手。依使用者問題，針對框選文字作答，使用繁體中文。可給出可直接貼回筆記的 Markdown。",
       prompt: `${context ? `${context}\n\n` : ""}筆記標題：${title}\n\n框選文字：\n${selection}\n\n使用者問題：\n${data.prompt?.trim() || "請說明這段在說什麼"}`,
       temperature: 0.55,
     };
@@ -106,80 +106,80 @@ function buildPrompt(data: Body): {
 
   if (action === "summarize") {
     return {
-      system: "你是 Cadence 筆記助手。用繁體中文輸出，精簡條列重點，不要廢話。",
+      system: "你是 Albireus 筆記助手。用繁體中文輸出，精簡條列重點，不要廢話。",
       prompt: `請摘要以下筆記：\n\n${noteBlock}`,
     };
   }
   if (action === "rewrite") {
     return {
-      system: "你是 Cadence 筆記助手。用繁體中文改寫，保留原意，讓文字更清晰、可讀。只輸出改寫後正文。",
+      system: "你是 Albireus 筆記助手。用繁體中文改寫，保留原意，讓文字更清晰、可讀。只輸出改寫後正文。",
       prompt: `請改寫：\n\n${noteBlock}`,
     };
   }
   if (action === "outline") {
     return {
-      system: "你是 Cadence 筆記助手。用繁體中文產出 Markdown 大綱（# / ## / -），適合之後做成簡報。",
+      system: "你是 Albireus 筆記助手。用繁體中文產出 Markdown 大綱（# / ## / -），適合之後做成簡報。",
       prompt: `請依內容產出簡報大綱：\n\n${noteBlock}`,
     };
   }
   if (action === "expand") {
     return {
-      system: "你是 Cadence 筆記助手。用繁體中文擴寫，補上例子、解釋與結構，保留原意。只輸出擴寫後的完整 Markdown 正文。",
+      system: "你是 Albireus 筆記助手。用繁體中文擴寫，補上例子、解釋與結構，保留原意。只輸出擴寫後的完整 Markdown 正文。",
       prompt: `請擴寫這篇筆記：\n\n${noteBlock}`,
     };
   }
   if (action === "actions") {
     return {
-      system: "你是 Cadence 筆記助手。從內容抽出可執行待辦，用 Markdown checklist（- [ ]）。繁體中文，只輸出清單。",
+      system: "你是 Albireus 筆記助手。從內容抽出可執行待辦，用 Markdown checklist（- [ ]）。繁體中文，只輸出清單。",
       prompt: `請抽出行動項目：\n\n${noteBlock}`,
     };
   }
   if (action === "quiz") {
     return {
-      system: "你是 Cadence 學習助手。依筆記出 5 題複習問答（含簡短答案），繁體中文 Markdown。",
+      system: "你是 Albireus 學習助手。依筆記出 5 題複習問答（含簡短答案），繁體中文 Markdown。",
       prompt: `請為以下筆記出測驗題：\n\n${noteBlock}`,
     };
   }
   if (action === "explain") {
     return {
-      system: "你是 Cadence 筆記助手。用繁體中文白話解釋整篇重點，像對朋友說明，分段清楚。",
+      system: "你是 Albireus 筆記助手。用繁體中文白話解釋整篇重點，像對朋友說明，分段清楚。",
       prompt: `請說明這篇筆記在講什麼：\n\n${noteBlock}`,
     };
   }
 
   if (action === "draft_meeting") {
     return {
-      system: "你是 Cadence 會議助手。用繁體中文產出完整會議紀錄 Markdown（出席、議程、討論、決議、待辦 checklist）。可直接貼入筆記。",
+      system: "你是 Albireus 會議助手。用繁體中文產出完整會議紀錄 Markdown（出席、議程、討論、決議、待辦 checklist）。可直接貼入筆記。",
       prompt: `${data.prompt?.trim() || "產出會議紀錄草稿"}\n\n${noteBlock}`,
     };
   }
   if (action === "draft_email") {
     return {
-      system: "你是 Cadence 寫作助手。用繁體中文產出信件草稿（先給主旨建議，再給正文）。語氣專業清楚。",
+      system: "你是 Albireus 寫作助手。用繁體中文產出信件草稿（先給主旨建議，再給正文）。語氣專業清楚。",
       prompt: `${data.prompt?.trim() || "產出信件草稿"}\n\n${noteBlock}`,
     };
   }
   if (action === "draft_outline") {
     return {
-      system: "你是 Cadence 簡報助手。用繁體中文產出 ## 標題層級的簡報大綱，每張投影片簡短要點。",
+      system: "你是 Albireus 簡報助手。用繁體中文產出 ## 標題層級的簡報大綱，每張投影片簡短要點。",
       prompt: `${data.prompt?.trim() || "產出簡報大綱"}\n\n${noteBlock}`,
     };
   }
   if (action === "write_anything") {
     return {
-      system: "你是 Cadence 寫作助手。依使用者指示撰寫繁體中文 Markdown，可直接插入筆記。只輸出正文。",
+      system: "你是 Albireus 寫作助手。依使用者指示撰寫繁體中文 Markdown，可直接插入筆記。只輸出正文。",
       prompt: `指示：${data.prompt?.trim() || "寫一段有用的內容"}\n\n參考脈絡：\n${noteBlock}`,
     };
   }
   if (action === "make_table") {
     return {
-      system: "你是 Cadence 筆記助手。只輸出一個 Markdown 表格（含表頭），繁體中文，不要其他說明。",
+      system: "你是 Albireus 筆記助手。只輸出一個 Markdown 表格（含表頭），繁體中文，不要其他說明。",
       prompt: `${data.prompt?.trim() || "整理成表格"}\n\n${noteBlock}`,
     };
   }
   if (action === "make_mermaid") {
     return {
-      system: "你是 Cadence 筆記助手。只輸出一個 ```mermaid 程式碼區塊（flowchart TD 或類似），節點文字用繁體中文。",
+      system: "你是 Albireus 筆記助手。只輸出一個 ```mermaid 程式碼區塊（flowchart TD 或類似），節點文字用繁體中文。",
       prompt: `${data.prompt?.trim() || "畫流程圖"}\n\n${noteBlock}`,
     };
   }
@@ -206,7 +206,7 @@ function buildPrompt(data: Body): {
 
   if (action === "canvas") {
     return {
-      system: `${asst}你是 Cadence 白板助手。你會收到畫布 JSON（items、edges、noteCatalog、selectedIds）。用繁體中文回覆。
+      system: `${asst}你是 Albireus 白板助手。你會收到畫布 JSON（items、edges、noteCatalog、selectedIds）。用繁體中文回覆。
 必須回傳單一 JSON 物件（可包在 markdown code fence）：
 {"message":"給使用者看的說明與建議","ops":[...]}
 ops 可用：
@@ -245,7 +245,7 @@ ops 可用：
   }
 
   return {
-    system: "你是 Cadence 筆記助手，使用繁體中文。",
+    system: "你是 Albireus 筆記助手，使用繁體中文。",
     prompt: data.prompt?.trim() || note || "你好",
   };
 }

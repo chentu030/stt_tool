@@ -141,7 +141,7 @@ export function formatResearchNoteBody(opts: {
 
   return `# ${opts.title}
 
-> 由 Cadence 深度研究產生 · ${opts.model || "gemini-3.1-pro-preview"}
+> 由 Albireus 深度研究產生 · ${opts.model || "gemini-3.1-pro-preview"}
 ${sourceLine}
 ${relatedWiki ? `## 相關筆記\n\n${relatedWiki}\n\n` : ""}## 摘要
 

@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle, logout, listenToUserNotes, listenToUserJobs, type Note, type Job } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
-import CadenceLogo from "@/components/CadenceLogo";
+import AlbireusLogo from "@/components/AlbireusLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
@@ -579,14 +579,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <MenuIcon />
             </button>
             <Link href={homeHref} className="mobile-top-logo" onClick={closeNav}>
-              <CadenceLogo height={24} />
+              <AlbireusLogo height={24} />
             </Link>
           </div>
           <div className="mobile-top-actions">
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              title="Cadence AI"
+              title="Albireus AI"
               onClick={() => toggleGlobalAiRail()}
             >
               AI
@@ -627,13 +627,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           />
           <div className="sidebar-brand">
             <Link href={homeHref} className="sidebar-brand-logo" onClick={closeNav}>
-              <CadenceLogo height={24} />
+              <AlbireusLogo height={24} />
             </Link>
             <div className="sidebar-brand-links">
               <button
                 type="button"
                 className="sidebar-icon-btn"
-                title="Cadence AI"
+                title="Albireus AI"
                 onClick={() => {
                   toggleGlobalAiRail();
                   closeNav();
@@ -743,7 +743,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <div className="sidebar-brand">
           {!sidebarCollapsed ? (
             <Link href={homeHref} className="sidebar-brand-logo">
-              <CadenceLogo height={24} />
+              <AlbireusLogo height={24} />
             </Link>
           ) : (
             <button
@@ -752,7 +752,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               title="展開側欄 ⌘\\"
               onClick={toggleSidebarCollapsed}
             >
-              <CadenceLogo height={22} showWord={false} />
+              <AlbireusLogo height={22} showWord={false} />
             </button>
           )}
           <div className="sidebar-brand-links">
@@ -761,7 +761,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   className="sidebar-icon-btn"
-                  title="Cadence AI ⌘⇧A"
+                  title="Albireus AI ⌘⇧A"
                   onClick={() => toggleGlobalAiRail()}
                 >
                   AI

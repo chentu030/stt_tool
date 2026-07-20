@@ -193,7 +193,7 @@ function LibraryPageInner() {
     const pool = selected.length
       ? notes.filter((n) => selected.includes(n.id))
       : filteredNotes;
-    const md = exportNotesMarkdown(pool, selected.length ? "Cadence 選取匯出" : "Cadence 篩選匯出");
+    const md = exportNotesMarkdown(pool, selected.length ? "Albireus 選取匯出" : "Albireus 篩選匯出");
     downloadText(`cadence-library-${Date.now()}.md`, md);
     toast(selected.length ? `已匯出 ${selected.length} 篇` : "已匯出篩選結果");
   };
@@ -243,7 +243,7 @@ function LibraryPageInner() {
           <button
             type="button"
             className="btn btn-sm btn-ghost"
-            title="Cadence AI（Ctrl+Shift+A）"
+            title="Albireus AI（Ctrl+Shift+A）"
             onClick={() => openGlobalAiRail()}
           >
             AI

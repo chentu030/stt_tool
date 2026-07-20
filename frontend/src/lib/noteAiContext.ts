@@ -1,4 +1,4 @@
-/** Build compact note context for Cadence AI prompts */
+/** Build compact note context for Albireus AI prompts */
 
 import { extractWikiLinks } from "@/lib/wiki";
 
@@ -46,7 +46,7 @@ export function buildNoteAiContext(input: NoteAiContextInput): NoteAiContextPack
   const chip = chipBits.length ? `脈絡：${chipBits.join(" ／ ")}` : "脈絡：本篇筆記";
 
   const context = [
-    "—— Cadence 筆記脈絡 ——",
+    "—— Albireus 筆記脈絡 ——",
     ...metaParts,
     "",
     "—— 正文 ——",

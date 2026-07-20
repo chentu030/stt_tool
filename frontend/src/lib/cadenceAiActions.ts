@@ -1,4 +1,4 @@
-/** Cadence AI action catalog (slash / space / aside chips) */
+/** Albireus AI action catalog (slash / space / aside chips) */
 
 export type CadenceAiInsertMode = "cursor" | "replace" | "append" | "chat";
 

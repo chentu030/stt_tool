@@ -226,7 +226,7 @@ export default function NoteAside({
             <h4>快捷鍵</h4>
             <ul className="note-shortcuts">
               <li><kbd>/</kbd> 或空白段 <kbd>Space</kbd> 插入區塊</li>
-              <li><kbd>/ai</kbd> Cadence AI 動作</li>
+              <li><kbd>/ai</kbd> Albireus AI 動作</li>
               <li>
                 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> 全局 AI{" "}
                 <button type="button" className="doc-cmd" onClick={() => openGlobalAiRail()}>
