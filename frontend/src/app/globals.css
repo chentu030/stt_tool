@@ -4288,6 +4288,13 @@ a.sidebar-user-name:hover {
 }
 @media (max-width: 900px) {
   .doc-page { padding: 1.25rem 1.1rem 5rem; }
+  .doc-page--slides {
+    padding: 0.75rem 1rem 0;
+  }
+  .doc-pane--slides.is-active {
+    margin: 0.35rem -1rem 0;
+    width: calc(100% + 2rem);
+  }
 }
 
 .segment-row {
@@ -8712,8 +8719,10 @@ body.is-sidebar-resizing iframe {
   max-width: none !important;
   width: 100%;
   margin: 0;
-  padding: 0;
+  /* Keep title / back-link inset; SlideStudio goes full-bleed below */
+  padding: 0.85rem 1.25rem 0;
   min-height: calc(100vh - 7.5rem);
+  box-sizing: border-box;
   animation: slide-view-in 180ms ease-out;
 }
 @keyframes slide-view-in {
@@ -8809,12 +8818,17 @@ body.is-sidebar-resizing iframe {
   margin-left: 0;
 }
 .doc-title-row.is-compact {
-  margin-bottom: 0.35rem;
-  padding-bottom: 0.35rem;
+  margin: 0.15rem 0 0.55rem;
+  padding: 0.45rem 0.15rem 0.55rem;
   border-bottom: 1px solid var(--border);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .doc-title-row.is-compact .doc-title {
   font-size: 1.35rem;
+  margin-bottom: 0;
+  min-width: 0;
 }
 .doc-slide-bridge {
   display: flex;
@@ -8860,10 +8874,15 @@ body.is-sidebar-resizing iframe {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 12rem);
+  /* Break out of page padding so the studio spans edge-to-edge */
+  margin: 0.35rem -1.25rem 0;
+  width: calc(100% + 2.5rem);
+  max-width: none;
 }
 .doc-workspace.is-slides .doc-page {
   max-width: none !important;
   width: 100%;
+  min-width: 0;
 }
 .doc-workspace.is-slides .doc-page--slides,
 .doc-workspace.is-slides .doc-page {
@@ -9019,9 +9038,12 @@ body.is-sidebar-resizing iframe {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  margin: 0.15rem 0 0.55rem;
+  margin: 0.15rem 0 0.75rem;
+  padding: 0 0.15rem;
   font-size: 0.78rem;
   color: var(--text-muted);
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .note-toc-row {
   display: flex;
