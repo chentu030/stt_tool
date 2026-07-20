@@ -42,6 +42,7 @@ import {
   exportBoardMarkdown,
   filterBoardCards,
   groupByFolder,
+  noteMatchesBoard,
   sortBoardCards,
   toBoardCards,
   upsertBoardMeta,
@@ -59,21 +60,6 @@ const SORT_OPTIONS = [
   { value: "age" as const, label: "閒置最久" },
   { value: "title" as const, label: "標題" },
 ];
-
-function noteMatchesBoard(note: Note, board: BoardConfig): boolean {
-  if (board.folders.length > 0) {
-    const folder = (note.folder || "").trim();
-    if (!board.folders.includes(folder)) return false;
-  }
-  if (board.tags.length > 0) {
-    const noteTags = note.tags || [];
-    if (!board.tags.some((t) => noteTags.includes(t))) return false;
-  }
-  if (board.statuses.length > 0) {
-    if (!board.statuses.includes(statusOf(note))) return false;
-  }
-  return true;
-}
 
 export default function BoardByIdPage() {
   const { id: boardId } = useParams<{ id: string }>();

@@ -2348,6 +2348,188 @@ html.is-note-app-embed main {
 @media (max-width: 720px) {
   .ws-hub-preview { height: 72px; }
 }
+
+/* Dense hub v2 — Miro/Notion-like density */
+.ws-hub--dense {
+  max-width: 1180px;
+}
+.ws-hub-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  gap: 1.25rem;
+  align-items: stretch;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+.ws-hub-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.ws-hub-hero-copy .db-hub-hero-actions {
+  margin-top: 0.85rem;
+}
+.ws-hub-stat-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+.ws-hub-stat-pill {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 4.5rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-muted) 65%, var(--bg-card));
+}
+.ws-hub-stat-pill strong {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+  margin: 0;
+}
+.ws-hub-stat-pill em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.ws-hub-featured-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--accent) 7%, var(--bg-card)), var(--bg-card));
+  text-decoration: none;
+  color: var(--text-main);
+  min-height: 100%;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.ws-hub-featured-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+.ws-hub-featured-card.is-empty {
+  cursor: default;
+}
+.ws-hub-featured-card .ws-hub-preview {
+  height: 148px;
+  border-radius: 12px;
+}
+.ws-hub-featured-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.15rem 0.15rem;
+}
+.ws-hub-featured-kicker {
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.ws-hub-featured-meta strong {
+  font-size: 1.05rem;
+}
+.ws-hub-featured-meta p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.ws-hub-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.ws-hub-metrics span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.ws-hub-metrics span strong {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+.ws-hub-metrics span.is-warn {
+  background: color-mix(in srgb, #ef4444 14%, var(--bg-muted));
+  color: #b91c1c;
+}
+.ws-hub-metrics span.is-warn strong {
+  color: #b91c1c;
+}
+.ws-hub-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.9rem;
+}
+.ws-hub-card .ws-hub-preview {
+  height: 120px;
+}
+.ws-hub-preview.is-large {
+  height: 148px;
+}
+.ws-hub-preview-col em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.ws-hub-preview-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  border: 1px solid var(--border);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  backdrop-filter: blur(6px);
+}
+.ws-hub-preview-bars {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 28px;
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+.ws-hub-preview-bars span {
+  display: block;
+  border-radius: 999px;
+  min-width: 6px;
+}
+.ws-hub-toolbar {
+  margin-bottom: 1.15rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-muted) 50%, var(--bg-card));
+}
+.ws-hub-templates {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+@media (max-width: 900px) {
+  .ws-hub-hero {
+    grid-template-columns: 1fr;
+  }
+}
 .db-hub-picker-close {
   border: none;
   background: transparent;

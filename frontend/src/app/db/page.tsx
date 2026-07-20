@@ -18,7 +18,7 @@ import {
 import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import ScrambleText from "@/components/motion/ScrambleText";
-import { HubPreview } from "@/components/workspace/WorkspaceHub";
+import { HubMetricRow, HubPreview, HubShell } from "@/components/workspace/WorkspaceHub";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
@@ -103,7 +103,18 @@ export default function DatabasesIndexPage() {
         d.updated_at?.getTime?.() || 0,
         note?.updated_at?.getTime?.() || 0
       );
-      return { d, note, title, rowsN, updated };
+      const statusProp = d.properties.find((p) => p.type === "status" || p.id === "status");
+      const segments =
+        statusProp?.options?.map((o) => {
+          let count = 0;
+          for (const n of notes) {
+            if ((n.database_id || "").trim() !== d.id) continue;
+            const v = n.props?.[statusProp.id];
+            if (v === o.id) count += 1;
+          }
+          return { label: o.label, count, color: o.color };
+        }) || [];
+      return { d, note, title, rowsN, updated, segments };
     });
     if (qq) {
       rows = rows.filter(
@@ -119,7 +130,7 @@ export default function DatabasesIndexPage() {
       return b.updated - a.updated;
     });
     return rows;
-  }, [list, noteByDb, rowCountByDb, q, sort]);
+  }, [list, noteByDb, rowCountByDb, q, sort, notes]);
 
   const recent = useMemo(() => filtered.slice(0, 3), [filtered]);
 
@@ -189,38 +200,73 @@ export default function DatabasesIndexPage() {
   }
 
   return (
-    <div className="db-hub ws-hub">
-      <header className="db-hub-hero page-chrome">
-        <div>
+    <div className="db-hub ws-hub ws-hub--dense">
+      <header className="db-hub-hero ws-hub-hero page-chrome">
+        <div className="ws-hub-hero-copy">
           <ScrambleText words="資料庫" as="h1" className="page-title font-display" />
           <p className="page-sub">
-            表格、看板、畫廊等多視圖 — 每列也是筆記，可插入知識庫頁面。
+            表格、看板、畫廊等多視圖 — 卡片預覽會顯示列數與狀態分布，掃一眼就知道內容密度。
           </p>
-          <div className="db-hub-stats" aria-label="統計">
-            <span>
-              <strong>{list.length}</strong> 個資料庫
+          <div className="db-hub-stats ws-hub-stat-pills" aria-label="統計">
+            <span className="ws-hub-stat-pill">
+              <strong>{list.length}</strong>
+              <em>個資料庫</em>
             </span>
-            <span>
-              <strong>{totalRows}</strong> 列
+            <span className="ws-hub-stat-pill">
+              <strong>{totalRows}</strong>
+              <em>列</em>
             </span>
-            <span>
-              <strong>{list.reduce((n, d) => n + d.views.length, 0)}</strong> 個視圖
+            <span className="ws-hub-stat-pill">
+              <strong>{list.reduce((n, d) => n + d.views.length, 0)}</strong>
+              <em>個視圖</em>
             </span>
           </div>
+          <div className="db-hub-hero-actions">
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => setPickerOpen(true)}
+            >
+              {busy ? "…" : "新建資料庫"}
+            </button>
+            <Link className="btn btn-ghost" href="/community">
+              社群商店
+            </Link>
+          </div>
         </div>
-        <div className="db-hub-hero-actions">
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => setPickerOpen(true)}
+        {recent[0] ? (
+          <Link
+            href={recent[0].note ? noteOpenHref(recent[0].note) : `/db/${recent[0].d.id}`}
+            className="ws-hub-featured-card"
           >
-            {busy ? "…" : "新建資料庫"}
-          </button>
-          <Link className="btn btn-ghost" href="/community">
-            社群商店
+            <HubPreview
+              kind="database"
+              large
+              database={{ rows: recent[0].rowsN, segments: recent[0].segments }}
+            />
+            <div className="ws-hub-featured-meta">
+              <span className="ws-hub-featured-kicker">最近使用</span>
+              <strong>{recent[0].title}</strong>
+              <HubMetricRow
+                items={[
+                  { label: "列", value: recent[0].rowsN },
+                  { label: "屬性", value: recent[0].d.properties.length },
+                  { label: "視圖", value: recent[0].d.views.length },
+                ]}
+              />
+            </div>
           </Link>
-        </div>
+        ) : (
+          <div className="ws-hub-featured-card is-empty">
+            <HubPreview kind="database" large database={{ rows: 0 }} />
+            <div className="ws-hub-featured-meta">
+              <span className="ws-hub-featured-kicker">預覽</span>
+              <strong>選模板開始第一個資料庫</strong>
+              <p>任務、專案、閱讀清單都有現成結構。</p>
+            </div>
+          </div>
+        )}
       </header>
 
       {list.length > 0 && (
@@ -289,31 +335,6 @@ export default function DatabasesIndexPage() {
         </section>
       ) : (
         <>
-          {!q && recent.length > 0 && sort === "updated" && (
-            <section className="db-hub-section">
-              <h2>最近使用</h2>
-              <div className="db-hub-recent">
-                {recent.map(({ d, note, title, rowsN, updated }) => {
-                  const href = note ? noteOpenHref(note) : `/db/${d.id}`;
-                  return (
-                    <Link key={`r-${d.id}`} href={href} className="db-hub-recent-card">
-                      <PageChromeIcon
-                        icon={note?.icon || d.icon || "table_chart"}
-                        fallback="table_chart"
-                      />
-                      <div>
-                        <strong>{title}</strong>
-                        <span>
-                          {rowsN} 列 · {formatRelTime(new Date(updated))}
-                        </span>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
           <section className="db-hub-section">
             <div className="db-hub-section-head">
               <h2>全部（{filtered.length}）</h2>
@@ -329,14 +350,17 @@ export default function DatabasesIndexPage() {
             {filtered.length === 0 ? (
               <p className="cdb-empty">沒有符合「{q}」的資料庫。</p>
             ) : (
-              <div className={layout === "grid" ? "db-hub-grid" : "db-hub-list"}>
-                {filtered.map(({ d, note, title, rowsN, updated }) => {
+              <div className={layout === "grid" ? "db-hub-grid ws-hub-grid" : "db-hub-list"}>
+                {filtered.map(({ d, note, title, rowsN, updated, segments }) => {
                   const href = note ? noteOpenHref(note) : `/db/${d.id}`;
                   const views = [...new Set(d.views.map((v) => v.type))];
                   return (
-                    <article key={d.id} className="db-hub-card">
+                    <article key={d.id} className="db-hub-card ws-hub-card">
                       <Link href={href} className="db-hub-card-main">
-                        <HubPreview kind="database" />
+                        <HubPreview
+                          kind="database"
+                          database={{ rows: rowsN, segments }}
+                        />
                         <div className="db-hub-card-top">
                           <PageChromeIcon
                             icon={note?.icon || d.icon || "table_chart"}
@@ -350,6 +374,13 @@ export default function DatabasesIndexPage() {
                             </span>
                           </div>
                         </div>
+                        <HubMetricRow
+                          items={[
+                            { label: "列", value: rowsN },
+                            { label: "屬性", value: d.properties.length },
+                            { label: "視圖", value: d.views.length },
+                          ]}
+                        />
                         <div className="db-hub-chips">
                           {views.map((v) => (
                             <em key={v}>{VIEW_LABEL[v] || v}</em>

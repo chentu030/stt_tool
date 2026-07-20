@@ -10,6 +10,7 @@ import { listenCanvases, type CanvasMeta } from "@/lib/canvasCloud";
 import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import { CANVAS_TEMPLATES, formatHubRelTime } from "@/lib/workspaceHubTemplates";
 import {
+  HubMetricRow,
   HubPreview,
   HubShell,
   HubTemplateWall,
@@ -21,7 +22,7 @@ import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
 
-type SortKey = "updated" | "name";
+type SortKey = "updated" | "name" | "items";
 type LayoutMode = "grid" | "list";
 
 export default function CanvasIndexPage() {
@@ -53,25 +54,44 @@ export default function CanvasIndexPage() {
     return m;
   }, [notes]);
 
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    let rows = list.map((c) => {
+  const rows = useMemo(() => {
+    return list.map((c) => {
       const note = noteByCanvas.get(c.id);
       const title = (note?.title || c.name || "未命名白板").trim();
       const updated = Math.max(
         c.updated_at?.getTime?.() || 0,
         note?.updated_at?.getTime?.() || 0
       );
-      return { c, note, title, updated };
+      const items = c.stickies + c.shapes + c.pins + c.media;
+      return { c, note, title, updated, items };
     });
-    if (qq) rows = rows.filter((r) => r.title.toLowerCase().includes(qq));
-    rows.sort((a, b) =>
-      sort === "name" ? a.title.localeCompare(b.title, "zh-Hant") : b.updated - a.updated
-    );
-    return rows;
-  }, [list, noteByCanvas, q, sort]);
+  }, [list, noteByCanvas]);
 
-  const recent = useMemo(() => filtered.slice(0, 3), [filtered]);
+  const totals = useMemo(() => {
+    let stickies = 0;
+    let edges = 0;
+    let items = 0;
+    for (const r of rows) {
+      stickies += r.c.stickies;
+      edges += r.c.edges;
+      items += r.items;
+    }
+    return { stickies, edges, items };
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    let out = rows;
+    if (qq) out = out.filter((r) => r.title.toLowerCase().includes(qq));
+    out = [...out].sort((a, b) => {
+      if (sort === "name") return a.title.localeCompare(b.title, "zh-Hant");
+      if (sort === "items") return b.items - a.items;
+      return b.updated - a.updated;
+    });
+    return out;
+  }, [rows, q, sort]);
+
+  const featured = filtered[0];
 
   const createFromTemplate = async (templateId: string) => {
     if (!user) return;
@@ -126,20 +146,60 @@ export default function CanvasIndexPage() {
   return (
     <HubShell
       title="白板"
-      subtitle="無限畫布思考 — 擺筆記、連線、分區，也可嵌進筆記頁。"
+      subtitle="無限畫布思考 — 卡片預覽會反映便利貼數量與連線，像 Miro 縮圖一樣可掃讀。"
       stats={[
         { value: list.length, label: "個白板" },
-        {
-          value: list.filter((c) => Date.now() - c.updated_at.getTime() < 7 * 86400000).length,
-          label: "本週更新",
-        },
-        { value: noteByCanvas.size, label: "已連結筆記" },
+        { value: totals.stickies, label: "便利貼" },
+        { value: totals.edges, label: "連線" },
+        { value: totals.items, label: "物件" },
       ]}
       primaryLabel="新建白板"
       primaryBusy={busy}
       onPrimary={() => void createFromTemplate("brainstorm")}
       secondaryHref="/community"
       secondaryLabel="社群商店"
+      featured={
+        featured ? (
+          <Link
+            href={featured.note ? noteOpenHref(featured.note) : `/canvas/${featured.c.id}`}
+            className="ws-hub-featured-card"
+          >
+            <HubPreview
+              kind="canvas"
+              large
+              canvas={{
+                stickies: featured.c.stickies,
+                shapes: featured.c.shapes,
+                edges: featured.c.edges,
+                pins: featured.c.pins,
+                media: featured.c.media,
+                colors: featured.c.stickyColors,
+              }}
+            />
+            <div className="ws-hub-featured-meta">
+              <span className="ws-hub-featured-kicker">最近使用</span>
+              <strong>{featured.title}</strong>
+              <HubMetricRow
+                items={[
+                  { label: "便利貼", value: featured.c.stickies },
+                  { label: "圖形", value: featured.c.shapes },
+                  { label: "連線", value: featured.c.edges },
+                  { label: "釘選", value: featured.c.pins },
+                ]}
+              />
+            </div>
+          </Link>
+        ) : (
+          <div className="ws-hub-featured-card is-empty">
+            <HubPreview kind="canvas" large canvas={{ stickies: 5, shapes: 2, edges: 3, pins: 1, media: 0 }} />
+            <div className="ws-hub-featured-meta">
+              <span className="ws-hub-featured-kicker">預覽</span>
+              <strong>空白畫布，立刻可擺便利貼</strong>
+              <p>建立後可拖曳、連線、嵌入筆記。</p>
+            </div>
+          </div>
+        )
+      }
       toolbar={
         list.length > 0 ? (
           <HubToolbar
@@ -150,6 +210,7 @@ export default function CanvasIndexPage() {
             sortOptions={[
               { value: "updated", label: "最近更新" },
               { value: "name", label: "名稱" },
+              { value: "items", label: "物件數" },
             ]}
             layout={layout}
             onLayout={setLayout}
@@ -167,80 +228,74 @@ export default function CanvasIndexPage() {
           onPick={(id) => void createFromTemplate(id)}
         />
       ) : (
-        <>
-          {!q && recent.length > 0 && sort === "updated" && (
-            <section className="db-hub-section">
-              <h2>最近使用</h2>
-              <div className="db-hub-recent">
-                {recent.map(({ c, note, title, updated }) => {
-                  const href = note ? noteOpenHref(note) : `/canvas/${c.id}`;
-                  return (
-                    <Link key={`r-${c.id}`} href={href} className="db-hub-recent-card">
-                      <PageChromeIcon icon={note?.icon || "palette"} fallback="palette" />
-                      <div>
-                        <strong>{title}</strong>
-                        <span>{formatHubRelTime(new Date(updated))}</span>
+        <section className="db-hub-section">
+          <div className="db-hub-section-head">
+            <h2>全部白板（{filtered.length}）</h2>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={busy}
+              onClick={() => void createFromTemplate("blank")}
+            >
+              + 空白白板
+            </button>
+          </div>
+          {filtered.length === 0 ? (
+            <p className="cdb-empty">沒有符合「{q}」的白板。</p>
+          ) : (
+            <div className={layout === "grid" ? "db-hub-grid ws-hub-grid" : "db-hub-list"}>
+              {filtered.map(({ c, note, title, updated, items }) => {
+                const href = note ? noteOpenHref(note) : `/canvas/${c.id}`;
+                return (
+                  <article key={c.id} className="db-hub-card ws-hub-card">
+                    <Link href={href} className="db-hub-card-main">
+                      <HubPreview
+                        kind="canvas"
+                        canvas={{
+                          stickies: c.stickies,
+                          shapes: c.shapes,
+                          edges: c.edges,
+                          pins: c.pins,
+                          media: c.media,
+                          colors: c.stickyColors,
+                        }}
+                      />
+                      <div className="db-hub-card-top">
+                        <PageChromeIcon icon={note?.icon || "palette"} fallback="palette" />
+                        <div>
+                          <strong>{title}</strong>
+                          <span>
+                            {items} 物件 · {formatHubRelTime(new Date(updated))}
+                          </span>
+                        </div>
                       </div>
+                      <HubMetricRow
+                        items={[
+                          { label: "便利貼", value: c.stickies },
+                          { label: "圖形", value: c.shapes },
+                          { label: "連線", value: c.edges },
+                          { label: "媒體", value: c.media },
+                        ]}
+                      />
                     </Link>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          <section className="db-hub-section">
-            <div className="db-hub-section-head">
-              <h2>全部（{filtered.length}）</h2>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={busy}
-                onClick={() => void createFromTemplate("blank")}
-              >
-                + 空白白板
-              </button>
-            </div>
-            {filtered.length === 0 ? (
-              <p className="cdb-empty">沒有符合「{q}」的白板。</p>
-            ) : (
-              <div className={layout === "grid" ? "db-hub-grid" : "db-hub-list"}>
-                {filtered.map(({ c, note, title, updated }) => {
-                  const href = note ? noteOpenHref(note) : `/canvas/${c.id}`;
-                  return (
-                    <article key={c.id} className="db-hub-card">
-                      <Link href={href} className="db-hub-card-main">
-                        <HubPreview kind="canvas" />
-                        <div className="db-hub-card-top">
-                          <PageChromeIcon icon={note?.icon || "palette"} fallback="palette" />
-                          <div>
-                            <strong>{title}</strong>
-                            <span>{formatHubRelTime(new Date(updated))}</span>
-                          </div>
-                        </div>
-                        <div className="db-hub-chips">
-                          <em>無限畫布</em>
-                          <em>可嵌入筆記</em>
-                        </div>
+                    <div className="db-hub-card-actions">
+                      <Link className="btn btn-ghost" href={href}>
+                        開啟
                       </Link>
-                      <div className="db-hub-card-actions">
-                        <Link className="btn btn-ghost" href={href}>
-                          開啟
-                        </Link>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          onClick={() => void rename(c, note)}
-                        >
-                          重新命名
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => void rename(c, note)}
+                      >
+                        重新命名
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
     </HubShell>
   );

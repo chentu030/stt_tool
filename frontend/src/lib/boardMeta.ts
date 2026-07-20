@@ -95,6 +95,24 @@ function daysBetween(a: Date, b: Date): number {
   return Math.floor((b.getTime() - a.getTime()) / 86400000);
 }
 
+export function noteMatchesBoard(
+  note: Note,
+  board: { folders: string[]; tags: string[]; statuses: BoardStatus[] }
+): boolean {
+  if (board.folders.length > 0) {
+    const folder = (note.folder || "").trim();
+    if (!board.folders.includes(folder)) return false;
+  }
+  if (board.tags.length > 0) {
+    const noteTags = note.tags || [];
+    if (!board.tags.some((t) => noteTags.includes(t))) return false;
+  }
+  if (board.statuses.length > 0) {
+    if (!board.statuses.includes(statusOf(note))) return false;
+  }
+  return true;
+}
+
 export function toBoardCards(notes: Note[], today = new Date()): BoardCard[] {
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   return notes.map((n) => {

@@ -25,6 +25,13 @@ export type CanvasMeta = {
   name: string;
   updated_at: Date;
   created_at: Date;
+  stickies: number;
+  shapes: number;
+  edges: number;
+  pins: number;
+  media: number;
+  /** Sample sticky colors for mini-preview */
+  stickyColors: string[];
 };
 
 function canvasesCol(uid: string) {
@@ -61,12 +68,30 @@ export function listenCanvases(
     (snap) => {
       const list = snap.docs.map((d) => {
         const data = d.data();
+        const stickies = Array.isArray(data.stickies) ? data.stickies : [];
+        const shapes = Array.isArray(data.shapes) ? data.shapes : [];
+        const edges = Array.isArray(data.edges) ? data.edges : [];
+        const pins = Array.isArray(data.notes) ? data.notes : [];
+        const media = Array.isArray(data.media) ? data.media : [];
+        const stickyColors = stickies
+          .slice(0, 8)
+          .map((s) => {
+            if (s && typeof s === "object" && "color" in s) return String((s as { color?: string }).color || "");
+            return "";
+          })
+          .filter(Boolean);
         return {
           id: d.id,
           name: (data.name as string) || "未命名白板",
           created_at: data.created_at?.toDate?.() || new Date(),
           updated_at: data.updated_at?.toDate?.() || new Date(),
-        };
+          stickies: stickies.length,
+          shapes: shapes.length,
+          edges: edges.length,
+          pins: pins.length,
+          media: media.length,
+          stickyColors,
+        } satisfies CanvasMeta;
       });
       list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
       cb(list);
