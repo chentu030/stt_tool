@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import TurndownService from "turndown";
+import katex from "katex";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import {
   decodeFormulaAttr,
@@ -553,6 +554,35 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
   return normalizeTaskListHtml(html);
+}
+
+/** Markdown → HTML with KaTeX already rendered (for AI chat / read-only views). */
+export function markdownToDisplayHtml(md: string, resolveWiki?: WikiResolver): string {
+  const html = markdownToHtml(md, resolveWiki);
+  if (!html || typeof DOMParser === "undefined") return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const fill = (el: Element, displayMode: boolean) => {
+      const f = normalizeLatexFormula(
+        decodeFormulaAttr(el.getAttribute("data-formula") || "")
+      );
+      if (!f) return;
+      try {
+        el.innerHTML = katex.renderToString(f, {
+          throwOnError: false,
+          displayMode,
+          strict: "ignore",
+        });
+      } catch {
+        el.textContent = displayMode ? `$$${f}$$` : `$${f}$`;
+      }
+    };
+    doc.querySelectorAll("[data-math-inline], .rich-math-inline").forEach((el) => fill(el, false));
+    doc.querySelectorAll("[data-math-block], .rich-math-block").forEach((el) => fill(el, true));
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
 }
 
 /**

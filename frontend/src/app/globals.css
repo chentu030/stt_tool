@@ -4187,6 +4187,79 @@ a.sidebar-user-name:hover {
   font-weight: 650;
 }
 .note-ai-msg p { white-space: pre-wrap; margin: 0; }
+.note-ai-md {
+  margin: 0;
+  font-size: inherit;
+  line-height: 1.55;
+  overflow-x: auto;
+  word-break: break-word;
+}
+.note-ai-md > :first-child { margin-top: 0; }
+.note-ai-md > :last-child { margin-bottom: 0; }
+.note-ai-md p { white-space: normal; margin: 0.45em 0; }
+.note-ai-md h1,
+.note-ai-md h2,
+.note-ai-md h3,
+.note-ai-md h4 {
+  margin: 0.75em 0 0.35em;
+  font-size: 1em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.note-ai-md ul,
+.note-ai-md ol {
+  margin: 0.4em 0;
+  padding-left: 1.25em;
+}
+.note-ai-md li { margin: 0.15em 0; }
+.note-ai-md strong { font-weight: 700; }
+.note-ai-md code {
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.note-ai-md pre {
+  margin: 0.5em 0;
+  padding: 0.55em 0.65em;
+  border-radius: 8px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  font-size: 0.8em;
+}
+.note-ai-md pre code {
+  padding: 0;
+  background: none;
+}
+.note-ai-md table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.55em 0;
+  font-size: 0.78em;
+}
+.note-ai-md th,
+.note-ai-md td {
+  border: 1px solid var(--border, #ccc);
+  padding: 0.3em 0.45em;
+  text-align: left;
+  vertical-align: top;
+}
+.note-ai-md th {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  font-weight: 650;
+}
+.note-ai-md .rich-math-inline,
+.note-ai-md .rich-math-block {
+  cursor: default;
+}
+.note-ai-md .rich-math-inline .katex { font-size: 1.05em; }
+.note-ai-md .rich-math-block {
+  display: block;
+  margin: 0.55em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.note-ai-md .rich-math-block .katex-display { margin: 0.2em 0; }
 .note-ai-compose {
   display: grid;
   grid-template-columns: 1fr;

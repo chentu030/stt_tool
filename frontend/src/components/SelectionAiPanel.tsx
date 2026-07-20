@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { markdownToHtml } from "@/lib/mdHtml";
+import AiMarkdown from "@/components/AiMarkdown";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 
 export type SelectionAiAction =
@@ -244,7 +245,7 @@ export default function SelectionAiPanel({
       {busy && !result && <p className="sel-ai-busy">思考中…</p>}
       {result && (
         <div className="sel-ai-result">
-          <pre>{result}</pre>
+          <AiMarkdown text={result} />
           <div className="sel-ai-actions">
             <button type="button" className="doc-cmd is-on" onClick={replaceSelection}>
               {hasSelection ? "取代選取" : "插入此處"}

@@ -13,6 +13,7 @@ import {
   subscribeJobAiContext,
   type JobAiContext,
 } from "@/lib/jobAiContext";
+import AiMarkdown from "@/components/AiMarkdown";
 
 type Msg = { id: string; role: "user" | "assistant"; text: string };
 type RailMode = "dock" | "float";
@@ -818,7 +819,11 @@ export default function GlobalAiDock() {
               {msgs.map((m) => (
                 <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
                   <span>{m.role === "user" ? "你" : assistantName}</span>
-                  <p>{m.text}</p>
+                  {m.role === "assistant" ? (
+                    <AiMarkdown text={m.text} />
+                  ) : (
+                    <p>{m.text}</p>
+                  )}
                 </div>
               ))}
               {busy && <p className="note-aside-hint">思考中…</p>}
