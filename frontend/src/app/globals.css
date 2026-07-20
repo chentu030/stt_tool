@@ -734,11 +734,15 @@ a.sidebar-user-name:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
+  min-width: 0;
+  max-width: 100%;
 }
 .surface {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .input {
@@ -841,7 +845,9 @@ a.sidebar-user-name:hover {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  /* clip X so page-chrome negative margins / long nowrap text can't widen the page */
+  overflow-x: clip;
+  overflow-y: auto;
   --main-pad-x: 1.15rem;
   --main-pad-y: 0.7rem;
   padding: var(--main-pad-y) var(--main-pad-x) 1.25rem;
@@ -1085,16 +1091,26 @@ a.sidebar-user-name:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .grid-3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.grid-2 > *,
+.grid-3 > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 @media (max-width: 900px) {
   .desktop-only { display: none !important; }
-  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  /* 1fr alone has min-size:auto and lets nowrap text blow past the viewport */
+  .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); }
   .app-main {
     --main-pad-x: 1rem;
     --main-pad-y: 0.85rem;
@@ -1102,9 +1118,6 @@ a.sidebar-user-name:hover {
   }
   .mobile-shell > .app-main {
     padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 1.25rem);
-  }
-  .card, .surface {
-    max-width: 100%;
   }
 }
 @media (min-width: 901px) {

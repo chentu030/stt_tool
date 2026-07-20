@@ -85,7 +85,7 @@ export default function HomePage() {
   const active = jobs.filter((j) => ["uploading", "queued", "processing"].includes(j.status));
 
   return (
-    <div>
+    <div style={{ minWidth: 0, maxWidth: "100%" }}>
       <motion.div className="page-chrome" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="page-title font-display">總覽</h1>
         <p className="page-sub">
@@ -126,9 +126,9 @@ export default function HomePage() {
 
       <div className="grid-2">
         <section className="card" style={{ padding: "1.2rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.8rem" }}>
-            <h2 className="font-display" style={{ fontSize: "1.15rem" }}>最近筆記</h2>
-            <Link href="/library" style={{ color: "var(--accent-2)", fontSize: "0.85rem" }}>全部</Link>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.8rem", minWidth: 0 }}>
+            <h2 className="font-display" style={{ fontSize: "1.15rem", minWidth: 0 }}>最近筆記</h2>
+            <Link href="/library" style={{ color: "var(--accent-2)", fontSize: "0.85rem", flexShrink: 0 }}>全部</Link>
           </div>
           {recentNotes.length === 0 ? (
             <div className="hub-empty">
@@ -145,11 +145,11 @@ export default function HomePage() {
               </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", minWidth: 0 }}>
               {recentNotes.map((n, i) => (
-                <motion.div key={n.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
-                  <Link href={`/notes/${n.id}`} className="surface" style={{ padding: "0.75rem 0.9rem", display: "block" }}>
-                    <div style={{ fontWeight: 600 }}>{n.title}</div>
+                <motion.div key={n.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }} style={{ minWidth: 0 }}>
+                  <Link href={`/notes/${n.id}`} className="surface" style={{ padding: "0.75rem 0.9rem", display: "block", minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.title}</div>
                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                       {n.updated_at.toLocaleString("zh-TW")}
                     </div>
@@ -161,9 +161,9 @@ export default function HomePage() {
         </section>
 
         <section className="card" style={{ padding: "1.2rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.8rem" }}>
-            <h2 className="font-display" style={{ fontSize: "1.15rem" }}>最近轉錄</h2>
-            <Link href="/library?tab=jobs" style={{ color: "var(--accent-2)", fontSize: "0.85rem" }}>全部</Link>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem", marginBottom: "0.8rem", minWidth: 0 }}>
+            <h2 className="font-display" style={{ fontSize: "1.15rem", minWidth: 0 }}>最近轉錄</h2>
+            <Link href="/library?tab=jobs" style={{ color: "var(--accent-2)", fontSize: "0.85rem", flexShrink: 0 }}>全部</Link>
           </div>
           {recentJobs.length === 0 ? (
             <div className="hub-empty">
@@ -175,10 +175,10 @@ export default function HomePage() {
               </Link>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", minWidth: 0 }}>
               {recentJobs.map((j, i) => (
-                <motion.div key={j.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04 }}>
-                  <Link href={`/job/${j.id}`} className="surface" style={{ padding: "0.75rem 0.9rem", display: "block" }}>
+                <motion.div key={j.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }} style={{ minWidth: 0 }}>
+                  <Link href={`/job/${j.id}`} className="surface" style={{ padding: "0.75rem 0.9rem", display: "block", minWidth: 0 }}>
                     <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {j.filenames?.[0] || j.youtube_url || "未命名"}
                     </div>
