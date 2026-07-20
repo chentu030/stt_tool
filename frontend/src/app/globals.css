@@ -6269,6 +6269,13 @@ a.sidebar-user-name:hover {
   padding: 0.55rem 0.7rem;
   align-items: center;
 }
+.kb-notes--compact .kb-note-body h3 {
+  margin-bottom: 0;
+  font-size: 0.9rem;
+}
+.kb-notes--compact .kb-check {
+  padding-top: 0;
+}
 .kb-check {
   padding-top: 0.2rem;
   cursor: pointer;
@@ -6302,7 +6309,37 @@ a.sidebar-user-name:hover {
   padding: 0.12rem 0.4rem;
   border-radius: 999px;
 }
-.kb-jobs { display: flex; flex-direction: column; gap: 0.45rem; }
+.kb-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.kb-jobs--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.65rem;
+}
+.kb-jobs--grid .kb-job {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.55rem;
+}
+.kb-jobs--grid .kb-job > .btn {
+  align-self: flex-start;
+}
+.kb-jobs--compact .kb-job {
+  padding: 0.5rem 0.7rem;
+  gap: 0.5rem;
+}
+.kb-jobs--compact .kb-job a {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+}
+.kb-jobs--compact .kb-job strong {
+  flex: 1;
+  min-width: 0;
+}
 .kb-job {
   display: flex;
   justify-content: space-between;

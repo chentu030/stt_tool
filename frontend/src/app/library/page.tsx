@@ -613,7 +613,7 @@ function LibraryPageInner() {
           )}
 
           {tab === "jobs" && (
-            <section className="kb-jobs">
+            <section>
               {filteredJobs.length === 0 ? (
                 <div className="kb-empty">
                   {jobs.length === 0 ? (
@@ -627,30 +627,88 @@ function LibraryPageInner() {
                     <p className="kb-rail-muted">沒有符合的轉錄。</p>
                   )}
                 </div>
+              ) : view === "table" ? (
+                <div className="kb-table-wrap">
+                  <table className="kb-table">
+                    <thead>
+                      <tr>
+                        <th>名稱</th>
+                        <th>狀態</th>
+                        <th>建立時間</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredJobs.map((j) => (
+                        <tr key={j.id}>
+                          <td>
+                            <Link href={`/job/${j.id}`} className="kb-title-link">
+                              {jobDisplayTitle(j)}
+                            </Link>
+                          </td>
+                          <td>{j.status}</td>
+                          <td>{j.created_at.toLocaleString("zh-TW")}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => {
+                                void (async () => {
+                                  if (
+                                    await askConfirm({
+                                      title: "刪除此轉錄？",
+                                      danger: true,
+                                      confirmLabel: "刪除",
+                                    })
+                                  ) {
+                                    deleteJob(j.id, j.storage_paths || [], j.result_paths || []);
+                                  }
+                                })();
+                              }}
+                            >
+                              刪除
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                filteredJobs.map((j) => (
-                  <div key={j.id} className="kb-job">
-                    <Link href={`/job/${j.id}`}>
-                      <strong>{jobDisplayTitle(j)}</strong>
-                      <span>
-                        {j.status} · {j.created_at.toLocaleString("zh-TW")}
-                      </span>
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => {
-                        void (async () => {
-                          if (await askConfirm({ title: "刪除此轉錄？", danger: true, confirmLabel: "刪除" })) {
-                            deleteJob(j.id, j.storage_paths || [], j.result_paths || []);
-                          }
-                        })();
-                      }}
-                    >
-                      刪除
-                    </button>
-                  </div>
-                ))
+                <div className={`kb-jobs kb-jobs--${view}`}>
+                  {filteredJobs.map((j) => (
+                    <div key={j.id} className="kb-job">
+                      <Link href={`/job/${j.id}`}>
+                        <strong>{jobDisplayTitle(j)}</strong>
+                        {view !== "compact" && (
+                          <span>
+                            {j.status} · {j.created_at.toLocaleString("zh-TW")}
+                          </span>
+                        )}
+                        {view === "compact" && <span>{j.status}</span>}
+                      </Link>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => {
+                          void (async () => {
+                            if (
+                              await askConfirm({
+                                title: "刪除此轉錄？",
+                                danger: true,
+                                confirmLabel: "刪除",
+                              })
+                            ) {
+                              deleteJob(j.id, j.storage_paths || [], j.result_paths || []);
+                            }
+                          })();
+                        }}
+                      >
+                        刪除
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
             </section>
           )}
