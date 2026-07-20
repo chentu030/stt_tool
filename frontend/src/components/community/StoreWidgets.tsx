@@ -4,8 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import AiMarkdown from "@/components/AiMarkdown";
-import type { CatalogEntry, CommunityManifest, InstalledTemplate, ResolvedPackage } from "@/lib/community/types";
-import { displayRating } from "@/lib/community/ratings";
+import type {
+  CatalogEntry,
+  CommunityManifest,
+  InstalledTemplate,
+  ResolvedPackage,
+} from "@/lib/community/types";
+import { displayRating, getLocalRating } from "@/lib/community/ratings";
 import type { PackageRating } from "@/lib/community/types";
 import {
   effectivePermissions,
@@ -146,25 +151,31 @@ export function TemplatePreviewModal({
   open,
   onClose,
   onApply,
+  onInstall,
   busy,
+  mode = "apply",
 }: {
-  tpl: InstalledTemplate;
+  tpl: InstalledTemplate | ResolvedPackage;
   open: boolean;
   onClose: () => void;
-  onApply: (folder?: string) => void;
+  onApply?: (folder?: string) => void;
+  onInstall?: () => void;
   busy?: boolean;
+  mode?: "apply" | "preview";
 }) {
   const pages = useMemo(() => {
+    if (tpl.manifest.kind !== "template") return [];
+    const files = "files" in tpl ? tpl.files : {};
     return tpl.manifest.pages.map((page) => {
       const key = page.file || `inline-${page.title}.md`;
       const body =
-        (page.file && tpl.files[page.file]) || tpl.files[key] || page.body || "";
+        (page.file && files[page.file]) || files[key] || page.body || "";
       return { title: page.title, body, folder: page.folder };
     });
   }, [tpl]);
   const [idx, setIdx] = useState(0);
   const [folder, setFolder] = useState(pages[0]?.folder || "");
-  if (!open) return null;
+  if (!open || tpl.manifest.kind !== "template") return null;
   const cur = pages[idx] || pages[0];
   return (
     <div className="community-detail-backdrop" onClick={onClose}>
@@ -174,7 +185,7 @@ export function TemplatePreviewModal({
           <div>
             <h2>預覽：{tpl.manifest.name}</h2>
             <p>
-              {pages.length} 頁 · 套用後會建立到知識庫
+              {pages.length} 頁 · {mode === "preview" ? "安裝後可套用到知識庫" : "套用後會建立到知識庫"}
             </p>
           </div>
           <button type="button" className="community-detail-close" onClick={onClose}>
@@ -197,13 +208,75 @@ export function TemplatePreviewModal({
         <div className="community-preview-body">
           <AiMarkdown text={cur?.body || "_（空白頁）_"} />
         </div>
-        <label className="community-folder-field">
-          目標資料夾（可空白）
-          <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="例如：會議" />
-        </label>
+        {mode === "apply" && (
+          <label className="community-folder-field">
+            目標資料夾（可空白）
+            <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="例如：會議" />
+          </label>
+        )}
         <div className="community-card-actions">
-          <button type="button" className="btn" disabled={busy} onClick={() => onApply(folder.trim() || undefined)}>
-            確認套用
+          {mode === "apply" ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => onApply?.(folder.trim() || undefined)}
+            >
+              確認套用
+            </button>
+          ) : (
+            <button type="button" className="btn" disabled={busy} onClick={() => onInstall?.()}>
+              安裝此模板
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function InstallConfirmModal({
+  pack,
+  open,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  pack: ResolvedPackage;
+  open: boolean;
+  busy?: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="community-detail-backdrop" onClick={onClose}>
+      <div className="community-detail" onClick={(e) => e.stopPropagation()}>
+        <header>
+          <PageChromeIcon
+            icon={pack.manifest.icon}
+            fallback={pack.manifest.kind === "extension" ? "extension" : "description"}
+          />
+          <div>
+            <h2>確認安裝</h2>
+            <p>
+              {pack.manifest.name} · v{pack.manifest.version}
+            </p>
+          </div>
+          <button type="button" className="community-detail-close" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        <TrustScorecard manifest={pack.manifest} />
+        <p className="community-detail-desc">
+          請確認權限與來源可信後再安裝。擴充以沙箱 iframe 執行；模板會寫入知識庫。
+        </p>
+        <div className="community-card-actions">
+          <button type="button" className="btn" disabled={busy} onClick={onConfirm}>
+            {busy ? "安裝中…" : "確認安裝"}
           </button>
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             取消
@@ -213,6 +286,45 @@ export function TemplatePreviewModal({
     </div>
   );
 }
+
+export function RelatedPackages({
+  entries,
+  installedIds,
+  busy,
+  onInstall,
+}: {
+  entries: CatalogEntry[];
+  installedIds: Set<string>;
+  busy?: boolean;
+  onInstall: (entry: CatalogEntry) => void;
+}) {
+  if (!entries.length) return null;
+  return (
+    <section className="community-related">
+      <h3>相關推薦</h3>
+      <div className="community-grid">
+        {entries.map((entry) => (
+          <PackageCard
+            key={`${entry.kind}-${entry.id}`}
+            entry={entry}
+            installed={installedIds.has(entry.id)}
+            href={`/community/${entry.id}?kind=${entry.kind}`}
+            busy={busy}
+            userRating={getLocalRating(entry.id)}
+            onInstall={() => onInstall(entry)}
+            onOpen={() => {
+              window.location.href =
+                entry.kind === "extension"
+                  ? `/ext/${entry.id}`
+                  : `/community/${entry.id}?kind=template`;
+            }}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 
 export function PackageDetailBody({
   pack,
@@ -301,6 +413,24 @@ export function PackageDetailBody({
           </a>
         )}
       </div>
+      {pack.manifest.kind === "extension" && (pack.manifest.settings?.length || 0) > 0 && (
+        <div className="community-settings-preview">
+          <h3>可調設定</h3>
+          <ul>
+            {pack.manifest.settings!.map((s) => (
+              <li key={s.key}>
+                <strong>{s.label}</strong>
+                <span>
+                  {s.type}
+                  {s.default !== undefined ? ` · 預設 ${String(s.default)}` : ""}
+                </span>
+                {s.description ? <em>{s.description}</em> : null}
+              </li>
+            ))}
+          </ul>
+          <p className="community-detail-meta">安裝後可在擴充中心調整，並傳入 iframe。</p>
+        </div>
+      )}
       {pack.manifest.kind === "extension" && (
         <p className="community-detail-meta">
           入口：<code>{pack.manifest.pageType.entry}</code>

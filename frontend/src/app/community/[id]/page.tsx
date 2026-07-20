@@ -17,7 +17,9 @@ import {
 import type { CatalogEntry, InstalledTemplate, ResolvedPackage } from "@/lib/community/types";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import {
+  InstallConfirmModal,
   PackageDetailBody,
+  RelatedPackages,
   StarRow,
   TemplatePreviewModal,
   TrustScorecard,
@@ -25,10 +27,12 @@ import {
 import { getLocalRating, saveUserRating, saveUserReport } from "@/lib/community/ratings";
 import {
   isFavorite,
+  REPORT_REASONS,
   toggleFavorite,
   touchRecentPackage,
+  type ReportReasonId,
 } from "@/lib/community/libraryPrefs";
-import { askPrompt } from "@/lib/dialogs";
+import { relatedByPackageId } from "@/lib/community/related";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
@@ -46,10 +50,21 @@ function CommunityPackageDetailInner() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [stars, setStars] = useState(0);
-  const [previewTpl, setPreviewTpl] = useState<InstalledTemplate | null>(null);
+  const [comment, setComment] = useState("");
+  const [previewTpl, setPreviewTpl] = useState<InstalledTemplate | ResolvedPackage | null>(null);
+  const [previewMode, setPreviewMode] = useState<"apply" | "preview">("apply");
+  const [confirmPack, setConfirmPack] = useState<ResolvedPackage | null>(null);
   const [fav, setFav] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState<ReportReasonId>("broken");
+  const [reportDetail, setReportDetail] = useState("");
 
   const catalog = useMemo(() => getCatalog(), []);
+  const related = useMemo(() => relatedByPackageId(id, kindHint || undefined), [id, kindHint]);
+  const installedIds = useMemo(
+    () => new Set([...extensions.map((e) => e.id), ...templates.map((t) => t.id)]),
+    [extensions, templates]
+  );
 
   useEffect(() => {
     touchRecentPackage(id);
@@ -89,13 +104,30 @@ function CommunityPackageDetailInner() {
 
   useEffect(() => {
     const r = getLocalRating(id);
-    if (r) setStars(r.stars);
-    else if (entry?.rating) setStars(Math.round(entry.rating));
+    if (r) {
+      setStars(r.stars);
+      setComment(r.comment || "");
+    } else if (entry?.rating) setStars(Math.round(entry.rating));
   }, [id, entry]);
 
   const installedExt = extensions.find((e) => e.id === id);
   const installedTpl = templates.find((t) => t.id === id);
   const installed = Boolean(installedExt || installedTpl);
+
+  const doInstall = async (source: string) => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      await installFromSource(user.uid, source);
+      toast("安裝完成");
+      setConfirmPack(null);
+      setPreviewTpl(null);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "安裝失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const copyShare = async () => {
     const url = typeof window !== "undefined" ? window.location.href : `/community/${id}`;
@@ -107,21 +139,19 @@ function CommunityPackageDetailInner() {
     }
   };
 
-  const report = async () => {
+  const submitReport = async () => {
     if (!user) return;
-    const reason = await askPrompt({
-      title: "回報套件",
-      message: "簡述問題（惡意、誤導、失效、侵權等）",
-      placeholder: "例如：入口網址失效",
-    });
-    if (!reason?.trim()) return;
+    const label = REPORT_REASONS.find((r) => r.id === reportReason)?.label || reportReason;
     try {
       await saveUserReport(user.uid, {
         packageId: id,
-        reason: reason.trim().slice(0, 200),
+        reason: label,
+        detail: reportDetail.trim().slice(0, 500),
         updatedAt: Date.now(),
       });
-      toast("已送出回報（僅你的帳號可見，供後續審核）");
+      toast("已送出回報");
+      setReportOpen(false);
+      setReportDetail("");
     } catch (e) {
       toast(e instanceof Error ? e.message : "回報失敗");
     }
@@ -170,35 +200,41 @@ function CommunityPackageDetailInner() {
             </div>
             <div className="community-detail-head-actions">
               {!installed ? (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy}
-                  onClick={() =>
-                    void (async () => {
-                      setBusy(true);
-                      try {
-                        await installFromSource(user.uid, entry?.source || pack.source);
-                        toast("安裝完成");
-                      } catch (e) {
-                        toast(e instanceof Error ? e.message : "安裝失敗");
-                      } finally {
-                        setBusy(false);
-                      }
-                    })()
-                  }
-                >
-                  安裝
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => setConfirmPack(pack)}
+                  >
+                    安裝
+                  </button>
+                  {pack.manifest.kind === "template" && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={busy}
+                      onClick={() => {
+                        setPreviewMode("preview");
+                        setPreviewTpl(pack);
+                      }}
+                    >
+                      預覽
+                    </button>
+                  )}
+                </>
               ) : pack.manifest.kind === "extension" ? (
                 <Link className="btn" href={`/ext/${id}`}>
-                  開啟
+                  開啟／設定
                 </Link>
               ) : (
                 <button
                   type="button"
                   className="btn"
-                  onClick={() => installedTpl && setPreviewTpl(installedTpl)}
+                  onClick={() => {
+                    setPreviewMode("apply");
+                    if (installedTpl) setPreviewTpl(installedTpl);
+                  }}
                 >
                   預覽並套用
                 </button>
@@ -217,7 +253,7 @@ function CommunityPackageDetailInner() {
               <button type="button" className="btn btn-ghost" onClick={() => void copyShare()}>
                 分享
               </button>
-              <button type="button" className="btn btn-ghost" onClick={() => void report()}>
+              <button type="button" className="btn btn-ghost" onClick={() => setReportOpen(true)}>
                 回報
               </button>
               <Link className="btn btn-ghost" href="/community">
@@ -228,22 +264,51 @@ function CommunityPackageDetailInner() {
 
           <TrustScorecard manifest={pack.manifest} />
 
-          <div className="community-rate-box">
-            <span>為這個套件評分</span>
-            <StarRow
-              value={stars}
-              onChange={(n) => {
-                setStars(n);
+          <div className="community-rate-box community-rate-box--review">
+            <div className="community-rate-row">
+              <span>評分與短評</span>
+              <StarRow
+                value={stars}
+                onChange={(n) => {
+                  setStars(n);
+                }}
+              />
+            </div>
+            <textarea
+              className="community-review-ta"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="寫下使用心得（選填，僅存於你的帳號）"
+              rows={3}
+              maxLength={500}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={!stars}
+              onClick={() =>
                 void saveUserRating(user.uid, {
                   packageId: id,
-                  stars: n,
+                  stars,
+                  comment: comment.trim(),
                   updatedAt: Date.now(),
-                }).then(() => toast("已儲存評分"));
-              }}
-            />
+                }).then(() => toast("已儲存評分"))
+              }
+            >
+              儲存評分
+            </button>
           </div>
 
           <PackageDetailBody pack={pack} entry={entry} />
+
+          <RelatedPackages
+            entries={related}
+            installedIds={installedIds}
+            busy={busy}
+            onInstall={(e) =>
+              void resolveAnySource(e.source).then((p) => setConfirmPack(p))
+            }
+          />
         </>
       )}
 
@@ -251,13 +316,15 @@ function CommunityPackageDetailInner() {
         <TemplatePreviewModal
           tpl={previewTpl}
           open
+          mode={previewMode}
           busy={busy}
           onClose={() => setPreviewTpl(null)}
           onApply={(folder) =>
             void (async () => {
+              if (!installedTpl) return;
               setBusy(true);
               try {
-                const { firstId } = await applyInstalledTemplate(user.uid, previewTpl, { folder });
+                const { firstId } = await applyInstalledTemplate(user.uid, installedTpl, { folder });
                 prefsCtx.setPrefs((p) => touchRecentId(p, firstId));
                 toast("已套用模板");
                 router.push(`/notes/${firstId}`);
@@ -268,7 +335,64 @@ function CommunityPackageDetailInner() {
               }
             })()
           }
+          onInstall={() => {
+            if (pack) setConfirmPack(pack);
+            setPreviewTpl(null);
+          }}
         />
+      )}
+
+      {confirmPack && (
+        <InstallConfirmModal
+          pack={confirmPack}
+          open
+          busy={busy}
+          onClose={() => setConfirmPack(null)}
+          onConfirm={() => void doInstall(confirmPack.source)}
+        />
+      )}
+
+      {reportOpen && (
+        <div className="community-detail-backdrop" onClick={() => setReportOpen(false)}>
+          <div className="community-detail" onClick={(e) => e.stopPropagation()}>
+            <header>
+              <div>
+                <h2>回報套件</h2>
+                <p>選擇原因，協助後續審核</p>
+              </div>
+              <button type="button" className="community-detail-close" onClick={() => setReportOpen(false)}>
+                ×
+              </button>
+            </header>
+            <div className="community-chips">
+              {REPORT_REASONS.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className={reportReason === r.id ? "is-on" : ""}
+                  onClick={() => setReportReason(r.id)}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              className="community-review-ta"
+              value={reportDetail}
+              onChange={(e) => setReportDetail(e.target.value)}
+              placeholder="補充說明（選填）"
+              rows={3}
+            />
+            <div className="community-card-actions">
+              <button type="button" className="btn" onClick={() => void submitReport()}>
+                送出
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setReportOpen(false)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
