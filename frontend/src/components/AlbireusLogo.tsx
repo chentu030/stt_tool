@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Albireus logo — mark from 純logo.svg; wordmark is text (do not use logo+word.svg).
+ * Albireus logo — swan mark from logo_albireus.png; wordmark is text.
  */
 export default function AlbireusLogo({
   height = 28,
@@ -25,7 +25,7 @@ export default function AlbireusLogo({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/brand/logo-mark.svg"
+        src="/brand/logo-mark.png"
         alt={showWord ? "" : "Albireus"}
         height={height}
         width={height}
