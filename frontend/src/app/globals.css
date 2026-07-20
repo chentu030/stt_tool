@@ -1529,6 +1529,312 @@ html.is-note-app-embed main {
   color: var(--text-muted);
 }
 
+/* Database hub */
+.db-hub {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 3rem;
+}
+.db-hub-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+.db-hub-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.db-hub-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 0.75rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.db-hub-stats strong {
+  color: var(--text-main);
+  font-weight: 650;
+  margin-right: 0.2rem;
+}
+.db-hub-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.db-hub-search {
+  flex: 1;
+  min-width: min(100%, 200px);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.85rem;
+}
+.db-hub-select {
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.82rem;
+}
+.db-hub-layout {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.15rem;
+  border-radius: 8px;
+  background: var(--bg-muted);
+}
+.db-hub-layout button {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.db-hub-layout button.is-on {
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.db-hub-section {
+  margin-bottom: 1.75rem;
+}
+.db-hub-section h2,
+.db-hub-empty h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1rem;
+}
+.db-hub-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+.db-hub-section-head h2 {
+  margin: 0;
+}
+.db-hub-recent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.65rem;
+}
+.db-hub-recent-card {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+  text-decoration: none;
+  color: var(--text-main);
+}
+.db-hub-recent-card:hover {
+  border-color: var(--accent);
+}
+.db-hub-recent-card strong {
+  display: block;
+  font-size: 0.9rem;
+}
+.db-hub-recent-card span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.db-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.85rem;
+}
+.db-hub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.db-hub-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.db-hub-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.db-hub-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1rem 1rem 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  flex: 1;
+}
+.db-hub-card-top {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+.db-hub-card-top strong {
+  display: block;
+  font-size: 0.98rem;
+}
+.db-hub-card-top span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.db-hub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.db-hub-chips em {
+  font-style: normal;
+  font-size: 0.68rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-muted));
+  color: var(--text-muted);
+}
+.db-hub-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.db-hub-props span {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+}
+.db-hub-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.55rem 0.85rem 0.75rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-muted) 40%, var(--bg-card));
+}
+.db-hub-empty {
+  margin-top: 0.5rem;
+}
+.db-hub-empty > p,
+.db-hub-hint {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0 0 1rem;
+}
+.db-hub-hint code {
+  font-size: 0.8rem;
+}
+.db-hub-templates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+.db-hub-templates.is-compact .db-hub-template-card span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.db-hub-template-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  text-align: left;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  cursor: pointer;
+  color: var(--text-main);
+}
+.db-hub-template-card:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.db-hub-template-card:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.db-hub-template-card strong {
+  font-size: 0.95rem;
+}
+.db-hub-template-card span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.db-hub-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.db-hub-picker {
+  width: min(780px, 100%);
+  max-height: min(85vh, 720px);
+  overflow: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.1rem 1.2rem 1.25rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+.db-hub-picker header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+.db-hub-picker header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.db-hub-picker-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  line-height: 1;
+}
+@media (max-width: 640px) {
+  .db-hub {
+    padding: 1rem 0.85rem 2.5rem;
+  }
+  .db-hub-hero {
+    flex-direction: column;
+  }
+  .db-hub-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .db-hub-card-actions .btn {
+    flex: 1;
+    text-align: center;
+  }
+}
+
 .theme-toggle {
   width: 30px;
   height: 30px;

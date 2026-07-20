@@ -220,6 +220,8 @@ export async function createWorkspacePage(
     status?: Note["status"];
     webUrl?: string;
     extension?: ExtensionManifest;
+    databaseTemplate?: import("@/lib/database").DbTemplateId;
+    databaseName?: string;
   }
 ): Promise<{ noteId: string; href: string }> {
   const folder = opts?.parentId ? "" : opts?.folder || "";
@@ -294,8 +296,10 @@ export async function createWorkspacePage(
   }
 
   if (kind === "database") {
-    const appId = await createDatabase(uid, "未命名資料庫", "tasks");
-    const noteId = await createNote(uid, "未命名資料庫", "", undefined, tags, {
+    const tpl = opts?.databaseTemplate || "tasks";
+    const name = (opts?.databaseName || "").trim() || "未命名資料庫";
+    const appId = await createDatabase(uid, name, tpl);
+    const noteId = await createNote(uid, name, "", undefined, tags, {
       folder,
       status,
       parent_id: parentId,
