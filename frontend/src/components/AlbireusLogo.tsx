@@ -36,8 +36,6 @@ export default function AlbireusLogo({
           display: "block",
           filter: "var(--logo-filter, none)",
           flexShrink: 0,
-          borderRadius: "50%",
-          background: "transparent",
         }}
       />
       {showWord ? (
