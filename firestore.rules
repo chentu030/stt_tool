@@ -102,8 +102,7 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasAll([
-          'uid', 'email', 'display_name', 'username', 'status',
-          'use_case', 'current_workflow', 'frequency', 'wished_features', 'referral'
+          'uid', 'email', 'display_name', 'username', 'status'
         ])
         && (
           (request.resource.data.status == 'pending')

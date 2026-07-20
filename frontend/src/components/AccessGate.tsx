@@ -18,6 +18,7 @@ import {
   listenAccessRequest,
   resolveAccess,
   submitAccessApplication,
+  type AccessApplicationInput,
   type AccessRequest,
 } from "@/lib/accessGate";
 import { validateDisplayName, validateUsername } from "@/lib/userProfile";
@@ -56,7 +57,11 @@ export default function AccessGate({ children }: { children: ReactNode }) {
   if (loading || reqLoading) return <PageLoading label="確認使用權限…" />;
   if (status === "approved") return <>{children}</>;
   if (status === "pending") {
-    return <AccessShell><PendingPanel email={user.email || ""} name={request?.display_name || displayName} /></AccessShell>;
+    return (
+      <AccessShell>
+        <PendingPanel email={user.email || ""} name={request?.display_name || displayName} />
+      </AccessShell>
+    );
   }
   if (status === "rejected") {
     return (
@@ -108,7 +113,8 @@ function PendingPanel({ email, name }: { email: string; name: string }) {
       <p className="access-kicker">封閉測試中</p>
       <h1>申請已送出，請稍候</h1>
       <p className="access-lead">
-        {name ? `${name}，` : ""}我們正在控制同時上線人數，避免塞車。審核通過後就能使用 Albireus，結果會以這個帳號通知／開放：
+        {name ? `${name}，` : ""}
+        我們正在控制同時上線人數，避免塞車。審核通過後就能使用 Albireus，結果會以這個帳號通知／開放：
       </p>
       <p className="access-email">{email}</p>
       <p className="access-hint">通常會在幾天內處理。你隨時可以登出，之後再用同一帳號回來查看狀態。</p>
@@ -126,6 +132,66 @@ function RejectedPanel() {
   );
 }
 
+function toggleId(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+}
+
+function MultiChoice({
+  legend,
+  hint,
+  options,
+  value,
+  onChange,
+  disabled,
+  otherText,
+  onOtherText,
+}: {
+  legend: string;
+  hint?: string;
+  options: readonly { id: string; label: string }[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+  otherText?: string;
+  onOtherText?: (v: string) => void;
+}) {
+  const showOther = value.includes("other") && onOtherText;
+  return (
+    <fieldset className="access-field" disabled={disabled}>
+      <legend>
+        {legend}
+        <span className="access-optional">選填 · 可多選</span>
+      </legend>
+      {hint ? <em>{hint}</em> : null}
+      <div className="access-choices">
+        {options.map((o) => {
+          const on = value.includes(o.id);
+          return (
+            <label key={o.id} className={`access-chip${on ? " is-on" : ""}`}>
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => onChange(toggleId(value, o.id))}
+              />
+              {o.label}
+            </label>
+          );
+        })}
+      </div>
+      {showOther ? (
+        <input
+          className="input access-other-input"
+          value={otherText || ""}
+          disabled={disabled}
+          onChange={(e) => onOtherText?.(e.target.value)}
+          placeholder="若選「其他」，可補充說明（可不填）"
+          maxLength={120}
+        />
+      ) : null}
+    </fieldset>
+  );
+}
+
 function ApplyForm({
   defaultName,
   defaultUsername,
@@ -135,23 +201,18 @@ function ApplyForm({
   defaultName: string;
   defaultUsername: string;
   email: string;
-  onSubmit: (payload: {
-    displayName: string;
-    username: string;
-    useCase: string;
-    currentWorkflow: string;
-    frequency: string;
-    wishedFeatures: string;
-    referral: string;
-  }) => Promise<void>;
+  onSubmit: (payload: AccessApplicationInput) => Promise<void>;
 }) {
   const [name, setName] = useState(defaultName || "");
   const [handle, setHandle] = useState(defaultUsername || "");
-  const [useCase, setUseCase] = useState("");
-  const [workflow, setWorkflow] = useState("");
-  const [frequency, setFrequency] = useState("");
+  const [useCases, setUseCases] = useState<string[]>([]);
+  const [workflows, setWorkflows] = useState<string[]>([]);
+  const [frequencies, setFrequencies] = useState<string[]>([]);
+  const [referrals, setReferrals] = useState<string[]>([]);
+  const [useCaseOther, setUseCaseOther] = useState("");
+  const [workflowOther, setWorkflowOther] = useState("");
+  const [referralOther, setReferralOther] = useState("");
   const [wished, setWished] = useState("");
-  const [referral, setReferral] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -171,24 +232,19 @@ function ApplyForm({
       toast(userErr);
       return;
     }
-    if (!useCase || !workflow || !frequency || !referral) {
-      toast("請完成簡單調查後再送出");
-      return;
-    }
-    if (!wished.trim()) {
-      toast("請告訴我們你希望有的功能");
-      return;
-    }
     setBusy(true);
     try {
       await onSubmit({
         displayName: name.trim(),
         username: handle.trim().toLowerCase(),
-        useCase,
-        currentWorkflow: workflow,
-        frequency,
+        useCases,
+        currentWorkflows: workflows,
+        frequencies,
+        referrals,
+        useCaseOther,
+        workflowOther,
+        referralOther,
         wishedFeatures: wished.trim(),
-        referral,
       });
     } catch (err) {
       toast(err instanceof Error ? err.message : "送出失敗");
@@ -199,15 +255,20 @@ function ApplyForm({
 
   return (
     <form className="access-panel access-form" onSubmit={(e) => void submit(e)}>
-      <p className="access-kicker">封閉測試中</p>
-      <h1>申請使用 Albireus</h1>
-      <p className="access-lead">
-        目前還在開發、名額有限。無論是上課、開會還是工作整理，都歡迎申請；登入帳號{" "}
-        <strong>{email}</strong> 通過後就能進入產品。
-      </p>
+      <div className="access-form-intro">
+        <p className="access-kicker">封閉測試中</p>
+        <h1>申請使用 Albireus</h1>
+        <p className="access-lead">
+          目前還在開發、名額有限。無論是上課、開會還是工作整理，都歡迎申請；登入帳號{" "}
+          <strong>{email}</strong> 通過後就能進入產品。
+        </p>
+        <p className="access-hint">下方調查皆可略過；有填會幫助我們排優先功能。</p>
+      </div>
 
       <label className="access-field">
-        <span>顯示名稱</span>
+        <span>
+          顯示名稱 <span className="access-required">必填</span>
+        </span>
         <input
           className="input"
           value={name}
@@ -220,7 +281,9 @@ function ApplyForm({
       </label>
 
       <label className="access-field">
-        <span>用戶名稱</span>
+        <span>
+          用戶名稱 <span className="access-required">必填</span>
+        </span>
         <div className="st-username-field">
           <span className="st-username-at">@</span>
           <input
@@ -238,95 +301,64 @@ function ApplyForm({
         <em>小寫字母開頭，3–20 字（a-z、0-9、_）</em>
       </label>
 
-      <fieldset className="access-field" disabled={busy}>
-        <legend>你主要用什麼場景？</legend>
-        <div className="access-choices">
-          {USE_CASE_OPTIONS.map((o) => (
-            <label key={o.id} className={`access-chip${useCase === o.id ? " is-on" : ""}`}>
-              <input
-                type="radio"
-                name="useCase"
-                value={o.id}
-                checked={useCase === o.id}
-                onChange={() => setUseCase(o.id)}
-              />
-              {o.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <MultiChoice
+        legend="你主要用什麼場景？"
+        options={USE_CASE_OPTIONS}
+        value={useCases}
+        onChange={setUseCases}
+        disabled={busy}
+        otherText={useCaseOther}
+        onOtherText={setUseCaseOther}
+      />
 
-      <fieldset className="access-field" disabled={busy}>
-        <legend>目前怎麼整理筆記？</legend>
-        <div className="access-choices">
-          {WORKFLOW_OPTIONS.map((o) => (
-            <label key={o.id} className={`access-chip${workflow === o.id ? " is-on" : ""}`}>
-              <input
-                type="radio"
-                name="workflow"
-                value={o.id}
-                checked={workflow === o.id}
-                onChange={() => setWorkflow(o.id)}
-              />
-              {o.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <MultiChoice
+        legend="目前怎麼整理筆記？"
+        options={WORKFLOW_OPTIONS}
+        value={workflows}
+        onChange={setWorkflows}
+        disabled={busy}
+        otherText={workflowOther}
+        onOtherText={setWorkflowOther}
+      />
 
-      <fieldset className="access-field" disabled={busy}>
-        <legend>一週大概會用幾次？</legend>
-        <div className="access-choices">
-          {FREQUENCY_OPTIONS.map((o) => (
-            <label key={o.id} className={`access-chip${frequency === o.id ? " is-on" : ""}`}>
-              <input
-                type="radio"
-                name="frequency"
-                value={o.id}
-                checked={frequency === o.id}
-                onChange={() => setFrequency(o.id)}
-              />
-              {o.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <MultiChoice
+        legend="一週大概會用幾次？"
+        options={FREQUENCY_OPTIONS}
+        value={frequencies}
+        onChange={setFrequencies}
+        disabled={busy}
+      />
 
       <label className="access-field">
-        <span>最希望有的功能</span>
+        <span>
+          最希望有的功能 <span className="access-optional">選填</span>
+        </span>
         <textarea
           className="input"
-          rows={3}
+          rows={4}
           value={wished}
           disabled={busy}
           onChange={(e) => setWished(e.target.value)}
           placeholder="例如：會議自動整理成待辦、訪談逐字稿可搜尋、專案進度一鍵摘要…"
           maxLength={500}
-          required
         />
       </label>
 
-      <fieldset className="access-field" disabled={busy}>
-        <legend>你怎麼知道 Albireus？</legend>
-        <div className="access-choices">
-          {REFERRAL_OPTIONS.map((o) => (
-            <label key={o.id} className={`access-chip${referral === o.id ? " is-on" : ""}`}>
-              <input
-                type="radio"
-                name="referral"
-                value={o.id}
-                checked={referral === o.id}
-                onChange={() => setReferral(o.id)}
-              />
-              {o.label}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <MultiChoice
+        legend="你怎麼知道 Albireus？"
+        options={REFERRAL_OPTIONS}
+        value={referrals}
+        onChange={setReferrals}
+        disabled={busy}
+        otherText={referralOther}
+        onOtherText={setReferralOther}
+      />
 
-      <button type="submit" className="btn access-submit" disabled={busy}>
-        {busy ? "送出中…" : "送出申請並等待審核"}
-      </button>
+      <div className="access-submit-row">
+        <button type="submit" className="btn access-submit" disabled={busy}>
+          {busy ? "送出中…" : "送出申請並等待審核"}
+        </button>
+      </div>
     </form>
   );
 }

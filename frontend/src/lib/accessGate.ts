@@ -26,16 +26,14 @@ export type AccessRequest = {
   display_name: string;
   username: string;
   status: Exclude<AccessStatus, "none">;
-  /** 主要使用場景 */
-  use_case: string;
-  /** 目前怎麼整理筆記 */
-  current_workflow: string;
-  /** 一週大概使用頻率 */
-  frequency: string;
-  /** 最希望有的功能 */
+  use_cases: string[];
+  current_workflows: string[];
+  frequencies: string[];
+  referrals: string[];
+  use_case_other: string;
+  workflow_other: string;
+  referral_other: string;
   wished_features: string;
-  /** 怎麼知道 Albireus */
-  referral: string;
   created_at: Date | null;
   updated_at: Date | null;
 };
@@ -43,11 +41,14 @@ export type AccessRequest = {
 export type AccessApplicationInput = {
   displayName: string;
   username: string;
-  useCase: string;
-  currentWorkflow: string;
-  frequency: string;
+  useCases: string[];
+  currentWorkflows: string[];
+  frequencies: string[];
+  referrals: string[];
+  useCaseOther: string;
+  workflowOther: string;
+  referralOther: string;
   wishedFeatures: string;
-  referral: string;
 };
 
 export const USE_CASE_OPTIONS = [
@@ -97,6 +98,13 @@ export function isAccessBypassPath(pathname: string | null | undefined): boolean
   return pathname.startsWith("/share/");
 }
 
+function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const s = String(value || "").trim();
+  if (!s) return [];
+  return s.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
 function requestFromData(uid: string, data: Record<string, unknown>): AccessRequest {
   const statusRaw = String(data.status || "pending");
   const status: AccessRequest["status"] =
@@ -107,11 +115,14 @@ function requestFromData(uid: string, data: Record<string, unknown>): AccessRequ
     display_name: String(data.display_name || ""),
     username: String(data.username || ""),
     status,
-    use_case: String(data.use_case || ""),
-    current_workflow: String(data.current_workflow || ""),
-    frequency: String(data.frequency || ""),
+    use_cases: asStringList(data.use_cases ?? data.use_case),
+    current_workflows: asStringList(data.current_workflows ?? data.current_workflow),
+    frequencies: asStringList(data.frequencies ?? data.frequency),
+    referrals: asStringList(data.referrals ?? data.referral),
+    use_case_other: String(data.use_case_other || ""),
+    workflow_other: String(data.workflow_other || ""),
+    referral_other: String(data.referral_other || ""),
     wished_features: String(data.wished_features || ""),
-    referral: String(data.referral || ""),
     created_at: (data.created_at as { toDate?: () => Date })?.toDate?.() || null,
     updated_at: (data.updated_at as { toDate?: () => Date })?.toDate?.() || null,
   };
@@ -152,11 +163,14 @@ export async function ensureAllowlistAccess(user: User): Promise<void> {
       display_name: user.displayName || "",
       username: "",
       status: "approved",
-      use_case: "",
-      current_workflow: "",
-      frequency: "",
+      use_cases: [],
+      current_workflows: [],
+      frequencies: [],
+      referrals: ["allowlist"],
+      use_case_other: "",
+      workflow_other: "",
+      referral_other: "",
       wished_features: "",
-      referral: "allowlist",
       updated_at: now,
       ...(snap.exists() ? {} : { created_at: now }),
     },
@@ -182,11 +196,14 @@ export async function submitAccessApplication(
     display_name: input.displayName.trim(),
     username: input.username.trim().toLowerCase(),
     status: "pending",
-    use_case: input.useCase,
-    current_workflow: input.currentWorkflow,
-    frequency: input.frequency,
+    use_cases: input.useCases,
+    current_workflows: input.currentWorkflows,
+    frequencies: input.frequencies,
+    referrals: input.referrals,
+    use_case_other: input.useCaseOther.trim(),
+    workflow_other: input.workflowOther.trim(),
+    referral_other: input.referralOther.trim(),
     wished_features: input.wishedFeatures.trim(),
-    referral: input.referral,
     created_at: now,
     updated_at: now,
   });
