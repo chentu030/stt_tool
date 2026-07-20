@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 
@@ -48,7 +50,6 @@ import {
 } from "@/lib/boardMeta";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefs } from "@/components/PrefsProvider";
-import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -82,6 +83,8 @@ export default function BoardByIdPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [boards, setBoards] = useState<BoardConfig[]>([]);
   const [boardsReady, setBoardsReady] = useState(false);
+  const [boardError, setBoardError] = useState("");
+  const [boardRetry, setBoardRetry] = useState(0);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<BoardStatus | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -122,11 +125,33 @@ export default function BoardByIdPage() {
   useEffect(() => {
     if (!user) return;
     setBoardsReady(false);
-    return listenBoards(user.uid, (list) => {
-      setBoards(list);
-      setBoardsReady(true);
-    });
-  }, [user]);
+    setBoardError("");
+    const timer = window.setTimeout(() => {
+      setBoardError((e) => e || "載入逾時，請重試");
+    }, 20000);
+    const unsub = listenBoards(
+      user.uid,
+      (list) => {
+        window.clearTimeout(timer);
+        setBoards(list);
+        setBoardsReady(true);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        const msg = err.message || "無法載入看板";
+        setBoardError(
+          /permission|insufficient|Missing/i.test(msg)
+            ? "沒有權限讀寫看板（請確認已部署含 boards 的 Firestore rules）"
+            : msg
+        );
+        setBoardsReady(true);
+      }
+    );
+    return () => {
+      window.clearTimeout(timer);
+      unsub();
+    };
+  }, [user, boardRetry]);
 
   const board = useMemo(
     () => boards.find((b) => b.id === boardId) || null,
@@ -151,7 +176,7 @@ export default function BoardByIdPage() {
   }, [searchParams, notes, board]);
 
   useEffect(() => {
-    if (!user || !boardsReady) return;
+    if (!user || !boardsReady || boardError) return;
     if (!boardId) {
       router.replace("/board");
       return;
@@ -165,7 +190,7 @@ export default function BoardByIdPage() {
     } catch {
       /* ignore */
     }
-  }, [user, boardsReady, board, boardId, router]);
+  }, [user, boardsReady, boardError, board, boardId, router]);
 
   const scopedNotes = useMemo(() => {
     if (!board) return [];
@@ -645,7 +670,7 @@ export default function BoardByIdPage() {
     }
   };
 
-  if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
       <div className="bd-page bd-guest">
@@ -656,10 +681,19 @@ export default function BoardByIdPage() {
     );
   }
 
+  if (boardError) {
+    return (
+      <div className="bd-page bd-guest" style={{ padding: "1.5rem" }}>
+        <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>{boardError}</p>
+        <ShinyPill onClick={() => setBoardRetry((n) => n + 1)}>重試</ShinyPill>
+      </div>
+    );
+  }
+
   if (!boardsReady || !board) {
     return (
       <div className="bd-page bd-guest">
-        <p style={{ color: "var(--text-muted)" }}>載入看板中…</p>
+        <PageLoading label="載入看板中…" />
       </div>
     );
   }
@@ -714,15 +748,6 @@ export default function BoardByIdPage() {
           </ShinyPill>
         </div>
       </header>
-
-      <ContinueChips
-        className="bd-continue"
-        chips={spatialContinueChips({
-          kind: "board",
-          noteId: selected[0] || searchParams.get("note"),
-          title: notes.find((n) => n.id === (selected[0] || searchParams.get("note") || ""))?.title,
-        })}
-      />
 
       <div className="bd-scope-bar">
         <span className="bd-scope-label">範圍</span>
@@ -827,47 +852,48 @@ export default function BoardByIdPage() {
 
       <div className="bd-toolbar">
         <input
-          className="input"
-          style={{ flex: 1, minWidth: 140 }}
+          className="input bd-search"
           placeholder="搜尋標題、內容、標籤…"
           value={filters.q}
           onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
         />
-        <select
-          className="input"
-          style={{ width: "auto" }}
-          value={filters.folder}
-          onChange={(e) => setFilters((f) => ({ ...f, folder: e.target.value }))}
-        >
-          <option value="">全部資料夾</option>
-          <option value="__none__">未分類</option>
-          {folders.map((f) => (
-            <option key={f} value={f}>{f}</option>
-          ))}
-        </select>
-        <select
-          className="input"
-          style={{ width: "auto" }}
-          value={filters.tag}
-          onChange={(e) => setFilters((f) => ({ ...f, tag: e.target.value }))}
-        >
-          <option value="">全部標籤</option>
-          {tags.map((t) => (
-            <option key={t} value={t}>#{t}</option>
-          ))}
-        </select>
-        <select
-          className="input"
-          style={{ width: "auto" }}
-          value={filters.priority}
-          onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value as "" | Priority }))}
-        >
-          <option value="">全部優先</option>
-          {PRIORITIES.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
-        <MenuSelect variant="soft" ariaLabel="排序" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+        <MenuSelect
+          variant="soft"
+          size="sm"
+          ariaLabel="資料夾"
+          value={filters.folder || ""}
+          options={[
+            { value: "", label: "全部資料夾" },
+            { value: "__none__", label: "未分類" },
+            ...folders.map((f) => ({ value: f, label: f })),
+          ]}
+          onChange={(folder) => setFilters((f) => ({ ...f, folder }))}
+        />
+        <MenuSelect
+          variant="soft"
+          size="sm"
+          ariaLabel="標籤"
+          value={filters.tag || ""}
+          options={[
+            { value: "", label: "全部標籤" },
+            ...tags.map((t) => ({ value: t, label: `#${t}` })),
+          ]}
+          onChange={(tag) => setFilters((f) => ({ ...f, tag }))}
+        />
+        <MenuSelect
+          variant="soft"
+          size="sm"
+          ariaLabel="優先級"
+          value={filters.priority || ""}
+          options={[
+            { value: "", label: "全部優先" },
+            ...PRIORITIES.map((p) => ({ value: p.id, label: p.label })),
+          ]}
+          onChange={(priority) =>
+            setFilters((f) => ({ ...f, priority: priority as "" | Priority }))
+          }
+        />
+        <MenuSelect variant="soft" size="sm" ariaLabel="排序" value={sort} options={SORT_OPTIONS} onChange={setSort} />
         <label className="bd-check">
           <input
             type="checkbox"

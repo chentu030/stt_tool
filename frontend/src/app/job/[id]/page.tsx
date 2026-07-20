@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -17,7 +19,6 @@ import TranscriptChat from "@/components/TranscriptChat";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
-import ContinueChips, { jobContinueChips } from "@/components/shell/ContinueChips";
 import { toast } from "@/lib/toast";
 
 export default function JobPage() {
@@ -72,7 +73,7 @@ export default function JobPage() {
     setLiveText(current?.text || "");
   }, [current?.text, fileIdx, job?.id]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) return <p>請先登入。</p>;
   if (!job) return <p style={{ color: "var(--text-muted)" }}>找不到此工作。</p>;
   if (job.user_id !== user.uid) return <p>無權限檢視。</p>;
@@ -246,15 +247,6 @@ export default function JobPage() {
           </div>
         )}
       </div>
-
-      <ContinueChips
-        className="tx-continue"
-        chips={jobContinueChips({
-          jobId: job.id,
-          noteId: linkedNoteId,
-          title: typeof title === "string" ? title : undefined,
-        })}
-      />
 
       {job.status === "error" && (
         <div className="card tx-alert" style={{ color: "var(--danger)" }}>

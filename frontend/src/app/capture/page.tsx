@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
@@ -9,7 +11,6 @@ import {
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
-import ContinueChips, { captureContinueChips } from "@/components/shell/ContinueChips";
 import Link from "next/link";
 import { libraryJobsUrl } from "@/lib/navApps";
 import { toast } from "@/lib/toast";
@@ -312,7 +313,7 @@ export default function CapturePage() {
   if (loading) {
     return (
       <div className="capture-page">
-        <p style={{ color: "var(--text-muted)" }}>載入中…</p>
+        <PageLoading />
       </div>
     );
   }
@@ -342,8 +343,6 @@ export default function CapturePage() {
           <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" speed={22} />
           <p className="capture-lead">上傳、貼連結或錄音。</p>
         </header>
-
-        <ContinueChips className="capture-continue" chips={captureContinueChips()} />
 
         <div className="capture-recent">
           <div className="capture-recent-head">

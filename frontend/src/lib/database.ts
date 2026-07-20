@@ -152,8 +152,8 @@ export async function createDatabase(
       : defaultTaskProperties();
   await setDoc(doc(db, "databases", id), {
     user_id: uid,
-    name,
-    icon: "▦",
+    name: (name || "未命名資料庫").trim() || "未命名資料庫",
+    icon: "db",
     properties,
     views: defaultViews(),
     created_at: Timestamp.now(),
@@ -170,27 +170,37 @@ export async function getDatabase(dbId: string): Promise<CadenceDatabase | null>
 
 export function listenDatabase(
   dbId: string,
-  callback: (database: CadenceDatabase | null) => void
+  callback: (database: CadenceDatabase | null) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
-  return onSnapshot(doc(db, "databases", dbId), (snap) => {
-    if (!snap.exists()) {
-      callback(null);
-      return;
-    }
-    callback(mapDb(snap.id, snap.data() as Record<string, unknown>));
-  });
+  return onSnapshot(
+    doc(db, "databases", dbId),
+    (snap) => {
+      if (!snap.exists()) {
+        callback(null);
+        return;
+      }
+      callback(mapDb(snap.id, snap.data() as Record<string, unknown>));
+    },
+    (err) => onError?.(err)
+  );
 }
 
 export function listenUserDatabases(
   uid: string,
-  callback: (list: CadenceDatabase[]) => void
+  callback: (list: CadenceDatabase[]) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(collection(db, "databases"), where("user_id", "==", uid));
-  return onSnapshot(q, (snap) => {
-    const list = snap.docs.map((d) => mapDb(d.id, d.data() as Record<string, unknown>));
-    list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
-    callback(list);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => mapDb(d.id, d.data() as Record<string, unknown>));
+      list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+      callback(list);
+    },
+    (err) => onError?.(err)
+  );
 }
 
 export async function updateDatabase(

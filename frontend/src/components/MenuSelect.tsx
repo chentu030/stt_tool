@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 export type MenuOption<T extends string = string> = {
   value: T;
@@ -15,9 +15,15 @@ type Props<T extends string> = {
   options: MenuOption<T>[];
   onChange: (value: T) => void;
   /** Visual tone */
-  variant?: "pill" | "soft" | "ghost";
+  variant?: "pill" | "soft" | "ghost" | "toolbar";
+  size?: "sm" | "md";
   className?: string;
   ariaLabel?: string;
+  disabled?: boolean;
+  /** Optional prefix shown before the current label (e.g. 行距) */
+  prefix?: ReactNode;
+  /** Open menu upward (useful near bottom of viewport) */
+  placement?: "bottom" | "top";
 };
 
 export default function MenuSelect<T extends string>({
@@ -25,8 +31,12 @@ export default function MenuSelect<T extends string>({
   options,
   onChange,
   variant = "pill",
+  size = "md",
   className = "",
   ariaLabel = "選擇",
+  disabled = false,
+  prefix,
+  placement = "bottom",
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -51,7 +61,9 @@ export default function MenuSelect<T extends string>({
 
   return (
     <div
-      className={`menu-select menu-select--${variant}${open ? " is-open" : ""} ${className}`.trim()}
+      className={`menu-select menu-select--${variant} menu-select--${size}${open ? " is-open" : ""}${
+        disabled ? " is-disabled" : ""
+      } ${className}`.trim()}
       ref={rootRef}
     >
       <button
@@ -61,8 +73,14 @@ export default function MenuSelect<T extends string>({
         aria-expanded={open}
         aria-controls={listId}
         aria-label={ariaLabel}
-        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) setOpen((v) => !v);
+        }}
       >
+        {prefix != null && prefix !== "" && (
+          <span className="menu-select-prefix">{prefix}</span>
+        )}
         {current?.color && (
           <span className="menu-select-dot" style={{ background: current.color }} />
         )}
@@ -72,8 +90,13 @@ export default function MenuSelect<T extends string>({
         </span>
       </button>
 
-      {open && (
-        <ul id={listId} className="menu-select-menu" role="listbox" aria-label={ariaLabel}>
+      {open && !disabled && (
+        <ul
+          id={listId}
+          className={`menu-select-menu menu-select-menu--${placement}`}
+          role="listbox"
+          aria-label={ariaLabel}
+        >
           {options.map((opt) => {
             const active = opt.value === value;
             return (
@@ -81,6 +104,7 @@ export default function MenuSelect<T extends string>({
                 <button
                   type="button"
                   className={`menu-select-option${active ? " is-active" : ""}`}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     onChange(opt.value);
                     setOpen(false);

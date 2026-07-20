@@ -127,18 +127,41 @@ service cloud.firestore {
       );
     }
 
+    function isTeamCreator(teamId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teams/$(teamId))
+        && get(/databases/$(database)/documents/teams/$(teamId)).data.created_by == request.auth.uid;
+    }
+    function validPendingInvite(token, teamId, role) {
+      return exists(/databases/$(database)/documents/invites/$(token))
+        && get(/databases/$(database)/documents/invites/$(token)).data.team_id == teamId
+        && get(/databases/$(database)/documents/invites/$(token)).data.status == 'pending'
+        && get(/databases/$(database)/documents/invites/$(token)).data.role == role
+        && get(/databases/$(database)/documents/invites/$(token)).data.expires_at > request.time;
+    }
+
     match /teams/{teamId} {
-      allow create: if signedIn() && request.resource.data.created_by == request.auth.uid;
-      allow read: if isTeamMember(teamId);
+      allow create: if signedIn()
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.keys().hasAll(['name', 'created_by', 'created_at']);
+      allow read: if isTeamMember(teamId) || isTeamCreator(teamId);
       allow update, delete: if isTeamAdmin(teamId);
 
       match /members/{memberId} {
-        allow read: if isTeamMember(teamId);
+        allow read: if isTeamMember(teamId) || isTeamCreator(teamId);
+        // Owner bootstrap (after team doc exists) OR join via pending invite token.
         allow create: if signedIn() && request.auth.uid == memberId
           && (
-            (request.resource.data.role == 'owner'
-              && get(/databases/$(database)/documents/teams/$(teamId)).data.created_by == request.auth.uid)
-            || request.resource.data.role in ['admin', 'member', 'guest']
+            (request.resource.data.role == 'owner' && isTeamCreator(teamId))
+            || (
+              request.resource.data.role in ['admin', 'member', 'guest']
+              && request.resource.data.keys().hasAll(['invite_token'])
+              && validPendingInvite(
+                request.resource.data.invite_token,
+                teamId,
+                request.resource.data.role
+              )
+            )
           );
         allow update: if isTeamAdmin(teamId);
         allow delete: if isTeamAdmin(teamId) || request.auth.uid == memberId;
@@ -147,8 +170,9 @@ service cloud.firestore {
       match /channels/{channelId} {
         // Metadata readable by all members so list queries work; client filters private.
         // Message content is gated by canAccessChannel.
-        allow read: if isTeamMember(teamId);
-        allow create: if isTeamMember(teamId);
+        allow read: if isTeamMember(teamId) || isTeamCreator(teamId);
+        // Team creator may seed the default channel during bootstrap.
+        allow create: if isTeamMember(teamId) || isTeamCreator(teamId);
         allow update: if isTeamMember(teamId);
         allow delete: if isTeamAdmin(teamId);
 

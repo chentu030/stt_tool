@@ -41,13 +41,26 @@ export default function NoteTabsBar() {
               className={`note-tab${isActive ? " is-active" : ""}${isSplit ? " is-split" : ""}`}
               role="tab"
               aria-selected={isActive}
+              onClick={(e) => {
+                // Whole tab is clickable (close button stops propagation)
+                if ((e.target as HTMLElement).closest(".note-tab-close")) return;
+                activate(id);
+              }}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest(".note-tab-close")) return;
+                if (activeId && id !== activeId) toggleSplitWith(id);
+              }}
             >
               <button
                 type="button"
                 className="note-tab-main"
                 title={title}
-                onClick={() => activate(id)}
-                onDoubleClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
+                  activate(id);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
                   if (activeId && id !== activeId) toggleSplitWith(id);
                 }}
               >

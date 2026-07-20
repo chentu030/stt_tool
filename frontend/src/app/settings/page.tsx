@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { askConfirm } from "@/lib/dialogs";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -519,17 +521,17 @@ export default function SettingsPage() {
               />
             </Row>
             <Row label="Gemini 模型">
-              <select
-                className="input"
+              <MenuSelect
+                variant="soft"
+                ariaLabel="Gemini 模型"
                 value={prefs.aiModel}
-                onChange={(e) => patch({ aiModel: e.target.value })}
-              >
-                {AI_TEXT_MODELS.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label} — {m.hint}
-                  </option>
-                ))}
-              </select>
+                options={AI_TEXT_MODELS.map((m) => ({
+                  value: m.id,
+                  label: m.label,
+                  hint: m.hint,
+                }))}
+                onChange={(aiModel) => patch({ aiModel })}
+              />
             </Row>
             <Row label="上網搜尋" hint="Grounding with Google Search；需要時模型會查網並附來源">
               <Toggle
@@ -749,7 +751,7 @@ export default function SettingsPage() {
           <section id="st-account" className="st-card">
             <h2>帳號與工具</h2>
             {loading ? (
-              <p className="st-muted">載入中…</p>
+              <PageLoading fill={false} />
             ) : user ? (
               <div className="st-account">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

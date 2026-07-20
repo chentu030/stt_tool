@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -39,7 +41,6 @@ import {
   takeResearchSelection,
 } from "@/lib/researchBridge";
 import { extractWikiLinks } from "@/lib/wiki";
-import ContinueChips, { researchContinueChips } from "@/components/shell/ContinueChips";
 import { libraryFolderUrl, RESEARCH_FOLDER } from "@/lib/navApps";
 
 type Citation = {
@@ -218,7 +219,7 @@ function reportExportBody(report: Report, sourceTitle?: string): string {
 
 export default function DeepResearchPage() {
   return (
-    <Suspense fallback={<p style={{ padding: "2rem", color: "var(--text-muted)" }}>載入中…</p>}>
+    <Suspense fallback={<PageLoading />}>
       <DeepResearchPageInner />
     </Suspense>
   );
@@ -279,6 +280,9 @@ function DeepResearchPageInner() {
     }[]
   >([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState<null | "depth" | "time" | "domains" | "scope" | "history">(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const threadEndRef = useRef<HTMLDivElement>(null);
   const [showActivity, setShowActivity] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -291,6 +295,10 @@ function DeepResearchPageInner() {
   useEffect(() => {
     logsRef.current = logs;
   }, [logs]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [logs.length, clarifyQs.length, draftPlan, report, busy, chat.length, error]);
 
   useEffect(() => {
     savedIdRef.current = savedId;
@@ -1229,7 +1237,7 @@ function DeepResearchPageInner() {
     pushLog(`已還原報告：${item.title}`, "ok");
   };
 
-  if (loading) return <p style={{ padding: "2rem", color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
 
   if (!user) {
     return (
@@ -1243,208 +1251,136 @@ function DeepResearchPageInner() {
     );
   }
 
-  const showStart = !busy && clarifyQs.length === 0 && !draftPlan;
+  const showStart = !busy && clarifyQs.length === 0 && !draftPlan && !report;
+  const idle = showStart && logs.length === 0;
+  const composerValue = report ? followUp : topic;
+  const setComposerValue = report ? setFollowUp : setTopic;
+  const depthLabel = depth === "max" ? "Max" : "標準";
+  const timeLabel =
+    timeRange === "any" ? "不限" : timeRange === "ytd" ? "今年" : timeRange === "1y" ? "近 1 年" : "近 2 年";
+
+  const submitComposer = () => {
+    if (busy) return;
+    if (report) {
+      void askFollowUp();
+      return;
+    }
+    if (clarifyQs.length > 0) {
+      const answers = clarifyQs
+        .map((q, i) => `Q: ${q}\nA: ${clarifyAnswers[i]?.trim() || "（未答）"}`)
+        .join("\n\n");
+      void runResearch({ answers });
+      return;
+    }
+    if (draftPlan) return;
+    void runResearch();
+  };
+
+  const toggleTool = (k: typeof toolsOpen) => {
+    setToolsOpen((cur) => (cur === k ? null : k));
+  };
 
   return (
-    <div className="dr-page">
-      <header className="dr-head">
-        <div>
-          <ScrambleText words="深度研究" as="h1" className="page-title font-display" />
-          <p className="page-sub">
-            與筆記本結合：從筆記啟動、指定研究範圍、存成子筆記或寫回原文。
-          </p>
+    <div className="dr-page dr-chat-shell">
+      <header className="dr-chat-top">
+        <div className="dr-chat-top-left">
+          <ScrambleText words="深度研究" as="h1" className="dr-chat-title font-display" />
+          {sourceNoteId && (
+            <span className="dr-chat-source">
+              來源：
+              <Link href={`/notes/${sourceNoteId}`}>{sourceNoteTitle || "筆記"}</Link>
+            </span>
+          )}
         </div>
-        <div className="dr-head-actions">
+        <div className="dr-chat-top-actions">
+          <button
+            type="button"
+            className={`btn btn-sm btn-ghost${historyOpen ? " is-on" : ""}`}
+            onClick={() => {
+              setHistoryOpen((v) => !v);
+              setToolsOpen(null);
+            }}
+          >
+            歷史
+          </button>
           <Link href={libraryFolderUrl(RESEARCH_FOLDER)} className="btn btn-sm btn-soft">
-            知識庫 · 深度研究
-          </Link>
-          <Link href="/library" className="btn btn-sm btn-ghost">
             知識庫
           </Link>
         </div>
       </header>
 
-      <ContinueChips
-        className="dr-continue"
-        chips={researchContinueChips({
-          savedNoteId: savedId,
-          sourceNoteId,
-        })}
-      />
-
-      <div className="dr-layout">
-        <section className="dr-form">
-          {sourceNoteId && (
-            <div className="dr-source-banner">
-              <span>
-                來源筆記：{" "}
-                <Link href={`/notes/${sourceNoteId}`}>{sourceNoteTitle || "開啟筆記"}</Link>
-              </span>
-              <label className="dr-return-check">
-                <input
-                  type="checkbox"
-                  checked={wantReturn}
-                  onChange={(e) => setWantReturn(e.target.checked)}
-                />
-                完成後回到筆記
-              </label>
-            </div>
-          )}
-
-          <label className="dr-label">
-            研究主題
-            <textarea
-              className="input"
-              rows={3}
-              value={topic}
-              disabled={busy}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="研究主題…"
-            />
-          </label>
-
-          <div className="dr-starters">
-            {RESEARCH_STARTERS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className="dr-starter"
-                disabled={busy}
-                onClick={() => setTopic(s)}
-              >
-                {s.length > 28 ? `${s.slice(0, 28)}…` : s}
-              </button>
-            ))}
-          </div>
-
-          <label className="dr-label">
-            補充脈絡（選填）
-            <textarea
-              className="input"
-              rows={2}
-              value={context}
-              disabled={busy}
-              onChange={(e) => setContext(e.target.value)}
-            />
-          </label>
-
-          <label className="dr-label">
-            優先來源網域（選填，逗號分隔；會以 site: 加強搜尋）
-            <input
-              className="input"
-              placeholder="例：nih.gov, who.int, nature.com"
-              value={domains}
-              disabled={busy}
-              onChange={(e) => setDomains(e.target.value)}
-            />
-          </label>
-
-          <div className="dr-depth">
-            <span className="dr-depth-label">研究深度</span>
-            <div className="dr-depth-btns">
-              <button
-                type="button"
-                className={`btn btn-sm${depth === "standard" ? "" : " btn-ghost"}`}
-                disabled={busy}
-                onClick={() => setDepth("standard")}
-              >
-                標準
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm${depth === "max" ? "" : " btn-ghost"}`}
-                disabled={busy}
-                onClick={() => setDepth("max")}
-              >
-                Max
-              </button>
-            </div>
-          </div>
-
-          <div className="dr-depth">
-            <span className="dr-depth-label">時間範圍（新鮮度）</span>
-            <div className="dr-depth-btns">
-              {(
-                [
-                  { id: "any" as const, label: "不限" },
-                  { id: "ytd" as const, label: "今年" },
-                  { id: "1y" as const, label: "近 1 年" },
-                  { id: "2y" as const, label: "近 2 年" },
-                ] as const
-              ).map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  className={`btn btn-sm${timeRange === o.id ? "" : " btn-ghost"}`}
-                  disabled={busy}
-                  onClick={() => setTimeRange(o.id)}
-                >
-                  {o.label}
-                </button>
+      {historyOpen && (
+        <div className="dr-chat-history">
+          {history.length === 0 ? (
+            <p className="dr-muted-inline">尚無本機歷史</p>
+          ) : (
+            <ul>
+              {history.slice(0, 10).map((h) => (
+                <li key={h.id}>
+                  <button
+                    type="button"
+                    className="dr-history-open"
+                    onClick={() => {
+                      openHistory(h);
+                      setHistoryOpen(false);
+                    }}
+                  >
+                    <strong>{h.title}</strong>
+                    <span>{new Date(h.at).toLocaleString("zh-TW")}</span>
+                  </button>
+                  {h.savedNoteId && (
+                    <Link href={`/notes/${h.savedNoteId}`} className="dr-history-note">
+                      筆記
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    className="dr-history-del"
+                    onClick={() => setHistory(deleteResearchHistoryItem(user.uid, h.id))}
+                  >
+                    ×
+                  </button>
+                </li>
               ))}
-            </div>
-          </div>
-
-          {notePreview.length > 0 && (
-            <div className="dr-note-preview">
-              <h4>{scopeIds.length ? "研究範圍筆記" : "可能用到的筆記"}</h4>
-              <ul>
-                {notePreview.map((n) => (
-                  <li key={n.id}>
-                    <Link href={`/notes/${n.id}`}>{n.title}</Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="dr-scope">
-            <h4>
-              指定筆記範圍{" "}
-              <span className="dr-muted-inline">
-                {scopeIds.length ? `${scopeIds.length} 篇` : "自動相關"}
-              </span>
-            </h4>
-            <input
-              className="input"
-              placeholder="搜尋筆記加入範圍…"
-              value={scopeQ}
-              disabled={busy}
-              onChange={(e) => setScopeQ(e.target.value)}
-            />
-            <ul className="dr-scope-list">
-              {scopeCandidates.map((n) => {
-                const on = scopeIds.includes(n.id);
-                return (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      className={`dr-scope-item${on ? " is-on" : ""}`}
-                      disabled={busy}
-                      onClick={() => toggleScope(n.id)}
-                    >
-                      {on ? "✓ " : ""}
-                      {n.title}
-                    </button>
-                  </li>
-                );
-              })}
             </ul>
-            {scopeIds.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                disabled={busy}
-                onClick={() => setScopeIds(sourceNoteId ? [sourceNoteId] : [])}
-              >
-                清除範圍
-              </button>
-            )}
-          </div>
+          )}
+        </div>
+      )}
 
-          {clarifyQs.length > 0 && !busy && !report && (
-            <div className="dr-clarify">
+      <div className="dr-chat-thread">
+        {idle && (
+          <div className="dr-msg dr-msg--assistant">
+            <div className="dr-msg-card">
+              <p className="dr-welcome">
+                輸入研究主題即可開始。可指定網域、筆記範圍，過程會先釐清、審核計畫再搜尋撰寫。
+              </p>
+              <div className="dr-starters">
+                {RESEARCH_STARTERS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className="dr-starter"
+                    onClick={() => setTopic(s)}
+                  >
+                    {s.length > 28 ? `${s.slice(0, 28)}…` : s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {topic.trim() && (busy || clarifyQs.length > 0 || draftPlan || report || logs.length > 0) && (
+          <div className="dr-msg dr-msg--user">
+            <div className="dr-msg-bubble">{topic.trim()}</div>
+          </div>
+        )}
+
+        {clarifyQs.length > 0 && !busy && !report && (
+          <div className="dr-msg dr-msg--assistant">
+            <div className="dr-msg-card dr-clarify">
               <h3>請先釐清幾點</h3>
+              {assumedIntent && <p className="dr-hint">{assumedIntent}</p>}
               {clarifyQs.map((q, i) => (
                 <label key={q} className="dr-label">
                   {q}
@@ -1460,16 +1396,7 @@ function DeepResearchPageInner() {
                 </label>
               ))}
               <div className="dr-actions">
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    const answers = clarifyQs
-                      .map((q, i) => `Q: ${q}\nA: ${clarifyAnswers[i]?.trim() || "（未答）"}`)
-                      .join("\n\n");
-                    void runResearch({ answers });
-                  }}
-                >
+                <button type="button" className="btn" onClick={() => submitComposer()}>
                   確認並規劃
                 </button>
                 <button
@@ -1481,10 +1408,12 @@ function DeepResearchPageInner() {
                 </button>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {draftPlan && !busy && (
-            <div className="dr-plan-edit">
+        {draftPlan && !busy && (
+          <div className="dr-msg dr-msg--assistant">
+            <div className="dr-msg-card dr-plan-edit">
               <h3>審核研究計畫</h3>
               <label className="dr-label">
                 標題
@@ -1506,7 +1435,7 @@ function DeepResearchPageInner() {
                 子問題（每行一題）
                 <textarea
                   className="input"
-                  rows={6}
+                  rows={5}
                   value={draftPlan.questions.join("\n")}
                   onChange={(e) =>
                     setDraftPlan({ ...draftPlan, questions: e.target.value.split("\n") })
@@ -1584,94 +1513,20 @@ function DeepResearchPageInner() {
                 </button>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {showStart && (
-            <div className="dr-actions">
-              <button
-                type="button"
-                className="btn"
-                disabled={!topic.trim()}
-                onClick={() => void runResearch()}
-              >
-                開始深度研究
-              </button>
-            </div>
-          )}
-
-          {busy && (
-            <div className="dr-actions">
-              <button type="button" className="btn btn-ghost" onClick={cancelRun}>
-                中止
-              </button>
-              <span className="dr-status">工作中…</span>
-            </div>
-          )}
-
-          {error && <p className="note-aside-error">{error}</p>}
-
-          {history.length > 0 && (
-            <div className="dr-history">
-              <h3>最近報告</h3>
-              <p className="dr-hint">
-                自動存檔也在{" "}
-                <Link href={libraryFolderUrl(RESEARCH_FOLDER)}>
-                  知識庫「深度研究」
-                </Link>
-              </p>
-              <ul>
-                {history.slice(0, 6).map((h) => (
-                  <li key={h.id}>
-                    <button type="button" className="dr-history-open" onClick={() => openHistory(h)}>
-                      <strong>{h.title}</strong>
-                      <span>
-                        {new Date(h.at).toLocaleString("zh-TW")}
-                        {h.savedNoteId ? " · 已存筆記" : ""}
-                      </span>
-                    </button>
-                    {h.savedNoteId && (
-                      <Link
-                        href={`/notes/${h.savedNoteId}`}
-                        className="dr-history-note"
-                        title="開啟筆記"
-                      >
-                        筆記
-                      </Link>
-                    )}
-                    <button
-                      type="button"
-                      className="dr-history-del"
-                      onClick={() => setHistory(deleteResearchHistoryItem(user.uid, h.id))}
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-
-        <section className="dr-result">
-          {!report && !busy && !draftPlan && clarifyQs.length === 0 && logs.length === 0 && (
-            <div className="dr-empty">
-              <p>輸入主題後開始。可指定優先網域、審核計畫，完成後可匯出與補強偏弱題。</p>
-            </div>
-          )}
-
-          {(busy || (logs.length > 0 && !report)) && (
-            <div className="dr-thinking">
+        {(busy || (logs.length > 0 && !report)) && (
+          <div className="dr-msg dr-msg--assistant">
+            <div className="dr-msg-card dr-thinking">
               <div className="dr-thinking-head">
                 <div>
-                  <strong>透明思考過程</strong>
-                  {phase && (
-                    <span className="dr-phase-pill">{PHASE_LABEL[phase] || phase}</span>
-                  )}
+                  <strong>{busy ? "研究進行中" : "研究過程"}</strong>
+                  {phase && <span className="dr-phase-pill">{PHASE_LABEL[phase] || phase}</span>}
                 </div>
                 <span className="dr-src-stat">
                   網路 {sourceStats.web} · 筆記 {sourceStats.notes}
                   {progressPct > 0 ? ` · ${progressPct}%` : ""}
-                  {etaSec != null && busy ? ` · 約 ${etaSec}s` : ""}
                 </span>
               </div>
               {busy && (
@@ -1704,7 +1559,7 @@ function DeepResearchPageInner() {
                 <div className="dr-inject">
                   <input
                     className="input"
-                    placeholder="執行中注入方向，例如：多比較開源方案…"
+                    placeholder="執行中注入方向…"
                     value={guidance}
                     disabled={guidanceBusy || !runId}
                     onChange={(e) => setGuidance(e.target.value)}
@@ -1734,28 +1589,17 @@ function DeepResearchPageInner() {
                           </strong>
                           <span>{f.adequate ? "足夠" : "偏弱"}</span>
                         </div>
-                        <p>{f.summary.slice(0, 280)}{f.summary.length > 280 ? "…" : ""}</p>
-                        {f.sources.length > 0 && (
-                          <div className="dr-live-srcs">
-                            {f.sources.slice(0, 4).map((s, si) => (
-                              <a
-                                key={`${f.index}-${si}-${s.uri}`}
-                                href={s.uri}
-                                target={s.kind === "web" ? "_blank" : undefined}
-                                rel="noreferrer"
-                              >
-                                {s.title.slice(0, 28)}
-                              </a>
-                            ))}
-                          </div>
-                        )}
+                        <p>
+                          {f.summary.slice(0, 220)}
+                          {f.summary.length > 220 ? "…" : ""}
+                        </p>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
               <ul className="dr-log">
-                {logs.map((l) => (
+                {logs.slice(-40).map((l) => (
                   <li key={l.id} className={`dr-log-item is-${l.level}`}>
                     <span className="dr-log-mark">
                       {l.level === "ok"
@@ -1771,22 +1615,25 @@ function DeepResearchPageInner() {
                 ))}
                 <div ref={logEndRef} />
               </ul>
+              {busy && (
+                <button type="button" className="btn btn-sm btn-ghost" onClick={cancelRun}>
+                  中止
+                </button>
+              )}
             </div>
-          )}
+          </div>
+        )}
 
-          {report && (
-            <div className="dr-card">
+        {report && (
+          <div className="dr-msg dr-msg--assistant">
+            <div className="dr-msg-card dr-card">
               <div className="dr-result-bar">
                 <h2>{report.title}</h2>
                 <div className="dr-result-actions">
                   {sourceNoteId && (
                     <>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={() => void insertIntoSource("full")}
-                      >
-                        寫入來源筆記
+                      <button type="button" className="btn btn-sm" onClick={() => void insertIntoSource("full")}>
+                        寫入來源
                       </button>
                       <button
                         type="button"
@@ -1797,54 +1644,15 @@ function DeepResearchPageInner() {
                       </button>
                     </>
                   )}
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => void saveNote(!!sourceNoteId)}
-                  >
-                    {savedId
-                      ? "已存"
-                      : sourceNoteId
-                        ? "存成子筆記"
-                        : "存成筆記"}
+                  <button type="button" className="btn btn-sm" onClick={() => void saveNote(!!sourceNoteId)}>
+                    {savedId ? "已存" : sourceNoteId ? "存成子筆記" : "存成筆記"}
                   </button>
-                  {!sourceNoteId && (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => void saveNote(false)}
-                    >
-                      獨立筆記
-                    </button>
-                  )}
-                  {sourceNoteId && (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => void saveNote(false)}
-                    >
-                      存獨立筆記
-                    </button>
-                  )}
                   {savedId && (
-                    <>
-                      <Link href={`/notes/${savedId}`} className="btn btn-sm btn-soft">
-                        開啟
-                      </Link>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-ghost"
-                        onClick={() => void copyShareLink()}
-                      >
-                        複製連結
-                      </button>
-                    </>
+                    <Link href={`/notes/${savedId}`} className="btn btn-sm btn-soft">
+                      開啟
+                    </Link>
                   )}
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
-                    onClick={() => setFullscreen(true)}
-                  >
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setFullscreen(true)}>
                     全螢幕
                   </button>
                   <div className="dr-export-menu" ref={exportMenuRef}>
@@ -1916,58 +1724,6 @@ function DeepResearchPageInner() {
                 <p>{report.summary}</p>
               </div>
 
-              {toc.length > 0 && (
-                <nav className="dr-toc">
-                  <h3>目錄</h3>
-                  <ul>
-                    {toc.map((t) => (
-                      <li key={t.id} className={t.level === 3 ? "is-h3" : ""}>
-                        <a
-                          href={`#${t.id}`}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            scrollToHeading(t.id);
-                          }}
-                        >
-                          {t.text}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </nav>
-              )}
-
-              {logs.length > 0 && (
-                <div className="dr-activity">
-                  <button
-                    type="button"
-                    className="dr-activity-toggle"
-                    onClick={() => setShowActivity((v) => !v)}
-                  >
-                    {showActivity ? "收合研究過程" : "展開研究過程"}
-                    <span>{logs.length}</span>
-                  </button>
-                  {showActivity && (
-                    <ul className="dr-log">
-                      {logs.map((l) => (
-                        <li key={l.id} className={`dr-log-item is-${l.level}`}>
-                          <span className="dr-log-mark">
-                            {l.level === "ok"
-                              ? "✓"
-                              : l.level === "retry"
-                                ? "↻"
-                                : l.level === "warn"
-                                  ? "!"
-                                  : "·"}
-                          </span>
-                          <span>{l.message}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
               {(report.findings?.length || 0) > 0 && (
                 <div className="dr-findings-panel">
                   <div className="dr-findings-head">
@@ -1985,31 +1741,6 @@ function DeepResearchPageInner() {
                       </button>
                     )}
                   </div>
-                  <ul>
-                    {report.findings!.map((f, i) => (
-                      <li key={i} className={f.adequate ? "is-ok" : "is-weak"}>
-                        <div>
-                          <strong>
-                            {i + 1}. {f.question}
-                          </strong>
-                          <span>
-                            {f.adequate ? "足夠" : "偏弱"}
-                            {f.retries ? ` · 已修正 ${f.retries}` : ""}
-                          </span>
-                        </div>
-                        {!f.adequate && (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-ghost"
-                            disabled={busy}
-                            onClick={() => void refineWeak([f.question])}
-                          >
-                            重跑
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
                 </div>
               )}
 
@@ -2019,7 +1750,7 @@ function DeepResearchPageInner() {
                   <div className="dr-graph-col">
                     <h4>網路（{report.webSources?.length || 0}）</h4>
                     <ul>
-                      {(report.webSources || []).map((s) => (
+                      {(report.webSources || []).slice(0, 12).map((s) => (
                         <li key={`w-${s.index}`}>
                           <span className="dr-cite">[{s.index}]</span>{" "}
                           <a href={s.uri} target="_blank" rel="noreferrer">
@@ -2032,7 +1763,7 @@ function DeepResearchPageInner() {
                   <div className="dr-graph-col">
                     <h4>筆記（{report.noteSources?.length || 0}）</h4>
                     <ul>
-                      {(report.noteSources || []).map((s) => (
+                      {(report.noteSources || []).slice(0, 12).map((s) => (
                         <li key={`n-${s.index}`}>
                           <span className="dr-cite">[{s.index}]</span>{" "}
                           <Link href={s.uri}>{s.title}</Link>
@@ -2068,88 +1799,247 @@ function DeepResearchPageInner() {
                 {transformOut && (
                   <div className="dr-transform-out">
                     <pre>{transformOut}</pre>
-                    <div className="dr-actions">
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={() => {
-                          const next = {
-                            ...report,
-                            markdown: `${report.markdown}\n\n## 轉換輸出\n\n${transformOut}\n`,
-                          };
-                          setReport(next);
-                          persistReport(next, topic.trim() || next.title);
-                        }}
-                      >
-                        併入報告
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-ghost"
-                        onClick={() => void navigator.clipboard.writeText(transformOut)}
-                      >
-                        複製
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        )}
 
-              <div className="dr-follow">
-                <h3>多輪追問</h3>
-                <div className="dr-chat">
-                  {chat.map((m) => (
-                    <div key={m.id} className={`dr-chat-bubble is-${m.role}`}>
-                      <pre>{m.text}</pre>
-                      {m.role === "assistant" && (
+        {chat.map((m) => (
+          <div key={m.id} className={`dr-msg dr-msg--${m.role}`}>
+            {m.role === "user" ? (
+              <div className="dr-msg-bubble">{m.text}</div>
+            ) : (
+              <div className="dr-msg-card">
+                <pre className="dr-chat-pre">{m.text}</pre>
+                {report && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => appendChatToReport(m.text)}
+                  >
+                    套用到報告
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {error && (
+          <div className="dr-msg dr-msg--assistant">
+            <p className="note-aside-error">{error}</p>
+          </div>
+        )}
+
+        <div ref={threadEndRef} />
+      </div>
+
+      <div className="dr-chat-composer">
+        {sourceNoteId && (
+          <label className="dr-return-check dr-composer-return">
+            <input
+              type="checkbox"
+              checked={wantReturn}
+              onChange={(e) => setWantReturn(e.target.checked)}
+            />
+            完成後回到筆記
+          </label>
+        )}
+
+        <div className="dr-tool-row">
+          <div className="dr-tool-wrap">
+            <button
+              type="button"
+              className={`dr-tool-chip${toolsOpen === "depth" ? " is-on" : ""}`}
+              disabled={busy}
+              onClick={() => toggleTool("depth")}
+            >
+              深度 · {depthLabel}
+            </button>
+            {toolsOpen === "depth" && (
+              <div className="dr-tool-pop">
+                <button
+                  type="button"
+                  className={depth === "standard" ? "is-on" : ""}
+                  onClick={() => {
+                    setDepth("standard");
+                    setToolsOpen(null);
+                  }}
+                >
+                  標準
+                </button>
+                <button
+                  type="button"
+                  className={depth === "max" ? "is-on" : ""}
+                  onClick={() => {
+                    setDepth("max");
+                    setToolsOpen(null);
+                  }}
+                >
+                  Max
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="dr-tool-wrap">
+            <button
+              type="button"
+              className={`dr-tool-chip${toolsOpen === "time" ? " is-on" : ""}`}
+              disabled={busy}
+              onClick={() => toggleTool("time")}
+            >
+              時間 · {timeLabel}
+            </button>
+            {toolsOpen === "time" && (
+              <div className="dr-tool-pop">
+                {(
+                  [
+                    { id: "any" as const, label: "不限" },
+                    { id: "ytd" as const, label: "今年" },
+                    { id: "1y" as const, label: "近 1 年" },
+                    { id: "2y" as const, label: "近 2 年" },
+                  ] as const
+                ).map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className={timeRange === o.id ? "is-on" : ""}
+                    onClick={() => {
+                      setTimeRange(o.id);
+                      setToolsOpen(null);
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="dr-tool-wrap">
+            <button
+              type="button"
+              className={`dr-tool-chip${toolsOpen === "domains" ? " is-on" : ""}`}
+              disabled={busy}
+              onClick={() => toggleTool("domains")}
+            >
+              網域{domains.trim() ? " · 已設" : ""}
+            </button>
+            {toolsOpen === "domains" && (
+              <div className="dr-tool-pop dr-tool-pop--wide">
+                <input
+                  className="input"
+                  placeholder="例：nih.gov, who.int"
+                  value={domains}
+                  onChange={(e) => setDomains(e.target.value)}
+                />
+                <label className="dr-label" style={{ marginTop: 8 }}>
+                  補充脈絡
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={context}
+                    onChange={(e) => setContext(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="dr-tool-wrap">
+            <button
+              type="button"
+              className={`dr-tool-chip${toolsOpen === "scope" ? " is-on" : ""}`}
+              disabled={busy}
+              onClick={() => toggleTool("scope")}
+            >
+              筆記{scopeIds.length ? ` · ${scopeIds.length}` : ""}
+            </button>
+            {toolsOpen === "scope" && (
+              <div className="dr-tool-pop dr-tool-pop--wide">
+                <input
+                  className="input"
+                  placeholder="搜尋筆記…"
+                  value={scopeQ}
+                  onChange={(e) => setScopeQ(e.target.value)}
+                />
+                <ul className="dr-scope-list">
+                  {scopeCandidates.slice(0, 12).map((n) => {
+                    const on = scopeIds.includes(n.id);
+                    return (
+                      <li key={n.id}>
                         <button
                           type="button"
-                          className="btn btn-sm btn-ghost"
-                          onClick={() => appendChatToReport(m.text)}
+                          className={`dr-scope-item${on ? " is-on" : ""}`}
+                          onClick={() => toggleScope(n.id)}
                         >
-                          套用到報告
+                          {on ? "✓ " : ""}
+                          {n.title}
                         </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="dr-follow-row">
-                  <input
-                    className="input"
-                    placeholder="針對報告追問…"
-                    value={followUp}
-                    disabled={followBusy || busy}
-                    onChange={(e) => setFollowUp(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void askFollowUp();
-                    }}
-                  />
+                      </li>
+                    );
+                  })}
+                </ul>
+                {scopeIds.length > 0 && (
                   <button
                     type="button"
-                    className="btn btn-sm"
-                    disabled={followBusy || !followUp.trim()}
-                    onClick={() => void askFollowUp()}
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => setScopeIds(sourceNoteId ? [sourceNoteId] : [])}
                   >
-                    {followBusy ? "…" : "追問"}
+                    清除範圍
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-soft"
-                    disabled={busy || !followUp.trim()}
-                    title="上網搜尋此問題並重寫整份報告"
-                    onClick={() => void followUpIntoReport()}
-                  >
-                    納入報告
-                  </button>
-                </div>
+                )}
               </div>
+            )}
+          </div>
+        </div>
 
-              <p className="dr-queries">
-                {modelUsed || report.model ? `模型 ${report.model || modelUsed}` : ""}
-              </p>
-            </div>
+        <div className="dr-composer-row">
+          <textarea
+            className="input dr-composer-input"
+            rows={2}
+            value={composerValue}
+            disabled={busy && !report}
+            placeholder={report ? "針對報告追問…" : "研究主題…"}
+            onChange={(e) => setComposerValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submitComposer();
+              }
+            }}
+          />
+          {busy ? (
+            <button type="button" className="btn btn-ghost" onClick={cancelRun}>
+              中止
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn"
+                disabled={!composerValue.trim() || (!!draftPlan && !report)}
+                onClick={() => submitComposer()}
+              >
+                {report ? (followBusy ? "…" : "追問") : "開始"}
+              </button>
+              {report && (
+                <button
+                  type="button"
+                  className="btn btn-soft"
+                  disabled={busy || !followUp.trim()}
+                  title="上網搜尋此問題並重寫整份報告"
+                  onClick={() => void followUpIntoReport()}
+                >
+                  納入報告
+                </button>
+              )}
+            </>
           )}
-        </section>
+        </div>
       </div>
 
       {fullscreen && report && (
@@ -2162,11 +2052,7 @@ function DeepResearchPageInner() {
                   開啟筆記
                 </Link>
               )}
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => setFullscreen(false)}
-              >
+              <button type="button" className="btn btn-sm" onClick={() => setFullscreen(false)}>
                 關閉 Esc
               </button>
             </div>
@@ -2218,17 +2104,6 @@ function DeepResearchPageInner() {
                       <a href={s.uri} target="_blank" rel="noreferrer">
                         {s.title}
                       </a>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="dr-graph-col">
-                <h4>筆記（{report.noteSources?.length || 0}）</h4>
-                <ul>
-                  {(report.noteSources || []).map((s) => (
-                    <li key={`fs-n-${s.index}`}>
-                      <span className="dr-cite">[{s.index}]</span>{" "}
-                      <Link href={s.uri}>{s.title}</Link>
                     </li>
                   ))}
                 </ul>

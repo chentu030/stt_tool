@@ -19,6 +19,7 @@ import {
 } from "@/lib/teamStore";
 import { askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import MenuSelect from "@/components/MenuSelect";
 
 type Props = {
   open: boolean;
@@ -230,27 +231,27 @@ export default function ShareDialog({
           <div className="share-team-block">
             <h3 className="share-team-title">分享到團隊頻道</h3>
             <div className="share-team-row">
-              <select className="input" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-                <option value="">選擇團隊</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input"
-                value={channelId}
+              <MenuSelect
+                variant="soft"
+                ariaLabel="選擇團隊"
+                value={teamId || ""}
+                options={[
+                  { value: "", label: "選擇團隊" },
+                  ...teams.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                onChange={setTeamId}
+              />
+              <MenuSelect
+                variant="soft"
+                ariaLabel="選擇頻道"
                 disabled={!teamId}
-                onChange={(e) => setChannelId(e.target.value)}
-              >
-                <option value="">選擇頻道</option>
-                {channels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    # {c.name}
-                  </option>
-                ))}
-              </select>
+                value={channelId || ""}
+                options={[
+                  { value: "", label: "選擇頻道" },
+                  ...channels.map((c) => ({ value: c.id, label: `# ${c.name}` })),
+                ]}
+                onChange={setChannelId}
+              />
             </div>
             <label className="share-team-pin">
               <input type="checkbox" checked={pinToo} onChange={(e) => setPinToo(e.target.checked)} />

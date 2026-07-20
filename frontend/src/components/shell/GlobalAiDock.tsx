@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, type Note } from "@/lib/firebase";
-import { packLibraryContext } from "@/lib/libraryIndex";
+import { packLibraryContext, AI_SUGGESTIONS } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { buildResearchUrl } from "@/lib/researchBridge";
 
@@ -30,6 +30,15 @@ const DOCK_SUGGESTIONS = [
   { label: "靈感草稿", prompt: "從最近筆記抽出靈感，寫一段可發展的草稿開頭" },
   { label: "待辦催收", prompt: "從筆記裡找出未完成待辦，按緊急程度排序" },
   { label: "會議準備", prompt: "幫我準備一場會議的議程與要帶的問題" },
+];
+
+const LIBRARY_SUGGESTIONS = AI_SUGGESTIONS;
+
+const CANVAS_SUGGESTIONS = [
+  { label: "分析白板", prompt: "請分析目前這張白板的結構與內容，給 3 點改進建議" },
+  { label: "整理區塊", prompt: "幫我把白板上的內容整理成幾個清楚的區塊框架" },
+  { label: "建議連線", prompt: "依內容建議該連結或釘上哪些筆記" },
+  { label: "擴寫便利貼", prompt: "為選取或重點便利貼擴寫更完整的內容" },
 ];
 
 function uid() {
@@ -171,11 +180,21 @@ export default function GlobalAiDock() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [focusNoteId, setFocusNoteId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [sheetH, setSheetH] = useState(48); // vh units on mobile
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
+  const sheetDrag = useRef<{ startY: number; startH: number } | null>(null);
 
   const onNotePage = pathname?.startsWith("/notes/");
+  const onLibraryPage = pathname === "/library" || pathname?.startsWith("/library/");
+  const onCanvasPage = pathname?.startsWith("/canvas/");
+  const dockSuggestions = onLibraryPage
+    ? LIBRARY_SUGGESTIONS
+    : onCanvasPage
+      ? CANVAS_SUGGESTIONS
+      : DOCK_SUGGESTIONS;
   const focusNote = useMemo(
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
     [focusNoteId, notes]
@@ -242,6 +261,25 @@ export default function GlobalAiDock() {
     setActiveId(loaded.activeId);
     hydrated.current = true;
   }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || !open) {
+      document.documentElement.style.removeProperty("--ai-sheet-h");
+      return;
+    }
+    document.documentElement.style.setProperty("--ai-sheet-h", `${sheetH}dvh`);
+    return () => {
+      document.documentElement.style.removeProperty("--ai-sheet-h");
+    };
+  }, [isMobile, open, sheetH]);
 
   useEffect(() => {
     saveOpen(open);
@@ -484,9 +522,32 @@ export default function GlobalAiDock() {
 
   const headTitle = active?.title || "新 AI 對話";
 
+  const onSheetPointerDown = (e: REPointerEvent<HTMLButtonElement>) => {
+    if (!isMobile) return;
+    e.preventDefault();
+    sheetDrag.current = { startY: e.clientY, startH: sheetH };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const onSheetPointerMove = (e: REPointerEvent<HTMLButtonElement>) => {
+    if (!sheetDrag.current) return;
+    const dy = sheetDrag.current.startY - e.clientY;
+    const vh = window.innerHeight || 1;
+    const next = Math.min(72, Math.max(28, sheetDrag.current.startH + (dy / vh) * 100));
+    setSheetH(Math.round(next));
+  };
+  const onSheetPointerUp = (e: REPointerEvent<HTMLButtonElement>) => {
+    if (!sheetDrag.current) return;
+    sheetDrag.current = null;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
   return (
     <>
-      {open && (
+      {open && !isMobile && (
         <button
           type="button"
           className={`cadence-ai-rail-backdrop${mode === "float" ? " is-visible" : ""}`}
@@ -509,6 +570,16 @@ export default function GlobalAiDock() {
           </button>
         ) : (
           <div className="cadence-ai-rail-inner">
+            <button
+              type="button"
+              className="cadence-ai-sheet-handle"
+              aria-label="拖曳調整 AI 高度"
+              title="拖曳調整高度"
+              onPointerDown={onSheetPointerDown}
+              onPointerMove={onSheetPointerMove}
+              onPointerUp={onSheetPointerUp}
+              onPointerCancel={onSheetPointerUp}
+            />
             <div className="cadence-ai-dock-head">
               <button
                 type="button"
@@ -537,7 +608,7 @@ export default function GlobalAiDock() {
               </button>
               <button
                 type="button"
-                className={`doc-cmd cadence-ai-ico${mode === "float" ? " is-on" : ""}`}
+                className={`doc-cmd cadence-ai-ico cadence-ai-mode-toggle${mode === "float" ? " is-on" : ""}`}
                 title={mode === "dock" ? "改為浮動視窗" : "釘選到右側"}
                 onClick={() => setMode((m) => (m === "dock" ? "float" : "dock"))}
               >
@@ -549,7 +620,7 @@ export default function GlobalAiDock() {
                 title="關閉"
                 onClick={() => setOpen(false)}
               >
-                ››
+                {isMobile ? "∨" : "››"}
               </button>
             </div>
 
@@ -703,7 +774,7 @@ export default function GlobalAiDock() {
               <div className="cadence-ai-dock-empty">
                 <p className="cadence-ai-greet">想做些什麼？</p>
                 <div className="cadence-ai-dock-suggest">
-                  {DOCK_SUGGESTIONS.map((s) => (
+                  {dockSuggestions.map((s) => (
                     <button
                       key={s.label}
                       type="button"

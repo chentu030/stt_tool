@@ -222,49 +222,23 @@ export function nodeCenter(
   return null;
 }
 
-export function edgePath(a: Point, b: Point, radius = 12): string {
+export function edgePath(a: Point, b: Point, _radius = 12): string {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
-  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return `M ${a.x} ${a.y}`;
-  // Straight H or V
-  if (Math.abs(dy) < 2) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
-  if (Math.abs(dx) < 2) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return `M ${a.x} ${a.y}`;
 
-  // Orthogonal with one elbow (mid X then Y, or mid Y then X) + rounded corner
-  const preferHFirst = Math.abs(dx) >= Math.abs(dy);
-  const mid = preferHFirst
-    ? { x: a.x + dx / 2, y: a.y }
-    : { x: a.x, y: a.y + dy / 2 };
-  const elbow = preferHFirst
-    ? { x: mid.x, y: b.y }
-    : { x: b.x, y: mid.y };
+  // Nearly collinear → straight
+  if (Math.abs(dy) < 1.5) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
+  if (Math.abs(dx) < 1.5) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
 
-  const r = Math.min(
-    radius,
-    Math.abs(preferHFirst ? dx / 2 : dx) * 0.45,
-    Math.abs(preferHFirst ? dy : dy / 2) * 0.45,
-    18
-  );
-
-  if (r < 2) {
-    return `M ${a.x} ${a.y} L ${elbow.x} ${elbow.y} L ${b.x} ${b.y}`;
+  // Smooth cubic (Miro / Heptabase style) — no elbow kinks
+  // Prefer horizontal control offset when wider; vertical when taller
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const cx = a.x + dx / 2;
+    return `M ${a.x} ${a.y} C ${cx} ${a.y}, ${cx} ${b.y}, ${b.x} ${b.y}`;
   }
-
-  // Approach elbow, arc around corner, continue to end
-  if (preferHFirst) {
-    const dirX = Math.sign(dx) || 1;
-    const dirY = Math.sign(b.y - a.y) || 1;
-    const p1 = { x: elbow.x - dirX * r, y: a.y };
-    const p2 = { x: elbow.x, y: a.y + dirY * r };
-    const sweep = dirX * dirY > 0 ? 1 : 0;
-    return `M ${a.x} ${a.y} L ${p1.x} ${p1.y} A ${r} ${r} 0 0 ${sweep} ${p2.x} ${p2.y} L ${b.x} ${b.y}`;
-  }
-  const dirY = Math.sign(dy) || 1;
-  const dirX = Math.sign(b.x - a.x) || 1;
-  const p1 = { x: a.x, y: elbow.y - dirY * r };
-  const p2 = { x: a.x + dirX * r, y: elbow.y };
-  const sweep = dirX * dirY < 0 ? 1 : 0;
-  return `M ${a.x} ${a.y} L ${p1.x} ${p1.y} A ${r} ${r} 0 0 ${sweep} ${p2.x} ${p2.y} L ${b.x} ${b.y}`;
+  const cy = a.y + dy / 2;
+  return `M ${a.x} ${a.y} C ${a.x} ${cy}, ${b.x} ${cy}, ${b.x} ${b.y}`;
 }
 
 /** AI canvas ops */

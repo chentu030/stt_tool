@@ -42,6 +42,8 @@ type Props = {
   autoAction?: SelectionAiAction;
   onSendToAside?: (selection: string, question?: string) => void;
   onDeepResearch?: (selection: string) => void;
+  /** Embed inside selection bubble (no floating coords) */
+  variant?: "float" | "inline";
 };
 
 export default function SelectionAiPanel({
@@ -57,6 +59,7 @@ export default function SelectionAiPanel({
   autoAction,
   onSendToAside,
   onDeepResearch,
+  variant = "float",
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const [prompt, setPrompt] = useState("");
@@ -80,16 +83,18 @@ export default function SelectionAiPanel({
     setPrompt("");
     setError("");
     setResult("");
-    try {
-      const end = editor.view.coordsAtPos(to);
-      const left = Math.max(12, Math.min(end.left, window.innerWidth - 380));
-      const top = Math.min(end.bottom + 10, window.innerHeight - 320);
-      setPos({ top, left });
-    } catch {
-      /* ignore */
+    if (variant === "float") {
+      try {
+        const end = editor.view.coordsAtPos(to);
+        const left = Math.max(12, Math.min(end.left, window.innerWidth - 380));
+        const top = Math.min(end.bottom + 10, window.innerHeight - 320);
+        setPos({ top, left });
+      } catch {
+        /* ignore */
+      }
     }
     setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open, editor, to]);
+  }, [open, editor, to, variant]);
 
   const hasSelection = !!rangeRef.current.text.trim();
   const contextFallback = (noteBody || "").trim().slice(0, 4000) || noteTitle || "空白筆記";
@@ -189,14 +194,14 @@ export default function SelectionAiPanel({
 
   return (
     <div
-      className="sel-ai-panel"
-      style={{ top: pos.top, left: pos.left }}
+      className={`sel-ai-panel${variant === "inline" ? " sel-ai-panel--inline" : ""}`}
+      style={variant === "float" ? { top: pos.top, left: pos.left } : undefined}
       onMouseDown={(e) => e.preventDefault()}
     >
       <div className="sel-ai-head">
         <strong>詢問 AI</strong>
         <button type="button" className="doc-cmd" onClick={onClose}>
-          關閉
+          {variant === "inline" ? "收合" : "關閉"}
         </button>
       </div>
       <p className="sel-ai-snip" title={selectionText || "整篇筆記"}>

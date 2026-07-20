@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { askPrompt } from "@/lib/dialogs";
 import {
   useCallback,
@@ -19,7 +21,6 @@ import CanvasToolbar from "@/components/canvas/CanvasToolbar";
 import CanvasAside from "@/components/canvas/CanvasAside";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
-import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import { toast } from "@/lib/toast";
@@ -93,7 +94,7 @@ export default function CanvasIdPage() {
   const [editingShape, setEditingShape] = useState<string | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [history, setHistory] = useState<CanvasDoc[]>([]);
-  const [asideOpen, setAsideOpen] = useState(true);
+  const [asideOpen, setAsideOpen] = useState(false);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -1054,7 +1055,7 @@ export default function CanvasIdPage() {
     return () => el.removeEventListener("wheel", onWheelNative);
   }, [ready]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)", padding: "1rem" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
       <div className="cv-page cv-guest">
@@ -1104,21 +1105,6 @@ export default function CanvasIdPage() {
               else router.push("/canvas");
             })();
           }}
-        />
-        <ContinueChips
-          className="cv-continue"
-          chips={spatialContinueChips({
-            kind: "canvas",
-            noteId:
-              selected.find((s) => s.type === "note")?.id ||
-              searchParams.get("note"),
-            title: (() => {
-              const id =
-                selected.find((s) => s.type === "note")?.id ||
-                searchParams.get("note");
-              return id ? notes.find((n) => n.id === id)?.title : undefined;
-            })(),
-          })}
         />
         <CanvasToolbar
           tool={tool}
@@ -1420,8 +1406,6 @@ export default function CanvasIdPage() {
             selectedIds={selected.map((s) => (s.type === "note" ? `note:${s.id}` : s.id))}
             onPinNote={pinNote}
             onFocusNote={focusNote}
-            onAskCanvasAi={askCanvasAi}
-            onApplyOps={applyOps}
           />
         )}
       </div>

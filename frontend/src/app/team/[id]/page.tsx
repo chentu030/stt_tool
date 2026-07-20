@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import {
   Suspense,
   useEffect,
@@ -16,6 +18,7 @@ import { askPrompt, askConfirm } from "@/lib/dialogs";
 import { createNote } from "@/lib/firebase";
 import { colorForUid } from "@/lib/presence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
+import MenuSelect from "@/components/MenuSelect";
 import {
   getTeam,
   getMember,
@@ -1062,7 +1065,7 @@ function TeamRoomInner() {
     }
   };
 
-  if (loading || !checked) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>;
+  if (loading || !checked) return <PageLoading />;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
   if (!team) return <p style={{ padding: "2rem" }}>找不到此團隊。</p>;
   if (!member) {
@@ -1195,15 +1198,19 @@ function TeamRoomInner() {
                   </span>
                 </button>
                 {canAdmin && m.role !== "owner" && m.uid !== user.uid ? (
-                  <select
+                  <MenuSelect
+                    variant="soft"
+                    size="sm"
                     className="tm-role-select"
+                    ariaLabel="成員角色"
                     value={m.role}
-                    onChange={(e) => void changeRole(m.uid, e.target.value as TeamRole)}
-                  >
-                    <option value="admin">管理員</option>
-                    <option value="member">成員</option>
-                    <option value="guest">訪客</option>
-                  </select>
+                    options={[
+                      { value: "admin", label: "管理員" },
+                      { value: "member", label: "成員" },
+                      { value: "guest", label: "訪客" },
+                    ]}
+                    onChange={(role) => void changeRole(m.uid, role as TeamRole)}
+                  />
                 ) : (
                   <span className="tm-member-role">{ROLE_LABEL[m.role]}</span>
                 )}
@@ -1912,7 +1919,7 @@ function TeamRoomInner() {
 
 export default function TeamRoomPage() {
   return (
-    <Suspense fallback={<p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>}>
+    <Suspense fallback={<PageLoading />}>
       <TeamRoomInner />
     </Suspense>
   );

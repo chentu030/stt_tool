@@ -51,34 +51,47 @@ function docFromData(id: string, data: Record<string, unknown>): CanvasDoc & { i
   };
 }
 
-export function listenCanvases(uid: string, cb: (list: CanvasMeta[]) => void): Unsubscribe {
-  return onSnapshot(canvasesCol(uid), (snap) => {
-    const list = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        name: (data.name as string) || "未命名白板",
-        created_at: data.created_at?.toDate?.() || new Date(),
-        updated_at: data.updated_at?.toDate?.() || new Date(),
-      };
-    });
-    list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
-    cb(list);
-  });
+export function listenCanvases(
+  uid: string,
+  cb: (list: CanvasMeta[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    canvasesCol(uid),
+    (snap) => {
+      const list = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: (data.name as string) || "未命名白板",
+          created_at: data.created_at?.toDate?.() || new Date(),
+          updated_at: data.updated_at?.toDate?.() || new Date(),
+        };
+      });
+      list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+      cb(list);
+    },
+    (err) => onError?.(err)
+  );
 }
 
 export function listenCanvas(
   uid: string,
   id: string,
-  cb: (doc: CanvasDoc | null) => void
+  cb: (doc: CanvasDoc | null) => void,
+  onError?: (err: Error) => void
 ): Unsubscribe {
-  return onSnapshot(doc(db, "users", uid, "canvases", id), (snap) => {
-    if (!snap.exists()) {
-      cb(null);
-      return;
-    }
-    cb(docFromData(snap.id, snap.data() as Record<string, unknown>));
-  });
+  return onSnapshot(
+    doc(db, "users", uid, "canvases", id),
+    (snap) => {
+      if (!snap.exists()) {
+        cb(null);
+        return;
+      }
+      cb(docFromData(snap.id, snap.data() as Record<string, unknown>));
+    },
+    (err) => onError?.(err)
+  );
 }
 
 export async function createCanvas(uid: string, name = "新白板"): Promise<string> {

@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 
@@ -27,7 +29,6 @@ import MenuSelect, { noteStatusLabel } from "@/components/MenuSelect";
 import { usePrefs } from "@/components/PrefsProvider";
 import { parseDefaultTags } from "@/lib/userPrefs";
 import { buildResearchUrl } from "@/lib/researchBridge";
-import ContinueChips, { libraryContinueChips } from "@/components/shell/ContinueChips";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import {
@@ -218,7 +219,7 @@ function LibraryPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, tab, prefs.askBeforeDelete]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
       <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
@@ -265,14 +266,6 @@ function LibraryPageInner() {
           </ShinyPill>
         </div>
       </header>
-
-      <ContinueChips
-        className="kb-continue"
-        chips={libraryContinueChips({
-          selectedIds: selected,
-          folder: folderFilter || undefined,
-        })}
-      />
 
       <div className="kb-layout">
         <LibraryRail
@@ -668,7 +661,7 @@ function LibraryPageInner() {
 
 export default function LibraryPage() {
   return (
-    <Suspense fallback={<p style={{ color: "var(--text-muted)" }}>載入中…</p>}>
+    <Suspense fallback={<PageLoading />}>
       <LibraryPageInner />
     </Suspense>
   );

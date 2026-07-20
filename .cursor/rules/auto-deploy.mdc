@@ -1,0 +1,13 @@
+---
+description: Always commit and push finished work to origin without asking
+alwaysApply: true
+---
+
+# Auto deploy
+
+After completing user-requested product changes, **commit and push to `origin` immediately**. Do not ask for confirmation to commit or push.
+
+- Prefer a concise commit message focused on why.
+- Never commit secrets (`.env`, `env.yaml`, credentials, private keys).
+- Do not use `--force` on main/master unless the user explicitly demands it.
+- After push, briefly confirm that it is on the remote / deploying.

@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import {
   useCallback,
   useEffect,
@@ -26,7 +28,6 @@ import GraphToolbar from "@/components/graph/GraphToolbar";
 import GraphAside from "@/components/graph/GraphAside";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
-import ContinueChips, { spatialContinueChips } from "@/components/shell/ContinueChips";
 import { downloadText } from "@/lib/libraryIndex";
 import { toast } from "@/lib/toast";
 import { askPrompt } from "@/lib/dialogs";
@@ -743,7 +744,7 @@ ${orphanLines || "（無）"}`;
     return "";
   }, [pathMode, path, pathEnds, full.byId]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
       <div className="gp-page gp-guest">
@@ -755,11 +756,11 @@ ${orphanLines || "（無）"}`;
   }
 
   if (graph === undefined || !configReady) {
-    return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+    return <PageLoading />;
   }
 
   if (graph === null) {
-    return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+    return <PageLoading />;
   }
 
   const edgeCounts = {
@@ -794,14 +795,6 @@ ${orphanLines || "（無）"}`;
           onCreate={() => void onCreateGraph()}
           onRename={onRenameGraph}
           onDelete={(id) => void onDeleteGraph(id)}
-        />
-        <ContinueChips
-          className="gp-continue"
-          chips={spatialContinueChips({
-            kind: "graph",
-            noteId: selectedNote?.id || searchParams.get("note"),
-            title: selectedNote?.title,
-          })}
         />
         <div className="gp-float-actions">
           <span className="gp-float-meta">

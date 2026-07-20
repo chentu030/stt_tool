@@ -1,8 +1,10 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { askPrompt } from "@/lib/dialogs";
 
-import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject } from "react";
+import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { HexColorPicker } from "react-colorful";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
@@ -22,7 +24,7 @@ import { TableKit } from "@tiptap/extension-table";
 import Typography from "@tiptap/extension-typography";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
-import { markdownToHtml, htmlToMarkdown, formatFileSize } from "@/lib/mdHtml";
+import { markdownToHtml, htmlToMarkdown, formatFileSize, clipboardHasLatex } from "@/lib/mdHtml";
 import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
@@ -41,12 +43,12 @@ import { CADENCE_AI_ACTIONS, AI_SLASH_ALIASES } from "@/lib/cadenceAiActions";
 import { resolveEmbedUrl, promptInsertUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
-import { moveTopLevelBlock, moveBlockToIndex, topLevelBlockAt, duplicateTopLevelBlock } from "@/lib/moveBlock";
+import MenuSelect from "@/components/MenuSelect";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
 import { useAuth } from "@/components/AuthProvider";
-import SelectionAiPanel from "@/components/SelectionAiPanel";
 import SelectionBubbleMenu from "@/components/SelectionBubbleMenu";
 import type { SelectionAiAction } from "@/components/SelectionAiPanel";
 import { Columns, Column, ToggleHeading } from "@/lib/tiptapLayout";
@@ -243,7 +245,7 @@ export default function RichNoteEditor({
   const prefsCtx = usePrefsOptional();
   const { user } = useAuth();
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
-  const slashEnabled = prefsCtx?.prefs.slashMenu !== false;
+  const slashEnabled = !readOnly && prefsCtx?.prefs.slashMenu !== false;
   const skip = useRef(false);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [wiki, setWiki] = useState<{ query: string; index: number } | null>(null);
@@ -279,16 +281,16 @@ export default function RichNoteEditor({
   const [hlCustoms, setHlCustoms] = useState<string[]>(() => loadCustomColors("cadence_hl_customs", HL_PRESETS));
   const [txCustoms, setTxCustoms] = useState<string[]>(() => loadCustomColors("cadence_tx_customs", TX_PRESETS));
   const [selAi, setSelAi] = useState<{
-    from: number;
-    to: number;
-    text: string;
+    open: boolean;
     autoAction?: SelectionAiAction;
-  } | null>(null);
+  }>({ open: false });
   const hlPanelRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
   const txPanelRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const showFind = findOpen ?? false;
   const onChangeRef = useRef(onChangeMd);
   onChangeRef.current = onChangeMd;
@@ -699,12 +701,23 @@ export default function RichNoteEditor({
               setUploadError("請先登入以建立資料庫");
               return;
             }
-            const name =
-              (arg || "").trim() ||
-              (await askPrompt("資料庫名稱", "任務清單"))?.trim() ||
-              "未命名資料庫";
-            const id = await createDatabase(userId, name, "tasks");
-            e.chain().focus().setCadenceDatabase({ databaseId: id, viewId: "v_table" }).run();
+            try {
+              let name = (arg || "").trim();
+              if (!name) {
+                const raw = await askPrompt("資料庫名稱", "任務清單");
+                if (raw == null) return;
+                name = raw.trim() || "未命名資料庫";
+              }
+              const id = await createDatabase(userId, name, "tasks");
+              e.chain().focus().setCadenceDatabase({ databaseId: id, viewId: "v_table" }).run();
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              setUploadError(
+                /permission|insufficient|Missing/i.test(msg)
+                  ? "沒有權限建立資料庫（請部署 Firestore rules）"
+                  : msg
+              );
+            }
           })();
         },
       },
@@ -787,7 +800,7 @@ export default function RichNoteEditor({
           const { from, to } = e.state.selection;
           const text = from !== to ? e.state.doc.textBetween(from, to, "\n") : "";
           if (text.trim()) {
-            setSelAi({ from, to, text });
+            setSelAi({ open: true });
           }
           onOpenAiRef.current?.({ selection: text.trim() || undefined, focusChat: !text.trim() });
         },
@@ -1041,8 +1054,10 @@ export default function RichNoteEditor({
         return true;
       },
       handlePaste: (_view, event) => {
+        if (readOnlyRef.current) return true;
         const items = event.clipboardData?.items;
-        const text = event.clipboardData?.getData("text/plain")?.trim() || "";
+        const textRaw = event.clipboardData?.getData("text/plain") || "";
+        const text = textRaw.trim();
 
         if (items) {
           for (const item of Array.from(items)) {
@@ -1082,9 +1097,18 @@ export default function RichNoteEditor({
             return true;
           }
         }
+
+        // AI / markdown paste: turn $...$ / $$...$$ into KaTeX nodes
+        if (textRaw && clipboardHasLatex(textRaw)) {
+          event.preventDefault();
+          const html = markdownToHtml(textRaw, (t) => resolveWikiRef.current(t));
+          editorRef.current?.chain().focus().insertContent(html).run();
+          return true;
+        }
         return false;
       },
       handleDrop: (view, event) => {
+        if (readOnlyRef.current) return true;
         const files = event.dataTransfer?.files;
         if (!files?.length) return false;
         event.preventDefault();
@@ -1143,7 +1167,7 @@ export default function RichNoteEditor({
           const text = ed.state.doc.textBetween(from, to, "\n");
           if (text.trim()) {
             event.preventDefault();
-            setSelAi({ from, to, text });
+            setSelAi({ open: true });
             return true;
           }
         }
@@ -1476,7 +1500,7 @@ export default function RichNoteEditor({
     Array.from(files).forEach((f) => { void insertUploaded(f); });
   };
 
-  if (!editor) return <p style={{ color: "var(--text-muted)" }}>編輯器載入中…</p>;
+  if (!editor) return <PageLoading fill={false} label="編輯器載入中…" />;
 
   const slashItems = slash ? rankSlash(buildSlash(editor), slash.query) : [];
   const wikiItems = wiki ? suggestWikiTitles(wikiNotes, wiki.query) : [];
@@ -1512,50 +1536,45 @@ export default function RichNoteEditor({
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} title="斜體"><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()} title="底線"><u>U</u></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()} title="刪除線"><s>S</s></ToolbarBtn>
-        <label className="rich-lh" title="字級">
-          <span>字</span>
-          <select
-            value={currentFontSize}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (!v) editor.chain().focus().unsetFontSize().run();
-              else editor.chain().focus().setFontSize(v).run();
-            }}
-          >
-            <option value="">預設</option>
-            {FONT_SIZES.map((s) => (
-              <option key={s} value={s}>{s.replace("px", "")}</option>
-            ))}
-          </select>
-        </label>
-        <ToolbarBtn
-          title="靠左"
-          active={editor.isActive({ textAlign: "left" })}
-          onClick={() => editor.chain().focus().setTextAlign("left").run()}
-        >
-          左
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="置中"
-          active={editor.isActive({ textAlign: "center" })}
-          onClick={() => editor.chain().focus().setTextAlign("center").run()}
-        >
-          中
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="靠右"
-          active={editor.isActive({ textAlign: "right" })}
-          onClick={() => editor.chain().focus().setTextAlign("right").run()}
-        >
-          右
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="兩端對齊"
-          active={editor.isActive({ textAlign: "justify" })}
-          onClick={() => editor.chain().focus().setTextAlign("justify").run()}
-        >
-          齊
-        </ToolbarBtn>
+        <MenuSelect
+          variant="toolbar"
+          size="sm"
+          ariaLabel="字級"
+          prefix="字"
+          value={currentFontSize || "__default__"}
+          options={[
+            { value: "__default__", label: "預設" },
+            ...FONT_SIZES.map((s) => ({ value: s, label: s.replace("px", "") })),
+          ]}
+          onChange={(v) => {
+            if (v === "__default__") editor.chain().focus().unsetFontSize().run();
+            else editor.chain().focus().setFontSize(v).run();
+          }}
+        />
+        <MenuSelect
+          variant="toolbar"
+          size="sm"
+          ariaLabel="對齊"
+          prefix="齊"
+          value={
+            editor.isActive({ textAlign: "center" })
+              ? "center"
+              : editor.isActive({ textAlign: "right" })
+                ? "right"
+                : editor.isActive({ textAlign: "justify" })
+                  ? "justify"
+                  : "left"
+          }
+          options={[
+            { value: "left", label: "靠左" },
+            { value: "center", label: "置中" },
+            { value: "right", label: "靠右" },
+            { value: "justify", label: "兩端" },
+          ]}
+          onChange={(v) => {
+            editor.chain().focus().setTextAlign(v).run();
+          }}
+        />
         <div className="hl-wrap" ref={hlPanelRef}>
           <ToolbarBtn
             active={editor.isActive("highlight") || hlOpen}
@@ -1648,66 +1667,21 @@ export default function RichNoteEditor({
             />
           )}
         </div>
+        <MenuSelect
+          variant="toolbar"
+          size="sm"
+          ariaLabel="行距"
+          prefix="距"
+          value={String(nearestLineHeight(prefsCtx?.prefs.editorLineHeight ?? 1.65))}
+          options={LINE_HEIGHTS.map((v) => ({
+            value: String(v),
+            label: LINE_HEIGHT_LABELS[v] || v.toFixed(2),
+          }))}
+          onChange={(v) => {
+            prefsCtx?.setPrefs({ editorLineHeight: Number(v) });
+          }}
+        />
         <span className="rich-toolbar-sep" />
-        <ToolbarBtn
-          title="上移段落（Alt↑）"
-          onClick={() => moveTopLevelBlock(editor, -1)}
-        >
-          ↑
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="下移段落（Alt↓）"
-          onClick={() => moveTopLevelBlock(editor, 1)}
-        >
-          ↓
-        </ToolbarBtn>
-        <label className="rich-lh" title="行距">
-          <span>行距</span>
-          <select
-            value={String(
-              nearestLineHeight(prefsCtx?.prefs.editorLineHeight ?? 1.65)
-            )}
-            onChange={(e) => {
-              const editorLineHeight = Number(e.target.value);
-              prefsCtx?.setPrefs({ editorLineHeight });
-            }}
-          >
-            {LINE_HEIGHTS.map((v) => (
-              <option key={v} value={String(v)}>
-                {LINE_HEIGHT_LABELS[v] || v.toFixed(2)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className="rich-toolbar-sep" />
-        <ToolbarBtn active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("heading", { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("heading", { level: 4 })} onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}>H4</ToolbarBtn>
-        <span className="rich-toolbar-sep" />
-        <ToolbarBtn active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>• 清單</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1. 編號</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>☐ 待辦</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>引用</ToolbarBtn>
-        <ToolbarBtn active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()} title="程式碼">{"</>"}</ToolbarBtn>
-        <ToolbarBtn
-          title="插入表格"
-          onClick={() =>
-            editor
-              .chain()
-              .focus()
-              .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-              .run()
-          }
-        >
-          表
-        </ToolbarBtn>
-        <ToolbarBtn
-          title="分隔線"
-          onClick={() => editor.chain().focus().setHorizontalRule().run()}
-        >
-          ─
-        </ToolbarBtn>
         {editor.isActive("table") && (
           <>
             <ToolbarBtn title="左增欄" onClick={() => editor.chain().focus().addColumnBefore().run()}>◀欄</ToolbarBtn>
@@ -1717,47 +1691,11 @@ export default function RichNoteEditor({
             <ToolbarBtn title="刪欄" onClick={() => editor.chain().focus().deleteColumn().run()}>刪欄</ToolbarBtn>
             <ToolbarBtn title="刪列" onClick={() => editor.chain().focus().deleteRow().run()}>刪列</ToolbarBtn>
             <ToolbarBtn title="刪表" onClick={() => editor.chain().focus().deleteTable().run()}>刪表</ToolbarBtn>
+            <span className="rich-toolbar-sep" />
           </>
         )}
-        <ToolbarBtn
-          onClick={() => {
-            void (async () => {
-              const { from, to } = editor.state.selection;
-              const selected = editor.state.doc.textBetween(from, to, "");
-              const f = await askPrompt("行內 LaTeX（插在字與字之間）", selected || "\\mu");
-              if (!f) return;
-              const chain = editor.chain().focus();
-              if (from !== to) chain.deleteSelection();
-              chain.setMathInline(f).run();
-            })();
-          }}
-          title="行內公式 $...$"
-        >
-          ∑
-        </ToolbarBtn>
-        <ToolbarBtn
-          onClick={() => {
-            void (async () => {
-              const f = await askPrompt("區塊 LaTeX（獨立一列）", "E = mc^2");
-              if (f) editor.chain().focus().setMathBlock(f).run();
-            })();
-          }}
-          title="公式區塊 $$...$$"
-        >
-          ∑∑
-        </ToolbarBtn>
-        <ToolbarBtn onClick={setLink} active={editor.isActive("link")}>連結</ToolbarBtn>
-        <span className="rich-toolbar-sep" />
-        <ToolbarBtn onClick={() => imageRef.current?.click()} title="上傳圖片">圖片</ToolbarBtn>
-        <ToolbarBtn onClick={() => fileRef.current?.click()} title="上傳檔案">檔案</ToolbarBtn>
-        <ToolbarBtn onClick={() => audioRef.current?.click()} title="上傳音訊">語音</ToolbarBtn>
-        <ToolbarBtn onClick={() => videoRef.current?.click()} title="上傳影片">影片</ToolbarBtn>
-        <ToolbarBtn onClick={() => pdfRef.current?.click()} title="PDF 預覽">PDF</ToolbarBtn>
-        <ToolbarBtn onClick={() => pptRef.current?.click()} title="PPT 預覽">PPT</ToolbarBtn>
-        <ToolbarBtn onClick={() => insertEmbedFromPrompt("YouTube 連結")} title="YouTube">YT</ToolbarBtn>
-        <ToolbarBtn onClick={() => insertEmbedFromPrompt("Google Drive 分享連結")} title="Drive">Drive</ToolbarBtn>
-        <ToolbarBtn onClick={() => insertEmbedFromPrompt("網站網址")} title="嵌入網站">網站</ToolbarBtn>
-        <ToolbarBtn onClick={() => onFindOpenChange?.(true)}>尋找</ToolbarBtn>
+        <ToolbarBtn onClick={setLink} active={editor.isActive("link")} title="選取文字後設連結">連結</ToolbarBtn>
+        <ToolbarBtn onClick={() => onFindOpenChange?.(true)} title="尋找與取代（Ctrl+F）">尋找</ToolbarBtn>
       </div>
       {uploadPct !== null && (
         <div className="rich-upload-bar">
@@ -1778,12 +1716,16 @@ export default function RichNoteEditor({
   );
 
   return (
-    <div className={`rich-editor${pageMode ? " rich-editor--page" : ""}`}>
-      {hiddenInputs}
-      {toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon}
+    <div className={`rich-editor${pageMode ? " rich-editor--page" : ""}${readOnly ? " rich-editor--readonly" : ""}`}>
+      {!readOnly && hiddenInputs}
+      {!readOnly && (toolbarHost ? createPortal(ribbon, toolbarHost) : ribbon)}
 
+      {!readOnly && (
       <SelectionBubbleMenu
         editor={editor}
+        noteTitle={noteTitle}
+        noteBody={valueMd}
+        aiContext={aiContext}
         onCreateSubpage={onCreateSubpage}
         onOpenThread={onOpenThread}
         onSetLink={setLink}
@@ -1792,48 +1734,28 @@ export default function RichNoteEditor({
         clearTextColor={clearTextColor}
         txColor={txColor}
         hlColor={hlColor}
-        onOpenAi={(opts) => {
-          const { from, to } = editor.state.selection;
-          const text = editor.state.doc.textBetween(from, to, "\n");
-          if (!text.trim()) return;
-          setSelAi({
-            from,
-            to,
-            text,
-            autoAction: opts?.action,
-          });
-        }}
+        aiOpen={selAi.open}
+        aiAutoAction={selAi.autoAction}
+        onAiOpenChange={(open, opts) =>
+          setSelAi(open ? { open: true, autoAction: opts?.action } : { open: false })
+        }
+        onSendToAside={
+          onOpenAiAssistant
+            ? (selection, question) => {
+                onOpenAiAssistant({ selection, question, focusChat: true });
+              }
+            : undefined
+        }
+        onDeepResearch={onDeepResearchSelection}
       />
-
-      {selAi && (
-        <SelectionAiPanel
-          open
-          editor={editor}
-          noteTitle={noteTitle}
-          noteBody={valueMd}
-          aiContext={aiContext}
-          selectionText={selAi.text}
-          from={selAi.from}
-          to={selAi.to}
-          autoAction={selAi.autoAction}
-          onClose={() => setSelAi(null)}
-          onSendToAside={
-            onOpenAiAssistant
-              ? (selection, question) => {
-                  onOpenAiAssistant({ selection, question, focusChat: true });
-                }
-              : undefined
-          }
-          onDeepResearch={onDeepResearchSelection}
-        />
       )}
 
       <div ref={canvasRef} className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
         <div className={pageMode ? "rich-page-sheet" : undefined}>
-          <BlockDragHandle editor={editor} />
+          {!readOnly && <BlockDragHandle editor={editor} />}
           <EditorContent editor={editor} />
         </div>
-        {showEmptyTemplates && isEmptyDoc && onEmptyTemplate && (
+        {!readOnly && showEmptyTemplates && isEmptyDoc && onEmptyTemplate && (
           <div className="empty-templates">
             <p className="empty-templates-label">從範本開始</p>
             <div className="empty-templates-grid">
@@ -1985,45 +1907,129 @@ function nearestLineHeight(v: number): number {
 }
 
 function BlockDragHandle({ editor }: { editor: Editor }) {
-  const [grip, setGrip] = useState<{ top: number; from: number; to: number; index: number } | null>(null);
+  const [grip, setGrip] = useState<{
+    top: number;
+    from: number;
+    to: number;
+    index: number;
+    parentFrom: number;
+  } | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const dragRef = useRef<{ from: number; index: number } | null>(null);
+  const [dropParent, setDropParent] = useState<number>(-1);
+  /** Inclusive sibling-index selection within one parent. */
+  const [blockSel, setBlockSel] = useState<{
+    parentFrom: number;
+    anchor: number;
+    focus: number;
+  } | null>(null);
+  const dragRef = useRef<{
+    parentFrom: number;
+    start: number;
+    end: number;
+    origin: number;
+    moved: boolean;
+    startY: number;
+  } | null>(null);
   const dropRef = useRef<number | null>(null);
+  const gripRef = useRef(grip);
+  gripRef.current = grip;
+  const blockSelRef = useRef(blockSel);
+  blockSelRef.current = blockSel;
+
+  const selRange = (sel: typeof blockSel) => {
+    if (!sel) return null;
+    return {
+      parentFrom: sel.parentFrom,
+      start: Math.min(sel.anchor, sel.focus),
+      end: Math.max(sel.anchor, sel.focus),
+    };
+  };
+
+  useEffect(() => {
+    const range = selRange(blockSel);
+    if (range) paintBlockSelection(editor, range.parentFrom, range.start, range.end);
+    else paintBlockSelection(editor, -1, 1, 0); // clear
+    return () => paintBlockSelection(editor, -1, 1, 0);
+  }, [editor, blockSel, editor.state.doc]);
+
+  useEffect(() => {
+    const root = editor.view.dom;
+    const onDown = (e: MouseEvent) => {
+      if (dragRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".block-controls")) return;
+      if (e.shiftKey) return;
+      if (blockSelRef.current) setBlockSel(null);
+    };
+    root.addEventListener("mousedown", onDown);
+    return () => root.removeEventListener("mousedown", onDown);
+  }, [editor]);
 
   useEffect(() => {
     const root = editor.view.dom;
     const canvas = root.closest(".rich-canvas") as HTMLElement | null;
     if (!canvas) return;
 
+    const gutterWidth = () => {
+      const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 44;
+      return Math.max(36, pad);
+    };
+
+    const gripFromPos = (clientY: number, clientX?: number) => {
+      const rootRect = root.getBoundingClientRect();
+      const gutter = gutterWidth();
+      const inGutter = clientX != null && clientX < rootRect.left + gutter;
+      const probeX = inGutter
+        ? rootRect.left + gutter + 6
+        : Math.max(clientX ?? rootRect.left + gutter + 6, rootRect.left + 8);
+      const pos = editor.view.posAtCoords({ left: probeX, top: clientY });
+      if (!pos) return null;
+      const block = draggableBlockAt(editor, pos.pos);
+      if (!block) return null;
+      const dom = editor.view.nodeDOM(block.from);
+      if (!(dom instanceof HTMLElement)) return null;
+      const rect = canvas.getBoundingClientRect();
+      const br = dom.getBoundingClientRect();
+      return {
+        top: br.top - rect.top + canvas.scrollTop + Math.min(4, br.height / 2 - 12),
+        from: block.from,
+        to: block.to,
+        index: block.index,
+        parentFrom: block.parentFrom,
+      };
+    };
+
     const onMove = (e: MouseEvent) => {
       if (dragRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".block-controls")) return;
+
       try {
-        const pos = editor.view.posAtCoords({
-          left: Math.max(e.clientX, root.getBoundingClientRect().left + 8),
-          top: e.clientY,
-        });
-        if (!pos) {
-          setGrip(null);
+        const next = gripFromPos(e.clientY, e.clientX);
+        if (next) {
+          setGrip(next);
           return;
         }
-        const block = topLevelBlockAt(editor, pos.pos);
-        if (!block) {
-          setGrip(null);
-          return;
+
+        const prev = gripRef.current;
+        if (prev) {
+          const rootRect = root.getBoundingClientRect();
+          const gutter = gutterWidth();
+          const inApproach =
+            e.clientX < rootRect.left + gutter + 8 &&
+            e.clientY >= rootRect.top - 4 &&
+            e.clientY <= rootRect.bottom + 4;
+          if (inApproach) {
+            const dom = editor.view.nodeDOM(prev.from);
+            if (dom instanceof HTMLElement) {
+              const br = dom.getBoundingClientRect();
+              if (e.clientY >= br.top - 8 && e.clientY <= br.bottom + 8) return;
+            } else {
+              return;
+            }
+          }
         }
-        const dom = editor.view.nodeDOM(block.from);
-        if (!(dom instanceof HTMLElement)) {
-          setGrip(null);
-          return;
-        }
-        const rect = canvas.getBoundingClientRect();
-        const br = dom.getBoundingClientRect();
-        setGrip({
-          top: br.top - rect.top + canvas.scrollTop + Math.min(4, br.height / 2 - 12),
-          from: block.from,
-          to: block.to,
-          index: block.index,
-        });
+        setGrip(null);
       } catch {
         setGrip(null);
       }
@@ -2035,31 +2041,108 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       setGrip(null);
     };
 
+    const onGutterDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".block-controls")) return;
+      if (t?.closest?.(".ProseMirror")) return;
+      const rootRect = root.getBoundingClientRect();
+      const gutter = gutterWidth();
+      if (e.clientX >= rootRect.left + gutter) return;
+      const hit = gripFromPos(e.clientY, e.clientX);
+      if (!hit) return;
+      e.preventDefault();
+      const anchor = hit.index;
+      const parentFrom = hit.parentFrom;
+      setBlockSel({ parentFrom, anchor, focus: anchor });
+      setGrip(hit);
+
+      const onGutterMove = (ev: MouseEvent) => {
+        const h = gripFromPos(ev.clientY, rootRect.left + gutter + 6);
+        if (!h || h.parentFrom !== parentFrom) return;
+        setBlockSel({ parentFrom, anchor, focus: h.index });
+        setGrip(h);
+      };
+      const onGutterUp = () => {
+        document.removeEventListener("mousemove", onGutterMove);
+        document.removeEventListener("mouseup", onGutterUp);
+      };
+      document.addEventListener("mousemove", onGutterMove);
+      document.addEventListener("mouseup", onGutterUp);
+    };
+
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mouseleave", onLeave);
+    canvas.addEventListener("mousedown", onGutterDown);
     return () => {
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mouseleave", onLeave);
+      canvas.removeEventListener("mousedown", onGutterDown);
     };
   }, [editor]);
 
-  const startDrag = (from: number, index: number) => {
-    dragRef.current = { from, index };
-    dropRef.current = index;
-    setDropIndex(index);
+  const startDrag = (index: number, parentFrom: number, e: ReactMouseEvent) => {
+    const shift = e.shiftKey;
+    const prev = blockSelRef.current;
+    let start: number;
+    let end: number;
+    let nextSel: { parentFrom: number; anchor: number; focus: number };
 
-    const onMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
+    if (shift && prev && prev.parentFrom === parentFrom) {
+      nextSel = { parentFrom, anchor: prev.anchor, focus: index };
+      start = Math.min(nextSel.anchor, nextSel.focus);
+      end = Math.max(nextSel.anchor, nextSel.focus);
+    } else if (prev && prev.parentFrom === parentFrom) {
+      const r = selRange(prev)!;
+      if (index >= r.start && index <= r.end) {
+        nextSel = prev;
+        start = r.start;
+        end = r.end;
+      } else {
+        nextSel = { parentFrom, anchor: index, focus: index };
+        start = end = index;
+      }
+    } else {
+      nextSel = { parentFrom, anchor: index, focus: index };
+      start = end = index;
+    }
+
+    setBlockSel(nextSel);
+    setDropParent(parentFrom);
+    dragRef.current = {
+      parentFrom,
+      start,
+      end,
+      origin: index,
+      moved: false,
+      startY: e.clientY,
+    };
+    dropRef.current = start;
+    setDropIndex(start);
+
+    const onMove = (ev: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      if (!d.moved && Math.abs(ev.clientY - d.startY) > 4) d.moved = true;
       try {
-        const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+        const root = editor.view.dom;
+        const rootRect = root.getBoundingClientRect();
+        const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 44;
+        const probeX = Math.max(ev.clientX, rootRect.left + pad + 4);
+        const pos = editor.view.posAtCoords({ left: probeX, top: ev.clientY });
         if (!pos) return;
-        const block = topLevelBlockAt(editor, pos.pos);
-        if (!block) return;
+        const block = draggableBlockAt(editor, pos.pos);
+        if (!block || block.parentFrom !== d.parentFrom) return;
         let idx = block.index;
         const dom = editor.view.nodeDOM(block.from);
         if (dom instanceof HTMLElement) {
           const br = dom.getBoundingClientRect();
-          if (e.clientY > br.top + br.height / 2) idx = block.index + 1;
+          if (ev.clientY > br.top + br.height / 2) idx = block.index + 1;
+        }
+        if (idx > d.start && idx <= d.end + 1) {
+          dropRef.current = d.start;
+          setDropIndex(d.start);
+          return;
         }
         dropRef.current = idx;
         setDropIndex(idx);
@@ -2076,10 +2159,33 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       setDropIndex(null);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      if (d && target !== null) {
-        const still = topLevelBlockAt(editor, d.from + 1) || topLevelBlockAt(editor, d.from);
-        const fromPos = still && still.index === d.index ? still.from : d.from;
-        moveBlockToIndex(editor, fromPos, Math.min(target, editor.state.doc.childCount));
+      if (!d) return;
+
+      if (!d.moved) {
+        setBlockSel({
+          parentFrom: d.parentFrom,
+          anchor: shift && prev && prev.parentFrom === d.parentFrom ? prev.anchor : d.origin,
+          focus: d.origin,
+        });
+        const pos = siblingBlockPos(editor, d.parentFrom, d.origin);
+        if (pos) editor.chain().focus().setTextSelection(pos.from + 1).run();
+        return;
+      }
+
+      if (target === null) return;
+      const moved = moveSiblingRange(
+        editor,
+        d.parentFrom,
+        d.start,
+        d.end,
+        Math.min(target, siblingCount(editor, d.parentFrom))
+      );
+      if (moved) {
+        setBlockSel({
+          parentFrom: moved.parentFrom,
+          anchor: moved.start,
+          focus: moved.end,
+        });
       }
       setGrip(null);
     };
@@ -2088,19 +2194,45 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     document.addEventListener("mouseup", onUp);
   };
 
-  /** Notion-style +: insert empty block below and open slash menu */
   const addBlockBelow = () => {
     if (!grip) return;
     const insertAt = grip.to;
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(insertAt, { type: "paragraph" })
-      .setTextSelection(insertAt + 1)
-      .insertContent("/")
-      .run();
+    if (grip.parentFrom >= 0) {
+      const parent = editor.state.doc.nodeAt(grip.parentFrom);
+      const itemType = parent?.type.name === "taskList" ? "taskItem" : "listItem";
+      const content =
+        itemType === "taskItem"
+          ? {
+              type: "taskItem",
+              attrs: { checked: false },
+              content: [{ type: "paragraph" }],
+            }
+          : { type: "listItem", content: [{ type: "paragraph" }] };
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(insertAt, content)
+        .setTextSelection(insertAt + 2)
+        .insertContent("/")
+        .run();
+    } else {
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(insertAt, { type: "paragraph" })
+        .setTextSelection(insertAt + 1)
+        .insertContent("/")
+        .run();
+    }
     setGrip(null);
+    setBlockSel(null);
   };
+
+  const range = selRange(blockSel);
+  const multiCount =
+    range && grip && range.parentFrom === grip.parentFrom
+      ? range.end - range.start + 1
+      : 0;
 
   if (!grip && dropIndex === null) return null;
 
@@ -2108,7 +2240,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     <>
       {grip && (
         <div
-          className={`block-controls${dragRef.current ? " is-dragging" : ""}`}
+          className={`block-controls${dragRef.current ? " is-dragging" : ""}${
+            range &&
+            range.parentFrom === grip.parentFrom &&
+            grip.index >= range.start &&
+            grip.index <= range.end
+              ? " is-selected"
+              : ""
+          }`}
           style={{ top: grip.top }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -2129,48 +2268,65 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           <button
             type="button"
             className="block-drag-handle"
-            title="拖動以移動 · 或點一下開啟選單"
+            title={
+              multiCount > 1
+                ? `拖動 ${multiCount} 個區塊 · Shift+點選可加選`
+                : "拖動以移動 · 點一下選取 · Shift+點選加選範圍"
+            }
             aria-label="拖曳移動段落"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              startDrag(grip.from, grip.index);
-            }}
-            onClick={(e) => {
-              // Click without drag: open slash turn-into by selecting block then inserting /
-              if (dragRef.current) return;
-              e.preventDefault();
-              editor.chain().focus().setTextSelection(grip.from + 1).run();
+              startDrag(grip.index, grip.parentFrom, e);
             }}
           >
             ⠿
           </button>
+          {multiCount > 1 &&
+            range &&
+            range.parentFrom === grip.parentFrom &&
+            grip.index >= range.start &&
+            grip.index <= range.end && (
+              <span className="block-sel-count" aria-hidden>
+                {multiCount}
+              </span>
+            )}
         </div>
       )}
-      {dropIndex !== null && <BlockDropLine editor={editor} index={dropIndex} />}
+      {dropIndex !== null && (
+        <BlockDropLine editor={editor} index={dropIndex} parentFrom={dropParent} />
+      )}
     </>
   );
 }
 
-function BlockDropLine({ editor, index }: { editor: Editor; index: number }) {
+function BlockDropLine({
+  editor,
+  index,
+  parentFrom,
+}: {
+  editor: Editor;
+  index: number;
+  parentFrom: number;
+}) {
   const canvas = editor.view.dom.closest(".rich-canvas") as HTMLElement | null;
   if (!canvas) return null;
   const rect = canvas.getBoundingClientRect();
+  const count = siblingCount(editor, parentFrom);
+  if (count === 0) return null;
+
   let top = 0;
-  if (editor.state.doc.childCount === 0) return null;
-  if (index >= editor.state.doc.childCount) {
-    let pos = 0;
-    for (let i = 0; i < editor.state.doc.childCount - 1; i++) {
-      pos += editor.state.doc.child(i).nodeSize;
-    }
-    const dom = editor.view.nodeDOM(pos);
+  if (index >= count) {
+    const last = siblingBlockPos(editor, parentFrom, count - 1);
+    if (!last) return null;
+    const dom = editor.view.nodeDOM(last.from);
     if (!(dom instanceof HTMLElement)) return null;
     const br = dom.getBoundingClientRect();
     top = br.bottom - rect.top + canvas.scrollTop;
   } else {
-    let pos = 0;
-    for (let i = 0; i < index; i++) pos += editor.state.doc.child(i).nodeSize;
-    const dom = editor.view.nodeDOM(pos);
+    const at = siblingBlockPos(editor, parentFrom, index);
+    if (!at) return null;
+    const dom = editor.view.nodeDOM(at.from);
     if (!(dom instanceof HTMLElement)) return null;
     const br = dom.getBoundingClientRect();
     top = br.top - rect.top + canvas.scrollTop;

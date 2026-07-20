@@ -10,10 +10,22 @@ type SlidePreview = {
   label: string;
 };
 
+type OutboundLink = {
+  title: string;
+  href?: string;
+};
+
+type Backlink = {
+  id: string;
+  title: string;
+};
+
 type Props = {
   stats: NoteStats;
   outline: HeadingItem[];
   related: RelatedNote[];
+  outbound?: OutboundLink[];
+  backlinks?: Backlink[];
   onJumpHeading?: (item: HeadingItem) => void;
   onOpenSlideForHeading?: (item: HeadingItem) => void;
   /** Presentation bridge in outline tab */
@@ -35,6 +47,8 @@ export default function NoteAside({
   stats,
   outline,
   related,
+  outbound = [],
+  backlinks = [],
   onJumpHeading,
   onOpenSlideForHeading,
   slidePreview,
@@ -233,6 +247,49 @@ export default function NoteAside({
           <p className="note-aside-hint">自動儲存約每 1.2 秒；版本歷史可從上方選單還原。</p>
         </div>
       )}
+
+      <div className="note-aside-block note-aside-links">
+        <div className="doc-backlinks-head">
+          <h4>連結圖譜</h4>
+          <Link href="/graph">開啟圖譜 →</Link>
+        </div>
+        <div className="doc-link-grid doc-link-grid--aside">
+          <div>
+            <p className="doc-link-label">此頁連出</p>
+            {outbound.length === 0 ? (
+              <p className="note-aside-empty">尚無 [[連結]]</p>
+            ) : (
+              outbound.map((t) =>
+                t.href ? (
+                  <div key={t.title}>
+                    <Link href={t.href} className="doc-link-item">
+                      {t.title}
+                    </Link>
+                  </div>
+                ) : (
+                  <div key={t.title} className="doc-link-missing">
+                    {t.title}（未建立）
+                  </div>
+                )
+              )
+            )}
+          </div>
+          <div>
+            <p className="doc-link-label">連到此頁</p>
+            {backlinks.length === 0 ? (
+              <p className="note-aside-empty">尚無反向連結</p>
+            ) : (
+              backlinks.map((n) => (
+                <div key={n.id}>
+                  <Link href={`/notes/${n.id}`} className="doc-link-item">
+                    {n.title}
+                  </Link>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }

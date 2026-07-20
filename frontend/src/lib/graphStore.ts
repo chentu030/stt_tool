@@ -37,46 +37,59 @@ function parseFilters(raw: unknown): GraphFilters {
   return { ...DEFAULT_FILTERS, ...(raw as GraphFilters) };
 }
 
-export function listenGraphs(uid: string, cb: (list: GraphConfig[]) => void): Unsubscribe {
-  return onSnapshot(graphsCol(uid), (snap) => {
-    const list = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
+export function listenGraphs(
+  uid: string,
+  cb: (list: GraphConfig[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    graphsCol(uid),
+    (snap) => {
+      const list = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: (data.name as string) || "未命名圖譜",
+          filters: parseFilters(data.filters),
+          layout: (data.layout as LayoutMode) || "force",
+          positions: (data.positions as Record<string, { x: number; y: number }>) || {},
+          created_at: data.created_at?.toDate?.() || new Date(),
+          updated_at: data.updated_at?.toDate?.() || new Date(),
+        } satisfies GraphConfig;
+      });
+      list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+      cb(list);
+    },
+    (err) => onError?.(err)
+  );
+}
+
+export function listenGraph(
+  uid: string,
+  id: string,
+  cb: (g: GraphConfig | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, "users", uid, "graphs", id),
+    (snap) => {
+      if (!snap.exists()) {
+        cb(null);
+        return;
+      }
+      const data = snap.data();
+      cb({
+        id: snap.id,
         name: (data.name as string) || "未命名圖譜",
         filters: parseFilters(data.filters),
         layout: (data.layout as LayoutMode) || "force",
         positions: (data.positions as Record<string, { x: number; y: number }>) || {},
         created_at: data.created_at?.toDate?.() || new Date(),
         updated_at: data.updated_at?.toDate?.() || new Date(),
-      } satisfies GraphConfig;
-    });
-    list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
-    cb(list);
-  });
-}
-
-export function listenGraph(
-  uid: string,
-  id: string,
-  cb: (g: GraphConfig | null) => void
-): Unsubscribe {
-  return onSnapshot(doc(db, "users", uid, "graphs", id), (snap) => {
-    if (!snap.exists()) {
-      cb(null);
-      return;
-    }
-    const data = snap.data();
-    cb({
-      id: snap.id,
-      name: (data.name as string) || "未命名圖譜",
-      filters: parseFilters(data.filters),
-      layout: (data.layout as LayoutMode) || "force",
-      positions: (data.positions as Record<string, { x: number; y: number }>) || {},
-      created_at: data.created_at?.toDate?.() || new Date(),
-      updated_at: data.updated_at?.toDate?.() || new Date(),
-    });
-  });
+      });
+    },
+    (err) => onError?.(err)
+  );
 }
 
 export async function createGraph(uid: string, name = "新圖譜"): Promise<string> {

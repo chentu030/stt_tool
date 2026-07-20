@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -10,7 +12,7 @@ export default function DatabasePage() {
   const { id } = useParams<{ id: string }>();
   const { user, loading } = useAuth();
 
-  if (loading) return <p style={{ padding: "1.5rem", color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
       <div style={{ padding: "2rem" }}>

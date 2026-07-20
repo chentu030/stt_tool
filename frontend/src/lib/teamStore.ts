@@ -271,36 +271,58 @@ export async function createTeam(
   const now = Timestamp.now();
   const slug = slugify(teamName);
 
-  await setDoc(teamRef, {
-    name: teamName,
-    slug,
-    created_by: uid,
-    created_at: now,
-  });
+  const write = async (label: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/permission|insufficient|Missing/i.test(msg)) {
+        throw new Error(
+          `${label}：沒有權限（請用專案擁有者帳號執行 firebase deploy --only firestore:rules）`
+        );
+      }
+      throw new Error(`${label}：${msg}`);
+    }
+  };
 
-  await setDoc(doc(membersCol(teamRef.id), uid), {
-    uid,
-    role: "owner" as TeamRole,
-    joined_at: now,
-    display_name: displayName || "",
-  });
+  await write("建立團隊", () =>
+    setDoc(teamRef, {
+      name: teamName,
+      slug,
+      created_by: uid,
+      created_at: now,
+    })
+  );
+
+  await write("寫入擁有者", () =>
+    setDoc(doc(membersCol(teamRef.id), uid), {
+      uid,
+      role: "owner" as TeamRole,
+      joined_at: now,
+      display_name: displayName || "",
+    })
+  );
 
   const channelRef = doc(channelsCol(teamRef.id));
-  await setDoc(channelRef, {
-    name: "一般",
-    topic: "",
-    is_private: false,
-    member_ids: [],
-    created_by: uid,
-    created_at: now,
-  });
+  await write("建立預設頻道", () =>
+    setDoc(channelRef, {
+      name: "一般",
+      topic: "",
+      is_private: false,
+      member_ids: [],
+      created_by: uid,
+      created_at: now,
+    })
+  );
 
-  await setDoc(doc(userTeamsCol(uid), teamRef.id), {
-    role: "owner" as TeamRole,
-    name: teamName,
-    slug,
-    joined_at: now,
-  });
+  await write("加入我的團隊列表", () =>
+    setDoc(doc(userTeamsCol(uid), teamRef.id), {
+      role: "owner" as TeamRole,
+      name: teamName,
+      slug,
+      joined_at: now,
+    })
+  );
 
   return teamRef.id;
 }
@@ -687,6 +709,7 @@ export async function acceptInvite(
       role: invite.role,
       joined_at: now,
       display_name: displayName || "",
+      invite_token: token,
     });
     await updateDoc(doc(invitesCol(), token), {
       use_count: (invite.use_count || 0) + 1,

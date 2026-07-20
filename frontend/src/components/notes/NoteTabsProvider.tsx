@@ -98,12 +98,20 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
 
   const activate = useCallback(
     (id: string) => {
+      if (!id) return;
       setState((prev) => openNoteTab(prev, id));
+      // Read latest split from functional update path via session + state
       const split = state.splitId;
+      if (id === activeId) {
+        // Already on this note — still refresh URL (clears stale soft-nav)
+        const qs = split && split !== id ? `?split=${encodeURIComponent(split)}` : "";
+        router.replace(`/notes/${id}${qs}`, { scroll: false });
+        return;
+      }
       const qs = split && split !== id ? `?split=${encodeURIComponent(split)}` : "";
-      router.push(`/notes/${id}${qs}`);
+      router.push(`/notes/${id}${qs}`, { scroll: false });
     },
-    [router, state.splitId]
+    [router, state.splitId, activeId]
   );
 
   const close = useCallback(

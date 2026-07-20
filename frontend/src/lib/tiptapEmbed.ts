@@ -1,7 +1,11 @@
-import { askPrompt } from "@/lib/dialogs";
 import { InputRule, Node, mergeAttributes, nodeInputRule } from "@tiptap/core";
 import type { NodeViewRendererProps } from "@tiptap/core";
 import katex from "katex";
+import {
+  decodeFormulaAttr,
+  encodeFormulaAttr,
+  normalizeLatexFormula,
+} from "@/lib/latexNormalize";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -24,37 +28,285 @@ declare module "@tiptap/core" {
 }
 
 function renderKatex(formula: string, displayMode: boolean): string {
+  const src = normalizeLatexFormula(formula || "");
   try {
-    return katex.renderToString(formula || "", {
+    return katex.renderToString(src, {
       throwOnError: false,
       displayMode,
       output: "html",
+      trust: false,
     });
   } catch {
     return displayMode
-      ? `<span class="rich-math-error">$$${formula}$$</span>`
-      : `<span class="rich-math-error">$${formula}$</span>`;
+      ? `<span class="rich-math-error">$$${src}$$</span>`
+      : `<span class="rich-math-error">$${src}$</span>`;
   }
 }
 
-function attachMathEditor(
-  dom: HTMLElement,
-  opts: {
-    label: string;
-    getFormula: () => string;
-    apply: (next: string) => void;
-  }
+function applyFormula(
+  editor: NodeViewRendererProps["editor"],
+  getPos: NodeViewRendererProps["getPos"],
+  next: string
 ) {
-  dom.title = "雙擊編輯公式";
-  dom.addEventListener("dblclick", (e) => {
+  const pos = typeof getPos === "function" ? getPos() : null;
+  if (typeof pos !== "number") return;
+  const formula = normalizeLatexFormula(next);
+  editor
+    .chain()
+    .focus()
+    .command(({ tr }) => {
+      tr.setNodeMarkup(pos, undefined, { formula });
+      return true;
+    })
+    .run();
+}
+
+/** Obsidian-style: click rendered math → edit source in place; Enter/blur commits. */
+function createInlineMathView({ node, getPos, editor }: NodeViewRendererProps) {
+  const dom = document.createElement("span");
+  dom.className = "rich-math-inline";
+  dom.setAttribute("data-math-inline", "1");
+  let formula = node.attrs.formula || "";
+  let editing = false;
+  let source: HTMLInputElement | null = null;
+
+  const stop = (e: Event) => {
+    e.stopPropagation();
+  };
+
+  const render = () => {
+    editing = false;
+    source = null;
+    dom.classList.remove("is-editing");
+    dom.contentEditable = "false";
+    dom.setAttribute("data-formula", encodeFormulaAttr(formula));
+    dom.title = "點一下編輯公式";
+    dom.innerHTML = renderKatex(formula, false);
+  };
+
+  const commit = (nextRaw: string, moveCursorAfter = true) => {
+    const next = normalizeLatexFormula(nextRaw.trim());
+    formula = next;
+    applyFormula(editor, getPos, next);
+    render();
+    if (moveCursorAfter) {
+      const pos = typeof getPos === "function" ? getPos() : null;
+      if (typeof pos === "number") {
+        const after = pos + (editor.state.doc.nodeAt(pos)?.nodeSize || 1);
+        editor.chain().focus().setTextSelection(after).run();
+      }
+    }
+  };
+
+  const startEdit = () => {
+    if (editing || editor.isDestroyed || !editor.isEditable) return;
+    editing = true;
+    dom.classList.add("is-editing");
+    dom.title = "Enter 完成 · Esc 取消";
+    dom.innerHTML = "";
+    const open = document.createElement("span");
+    open.className = "rich-math-delim";
+    open.textContent = "$";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "rich-math-source";
+    input.value = formula;
+    input.setAttribute("aria-label", "編輯行內 LaTeX");
+    const close = document.createElement("span");
+    close.className = "rich-math-delim";
+    close.textContent = "$";
+    dom.append(open, input, close);
+    source = input;
+
+    const syncWidth = () => {
+      const len = Math.max(2, input.value.length + 1);
+      input.style.width = `${len}ch`;
+    };
+    syncWidth();
+
+    input.addEventListener("mousedown", stop);
+    input.addEventListener("pointerdown", stop);
+    input.addEventListener("click", stop);
+    input.addEventListener("input", syncWidth);
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit(input.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        render();
+        editor.commands.focus();
+      }
+    });
+    input.addEventListener("blur", () => {
+      requestAnimationFrame(() => {
+        if (!editing || source !== input) return;
+        commit(input.value, false);
+      });
+    });
+
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  };
+
+  dom.addEventListener("mousedown", (e) => {
+    if (editing) {
+      stop(e);
+      return;
+    }
+    if (editor.isEditable) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+  dom.addEventListener("click", (e) => {
+    if (!editor.isEditable) return;
     e.preventDefault();
     e.stopPropagation();
-    void (async () => {
-      const next = await askPrompt(opts.label, opts.getFormula());
-      if (next === null) return;
-      opts.apply(next.trim());
-    })();
+    startEdit();
   });
+
+  render();
+
+  return {
+    dom,
+    selectNode: () => {
+      dom.classList.add("is-selected");
+    },
+    deselectNode: () => {
+      dom.classList.remove("is-selected");
+    },
+    update: (updated: typeof node) => {
+      if (updated.type.name !== "mathInline") return false;
+      formula = updated.attrs.formula || "";
+      dom.setAttribute("data-formula", encodeFormulaAttr(formula));
+      if (!editing) render();
+      return true;
+    },
+    stopEvent: (event: Event) => {
+      if (!editing) return false;
+      const t = event.target as Node | null;
+      return !!(t && dom.contains(t));
+    },
+    ignoreMutation: () => editing,
+  };
+}
+
+function createBlockMathView({ node, getPos, editor }: NodeViewRendererProps) {
+  const dom = document.createElement("div");
+  dom.className = "rich-math-block";
+  dom.setAttribute("data-math-block", "1");
+  let formula = node.attrs.formula || "";
+  let editing = false;
+  let source: HTMLTextAreaElement | null = null;
+
+  const stop = (e: Event) => e.stopPropagation();
+
+  const render = () => {
+    editing = false;
+    source = null;
+    dom.classList.remove("is-editing");
+    dom.contentEditable = "false";
+    dom.setAttribute("data-formula", encodeFormulaAttr(formula));
+    dom.title = "點一下編輯公式";
+    dom.innerHTML = renderKatex(formula, true);
+  };
+
+  const commit = (nextRaw: string) => {
+    const next = normalizeLatexFormula(nextRaw.trim());
+    formula = next;
+    applyFormula(editor, getPos, next);
+    render();
+  };
+
+  const startEdit = () => {
+    if (editing || editor.isDestroyed || !editor.isEditable) return;
+    editing = true;
+    dom.classList.add("is-editing");
+    dom.title = "Enter 完成 · Esc 取消 · Shift+Enter 換行";
+    dom.innerHTML = "";
+    const label = document.createElement("div");
+    label.className = "rich-math-source-label";
+    label.textContent = "$$";
+    const area = document.createElement("textarea");
+    area.className = "rich-math-source rich-math-source--block";
+    area.value = formula;
+    area.rows = Math.min(8, Math.max(2, formula.split("\n").length + 1));
+    area.setAttribute("aria-label", "編輯區塊 LaTeX");
+    const labelEnd = document.createElement("div");
+    labelEnd.className = "rich-math-source-label";
+    labelEnd.textContent = "$$";
+    dom.append(label, area, labelEnd);
+    source = area;
+
+    area.addEventListener("mousedown", stop);
+    area.addEventListener("pointerdown", stop);
+    area.addEventListener("click", stop);
+    area.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        commit(area.value);
+        editor.commands.focus();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        render();
+        editor.commands.focus();
+      }
+    });
+    area.addEventListener("blur", () => {
+      requestAnimationFrame(() => {
+        if (!editing || source !== area) return;
+        commit(area.value);
+      });
+    });
+
+    requestAnimationFrame(() => {
+      area.focus();
+      area.select();
+    });
+  };
+
+  dom.addEventListener("mousedown", (e) => {
+    if (editing) {
+      stop(e);
+      return;
+    }
+    if (editor.isEditable) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+  dom.addEventListener("click", (e) => {
+    if (!editor.isEditable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startEdit();
+  });
+
+  render();
+
+  return {
+    dom,
+    selectNode: () => dom.classList.add("is-selected"),
+    deselectNode: () => dom.classList.remove("is-selected"),
+    update: (updated: typeof node) => {
+      if (updated.type.name !== "mathBlock") return false;
+      formula = updated.attrs.formula || "";
+      dom.setAttribute("data-formula", encodeFormulaAttr(formula));
+      if (!editing) render();
+      return true;
+    },
+    stopEvent: (event: Event) => {
+      if (!editing) return false;
+      const t = event.target as Node | null;
+      return !!(t && dom.contains(t));
+    },
+    ignoreMutation: () => editing,
+  };
 }
 
 export const MathInline = Node.create({
@@ -73,65 +325,36 @@ export const MathInline = Node.create({
       {
         tag: "span[data-math-inline]",
         getAttrs: (el) => ({
-          formula: (el as HTMLElement).getAttribute("data-formula") || "",
+          formula: normalizeLatexFormula(
+            decodeFormulaAttr((el as HTMLElement).getAttribute("data-formula") || "")
+          ),
         }),
       },
     ];
   },
   renderHTML({ HTMLAttributes }) {
-    const formula = HTMLAttributes.formula || "";
+    const formula = normalizeLatexFormula(HTMLAttributes.formula || "");
     return [
       "span",
       mergeAttributes({
         class: "rich-math-inline",
         "data-math-inline": "1",
-        "data-formula": formula,
+        "data-formula": encodeFormulaAttr(formula),
         contenteditable: "false",
       }),
     ];
   },
   addNodeView() {
-    return ({ node, getPos, editor }: NodeViewRendererProps) => {
-      const dom = document.createElement("span");
-      dom.className = "rich-math-inline";
-      dom.setAttribute("data-math-inline", "1");
-      dom.setAttribute("data-formula", node.attrs.formula || "");
-      dom.contentEditable = "false";
-      dom.innerHTML = renderKatex(node.attrs.formula || "", false);
-      attachMathEditor(dom, {
-        label: "行內 LaTeX（可插在文字中）",
-        getFormula: () => dom.getAttribute("data-formula") || "",
-        apply: (next) => {
-          const pos = typeof getPos === "function" ? getPos() : null;
-          if (typeof pos !== "number") return;
-          editor
-            .chain()
-            .focus()
-            .command(({ tr }) => {
-              tr.setNodeMarkup(pos, undefined, { formula: next });
-              return true;
-            })
-            .run();
-        },
-      });
-      return {
-        dom,
-        update: (updated) => {
-          if (updated.type.name !== "mathInline") return false;
-          dom.setAttribute("data-formula", updated.attrs.formula || "");
-          dom.innerHTML = renderKatex(updated.attrs.formula || "", false);
-          return true;
-        },
-      };
-    };
+    return (props) => createInlineMathView(props);
   },
   addInputRules() {
     return [
-      // Type $E=mc^2$ → inline math (Notion-style)
       nodeInputRule({
         find: /\$([^$\n]+)\$$/,
         type: this.type,
-        getAttributes: (match) => ({ formula: String(match[1] || "").trim() }),
+        getAttributes: (match) => ({
+          formula: normalizeLatexFormula(String(match[1] || "").trim()),
+        }),
       }),
     ];
   },
@@ -141,7 +364,7 @@ export const MathInline = Node.create({
         (formula) =>
         ({ commands }) =>
           commands.insertContent([
-            { type: this.name, attrs: { formula } },
+            { type: this.name, attrs: { formula: normalizeLatexFormula(formula) } },
             { type: "text", text: " " },
           ]),
     };
@@ -164,64 +387,34 @@ export const MathBlock = Node.create({
       {
         tag: "div[data-math-block]",
         getAttrs: (el) => ({
-          formula: (el as HTMLElement).getAttribute("data-formula") || "",
+          formula: normalizeLatexFormula(
+            decodeFormulaAttr((el as HTMLElement).getAttribute("data-formula") || "")
+          ),
         }),
       },
     ];
   },
   renderHTML({ HTMLAttributes }) {
-    const formula = HTMLAttributes.formula || "";
+    const formula = normalizeLatexFormula(HTMLAttributes.formula || "");
     return [
       "div",
       mergeAttributes({
         class: "rich-math-block",
         "data-math-block": "1",
-        "data-formula": formula,
+        "data-formula": encodeFormulaAttr(formula),
         contenteditable: "false",
       }),
     ];
   },
   addNodeView() {
-    return ({ node, getPos, editor }: NodeViewRendererProps) => {
-      const dom = document.createElement("div");
-      dom.className = "rich-math-block";
-      dom.setAttribute("data-math-block", "1");
-      dom.setAttribute("data-formula", node.attrs.formula || "");
-      dom.contentEditable = "false";
-      dom.innerHTML = renderKatex(node.attrs.formula || "", true);
-      attachMathEditor(dom, {
-        label: "區塊 LaTeX",
-        getFormula: () => dom.getAttribute("data-formula") || "",
-        apply: (next) => {
-          const pos = typeof getPos === "function" ? getPos() : null;
-          if (typeof pos !== "number") return;
-          editor
-            .chain()
-            .focus()
-            .command(({ tr }) => {
-              tr.setNodeMarkup(pos, undefined, { formula: next });
-              return true;
-            })
-            .run();
-        },
-      });
-      return {
-        dom,
-        update: (updated) => {
-          if (updated.type.name !== "mathBlock") return false;
-          dom.setAttribute("data-formula", updated.attrs.formula || "");
-          dom.innerHTML = renderKatex(updated.attrs.formula || "", true);
-          return true;
-        },
-      };
-    };
+    return (props) => createBlockMathView(props);
   },
   addInputRules() {
     return [
       new InputRule({
         find: /\$\$([^$\n]+)\$\$$/,
         handler: ({ range, match, chain }) => {
-          const formula = String(match[1] || "").trim();
+          const formula = normalizeLatexFormula(String(match[1] || "").trim());
           if (!formula) return null;
           chain().deleteRange(range).insertContent({ type: this.name, attrs: { formula } }).run();
         },
@@ -233,10 +426,14 @@ export const MathBlock = Node.create({
       setMathBlock:
         (formula) =>
         ({ commands }) =>
-          commands.insertContent({ type: this.name, attrs: { formula } }),
+          commands.insertContent({
+            type: this.name,
+            attrs: { formula: normalizeLatexFormula(formula) },
+          }),
     };
   },
 });
+
 
 export const NoteEmbed = Node.create({
   name: "noteEmbed",

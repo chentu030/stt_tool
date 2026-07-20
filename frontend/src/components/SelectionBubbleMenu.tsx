@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import type { SelectionAiAction } from "@/components/SelectionAiPanel";
+import SelectionAiPanel, { type SelectionAiAction } from "@/components/SelectionAiPanel";
 
 const EMOJIS = ["👍", "❤️", "😊", "🎉", "🔥", "✅", "❗", "💡", "👀", "🙏", "✨", "📌"];
 
@@ -23,7 +23,11 @@ function buildTurnItems(opts: {
       id: "p",
       label: "文字",
       icon: "title",
-      active: (ed) => ed.isActive("paragraph") && !ed.isActive("bulletList") && !ed.isActive("orderedList") && !ed.isActive("taskList"),
+      active: (ed) =>
+        ed.isActive("paragraph") &&
+        !ed.isActive("bulletList") &&
+        !ed.isActive("orderedList") &&
+        !ed.isActive("taskList"),
       run: (ed) => ed.chain().focus().setParagraph().run(),
     },
     {
@@ -178,19 +182,14 @@ function currentTurnLabel(ed: Editor, items: TurnItem[]): string {
   return hit?.label || "一般文字";
 }
 
-const AI_SKILLS: { id: SelectionAiAction; label: string }[] = [
-  { id: "improve", label: "提升寫作" },
-  { id: "proofread", label: "校對" },
-  { id: "explain", label: "解釋" },
-  { id: "reformat", label: "重新格式化" },
-];
-
 const TX_PRESETS = ["#111827", "#6b7280", "#b45309", "#c2410c", "#ca8a04", "#15803d", "#1d4ed8", "#7c3aed", "#db2777"];
 const HL_PRESETS = ["#fef08a", "#bbf7d0", "#bae6fd", "#e9d5ff", "#fecaca", "#fed7aa"];
 
 type Props = {
   editor: Editor;
-  onOpenAi: (opts?: { action?: SelectionAiAction }) => void;
+  noteTitle?: string;
+  noteBody?: string;
+  aiContext?: string;
   onOpenThread?: (selectionText: string) => void;
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
   onSetLink: () => void;
@@ -199,6 +198,12 @@ type Props = {
   clearTextColor: () => void;
   txColor: string;
   hlColor: string;
+  onSendToAside?: (selection: string, question?: string) => void;
+  onDeepResearch?: (selection: string) => void;
+  /** Controlled expand from parent (e.g. Alt+Shift+E) */
+  aiOpen?: boolean;
+  aiAutoAction?: SelectionAiAction;
+  onAiOpenChange?: (open: boolean, opts?: { action?: SelectionAiAction }) => void;
 };
 
 function BubBtn({
@@ -229,7 +234,9 @@ function BubBtn({
 
 export default function SelectionBubbleMenu({
   editor,
-  onOpenAi,
+  noteTitle,
+  noteBody,
+  aiContext,
   onOpenThread,
   onCreateSubpage,
   onSetLink,
@@ -238,13 +245,25 @@ export default function SelectionBubbleMenu({
   clearTextColor,
   txColor,
   hlColor,
+  onSendToAside,
+  onDeepResearch,
+  aiOpen: aiOpenProp,
+  aiAutoAction,
+  onAiOpenChange,
 }: Props) {
   const [turnOpen, setTurnOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [aiOpenLocal, setAiOpenLocal] = useState(false);
   const [tick, setTick] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const turnItems = buildTurnItems({ onCreateSubpage });
+
+  const aiOpen = aiOpenProp ?? aiOpenLocal;
+  const setAiOpen = (open: boolean, opts?: { action?: SelectionAiAction }) => {
+    if (onAiOpenChange) onAiOpenChange(open, opts);
+    else setAiOpenLocal(open);
+  };
 
   useEffect(() => {
     const bump = () => setTick((t) => t + 1);
@@ -276,13 +295,16 @@ export default function SelectionBubbleMenu({
     return editor.state.doc.textBetween(from, to, "\n");
   };
 
+  const { from, to } = editor.state.selection;
+  const selText = editor.state.doc.textBetween(from, to, "\n");
+
   return (
     <BubbleMenu
       editor={editor}
       className="sel-bubble"
       shouldShow={({ editor: ed, state }) => {
-        const { from, to } = state.selection;
-        return from !== to && !ed.isActive("codeBlock") && !ed.isActive("mathBlock");
+        const { from: a, to: b } = state.selection;
+        return a !== b && !ed.isActive("codeBlock") && !ed.isActive("mathBlock");
       }}
       options={{ placement: "top", offset: 8 }}
     >
@@ -340,7 +362,10 @@ export default function SelectionBubbleMenu({
                 setColorOpen((v) => !v);
               }}
             >
-              <span className="sel-bub-a" style={{ borderBottomColor: (editor.getAttributes("textStyle").color as string) || txColor }}>
+              <span
+                className="sel-bub-a"
+                style={{ borderBottomColor: (editor.getAttributes("textStyle").color as string) || txColor }}
+              >
                 A
               </span>
             </BubBtn>
@@ -400,7 +425,9 @@ export default function SelectionBubbleMenu({
             <u>U</u>
           </BubBtn>
           <BubBtn title="清除格式" onClick={() => editor.chain().focus().unsetAllMarks().run()}>
-            <span className="sel-bub-clear">T<sub>x</sub></span>
+            <span className="sel-bub-clear">
+              T<sub>x</sub>
+            </span>
           </BubBtn>
 
           <span className="sel-bub-sep" />
@@ -417,10 +444,10 @@ export default function SelectionBubbleMenu({
           <BubBtn
             title="行內公式"
             onClick={() => {
-              const { from, to } = editor.state.selection;
-              const selected = editor.state.doc.textBetween(from, to, "");
+              const { from: a, to: b } = editor.state.selection;
+              const selected = editor.state.doc.textBetween(a, b, "");
               const latex = selected.trim() || "x^2";
-              if (from !== to) editor.chain().focus().deleteSelection().run();
+              if (a !== b) editor.chain().focus().deleteSelection().run();
               editor.chain().focus().setMathInline(latex).run();
             }}
           >
@@ -474,37 +501,39 @@ export default function SelectionBubbleMenu({
             )}
           </div>
 
-          <BubBtn title="詢問 AI（Alt+Shift+E）" accent onClick={() => onOpenAi()}>
+          <BubBtn
+            title="詢問 AI（Alt+Shift+E）"
+            accent
+            active={aiOpen}
+            onClick={() => {
+              setTurnOpen(false);
+              setColorOpen(false);
+              setEmojiOpen(false);
+              setAiOpen(!aiOpen);
+            }}
+          >
             <span className="material-symbols-outlined sel-bub-ico">auto_awesome</span>
           </BubBtn>
         </div>
 
-        <div className="sel-bubble-skills">
-          <span className="sel-bub-skills-label">技能</span>
-          {AI_SKILLS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className="sel-bub-skill"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onOpenAi({ action: s.id })}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          className="sel-bubble-ai-footer"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onOpenAi()}
-        >
-          <span>透過 AI 編輯</span>
-          <kbd>Alt+Shift+E</kbd>
-        </button>
+        {aiOpen && (
+          <SelectionAiPanel
+            variant="inline"
+            open
+            editor={editor}
+            noteTitle={noteTitle}
+            noteBody={noteBody}
+            aiContext={aiContext}
+            selectionText={selText}
+            from={from}
+            to={to}
+            autoAction={aiAutoAction}
+            onClose={() => setAiOpen(false)}
+            onSendToAside={onSendToAside}
+            onDeepResearch={onDeepResearch}
+          />
+        )}
       </div>
-      {/* keep hlColor referenced for future default swatch */}
       <span hidden data-hl={hlColor} />
     </BubbleMenu>
   );

@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getNote, updateNote } from "@/lib/firebase";
@@ -101,7 +103,7 @@ export default function NoteSplitPane({ noteId, onClose }: Props) {
       {error ? (
         <p className="note-split-error">{error}</p>
       ) : !ready ? (
-        <p className="note-split-loading">載入中…</p>
+        <PageLoading fill={false} />
       ) : (
         <>
           <input

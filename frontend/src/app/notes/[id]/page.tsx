@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { askPrompt, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import {
@@ -72,7 +74,6 @@ import {
 import { buildNoteAiContext } from "@/lib/noteAiContext";
 import { findCadenceAiAction } from "@/lib/cadenceAiActions";
 import { usePrefsOptional } from "@/components/PrefsProvider";
-import ContinueChips, { noteContinueChips } from "@/components/shell/ContinueChips";
 import { toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { splitFolderPath } from "@/lib/noteTree";
@@ -126,6 +127,8 @@ function NotePageInner() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreWrapRef = useRef<HTMLDivElement | null>(null);
+  const exportWrapRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<"write" | "slides">("write");
   const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [slideActions, setSlideActions] = useState<SlideStudioActions | null>(null);
@@ -135,8 +138,19 @@ function NotePageInner() {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
-  const [asideOpen, setAsideOpen] = useState(true);
+  const [asideOpen, setAsideOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("cadence_note_aside_open");
+      if (saved === "0") return false;
+      if (saved === "1") return true;
+    } catch {
+      /* ignore */
+    }
+    return true;
+  });
   const [asideTab, setAsideTab] = useState<"outline" | "info">("outline");
+  const asideManualRef = useRef(false);
   const [asideWidth, setAsideWidth] = useState(() => {
     if (typeof window === "undefined") return 300;
     try {
@@ -257,6 +271,33 @@ function NotePageInner() {
   }, [focusMode, teamFocus]);
 
   useEffect(() => {
+    if (!moreOpen && !exportMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (moreOpen && moreWrapRef.current && !moreWrapRef.current.contains(t)) {
+        setMoreOpen(false);
+      }
+      if (exportMenuOpen && exportWrapRef.current && !exportWrapRef.current.contains(t)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMoreOpen(false);
+        setExportMenuOpen(false);
+      }
+    };
+    // capture so editor/stopPropagation inside main can't block dismiss
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen, exportMenuOpen]);
+
+  useEffect(() => {
     const { total, checked } = countTaskCheckboxes(body);
     const allDone = total > 0 && checked === total;
     if (allDone && !allCheckedRef.current) {
@@ -266,12 +307,49 @@ function NotePageInner() {
   }, [body]);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 1100px)");
-    const apply = () => setAsideOpen(!mq.matches);
+    // Prefer user setting when no explicit local override
+    try {
+      if (localStorage.getItem("cadence_note_aside_open") != null) return;
+    } catch {
+      /* ignore */
+    }
+    if (prefsCtx?.prefs.editorShowOutline === false) {
+      setAsideOpen(false);
+    } else if (prefsCtx?.prefs.editorShowOutline === true && !asideManualRef.current) {
+      setAsideOpen(true);
+    }
+  }, [prefsCtx?.prefs.editorShowOutline]);
+
+  useEffect(() => {
+    // Only auto-collapse on true mobile widths; desktop stays open by default
+    const mq = window.matchMedia("(max-width: 720px)");
+    const apply = () => {
+      if (asideManualRef.current) return;
+      try {
+        if (localStorage.getItem("cadence_note_aside_open") != null) return;
+      } catch {
+        /* ignore */
+      }
+      if (mq.matches) setAsideOpen(false);
+      else if (prefsCtx?.prefs.editorShowOutline !== false) setAsideOpen(true);
+    };
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
-  }, []);
+  }, [prefsCtx?.prefs.editorShowOutline]);
+
+  const toggleAside = () => {
+    asideManualRef.current = true;
+    setAsideOpen((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("cadence_note_aside_open", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   const save = async (silent = false) => {
     if (!note) return;
@@ -407,6 +485,9 @@ function NotePageInner() {
             applyIngestBody(nextBody, jobId);
             removePendingIngest(jobId);
             toast(summary ? "已寫入逐字稿與 AI 摘要" : "已寫入逐字稿");
+            setIngestStatus("");
+            setIngestJobId(null);
+            setIngestError("");
           } catch (e) {
             setIngestError(e instanceof Error ? e.message : "轉錄失敗");
             setIngestStatus("");
@@ -422,7 +503,11 @@ function NotePageInner() {
       }
 
       ingestBusy.current = false;
-      setIngestStatus((s) => (s.startsWith("轉錄") || s.includes("整理") || s.includes("摘要") ? "" : s));
+      // Only clear banner if nothing left to track
+      if (ingestWatching.current.size === 0) {
+        setIngestStatus("");
+        setIngestJobId(null);
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [user, note, title, prefsCtx, applyIngestBody]
@@ -778,7 +863,7 @@ function NotePageInner() {
       }
       if (mod && e.key === "\\") {
         e.preventDefault();
-        setAsideOpen((v) => !v);
+        toggleAside();
       }
       if (mod && e.key.toLowerCase() === "j") {
         e.preventDefault();
@@ -885,9 +970,9 @@ function NotePageInner() {
     }));
   }, [deck, deckStale, title, body]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
-  if (!note) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入筆記中或找不到。</p>;
+  if (!note) return <PageLoading label="載入筆記中…" />;
   if (note.user_id !== user.uid) return <p style={{ padding: "2rem" }}>無權限。</p>;
 
   const statusLabel =
@@ -989,7 +1074,7 @@ function NotePageInner() {
                   同步筆記
                 </button>
               )}
-              <div className="slide-export-wrap">
+              <div className="slide-export-wrap" ref={exportWrapRef}>
                 <button
                   type="button"
                   className={`doc-cmd${exportMenuOpen ? " is-on" : ""}`}
@@ -1050,11 +1135,11 @@ function NotePageInner() {
             type="button"
             className={`doc-cmd doc-cmd--keep${asideOpen ? " is-on" : ""}`}
             title="側欄 ⌘\\"
-            onClick={() => setAsideOpen((v) => !v)}
+            onClick={() => toggleAside()}
           >
             側欄
           </button>
-          <div className="doc-more-wrap">
+          <div className="doc-more-wrap" ref={moreWrapRef}>
             <button type="button" className="doc-cmd doc-cmd--keep" onClick={() => setMoreOpen((v) => !v)}>
               更多
             </button>
@@ -1159,17 +1244,6 @@ function NotePageInner() {
           </div>
         </div>
       </div>
-      {viewMode === "write" && !focusMode && (
-        <ContinueChips
-          className="doc-continue"
-          chips={noteContinueChips({
-            noteId: note.id,
-            title,
-            sourceJobId: note.source_job_id,
-            folder: folder || null,
-          })}
-        />
-      )}
       </div>
 
       <div className="doc-body-row">
@@ -1241,6 +1315,7 @@ function NotePageInner() {
                       ingestCancel.current = null;
                       setIngestStatus("");
                       setIngestError("");
+                      setIngestJobId(null);
                       if (!ingestError) {
                         toast("已改為背景寫入，可繼續編輯或離開本頁");
                       }
@@ -1514,35 +1589,6 @@ function NotePageInner() {
             />
           </div>
 
-          <section className="doc-backlinks">
-            <div className="doc-backlinks-head">
-              <h3>連結圖譜</h3>
-              <Link href="/graph">開啟圖譜 →</Link>
-            </div>
-            <div className="doc-link-grid">
-              <div>
-                <p className="doc-link-label">此頁連出</p>
-                {outbound.length === 0 ? (
-                  <p className="note-aside-empty">尚無 [[連結]]</p>
-                ) : outbound.map((t) => {
-                  const hit = findNoteByTitle(allNotes, t);
-                  return hit ? (
-                    <div key={t}><Link href={`/notes/${hit.id}`} className="doc-link-item">{t}</Link></div>
-                  ) : (
-                    <div key={t} className="doc-link-missing">{t}（未建立）</div>
-                  );
-                })}
-              </div>
-              <div>
-                <p className="doc-link-label">連到此頁</p>
-                {backlinks.length === 0 ? (
-                  <p className="note-aside-empty">尚無反向連結</p>
-                ) : backlinks.map((n) => (
-                  <div key={n.id}><Link href={`/notes/${n.id}`} className="doc-link-item">{n.title}</Link></div>
-                ))}
-              </div>
-            </div>
-          </section>
           </div>
 
           <div className={`doc-pane doc-pane--slides${viewMode === "slides" ? " is-active" : ""}`} aria-hidden={viewMode !== "slides"}>
@@ -1581,6 +1627,11 @@ function NotePageInner() {
           stats={stats}
           outline={outline}
           related={related}
+          outbound={outbound.map((t) => {
+            const hit = findNoteByTitle(allNotes, t);
+            return hit ? { title: t, href: `/notes/${hit.id}` } : { title: t };
+          })}
+          backlinks={backlinks.map((n) => ({ id: n.id, title: n.title }))}
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
           slidePreview={

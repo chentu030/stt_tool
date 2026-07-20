@@ -29,6 +29,28 @@ const ICE: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
+function huddleErrorMessage(e: unknown): string {
+  const code =
+    e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code || "") : "";
+  const msg = e instanceof Error ? e.message : String(e || "");
+  if (
+    code === "permission-denied" ||
+    /insufficient permissions|permission-denied|Missing or insufficient/i.test(msg)
+  ) {
+    return "無法連線通話信令（Firestore 權限不足）。請用專案擁有者帳號部署最新 firestore.rules。";
+  }
+  if (
+    code === "NotAllowedError" ||
+    /NotAllowedError|Permission denied by user|getUserMedia|麥克風/i.test(msg)
+  ) {
+    return "無法使用麥克風，請在瀏覽器允許麥克風權限後重試。";
+  }
+  if (/NotFoundError|DevicesNotFound/i.test(msg) || code === "NotFoundError") {
+    return "找不到麥克風裝置。";
+  }
+  return msg || "加入通話失敗";
+}
+
 export default function NoteHuddle({
   noteId,
   roomId,
@@ -98,7 +120,7 @@ export default function NoteHuddle({
           to_uid: remoteUid,
           type: "ice",
           payload: JSON.stringify(ev.candidate),
-        });
+        }).catch((err) => console.warn("huddle ice signal", err));
       };
       pc.ontrack = (ev) => {
         const stream = ev.streams[0] || new MediaStream([ev.track]);
@@ -115,96 +137,112 @@ export default function NoteHuddle({
     [postSignal, user]
   );
 
+  const cleanupLocal = useCallback(() => {
+    pcsRef.current.forEach((pc) => pc.close());
+    pcsRef.current.clear();
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current = null;
+    if (audioHostRef.current) audioHostRef.current.innerHTML = "";
+    processedRef.current.clear();
+    setPeers([]);
+    setJoined(false);
+    setMuted(false);
+  }, []);
+
   const leave = useCallback(async () => {
-    if (user) {
+    if (user && joined) {
       try {
         await postSignal({ from_uid: user.uid, to_uid: null, type: "leave" });
       } catch {
         /* ignore */
       }
     }
-    pcsRef.current.forEach((pc) => pc.close());
-    pcsRef.current.clear();
-    localStreamRef.current?.getTracks().forEach((t) => t.stop());
-    localStreamRef.current = null;
-    if (audioHostRef.current) audioHostRef.current.innerHTML = "";
-    setPeers([]);
-    setJoined(false);
-    setMuted(false);
-  }, [postSignal, user]);
+    cleanupLocal();
+  }, [cleanupLocal, joined, postSignal, user]);
 
   const join = useCallback(async () => {
     if (!user || joined) return;
     setError("");
+    setOpen(true);
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       localStreamRef.current = stream;
-      setJoined(true);
-      setOpen(true);
       await postSignal({ from_uid: user.uid, to_uid: null, type: "join" });
+      setJoined(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "無法取得麥克風");
+      stream?.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+      setJoined(false);
+      setError(huddleErrorMessage(e));
     }
   }, [joined, postSignal, user]);
 
   useEffect(() => {
     if (!joined || !user) return;
     const q = query(signalsCol(), limit(300));
-    const unsub = onSnapshot(q, (snap) => {
-      snap.docChanges().forEach((change) => {
-        if (change.type !== "added") return;
-        const id = change.doc.id;
-        if (processedRef.current.has(id)) return;
-        processedRef.current.add(id);
-        const d = change.doc.data() as Omit<Signal, "id">;
-        if (d.from_uid === user.uid) return;
-        if (d.to_uid && d.to_uid !== user.uid) return;
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type !== "added") return;
+          const id = change.doc.id;
+          if (processedRef.current.has(id)) return;
+          processedRef.current.add(id);
+          const d = change.doc.data() as Omit<Signal, "id">;
+          if (d.from_uid === user.uid) return;
+          if (d.to_uid && d.to_uid !== user.uid) return;
 
-        void (async () => {
-          try {
-            if (d.type === "join") {
-              const pc = ensurePc(d.from_uid);
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              await postSignal({
-                from_uid: user.uid,
-                to_uid: d.from_uid,
-                type: "offer",
-                payload: JSON.stringify(offer),
-              });
-            } else if (d.type === "offer" && d.payload) {
-              const pc = ensurePc(d.from_uid);
-              await pc.setRemoteDescription(JSON.parse(d.payload));
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              await postSignal({
-                from_uid: user.uid,
-                to_uid: d.from_uid,
-                type: "answer",
-                payload: JSON.stringify(answer),
-              });
-            } else if (d.type === "answer" && d.payload) {
-              const pc = pcsRef.current.get(d.from_uid) || ensurePc(d.from_uid);
-              await pc.setRemoteDescription(JSON.parse(d.payload));
-            } else if (d.type === "ice" && d.payload) {
-              const pc = pcsRef.current.get(d.from_uid);
-              if (pc) await pc.addIceCandidate(JSON.parse(d.payload));
-            } else if (d.type === "leave") {
-              const pc = pcsRef.current.get(d.from_uid);
-              pc?.close();
-              pcsRef.current.delete(d.from_uid);
-              setPeers((p) => p.filter((x) => x !== d.from_uid));
-              audioHostRef.current?.querySelector(`audio[data-uid="${d.from_uid}"]`)?.remove();
+          void (async () => {
+            try {
+              if (d.type === "join") {
+                const pc = ensurePc(d.from_uid);
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await postSignal({
+                  from_uid: user.uid,
+                  to_uid: d.from_uid,
+                  type: "offer",
+                  payload: JSON.stringify(offer),
+                });
+              } else if (d.type === "offer" && d.payload) {
+                const pc = ensurePc(d.from_uid);
+                await pc.setRemoteDescription(JSON.parse(d.payload));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                await postSignal({
+                  from_uid: user.uid,
+                  to_uid: d.from_uid,
+                  type: "answer",
+                  payload: JSON.stringify(answer),
+                });
+              } else if (d.type === "answer" && d.payload) {
+                const pc = pcsRef.current.get(d.from_uid) || ensurePc(d.from_uid);
+                await pc.setRemoteDescription(JSON.parse(d.payload));
+              } else if (d.type === "ice" && d.payload) {
+                const pc = pcsRef.current.get(d.from_uid);
+                if (pc) await pc.addIceCandidate(JSON.parse(d.payload));
+              } else if (d.type === "leave") {
+                const pc = pcsRef.current.get(d.from_uid);
+                pc?.close();
+                pcsRef.current.delete(d.from_uid);
+                setPeers((p) => p.filter((x) => x !== d.from_uid));
+                audioHostRef.current?.querySelector(`audio[data-uid="${d.from_uid}"]`)?.remove();
+              }
+            } catch (err) {
+              console.warn("huddle signal", err);
             }
-          } catch (err) {
-            console.warn("huddle signal", err);
-          }
-        })();
-      });
-    });
+          })();
+        });
+      },
+      (err) => {
+        setError(huddleErrorMessage(err));
+        cleanupLocal();
+      }
+    );
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [joined, user, huddleId, ensurePc, postSignal]);
+  }, [joined, user, huddleId, ensurePc, postSignal, cleanupLocal]);
 
   useEffect(() => {
     return () => {

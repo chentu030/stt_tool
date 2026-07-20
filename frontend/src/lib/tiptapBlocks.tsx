@@ -3,6 +3,7 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from "@tiptap/react";
 import React, { useEffect, useState } from "react";
+import MenuSelect from "@/components/MenuSelect";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -20,24 +21,30 @@ declare module "@tiptap/core" {
 }
 
 const TONES = ["info", "tip", "warn", "danger"] as const;
+const TONE_LABELS: Record<(typeof TONES)[number], string> = {
+  info: "資訊",
+  tip: "提示",
+  warn: "注意",
+  danger: "警告",
+};
 
 function CalloutView({ node, updateAttributes }: {
   node: { attrs: { tone: string } };
   updateAttributes: (a: Record<string, string>) => void;
 }) {
-  const tone = node.attrs.tone || "info";
+  const tone = (node.attrs.tone || "info") as (typeof TONES)[number];
   return (
     <NodeViewWrapper className={`rich-callout rich-callout--${tone}`} data-tone={tone} data-note-callout="1">
-      <select
-        className="rich-callout-tone"
-        contentEditable={false}
-        value={tone}
-        onChange={(e) => updateAttributes({ tone: e.target.value })}
-      >
-        {TONES.map((t) => (
-          <option key={t} value={t}>{t}</option>
-        ))}
-      </select>
+      <div className="rich-callout-tone" contentEditable={false}>
+        <MenuSelect
+          variant="ghost"
+          size="sm"
+          ariaLabel="提示類型"
+          value={tone}
+          options={TONES.map((t) => ({ value: t, label: TONE_LABELS[t] }))}
+          onChange={(t) => updateAttributes({ tone: t })}
+        />
+      </div>
       <NodeViewContent className="rich-callout-body" />
     </NodeViewWrapper>
   );

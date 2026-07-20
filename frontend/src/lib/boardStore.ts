@@ -30,23 +30,33 @@ function boardsCol(uid: string) {
   return collection(db, "users", uid, "boards");
 }
 
-export function listenBoards(uid: string, cb: (list: BoardConfig[]) => void): Unsubscribe {
-  return onSnapshot(boardsCol(uid), (snap) => {
-    const list = snap.docs.map((d) => {
-      const data = d.data();
-      return {
-        id: d.id,
-        name: (data.name as string) || "未命名看板",
-        folders: Array.isArray(data.folders) ? (data.folders as string[]) : [],
-        tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
-        statuses: Array.isArray(data.statuses) ? (data.statuses as BoardStatus[]) : [],
-        created_at: data.created_at?.toDate?.() || new Date(),
-        updated_at: data.updated_at?.toDate?.() || new Date(),
-      } satisfies BoardConfig;
-    });
-    list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
-    cb(list);
-  });
+export function listenBoards(
+  uid: string,
+  cb: (list: BoardConfig[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    boardsCol(uid),
+    (snap) => {
+      const list = snap.docs.map((d) => {
+        const data = d.data();
+        return {
+          id: d.id,
+          name: (data.name as string) || "未命名看板",
+          folders: Array.isArray(data.folders) ? (data.folders as string[]) : [],
+          tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
+          statuses: Array.isArray(data.statuses) ? (data.statuses as BoardStatus[]) : [],
+          created_at: data.created_at?.toDate?.() || new Date(),
+          updated_at: data.updated_at?.toDate?.() || new Date(),
+        } satisfies BoardConfig;
+      });
+      list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+      cb(list);
+    },
+    (err) => {
+      onError?.(err instanceof Error ? err : new Error(String(err)));
+    }
+  );
 }
 
 export async function createBoard(uid: string, name = "新看板"): Promise<string> {

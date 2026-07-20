@@ -129,6 +129,20 @@ function SettingsIcon() {
     </svg>
   );
 }
+function MenuIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+    </svg>
+  );
+}
+function CloseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const NAV_ICONS: Record<string, () => ReactNode> = {
   library: LibraryIcon,
@@ -172,6 +186,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     pathname.startsWith("/board");
   const isDoc = isImmersive;
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [teamUnread, setTeamUnread] = useState(0);
@@ -323,10 +338,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("mousedown", onOutside);
   }, [notifOpen]);
 
+  const closeNav = useCallback(() => setNavOpen(false), []);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
+
   const goToNotification = (n: TeamNotification) => {
     if (!user) return;
     void markNotificationRead(user.uid, n.id);
     setNotifOpen(false);
+    setNavOpen(false);
     const params = new URLSearchParams();
     if (n.channel_id) params.set("channel", n.channel_id);
     if (n.message_id) params.set("msg", n.message_id);
@@ -380,14 +411,161 @@ export default function AppShell({ children }: { children: ReactNode }) {
     />
   );
 
+  const renderAppsNav = (opts: { collapsed?: boolean; onNavigate?: () => void }) => {
+    const collapsed = Boolean(opts.collapsed);
+    const onNavigate = opts.onNavigate;
+    return (
+      <nav className={`sidebar-apps${collapsed ? " is-collapsed" : ""}`} aria-label="應用">
+        {NAV_APPS.map((item) => {
+          const Icon = NAV_ICONS[item.id] || LibraryIcon;
+          return item.href === "/team" ? (
+            <div key={item.href} className="sidebar-team-item-wrap" ref={notifWrapRef}>
+              <Link
+                href={item.href}
+                className={isActive(item.href) ? "is-on" : ""}
+                title={item.label}
+                onClick={onNavigate}
+              >
+                <Icon />
+                {!collapsed && <span>{item.label}</span>}
+              </Link>
+              {!collapsed && teamUnread + mentionUnread > 0 && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="sidebar-badge"
+                  title="通知"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setNotifOpen((o) => !o);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setNotifOpen((o) => !o);
+                    }
+                  }}
+                >
+                  {teamUnread + mentionUnread > 9 ? "9+" : teamUnread + mentionUnread}
+                </span>
+              )}
+              {notifOpen && (
+                <div className="tm-notif-panel">
+                  <div className="tm-notif-panel-head">
+                    <strong>通知</strong>
+                    {notifications.some((n) => !n.read) && (
+                      <button
+                        type="button"
+                        className="doc-cmd"
+                        onClick={() => user && void markAllNotificationsRead(user.uid, notifications)}
+                      >
+                        全部已讀
+                      </button>
+                    )}
+                  </div>
+                  <div className="tm-notif-panel-list">
+                    {notifications.filter((n) => !n.read).length === 0 ? (
+                      <p className="tm-sidebar-muted">沒有未讀通知。</p>
+                    ) : (
+                      notifications
+                        .filter((n) => !n.read)
+                        .map((n) => (
+                          <button
+                            key={n.id}
+                            type="button"
+                            className="tm-notif-item"
+                            onClick={() => goToNotification(n)}
+                          >
+                            <strong>{n.from_name || "某人"}</strong>
+                            <span>{n.text}</span>
+                          </button>
+                        ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={isActive(item.href) ? "is-on" : ""}
+              title={item.label}
+              onClick={onNavigate}
+            >
+              <Icon />
+              {!collapsed && <span>{item.label}</span>}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  };
+
+  const renderSidebarFooter = (opts: { collapsed?: boolean }) => {
+    const collapsed = Boolean(opts.collapsed);
+    return (
+      <div className="sidebar-footer">
+        {loading ? null : user ? (
+          <div className={`sidebar-user${collapsed ? " is-collapsed" : ""}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              className="sidebar-user-avatar"
+              src={user.photoURL || ""}
+              alt=""
+              referrerPolicy="no-referrer"
+              title={user.displayName || "使用者"}
+            />
+            {!collapsed && (
+              <div className="sidebar-user-meta">
+                <div className="sidebar-user-name">{user.displayName || "使用者"}</div>
+                <button type="button" className="sidebar-user-action" onClick={() => logout()}>
+                  登出
+                </button>
+              </div>
+            )}
+            <ThemeToggle />
+          </div>
+        ) : (
+          <div className="sidebar-user sidebar-user--guest">
+            {!collapsed && (
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ flex: 1 }}
+                onClick={() => loginWithGoogle()}
+              >
+                登入
+              </button>
+            )}
+            <ThemeToggle />
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (isMobile) {
     return (
-      <div className="mobile-shell">
+      <div className={`mobile-shell${navOpen ? " is-nav-open" : ""}`}>
         <header className="mobile-top">
-          <Link href={homeHref}>
-            <CadenceLogo height={24} />
-          </Link>
-          <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+          <div className="mobile-top-start">
+            <button
+              type="button"
+              className="mobile-menu-btn"
+              aria-label="開啟側邊欄"
+              aria-expanded={navOpen}
+              aria-controls="mobile-nav-drawer"
+              onClick={() => setNavOpen(true)}
+            >
+              <MenuIcon />
+            </button>
+            <Link href={homeHref} className="mobile-top-logo" onClick={closeNav}>
+              <CadenceLogo height={24} />
+            </Link>
+          </div>
+          <div className="mobile-top-actions">
             <button
               type="button"
               className="btn btn-sm btn-ghost"
@@ -412,6 +590,96 @@ export default function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
         </header>
+
+        <div
+          className={`mobile-nav-backdrop${navOpen ? " is-visible" : ""}`}
+          onClick={closeNav}
+          aria-hidden={!navOpen}
+        />
+        <aside
+          id="mobile-nav-drawer"
+          className={`mobile-nav-drawer${navOpen ? " is-open" : ""}`}
+          aria-hidden={!navOpen}
+          aria-label="導覽側邊欄"
+        >
+          <button
+            type="button"
+            className="mobile-nav-sheet-handle"
+            aria-label="關閉側邊欄"
+            onClick={closeNav}
+          />
+          <div className="sidebar-brand">
+            <Link href={homeHref} className="sidebar-brand-logo" onClick={closeNav}>
+              <CadenceLogo height={24} />
+            </Link>
+            <div className="sidebar-brand-links">
+              <button
+                type="button"
+                className="sidebar-icon-btn"
+                title="Cadence AI"
+                onClick={() => {
+                  toggleGlobalAiRail();
+                  closeNav();
+                }}
+              >
+                AI
+              </button>
+              <Link
+                href="/"
+                className={`sidebar-icon-btn${isActive("/") ? " is-on" : ""}`}
+                title="總覽"
+                onClick={closeNav}
+              >
+                <HomeIcon />
+              </Link>
+              <Link
+                href="/settings"
+                className={`sidebar-icon-btn${isActive("/settings") ? " is-on" : ""}`}
+                title="設定"
+                onClick={closeNav}
+              >
+                <SettingsIcon />
+              </Link>
+              <button
+                type="button"
+                className="sidebar-icon-btn"
+                title="關閉側邊欄"
+                aria-label="關閉側邊欄"
+                onClick={closeNav}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="sidebar-search"
+            onClick={() => {
+              setCmdOpen(true);
+              closeNav();
+            }}
+            title="搜尋"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+            <span>搜尋筆記、指令…</span>
+          </button>
+
+          {renderAppsNav({ onNavigate: closeNav })}
+
+          <div className="sidebar-tree-wrap" onClick={(e) => {
+            const t = e.target as HTMLElement;
+            if (t.closest("a")) closeNav();
+          }}>
+            <SidebarNotesTree />
+          </div>
+
+          {renderSidebarFooter({})}
+        </aside>
+
         <main className={`app-main${isDoc ? " app-main--doc" : ""}${isImmersive ? " app-main--immersive" : ""}`}>{children}</main>
         {!isImmersive && (
         <nav className="mobile-bottom">
@@ -538,85 +806,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </button>
         )}
 
-        <nav className={`sidebar-apps${sidebarCollapsed ? " is-collapsed" : ""}`} aria-label="應用">
-          {NAV_APPS.map((item) => {
-            const Icon = NAV_ICONS[item.id] || LibraryIcon;
-            return item.href === "/team" ? (
-              <div key={item.href} className="sidebar-team-item-wrap" ref={notifWrapRef}>
-                <Link href={item.href} className={isActive(item.href) ? "is-on" : ""} title={item.label}>
-                  <Icon />
-                  {!sidebarCollapsed && <span>{item.label}</span>}
-                </Link>
-                {!sidebarCollapsed && teamUnread + mentionUnread > 0 && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className="sidebar-badge"
-                    title="通知"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setNotifOpen((o) => !o);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setNotifOpen((o) => !o);
-                      }
-                    }}
-                  >
-                    {teamUnread + mentionUnread > 9 ? "9+" : teamUnread + mentionUnread}
-                  </span>
-                )}
-                {notifOpen && (
-                  <div className="tm-notif-panel">
-                    <div className="tm-notif-panel-head">
-                      <strong>通知</strong>
-                      {notifications.some((n) => !n.read) && (
-                        <button
-                          type="button"
-                          className="doc-cmd"
-                          onClick={() => user && void markAllNotificationsRead(user.uid, notifications)}
-                        >
-                          全部已讀
-                        </button>
-                      )}
-                    </div>
-                    <div className="tm-notif-panel-list">
-                      {notifications.filter((n) => !n.read).length === 0 ? (
-                        <p className="tm-sidebar-muted">沒有未讀通知。</p>
-                      ) : (
-                        notifications
-                          .filter((n) => !n.read)
-                          .map((n) => (
-                            <button
-                              key={n.id}
-                              type="button"
-                              className="tm-notif-item"
-                              onClick={() => goToNotification(n)}
-                            >
-                              <strong>{n.from_name || "某人"}</strong>
-                              <span>{n.text}</span>
-                            </button>
-                          ))
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={isActive(item.href) ? "is-on" : ""}
-                title={item.label}
-              >
-                <Icon />
-                {!sidebarCollapsed && <span>{item.label}</span>}
-              </Link>
-            );
-          })}
-        </nav>
+        {renderAppsNav({ collapsed: sidebarCollapsed })}
 
         {!sidebarCollapsed && (
           <div className="sidebar-tree-wrap">
@@ -624,43 +814,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
 
-        <div className="sidebar-footer">
-          {loading ? null : user ? (
-            <div className={`sidebar-user${sidebarCollapsed ? " is-collapsed" : ""}`}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                className="sidebar-user-avatar"
-                src={user.photoURL || ""}
-                alt=""
-                referrerPolicy="no-referrer"
-                title={user.displayName || "使用者"}
-              />
-              {!sidebarCollapsed && (
-                <div className="sidebar-user-meta">
-                  <div className="sidebar-user-name">{user.displayName || "使用者"}</div>
-                  <button type="button" className="sidebar-user-action" onClick={() => logout()}>
-                    登出
-                  </button>
-                </div>
-              )}
-              <ThemeToggle />
-            </div>
-          ) : (
-            <div className="sidebar-user sidebar-user--guest">
-              {!sidebarCollapsed && (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  style={{ flex: 1 }}
-                  onClick={() => loginWithGoogle()}
-                >
-                  登入
-                </button>
-              )}
-              <ThemeToggle />
-            </div>
-          )}
-        </div>
+        {renderSidebarFooter({ collapsed: sidebarCollapsed })}
 
         {!sidebarCollapsed && (
           <div

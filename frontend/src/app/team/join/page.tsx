@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -35,7 +37,7 @@ function JoinInner() {
     });
   }, [user, token, status, router]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
 
   if (!token) {
     return (
@@ -68,7 +70,7 @@ function JoinInner() {
 
 export default function TeamJoinPage() {
   return (
-    <Suspense fallback={<p style={{ color: "var(--text-muted)", padding: "2rem" }}>載入中…</p>}>
+    <Suspense fallback={<PageLoading />}>
       <JoinInner />
     </Suspense>
   );

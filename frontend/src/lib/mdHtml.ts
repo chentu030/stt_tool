@@ -1,6 +1,11 @@
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
+import {
+  decodeFormulaAttr,
+  encodeFormulaAttr,
+  normalizeLatexFormula,
+} from "@/lib/latexNormalize";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -67,7 +72,9 @@ turndown.addRule("mathInline", {
     node.nodeName === "SPAN" &&
     (node as HTMLElement).getAttribute("data-math-inline") === "1",
   replacement: (_c, node) => {
-    const f = (node as HTMLElement).getAttribute("data-formula") || "";
+    const f = normalizeLatexFormula(
+      decodeFormulaAttr((node as HTMLElement).getAttribute("data-formula") || "")
+    );
     return `$${f}$`;
   },
 });
@@ -77,7 +84,9 @@ turndown.addRule("mathBlock", {
     node.nodeName === "DIV" &&
     (node as HTMLElement).getAttribute("data-math-block") === "1",
   replacement: (_c, node) => {
-    const f = (node as HTMLElement).getAttribute("data-formula") || "";
+    const f = normalizeLatexFormula(
+      decodeFormulaAttr((node as HTMLElement).getAttribute("data-formula") || "")
+    );
     return `\n\n$$\n${f}\n$$\n\n`;
   },
 });
@@ -308,9 +317,15 @@ turndown.addRule("table", {
           } else if (child.nodeType === 1) {
             const he = child as HTMLElement;
             if (he.getAttribute("data-math-inline") === "1") {
-              inner += `$${he.getAttribute("data-formula") || ""}$`;
+              const f = normalizeLatexFormula(
+                decodeFormulaAttr(he.getAttribute("data-formula") || "")
+              );
+              inner += `$${f}$`;
             } else if (he.getAttribute("data-math-block") === "1") {
-              inner += `$$${he.getAttribute("data-formula") || ""}$$`;
+              const f = normalizeLatexFormula(
+                decodeFormulaAttr(he.getAttribute("data-formula") || "")
+              );
+              inner += `$$${f}$$`;
             } else {
               inner += he.textContent || "";
             }
@@ -355,22 +370,36 @@ export type WikiResolver = (title: string) => string | null;
 function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   let s = md;
 
-  // Protect code fences from math transforms
+  // Protect code fences / inline code from math transforms
   const fences: string[] = [];
   s = s.replace(/```[\s\S]*?```/g, (block) => {
     fences.push(block);
     return `@@FENCE${fences.length - 1}@@`;
   });
+  const inlines: string[] = [];
+  s = s.replace(/`[^`\n]+`/g, (block) => {
+    inlines.push(block);
+    return `@@INLINE${inlines.length - 1}@@`;
+  });
 
   s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, formula) => {
-    const f = String(formula).trim();
-    return `<div class="rich-math-block" data-math-block="1" data-formula="${escapeAttr(f)}"></div>`;
+    const f = normalizeLatexFormula(String(formula).trim());
+    return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(f)}"></div>`;
+  });
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, formula) => {
+    const f = normalizeLatexFormula(String(formula).trim());
+    return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(f)}"></div>`;
   });
 
   s = s.replace(/\$([^$\n]+?)\$/g, (_m, formula) => {
-    const f = String(formula).trim();
+    const f = normalizeLatexFormula(String(formula).trim());
     if (!f) return _m;
-    return `<span class="rich-math-inline" data-math-inline="1" data-formula="${escapeAttr(f)}"></span>`;
+    return `<span class="rich-math-inline" data-math-inline="1" data-formula="${encodeFormulaAttr(f)}"></span>`;
+  });
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_m, formula) => {
+    const f = normalizeLatexFormula(String(formula).trim());
+    if (!f) return _m;
+    return `<span class="rich-math-inline" data-math-inline="1" data-formula="${encodeFormulaAttr(f)}"></span>`;
   });
 
   s = s.replace(/!\[video(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, title, src) => {
@@ -482,6 +511,7 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<a class="rich-wiki is-missing" data-wiki="${escapeAttr(t)}" href="#">${label}</a>`;
   });
 
+  s = s.replace(/@@INLINE(\d+)@@/g, (_m, i) => inlines[Number(i)] || "");
   s = s.replace(/@@FENCE(\d+)@@/g, (_m, i) => fences[Number(i)] || "");
   return s;
 }
@@ -503,6 +533,25 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   );
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
   return marked.parse(withMedia, { async: false }) as string;
+}
+
+/** True when clipboard text has LaTeX delimiters worth converting on paste. */
+export function clipboardHasLatex(text: string): boolean {
+  const s = text || "";
+  if (!s.includes("$") && !s.includes("\\(") && !s.includes("\\[")) return false;
+  if (/\$\$[\s\S]+?\$\$/.test(s)) return true;
+  if (/\\\[[\s\S]+?\\\]/.test(s)) return true;
+  if (/\\\([\s\S]+?\\\)/.test(s)) return true;
+  // Inline $...$ — accept letter/command formulas; skip bare currency like $5
+  const inline = /\$([^$\n]{1,400})\$/g;
+  let m: RegExpExecArray | null;
+  while ((m = inline.exec(s))) {
+    const f = m[1].trim();
+    if (!f) continue;
+    if (/^[\d.,]+$/.test(f)) continue;
+    if (/[a-zA-Z\\_^{}=]/.test(f)) return true;
+  }
+  return false;
 }
 
 export function htmlToMarkdown(html: string): string {

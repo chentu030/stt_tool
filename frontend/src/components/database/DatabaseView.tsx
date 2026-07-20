@@ -17,6 +17,7 @@ import {
   type DbProperty,
   type DbView,
 } from "@/lib/database";
+import MenuSelect from "@/components/MenuSelect";
 
 type Props = {
   databaseId: string;
@@ -48,7 +49,17 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => listenDatabase(databaseId, setDb), [databaseId]);
+  useEffect(
+    () =>
+      listenDatabase(databaseId, setDb, (err) =>
+        setError(
+          /permission|insufficient|Missing/i.test(err.message)
+            ? "沒有權限讀取此資料庫"
+            : err.message || "無法載入資料庫"
+        )
+      ),
+    [databaseId]
+  );
   useEffect(() => listenDatabaseRows(userId, databaseId, setRows), [userId, databaseId]);
   useEffect(() => {
     if (viewId) setActiveViewId(viewId);
@@ -239,18 +250,18 @@ function PropertyCell({
   if (prop.type === "select" || prop.type === "status") {
     const opts = prop.options || [];
     return (
-      <select
+      <MenuSelect
+        variant="ghost"
+        size="sm"
         className="cdb-select"
+        ariaLabel={prop.name || "選擇"}
         value={String(raw || "")}
-        onChange={(e) => void setCellValue(row, prop, e.target.value || null)}
-      >
-        <option value="">—</option>
-        {opts.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+        options={[
+          { value: "", label: "—" },
+          ...opts.map((o) => ({ value: o.id, label: o.label })),
+        ]}
+        onChange={(v) => void setCellValue(row, prop, v || null)}
+      />
     );
   }
 

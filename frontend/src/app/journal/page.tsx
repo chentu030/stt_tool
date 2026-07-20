@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -33,7 +35,6 @@ import {
 } from "@/lib/journalMeta";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
-import ContinueChips, { journalContinueChips } from "@/components/shell/ContinueChips";
 import { askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 
@@ -338,7 +339,7 @@ export default function JournalPage() {
     return keys.map((k) => ({ dateKey: k, entry: byDate.get(k) }));
   }, [selected, byDate]);
 
-  if (loading) return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
       <div className="jn-page jn-guest">
@@ -390,11 +391,6 @@ export default function JournalPage() {
           </ShinyPill>
         </div>
       </header>
-
-      <ContinueChips
-        className="jn-continue"
-        chips={journalContinueChips({ noteId: selectedEntry?.id })}
-      />
 
       <div className="jn-layout">
         <div className="jn-left">

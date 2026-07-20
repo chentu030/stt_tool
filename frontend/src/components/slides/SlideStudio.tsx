@@ -21,6 +21,7 @@ import {
   isDeckStale,
   uid,
 } from "@/lib/slideDeck";
+import MenuSelect from "@/components/MenuSelect";
 
 export type SlideStudioActions = {
   idx: number;
@@ -596,14 +597,18 @@ function SelectedBlockProps({
       <p className="slide-props-label">文字區塊</p>
       <label className="slide-field">
         <span>對齊</span>
-        <select
-          value={block.align || "left"}
-          onChange={(e) => onChange({ align: e.target.value as SlideBlock["align"] })}
-        >
-          <option value="left">左</option>
-          <option value="center">中</option>
-          <option value="right">右</option>
-        </select>
+        <MenuSelect
+          variant="soft"
+          size="sm"
+          ariaLabel="文字對齊"
+          value={(block.align || "left") as string}
+          options={[
+            { value: "left", label: "左" },
+            { value: "center", label: "中" },
+            { value: "right", label: "右" },
+          ]}
+          onChange={(align) => onChange({ align: align as SlideBlock["align"] })}
+        />
       </label>
       <label className="slide-field">
         <span>大小</span>

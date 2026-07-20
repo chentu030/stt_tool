@@ -1,5 +1,7 @@
 "use client";
 
+import PageLoading from "@/components/motion/PageLoading";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
@@ -9,7 +11,6 @@ import LineRippleBackground from "@/components/motion/LineRippleBackground";
 import TypeWriter from "@/components/motion/TypeWriter";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
-import ContinueChips, { hubContinueChips } from "@/components/shell/ContinueChips";
 import { libraryJobsUrl } from "@/lib/navApps";
 
 export default function HomePage() {
@@ -25,7 +26,7 @@ export default function HomePage() {
   }, [user]);
 
   if (loading) {
-    return <p style={{ color: "var(--text-muted)" }}>載入中…</p>;
+    return <PageLoading />;
   }
 
   if (!user) {
@@ -98,8 +99,6 @@ export default function HomePage() {
           />
         </p>
       </motion.div>
-
-      <ContinueChips className="hub-continue" chips={hubContinueChips()} />
 
       <div className="grid-3" style={{ marginBottom: "1.25rem" }}>
         {[
