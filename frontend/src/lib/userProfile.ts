@@ -186,21 +186,22 @@ export async function saveUserProfile(user: User, input: SaveProfileInput): Prom
   const photo_path = input.photoPath !== undefined ? input.photoPath : prev?.photo_path || "";
 
   await runTransaction(db, async (tx) => {
-    if (username && username !== oldUsername) {
-      const claimRef = doc(db, "usernames", username);
-      const claimSnap = await tx.get(claimRef);
-      if (claimSnap.exists() && claimSnap.data()?.uid !== user.uid) {
-        throw new Error("此用戶名稱已被使用");
-      }
-      tx.set(claimRef, { uid: user.uid, updated_at: Timestamp.now() });
+    // Firestore requires all reads before any writes.
+    const claimRef = username && username !== oldUsername ? doc(db, "usernames", username) : null;
+    const oldRef = oldUsername && oldUsername !== username ? doc(db, "usernames", oldUsername) : null;
+
+    const claimSnap = claimRef ? await tx.get(claimRef) : null;
+    const oldSnap = oldRef ? await tx.get(oldRef) : null;
+
+    if (claimSnap?.exists() && claimSnap.data()?.uid !== user.uid) {
+      throw new Error("此用戶名稱已被使用");
     }
 
-    if (oldUsername && oldUsername !== username) {
-      const oldRef = doc(db, "usernames", oldUsername);
-      const oldSnap = await tx.get(oldRef);
-      if (oldSnap.exists() && oldSnap.data()?.uid === user.uid) {
-        tx.delete(oldRef);
-      }
+    if (claimRef) {
+      tx.set(claimRef, { uid: user.uid, updated_at: Timestamp.now() });
+    }
+    if (oldRef && oldSnap?.exists() && oldSnap.data()?.uid === user.uid) {
+      tx.delete(oldRef);
     }
 
     const payload = {
