@@ -11,8 +11,15 @@ import { createBoard } from "@/lib/boardStore";
 import { createCanvas } from "@/lib/canvasCloud";
 import { createGraph } from "@/lib/graphStore";
 import { createDatabase } from "@/lib/database";
+import type { ExtensionManifest } from "@/lib/community/types";
 
-export type NoteAppLinkType = "board" | "canvas" | "graph" | "database" | "web";
+export type NoteAppLinkType =
+  | "board"
+  | "canvas"
+  | "graph"
+  | "database"
+  | "web"
+  | "extension";
 
 export type NoteAppLink = {
   type: NoteAppLinkType;
@@ -26,7 +33,8 @@ export type WorkspacePageKind =
   | "database"
   | "canvas"
   | "graph"
-  | "web";
+  | "web"
+  | `ext:${string}`;
 
 export const WORKSPACE_PAGE_OPTIONS: {
   kind: WorkspacePageKind;
@@ -42,7 +50,7 @@ export const WORKSPACE_PAGE_OPTIONS: {
   { kind: "web", label: "網頁", icon: "language" },
 ];
 
-const APP_LINK_ICONS: Record<NoteAppLinkType, string> = {
+const APP_LINK_ICONS: Record<Exclude<NoteAppLinkType, "extension">, string> = {
   board: "view_kanban",
   database: "table_chart",
   canvas: "palette",
@@ -50,7 +58,7 @@ const APP_LINK_ICONS: Record<NoteAppLinkType, string> = {
   web: "language",
 };
 
-const APP_LINK_TITLES: Record<NoteAppLinkType, string> = {
+const APP_LINK_TITLES: Record<Exclude<NoteAppLinkType, "extension">, string> = {
   board: "未命名看板",
   database: "未命名資料庫",
   canvas: "未命名白板",
@@ -77,7 +85,8 @@ export function parseNoteAppLink(raw: unknown): NoteAppLink | null {
     type === "canvas" ||
     type === "graph" ||
     type === "database" ||
-    type === "web"
+    type === "web" ||
+    type === "extension"
   ) {
     return { type, id };
   }
@@ -105,6 +114,7 @@ export function noteAppEmbedHref(
     case "database":
       return `/db/${link.id}${q}`;
     case "web":
+    case "extension":
       return null;
     default:
       return null;
@@ -129,6 +139,20 @@ export function webUrlFromNote(note: Pick<Note, "props" | "app_link">): string {
   return "";
 }
 
+export function extensionEntryFromNote(note: Pick<Note, "props">): string {
+  const props = note.props || {};
+  return typeof props.extension_entry === "string" ? props.extension_entry.trim() : "";
+}
+
+export function extensionIdFromNote(note: Pick<Note, "props" | "app_link">): string {
+  const props = note.props || {};
+  if (typeof props.extension_id === "string" && props.extension_id.trim()) {
+    return props.extension_id.trim();
+  }
+  if (note.app_link?.type === "extension") return note.app_link.id;
+  return "";
+}
+
 export async function findNoteIdByAppLink(
   uid: string,
   type: NoteAppLinkType,
@@ -145,7 +169,7 @@ export async function findNoteIdByAppLink(
 /** Ensure an orphan specialty resource has a note shell; returns note id. */
 export async function ensureNoteForAppLink(
   uid: string,
-  type: Exclude<NoteAppLinkType, "web">,
+  type: Exclude<NoteAppLinkType, "web" | "extension">,
   appId: string,
   title?: string
 ): Promise<string> {
@@ -158,6 +182,34 @@ export async function ensureNoteForAppLink(
   });
 }
 
+export async function createExtensionWorkspacePage(
+  uid: string,
+  ext: ExtensionManifest,
+  opts?: {
+    folder?: string;
+    parentId?: string;
+    tags?: string[];
+    status?: Note["status"];
+  }
+): Promise<{ noteId: string; href: string }> {
+  const folder = opts?.parentId ? "" : opts?.folder || "";
+  const parentId = opts?.parentId || "";
+  const title = ext.pageType.createLabel || ext.name;
+  const noteId = await createNote(uid, title, "", undefined, opts?.tags || [], {
+    folder,
+    status: opts?.status || "backlog",
+    parent_id: parentId,
+    icon: ext.icon || "extension",
+    props: {
+      extension_id: ext.id,
+      extension_entry: ext.pageType.entry,
+      extension_name: ext.name,
+    },
+    app_link: { type: "extension", id: ext.id },
+  });
+  return { noteId, href: noteOpenHref({ id: noteId }) };
+}
+
 export async function createWorkspacePage(
   uid: string,
   kind: WorkspacePageKind,
@@ -166,14 +218,20 @@ export async function createWorkspacePage(
     parentId?: string;
     tags?: string[];
     status?: Note["status"];
-    /** Initial URL when kind === "web" */
     webUrl?: string;
+    extension?: ExtensionManifest;
   }
 ): Promise<{ noteId: string; href: string }> {
   const folder = opts?.parentId ? "" : opts?.folder || "";
   const parentId = opts?.parentId || "";
   const tags = opts?.tags || [];
   const status = opts?.status || "backlog";
+
+  if (typeof kind === "string" && kind.startsWith("ext:")) {
+    const ext = opts?.extension;
+    if (!ext) throw new Error("缺少擴充套件資訊");
+    return createExtensionWorkspacePage(uid, ext, { folder, parentId, tags, status });
+  }
 
   if (kind === "note") {
     const noteId = await createNote(uid, "未命名筆記", "", undefined, tags, {

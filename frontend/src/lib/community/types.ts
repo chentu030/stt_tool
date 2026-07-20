@@ -1,0 +1,101 @@
+/** Community store: extension + template package schemas */
+
+export const ALBIREUS_MANIFEST = "albireus.json";
+
+export type CommunityPackageKind = "extension" | "template";
+
+export type ExtensionPageType = {
+  type: "iframe";
+  /** HTTPS entry URL for sandboxed iframe */
+  entry: string;
+  createLabel?: string;
+};
+
+export type ExtensionManifest = {
+  schema: 1;
+  kind: "extension";
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  authorUrl?: string;
+  icon?: string;
+  cover?: string;
+  minAppVersion?: string;
+  nav?: { label?: string; order?: number };
+  pageType: ExtensionPageType;
+};
+
+export type TemplatePageDef = {
+  title: string;
+  file?: string;
+  body?: string;
+  icon?: string;
+  tags?: string[];
+  folder?: string;
+};
+
+export type TemplateManifest = {
+  schema: 1;
+  kind: "template";
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  authorUrl?: string;
+  icon?: string;
+  cover?: string;
+  minAppVersion?: string;
+  pages: TemplatePageDef[];
+};
+
+export type CommunityManifest = ExtensionManifest | TemplateManifest;
+
+export type CatalogEntry = {
+  id: string;
+  kind: CommunityPackageKind;
+  name: string;
+  description: string;
+  author: string;
+  icon?: string;
+  cover?: string;
+  /** GitHub owner/repo or https URL to albireus.json / zip */
+  source: string;
+  tags?: string[];
+  featured?: boolean;
+};
+
+export type InstalledExtension = {
+  id: string;
+  manifest: ExtensionManifest;
+  enabled: boolean;
+  source: string;
+  sourceKind: "github" | "file" | "catalog";
+  installedAt: number;
+  updatedAt: number;
+  /** Optional bundled readme */
+  readme?: string;
+};
+
+export type InstalledTemplate = {
+  id: string;
+  manifest: TemplateManifest;
+  /** Resolved page bodies keyed by index or file name */
+  files: Record<string, string>;
+  enabled: boolean;
+  source: string;
+  sourceKind: "github" | "file" | "catalog";
+  installedAt: number;
+  updatedAt: number;
+  readme?: string;
+};
+
+export type ResolvedPackage = {
+  manifest: CommunityManifest;
+  files: Record<string, string>;
+  readme?: string;
+  source: string;
+  sourceKind: "github" | "file" | "catalog";
+};

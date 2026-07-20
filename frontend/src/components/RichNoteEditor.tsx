@@ -4,7 +4,7 @@ import PageLoading from "@/components/motion/PageLoading";
 
 import { askPrompt } from "@/lib/dialogs";
 
-import { useEffect, useRef, useState, useCallback, useLayoutEffect, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { HexColorPicker } from "react-colorful";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
@@ -46,6 +46,8 @@ import {
   TemplateBtn,
 } from "@/lib/tiptapBlocks";
 import { NOTE_TEMPLATES } from "@/lib/templates";
+import { allNoteTemplates } from "@/lib/community/templateBridge";
+import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import { CADENCE_AI_ACTIONS, AI_SLASH_ALIASES } from "@/lib/cadenceAiActions";
 import { resolveEmbedUrl, promptInsertUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
@@ -254,6 +256,11 @@ export default function RichNoteEditor({
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const { user, displayName } = useAuth();
+  const community = useCommunityOptional();
+  const templateList = useMemo(
+    () => allNoteTemplates(community?.enabledTemplates),
+    [community?.enabledTemplates]
+  );
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
   const slashEnabled = !readOnly && prefsCtx?.prefs.slashMenu !== false;
   const skip = useRef(false);
@@ -954,12 +961,15 @@ export default function RichNoteEditor({
         hint: "/template 一鍵插入範本",
         run: (e) => {
           void (async () => {
-            const choices = NOTE_TEMPLATES.filter((t) => t.id !== "blank")
+            const choices = templateList
+              .filter((t) => t.id !== "blank")
               .map((t) => `${t.id}=${t.label}`)
               .join("、");
             const id = await askPrompt(`範本 id（${choices}）`, "meeting");
             if (!id?.trim()) return;
-            const t = NOTE_TEMPLATES.find((x) => x.id === id.trim()) || NOTE_TEMPLATES.find((x) => x.id === "meeting")!;
+            const t =
+              templateList.find((x) => x.id === id.trim()) ||
+              templateList.find((x) => x.id === "meeting")!;
             e.chain()
               .focus()
               .setTemplateBtn({ templateId: t.id, label: `插入「${t.label}」` })
@@ -1082,7 +1092,7 @@ export default function RichNoteEditor({
       }
     );
     return items;
-  }, [insertEmbedFromPrompt]);
+  }, [insertEmbedFromPrompt, templateList, userId]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -1657,7 +1667,7 @@ export default function RichNoteEditor({
   useEffect(() => {
     const onTpl = (ev: Event) => {
       const detail = (ev as CustomEvent<{ templateId?: string }>).detail;
-      const t = NOTE_TEMPLATES.find((x) => x.id === detail?.templateId);
+      const t = templateList.find((x) => x.id === detail?.templateId);
       if (!t?.body || !editorRef.current) return;
       const html = markdownToHtml(t.body, (title) => resolveWikiRef.current(title));
       editorRef.current.chain().focus().insertContent(html).run();
@@ -1968,14 +1978,10 @@ export default function RichNoteEditor({
           <div className="empty-templates">
             <p className="empty-templates-label">從範本開始</p>
             <div className="empty-templates-grid">
-              {[
-                { id: "blank", label: "空白" },
-                { id: "meeting", label: "會議" },
-                { id: "lecture", label: "課堂" },
-                { id: "interview", label: "訪談" },
-                { id: "daily", label: "日誌" },
-                { id: "ppt", label: "簡報大綱" },
-              ].map((t) => (
+              {templateList
+                .filter((t) => t.id !== "blank")
+                .slice(0, 10)
+                .map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -1986,6 +1992,15 @@ export default function RichNoteEditor({
                   {t.label}
                 </button>
               ))}
+              <button
+                key="blank"
+                type="button"
+                className="empty-template-btn"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onEmptyTemplate("blank")}
+              >
+                空白
+              </button>
             </div>
           </div>
         )}

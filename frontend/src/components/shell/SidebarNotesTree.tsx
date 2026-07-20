@@ -28,6 +28,7 @@ import {
   type WorkspacePageKind,
 } from "@/lib/workspacePages";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import IconColorPicker from "@/components/IconColorPicker";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { parseDefaultTags, toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
@@ -109,6 +110,7 @@ export default function SidebarNotesTree() {
   const { user } = useAuth();
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
+  const community = useCommunityOptional();
   const pathname = usePathname();
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -128,6 +130,19 @@ export default function SidebarNotesTree() {
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
   const [hintDismissed, setHintDismissed] = useState(true);
+
+  const pageOptions = useMemo(() => {
+    const extras = (community?.enabledExtensions || []).map((ext) => ({
+      kind: `ext:${ext.id}` as WorkspacePageKind,
+      label: ext.manifest.pageType.createLabel || ext.manifest.name,
+      icon: ext.manifest.icon || "extension",
+      extension: ext.manifest,
+    }));
+    return [
+      ...WORKSPACE_PAGE_OPTIONS.map((o) => ({ ...o, extension: undefined as undefined })),
+      ...extras,
+    ];
+  }, [community?.enabledExtensions]);
 
   const folderStyles = prefs?.folderStyles || {};
 
@@ -334,7 +349,8 @@ export default function SidebarNotesTree() {
   const createPage = async (
     kind: WorkspacePageKind,
     folderPath?: string,
-    parentId?: string
+    parentId?: string,
+    extension?: import("@/lib/community/types").ExtensionManifest
   ) => {
     if (!user || creating) return;
     setCreating(true);
@@ -362,6 +378,7 @@ export default function SidebarNotesTree() {
         tags,
         status: prefs?.defaultStatus || "backlog",
         webUrl,
+        extension,
       });
       prefsCtx?.setPrefs((p) => touchRecentId(p, noteId));
       router.push(href);
@@ -1469,7 +1486,7 @@ export default function SidebarNotesTree() {
               style={{ left: createMenu.x, top: createMenu.y }}
               onMouseDown={(e) => e.stopPropagation()}
             >
-              {WORKSPACE_PAGE_OPTIONS.map((opt) => (
+              {pageOptions.map((opt) => (
                 <button
                   key={opt.kind}
                   type="button"
@@ -1479,7 +1496,8 @@ export default function SidebarNotesTree() {
                     void createPage(
                       opt.kind,
                       createMenu.folder,
-                      undefined
+                      undefined,
+                      opt.extension
                     )
                   }
                 >
@@ -1487,6 +1505,17 @@ export default function SidebarNotesTree() {
                   <span>{opt.label}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setCreateMenu(null);
+                  router.push("/community");
+                }}
+              >
+                <PageChromeIcon icon="storefront" fallback="storefront" />
+                <span>社群商店…</span>
+              </button>
             </div>,
             document.body
           )

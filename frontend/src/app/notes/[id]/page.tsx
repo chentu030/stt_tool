@@ -78,6 +78,8 @@ import { findCadenceAiAction } from "@/lib/cadenceAiActions";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
 import { NOTE_TEMPLATES } from "@/lib/templates";
+import { allNoteTemplates } from "@/lib/community/templateBridge";
+import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import { splitFolderPath } from "@/lib/noteTree";
 import { FocusModeProvider, useFocusMode } from "@/components/notes/FocusModeProvider";
 import NotePresence from "@/components/notes/NotePresence";
@@ -111,6 +113,11 @@ function NotePageInner() {
   const splitId = tabs?.splitId || searchParams.get("split") || null;
   const { user, loading } = useAuth();
   const prefsCtx = usePrefsOptional();
+  const community = useCommunityOptional();
+  const noteTemplates = useMemo(
+    () => allNoteTemplates(community?.enabledTemplates),
+    [community?.enabledTemplates]
+  );
   const [note, setNote] = useState<Note | null>(null);
   const [allNotes, setAllNotes] = useState<Note[]>([]);
   const [title, setTitle] = useState("");
@@ -1642,7 +1649,7 @@ function NotePageInner() {
               }}
               showEmptyTemplates
               onEmptyTemplate={(tid) => {
-                const tpl = NOTE_TEMPLATES.find((t) => t.id === tid);
+                const tpl = noteTemplates.find((t) => t.id === tid) || NOTE_TEMPLATES.find((t) => t.id === tid);
                 if (!tpl) return;
                 if (tpl.title && !title.trim()) setTitle(tpl.title);
                 setBody(tpl.body);

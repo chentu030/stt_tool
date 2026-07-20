@@ -7,6 +7,7 @@ import DialogProvider from "@/components/DialogProvider";
 import ToastProvider from "@/components/ToastProvider";
 import AppShell from "@/components/shell/AppShell";
 import AccessGate from "@/components/AccessGate";
+import { CommunityProvider } from "@/components/community/CommunityProvider";
 
 export const metadata: Metadata = {
   title: "Albireus — 把說話寫成知識",
@@ -67,7 +68,9 @@ export default function RootLayout({
             <DialogProvider>
               <ToastProvider>
                 <AccessGate>
-                  <AppShell>{children}</AppShell>
+                  <CommunityProvider>
+                    <AppShell>{children}</AppShell>
+                  </CommunityProvider>
                 </AccessGate>
               </ToastProvider>
             </DialogProvider>

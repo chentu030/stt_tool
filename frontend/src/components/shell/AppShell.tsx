@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as REPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -24,7 +24,9 @@ import {
   type Channel,
   type TeamNotification,
 } from "@/lib/teamStore";
-import { NAV_APPS, MOBILE_BOTTOM } from "@/lib/navApps";
+import { NAV_APPS, MOBILE_BOTTOM, type NavAppDef } from "@/lib/navApps";
+import { useCommunityOptional } from "@/components/community/CommunityProvider";
+import PageChromeIcon from "@/components/PageChromeIcon";
 import {
   SIDEBAR_COLLAPSED_W,
   SIDEBAR_MAX,
@@ -147,6 +149,16 @@ function CloseIcon() {
   );
 }
 
+function CommunityIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+      <path d="M5 19h14" strokeLinecap="round" />
+      <path d="M8 16v3M16 16v3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const NAV_ICONS: Record<string, () => ReactNode> = {
   library: LibraryIcon,
   journal: JournalIcon,
@@ -157,6 +169,7 @@ const NAV_ICONS: Record<string, () => ReactNode> = {
   graph: GraphIcon,
   team: TeamIcon,
   research: ResearchIcon,
+  community: CommunityIcon,
   settings: SettingsIcon,
 };
 
@@ -179,9 +192,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, displayName, username, photoURL } = useAuth();
+  const community = useCommunityOptional();
   const prefsCtx = usePrefsOptional();
   const homeHref = prefsCtx?.prefs.homePage || "/";
   const isMobile = useIsMobile();
+  const navApps = useMemo(() => {
+    const extras: NavAppDef[] = (community?.enabledExtensions || []).map((ext) => ({
+      id: `ext:${ext.id}`,
+      href: `/ext/${ext.id}`,
+      label: ext.manifest.nav?.label || ext.manifest.name,
+      icon: ext.manifest.icon || "extension",
+      source: "extension" as const,
+    }));
+    // Keep 社群 near the end but before nothing — insert extras before community
+    const builtins = NAV_APPS.filter((a) => a.id !== "community");
+    const communityApp = NAV_APPS.find((a) => a.id === "community");
+    return [...builtins, ...extras, ...(communityApp ? [communityApp] : [])];
+  }, [community?.enabledExtensions]);
   const isImmersive =
     pathname.startsWith("/notes/") ||
     pathname.startsWith("/canvas") ||
@@ -463,8 +490,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
         className={`sidebar-apps${rail ? " is-collapsed" : ""}${!rail && iconsOnly ? " is-icons" : ""}`}
         aria-label="應用"
       >
-        {NAV_APPS.map((item) => {
-          const Icon = NAV_ICONS[item.id] || LibraryIcon;
+        {navApps.map((item) => {
+          const BuiltinIcon = NAV_ICONS[item.id] || LibraryIcon;
+          const iconNode =
+            item.source === "extension" && item.icon ? (
+              <PageChromeIcon icon={item.icon} fallback="extension" className="sidebar-app-ms-icon" />
+            ) : (
+              <BuiltinIcon />
+            );
           return item.href === "/team" ? (
             <div key={item.href} className="sidebar-team-item-wrap" ref={notifWrapRef}>
               <Link
@@ -473,7 +506,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 title={item.label}
                 onClick={onNavigate}
               >
-                <Icon />
+                {iconNode}
                 {!iconsOnly && <span>{item.label}</span>}
               </Link>
               {!iconsOnly && teamUnread + mentionUnread > 0 && (
@@ -541,7 +574,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               title={item.label}
               onClick={onNavigate}
             >
-              <Icon />
+              {iconNode}
               {!iconsOnly && <span>{item.label}</span>}
             </Link>
           );

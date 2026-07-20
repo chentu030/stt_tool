@@ -331,7 +331,7 @@ export interface Note {
   };
   /** Link to a separate app resource (board / canvas / graph / database) */
   app_link?: {
-    type: "board" | "canvas" | "graph" | "database" | "web";
+    type: "board" | "canvas" | "graph" | "database" | "web" | "extension";
     id: string;
   };
   created_at: Date;

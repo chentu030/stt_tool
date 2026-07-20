@@ -10,7 +10,7 @@ import {
 
 /** When not iframe-embedded, send specialty routes to their note shell. */
 export function useRedirectSpecialtyToNote(
-  type: Exclude<NoteAppLinkType, "web">,
+  type: Exclude<NoteAppLinkType, "web" | "extension">,
   appId: string | undefined,
   title?: string
 ) {

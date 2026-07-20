@@ -9,24 +9,30 @@ export type NavAppId =
   | "canvas"
   | "graph"
   | "team"
-  | "research";
+  | "research"
+  | "community";
 
 export type NavAppDef = {
-  id: NavAppId;
+  id: string;
   href: string;
   label: string;
+  /** Material icon name for community extensions */
+  icon?: string;
+  /** Built-in vs community extension */
+  source?: "builtin" | "extension";
 };
 
 export const NAV_APPS: NavAppDef[] = [
-  { id: "library", href: "/library", label: "知識庫" },
-  { id: "journal", href: "/journal", label: "日誌" },
-  { id: "capture", href: "/capture", label: "捕捉" },
-  { id: "board", href: "/board", label: "看板" },
-  { id: "db", href: "/db", label: "資料庫" },
-  { id: "canvas", href: "/canvas", label: "白板" },
-  { id: "graph", href: "/graph", label: "圖譜" },
-  { id: "team", href: "/team", label: "團隊" },
-  { id: "research", href: "/research", label: "研究" },
+  { id: "library", href: "/library", label: "知識庫", source: "builtin" },
+  { id: "journal", href: "/journal", label: "日誌", source: "builtin" },
+  { id: "capture", href: "/capture", label: "捕捉", source: "builtin" },
+  { id: "board", href: "/board", label: "看板", source: "builtin" },
+  { id: "db", href: "/db", label: "資料庫", source: "builtin" },
+  { id: "canvas", href: "/canvas", label: "白板", source: "builtin" },
+  { id: "graph", href: "/graph", label: "圖譜", source: "builtin" },
+  { id: "team", href: "/team", label: "團隊", source: "builtin" },
+  { id: "research", href: "/research", label: "研究", source: "builtin" },
+  { id: "community", href: "/community", label: "社群", source: "builtin" },
 ];
 
 /** Mobile bottom bar (capture is center FAB). */

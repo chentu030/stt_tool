@@ -1,0 +1,46 @@
+[
+  {
+    "id": "web-browser-pack",
+    "kind": "extension",
+    "name": "快速瀏覽頁",
+    "description": "示範擴充：以 iframe 開啟自訂首頁，安裝後會出現在側欄「頁面」。",
+    "author": "Albireus",
+    "icon": "language",
+    "source": "builtin:web-browser-pack",
+    "tags": ["示範", "瀏覽器"],
+    "featured": true
+  },
+  {
+    "id": "meeting-os",
+    "kind": "template",
+    "name": "會議作業系統",
+    "description": "Notion 風格會議套件：議程、決議、待辦與追蹤頁。",
+    "author": "Albireus",
+    "icon": "groups",
+    "source": "builtin:meeting-os",
+    "tags": ["會議", "示範"],
+    "featured": true
+  },
+  {
+    "id": "research-lab",
+    "kind": "template",
+    "name": "研究實驗室",
+    "description": "研究計畫模板：假設、實驗紀錄、文獻與結論。",
+    "author": "Albireus",
+    "icon": "science",
+    "source": "builtin:research-lab",
+    "tags": ["研究", "示範"],
+    "featured": true
+  },
+  {
+    "id": "weekly-review",
+    "kind": "template",
+    "name": "週回顧",
+    "description": "一週回顧模板：成就、挑戰、下週重點。",
+    "author": "Albireus",
+    "icon": "event_repeat",
+    "source": "builtin:weekly-review",
+    "tags": ["日誌", "示範"],
+    "featured": false
+  }
+]

@@ -16,6 +16,8 @@ import {
 import { usePrefs } from "@/components/PrefsProvider";
 import { touchRecentId } from "@/lib/userPrefs";
 import { toast } from "@/lib/toast";
+import { useCommunityOptional } from "@/components/community/CommunityProvider";
+import type { ExtensionManifest } from "@/lib/community/types";
 
 function parseDefaultTags(raw: string): string[] {
   return raw
@@ -30,10 +32,24 @@ export default function NoteTabsBar() {
   const prefsCtx = usePrefs();
   const prefs = prefsCtx?.prefs;
   const { openIds, activeId, splitId, activate, close, setSplit, toggleSplitWith } = useNoteTabs();
+  const community = useCommunityOptional();
   const [notes, setNotes] = useState<Note[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  const pageOptions = useMemo(() => {
+    const extras = (community?.enabledExtensions || []).map((ext) => ({
+      kind: `ext:${ext.id}` as WorkspacePageKind,
+      label: ext.manifest.pageType.createLabel || ext.manifest.name,
+      icon: ext.manifest.icon || "extension",
+      extension: ext.manifest,
+    }));
+    return [
+      ...WORKSPACE_PAGE_OPTIONS.map((o) => ({ ...o, extension: undefined as undefined })),
+      ...extras,
+    ];
+  }, [community?.enabledExtensions]);
 
   useEffect(() => {
     if (!user) return;
@@ -46,7 +62,10 @@ export default function NoteTabsBar() {
     return m;
   }, [notes]);
 
-  const createPage = async (kind: WorkspacePageKind) => {
+  const createPage = async (
+    kind: WorkspacePageKind,
+    extension?: ExtensionManifest
+  ) => {
     if (!user || creating) return;
     setCreating(true);
     setCreateOpen(false);
@@ -67,6 +86,7 @@ export default function NoteTabsBar() {
         tags: parseDefaultTags(prefs?.defaultTags || ""),
         status: prefs?.defaultStatus || "backlog",
         webUrl,
+        extension,
       });
       prefsCtx?.setPrefs((p) => touchRecentId(p, noteId));
       router.push(href);
@@ -157,12 +177,12 @@ export default function NoteTabsBar() {
           </button>
           {createOpen && (
             <div className="note-tabs-menu note-tabs-create-menu">
-              {WORKSPACE_PAGE_OPTIONS.map((opt) => (
+              {pageOptions.map((opt) => (
                 <button
                   key={opt.kind}
                   type="button"
                   disabled={creating}
-                  onClick={() => void createPage(opt.kind)}
+                  onClick={() => void createPage(opt.kind, opt.extension)}
                 >
                   <span className="note-tabs-menu-row">
                     <PageChromeIcon icon={opt.icon} fallback={opt.icon} className="note-tab-icon" />

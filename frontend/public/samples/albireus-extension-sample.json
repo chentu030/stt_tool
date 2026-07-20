@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "kind": "extension",
+  "id": "sample-iframe-docs",
+  "name": "文件瀏覽示範",
+  "version": "1.0.0",
+  "description": "從本機 JSON 匯入的示範擴充：iframe 開啟 MDN。",
+  "author": "Albireus",
+  "icon": "menu_book",
+  "nav": { "label": "MDN", "order": 90 },
+  "pageType": {
+    "type": "iframe",
+    "entry": "https://developer.mozilla.org/",
+    "createLabel": "新 MDN 頁"
+  }
+}

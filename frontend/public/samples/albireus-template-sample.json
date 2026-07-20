@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "kind": "template",
+  "id": "sample-standup",
+  "name": "Standup 紀錄",
+  "version": "1.0.0",
+  "description": "單檔 JSON 模板示範（頁面 body 內嵌）。",
+  "author": "Albireus",
+  "icon": "campaign",
+  "pages": [
+    {
+      "title": "Standup",
+      "icon": "campaign",
+      "tags": ["standup"],
+      "folder": "日誌",
+      "body": "## 昨天\n- \n\n## 今天\n- \n\n## 阻礙\n- \n"
+    }
+  ]
+}

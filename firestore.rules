@@ -165,6 +165,14 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    match /users/{uid}/community_extensions/{extId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/community_templates/{tplId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     // ─── Team Space ─────────────────────────────────────────
     function isTeamMember(teamId) {
       return signedIn()
