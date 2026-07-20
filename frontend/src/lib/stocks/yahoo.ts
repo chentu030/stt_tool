@@ -14,8 +14,11 @@ export function normalizeSymbol(raw: string): string {
 export async function yahooFetch(url: string, revalidate = 20): Promise<Response> {
   return fetch(url, {
     headers: {
-      Accept: "application/json",
+      Accept: "application/json,text/plain,*/*",
+      "Accept-Language": "en-US,en;q=0.9,zh-TW;q=0.8",
       "User-Agent": UA,
+      Referer: "https://finance.yahoo.com/",
+      Origin: "https://finance.yahoo.com",
     },
     next: { revalidate },
   });

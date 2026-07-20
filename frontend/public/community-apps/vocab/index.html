@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>背單字 · Albireus</title>
+  <meta name="theme-color" content="#0f766e" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="loginGate" class="login-gate">
+    <div class="login-gate-card">
+      <span class="logo">單</span>
+      <h1>快速背單字</h1>
+      <p>請先登入，你的單字清單會與帳號綁定並跨裝置同步。</p>
+      <button id="gateLoginBtn" class="btn primary gate-btn">使用 Google 登入</button>
+      <p id="gateStatus" class="gate-status"></p>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">單</span>
+      <h1>快速背單字</h1>
+    </div>
+    <nav class="nav">
+      <button class="nav-btn active" data-view="deck">詞庫</button>
+      <button class="nav-btn" data-view="add">新增單字</button>
+      <button class="nav-btn" data-view="batch">批次</button>
+      <button class="nav-btn" data-view="study">背誦</button>
+      <button class="nav-btn" data-view="reader">閱讀</button>
+      <button class="nav-btn" data-view="listen">聽力</button>
+      <button class="nav-btn" data-view="settings">設定</button>
+    </nav>
+    <div id="langSwitch" class="lang-switch" title="切換學習語言（各語言資料分開）"></div>
+    <span id="cloudStatus" class="cloud-status" title="雲端同步狀態"></span>
+    <button id="loginBtn" class="login-btn" title="以 Google 登入">登入</button>
+    <button id="themeToggle" class="theme-toggle" title="切換深色 / 白色主題">
+      <span class="theme-icon">🌙</span>
+    </button>
+  </header>
+
+  <main class="container">
+
+    <!-- ===================== 詞庫 ===================== -->
+    <section id="view-deck" class="view active">
+      <div class="deck-header">
+        <div id="dailyPanel" class="daily-panel"></div>
+        <div class="stat-cards">
+          <div class="stat-card">
+            <span class="stat-num" id="statTotal">0</span>
+            <span class="stat-label">總單字</span>
+          </div>
+          <div class="stat-card accent">
+            <span class="stat-num" id="statDue">0</span>
+            <span class="stat-label">今日待複習</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" id="statNew">0</span>
+            <span class="stat-label">尚未學習</span>
+          </div>
+        </div>
+        <div class="deck-actions">
+          <input type="search" id="deckSearch" placeholder="搜尋單字…" />
+          <select id="deckFolder" class="deck-select" title="資料夾"></select>
+          <select id="deckSort" class="deck-select" title="排序">
+            <option value="created_desc">建立：新→舊</option>
+            <option value="created_asc">建立：舊→新</option>
+            <option value="alpha">字母 A→Z</option>
+          </select>
+          <button class="btn ghost" id="newFolderBtn">＋ 資料夾</button>
+          <button class="btn ghost" id="renameFolderBtn" title="重新命名目前選取的資料夾">✏️ 改名</button>
+          <button class="btn ghost" id="starFilterBtn" title="只看星號單字">⭐ 星號</button>
+          <button class="btn ghost" id="selectModeBtn">☑ 選取</button>
+        </div>
+      </div>
+      <div id="selectBar" class="select-bar" hidden>
+        <div id="selectControls" class="select-controls" hidden>
+          <label class="sb-all"><input type="checkbox" id="selectAll" /> 全選</label>
+          <span id="selectCount" class="sb-count">已選 0</span>
+          <select id="moveFolder" class="deck-select" title="移動到資料夾"><option value="">移動到…</option></select>
+          <button class="btn ghost" id="selectCancelBtn">取消</button>
+        </div>
+      </div>
+      <div id="deckList" class="deck-list"></div>
+      <div id="deckEmpty" class="empty-state">
+        <p class="empty-title">詞庫是空的</p>
+        <p class="empty-sub">切到「新增單字」貼上歐路詞典內容，讓 Gemini 幫你整理。</p>
+        <button class="btn primary" data-view="add">＋ 新增第一個單字</button>
+      </div>
+    </section>
+
+    <!-- ===================== 新增單字 ===================== -->
+    <section id="view-add" class="view">
+      <div class="add-grid">
+        <div class="add-input-col">
+          <h2>新增單字</h2>
+          <label class="field">
+            <span class="field-label">單字 <em>*</em></span>
+            <input type="text" id="wordInput" placeholder="例如：concur" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">貼上歐路詞典搜尋結果（可留空＝自動抓線上詞典）</span>
+            <textarea id="rawInput" rows="14" placeholder="可整段貼上歐路／劍橋／柯林斯內容。若留空，會自動去劍橋、柯林斯、朗文、歐路、Etymonline 抓補充再整理。"></textarea>
+          </label>
+          <div class="add-btns">
+            <button class="btn primary" id="generateBtn">🤖 用 Gemini 整理</button>
+            <button class="btn ghost" id="clearAddBtn">清空</button>
+          </div>
+          <p class="hint" id="addHint">整理後會顯示預覽，確認無誤再存入詞庫。</p>
+          <div id="genStatus" class="gen-status" hidden></div>
+        </div>
+
+        <div class="add-preview-col">
+          <div class="preview-head">
+            <h2>整理預覽</h2>
+            <button class="btn primary" id="saveCardBtn" hidden>＋ 存入詞庫</button>
+          </div>
+          <div id="previewArea" class="preview-area">
+            <div class="empty-state small">
+              <p class="empty-sub">整理結果會顯示在這裡</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 批次新增 ===================== -->
+    <section id="view-batch" class="view">
+      <h2>批次新增（背景多線程整理）</h2>
+      <p class="hint">一邊輸入下一個單字，系統一邊在背景用多組金鑰同時整理。整理完成會自動存入詞庫。</p>
+      <div class="add-grid">
+        <div class="add-input-col">
+          <label class="field">
+            <span class="field-label">單字 <em>*</em></span>
+            <input type="text" id="batchWord" placeholder="例如：concur" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">貼上歐路詞典內容（可留空＝自動抓線上詞典）</span>
+            <textarea id="batchRaw" rows="12" placeholder="可貼上詞典內容；留空會自動抓劍橋／柯林斯／朗文／歐路／Etymonline。Ctrl+Enter 加入佇列"></textarea>
+          </label>
+          <label class="field">
+            <span class="field-label">加入到資料夾</span>
+            <select id="batchFolder" class="deck-select"></select>
+          </label>
+          <div class="add-btns">
+            <button class="btn primary" id="batchAddBtn">＋ 加入佇列並開始整理</button>
+            <button class="btn ghost" id="batchClearDone">清除已完成</button>
+          </div>
+          <p class="hint" id="batchHint"></p>
+        </div>
+        <div class="add-preview-col">
+          <div class="preview-head">
+            <h2>佇列 <span id="batchCount" class="badge">0</span></h2>
+            <span id="batchProgress" class="hint"></span>
+          </div>
+          <div id="batchList" class="batch-list">
+            <div class="empty-state small"><p class="empty-sub">加入的單字會顯示在這裡，並即時顯示整理狀態</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 背誦 ===================== -->
+    <section id="view-study" class="view">
+      <!-- 設定背誦範圍 -->
+      <div id="studySetup" class="study-setup">
+        <h2>選擇背誦模式</h2>
+        <p class="hint">可以複選，系統會依「間隔重複（SRS）」自動安排到期的卡片。</p>
+        <div class="mode-grid" id="modeGrid"></div>
+        <div class="study-scope">
+          <label class="radio">
+            <input type="radio" name="scope" value="due" checked /> 只複習到期的卡片
+          </label>
+          <label class="radio">
+            <input type="radio" name="scope" value="all" /> 全部卡片（含未到期）
+          </label>
+        </div>
+        <div class="study-options">
+          <label>本次數量
+            <select id="studyLimit" class="deck-select">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="30">30</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="0">全部</option>
+            </select> 張
+          </label>
+          <label>資料夾
+            <select id="studyFolder" class="deck-select"></select>
+          </label>
+        </div>
+        <button class="btn primary big" id="startStudyBtn">開始背誦</button>
+        <p id="studySetupHint" class="hint"></p>
+      </div>
+
+      <!-- 卡片區 -->
+      <div id="studyCard" class="study-card-wrap" hidden>
+        <div class="study-progress">
+          <span id="studyCounter">0 / 0</span>
+          <span id="studyModeBadge" class="badge"></span>
+          <button class="btn ghost small" id="editCardBtn">✏️ 編輯</button>
+          <button class="btn ghost small" id="endStudyBtn">結束</button>
+        </div>
+        <div class="flashcard" id="flashcard">
+          <div class="card-face card-front" id="cardFront"></div>
+          <div class="card-back" id="cardBack" hidden></div>
+        </div>
+        <div class="study-controls">
+          <button class="btn show-answer" id="showAnswerBtn">顯示答案（空白鍵）</button>
+          <div class="rate-btns" id="rateBtns" hidden>
+            <button class="btn rate again" data-rate="0">重來<small id="rt0"></small></button>
+            <button class="btn rate hard" data-rate="1">困難<small id="rt1"></small></button>
+            <button class="btn rate good" data-rate="2">良好<small id="rt2"></small></button>
+            <button class="btn rate easy" data-rate="3">簡單<small id="rt3"></small></button>
+          </div>
+        </div>
+        <div id="studyEditor" class="study-editor" hidden></div>
+      </div>
+
+      <!-- 完成 -->
+      <div id="studyDone" class="study-done" hidden>
+        <p class="done-emoji">🎉</p>
+        <h2>本輪完成！</h2>
+        <p id="doneSummary" class="hint"></p>
+        <div id="doneStats" class="done-stats"></div>
+        <div id="doneMissed" class="done-missed"></div>
+        <button class="btn primary" id="backToSetupBtn">回到背誦選單</button>
+      </div>
+    </section>
+
+    <!-- ===================== 閱讀（PDF / 文章精讀） ===================== -->
+    <section id="view-reader" class="view">
+      <!-- 書架（書單列表） -->
+      <div id="readerLibrary" class="reader-library">
+        <div class="reader-lib-head">
+          <h2>📚 我的書架</h2>
+          <div class="reader-lib-actions">
+            <label class="btn primary file-btn">
+              ＋ 上傳 PDF
+              <input type="file" id="readerPdfFile" accept="application/pdf" hidden />
+            </label>
+            <label class="btn ghost file-btn">
+              🖼 截圖／圖片
+              <input type="file" id="readerImgFile" accept="image/*" hidden />
+            </label>
+            <button class="btn ghost" id="readerPasteBtn">✍️ 貼上文字新增</button>
+          </div>
+        </div>
+        <p class="hint" id="readerLibHint">上傳一份 PDF（例如 The Economist），AI 會幫你整理目錄；點任一篇文章即可精讀（重要單字／片語／句型、逐段中英對照、段落大意、朗讀，並把你背過且出現的單字用螢光筆標出）。</p>
+        <div id="readerBookList" class="reader-book-list"></div>
+      </div>
+
+      <!-- 書本內容（目錄 + 文章） -->
+      <div id="readerBook" class="reader-book" hidden>
+        <div class="reader-book-bar">
+          <button class="btn ghost small" id="readerBackToLib">← 書架</button>
+          <h2 id="readerBookTitle" class="reader-book-title"></h2>
+          <div class="reader-book-tools">
+            <button class="btn ghost small" id="readerRenameBook">✏️ 改名</button>
+            <button class="btn danger small" id="readerDeleteBook">🗑 刪除</button>
+          </div>
+        </div>
+
+        <div class="reader-split">
+          <!-- 目錄 -->
+          <aside class="reader-toc" id="readerToc"></aside>
+
+          <!-- 文章閱讀區 -->
+          <div class="reader-article" id="readerArticle">
+            <div class="empty-state small"><p class="empty-sub">從左側目錄點一篇文章開始精讀。</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 聽力（音檔/影片/YouTube 逐字稿精聽） ===================== -->
+    <section id="view-listen" class="view">
+      <!-- 清單 -->
+      <div id="listenLibrary" class="reader-library">
+        <div class="reader-lib-head">
+          <h2>🎧 我的聽力</h2>
+          <div class="reader-lib-actions">
+            <label class="btn primary file-btn">
+              ＋ 批量上傳音檔／影片
+              <input type="file" id="listenFile" accept="audio/*,video/*" multiple hidden />
+            </label>
+            <button class="btn ghost" id="listenYoutubeBtn">▶ 批量 YouTube</button>
+            <button class="btn ghost" id="listenExportAllBtn" type="button" title="把全部聽力逐字稿匯出成一個 Word">⬇ 全部匯出 Word</button>
+            <span id="listenBackendState" class="hint"></span>
+          </div>
+        </div>
+        <p class="hint" id="listenLibHint">可一次選多個音檔／影片，或貼多行 YouTube 網址：會依序批次處理（轉錄→翻譯→重點）。YouTube 有字幕就用 CC（並自動去掉滾動重複），沒有才走 Whisper。左上播放、左下逐字稿、右側重點；檔案存雲端，換裝置也能看。</p>
+        <p class="hint" id="listenQueueHint" hidden></p>
+        <div id="listenList" class="reader-book-list"></div>
+      </div>
+
+      <!-- 單一聽力內容 -->
+      <div id="listenItem" class="reader-book" hidden>
+        <div class="reader-book-bar">
+          <button class="btn ghost small" id="listenBackBtn">← 返回</button>
+          <h2 id="listenTitle" class="reader-book-title"></h2>
+          <div class="reader-book-tools">
+            <button class="btn ghost small" id="listenRenameBtn">✏️ 改名</button>
+            <button class="btn danger small" id="listenDeleteBtn">🗑 刪除</button>
+          </div>
+        </div>
+        <div class="listen-split">
+          <div class="listen-left">
+            <div id="listenPlayer" class="listen-player"></div>
+            <div id="listenPlayerResizer" class="listen-player-resizer" title="拖曳調整影片／逐字稿高度"></div>
+            <div class="listen-transcript-head">
+              <span>📝 逐字稿（點句子跳轉・雙擊單字加入右側）</span>
+              <span class="lth-tools">
+                <button class="btn ghost small" id="listenExportBtn" type="button" title="匯出逐字稿／字幕">⬇ 匯出字幕</button>
+                <button class="btn ghost small" id="listenToggleZh" type="button" title="隱藏／顯示中文翻譯">隱藏中文</button>
+                <button class="btn ghost small" id="listenCcRescan" type="button" title="改回使用 YouTube CC／自動字幕">📄 CC 字幕</button>
+                <button class="btn ghost small" id="listenWhisperRescan" type="button" title="改下載音訊用 Whisper 掃描（時間軸較準）">🎙 Whisper</button>
+                <button class="btn ghost small" id="listenBrowserTranslate" type="button" title="用瀏覽器快速翻譯整篇">🌐 瀏覽器翻譯</button>
+                <button class="btn ghost small" id="listenGeminiTranslate" type="button" title="用 Gemini 翻譯整篇（較準）">✨ Gemini 翻譯</button>
+                <label class="listen-follow"><input type="checkbox" id="listenFollow" checked /> 自動捲動跟讀</label>
+              </span>
+            </div>
+            <div id="listenProgress" class="listen-progress" hidden></div>
+            <div id="listenTranscript" class="listen-transcript"></div>
+          </div>
+          <div id="listenResizer" class="listen-resizer" title="拖曳調整寬度"></div>
+          <aside id="listenSide" class="listen-side"></aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 設定 ===================== -->
+    <section id="view-settings" class="view">
+      <h2>設定</h2>
+      <label class="field">
+        <span class="field-label">API 金鑰（每行一組，會自動輪詢；亦可在 Albireus 擴充設定填入）</span>
+        <textarea id="apiKeysInput" rows="4" placeholder="每行一組 Vertex AI Express 金鑰（AQ. 開頭）；預設空白" autocomplete="off" spellcheck="false"></textarea>
+        <span class="field-help">金鑰預設空白；可在本頁填寫，或由 Albireus 擴充設定（<code>gemini_api_keys</code>）經 query / postMessage 帶入。只存在此瀏覽器的 localStorage，不會寫入 Albireus 倉庫。請填 <code>AQ.</code> 開頭的 Vertex AI Express 金鑰（走 <code>aiplatform.googleapis.com</code>）。</span>
+      </label>
+      <label class="field" id="accentField">
+        <span class="field-label">單詞發音口音（僅英文）</span>
+        <select id="accentSelect">
+          <option value="us">美式（US）</option>
+          <option value="uk">英式（UK）</option>
+        </select>
+        <span class="field-help">單詞優先播放真人錄音字典發音；抓不到時才用瀏覽器語音。句子一律用瀏覽器語音。</span>
+      </label>
+      <label class="field">
+        <span class="field-label">模型</span>
+        <select id="modelSelect">
+          <option value="gemini-3-flash-preview">gemini-3-flash-preview（Vertex，推薦）</option>
+          <option value="gemini-2.5-flash">gemini-2.5-flash（快又便宜）</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro（更準，較慢）</option>
+          <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+          <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">雲端轉錄後端網址（聽力頁用）</span>
+        <input type="text" id="listenBackendInput" placeholder="https://whisper-api-1016448029865.asia-east1.run.app/api" autocomplete="off" spellcheck="false" />
+        <span class="field-help">聽力頁的逐字稿由雲端 Whisper（Replicate，Cloud Run）產生，音檔／影片存到 Firebase Storage，跨裝置皆可重看。預設已指向你的後端 <code>whisper-api-…run.app/api</code>，一般不需修改。</span>
+      </label>
+      <label class="field">
+        <span class="field-label">每日複習目標（張，以中英與克漏字為主）</span>
+        <input type="number" id="dailyGoalInput" min="1" max="500" step="1" />
+        <span class="field-help">達成後會自動簽到並累計連續天數。</span>
+      </label>
+      <div class="settings-row">
+        <button class="btn primary" id="saveSettingsBtn">儲存設定</button>
+        <button class="btn ghost" id="testKeyBtn">測試連線</button>
+        <span id="settingsStatus" class="hint"></span>
+      </div>
+
+      <hr class="divider" />
+
+      <h3>資料管理</h3>
+      <p class="hint">所有單字資料都存在這台瀏覽器。建議定期匯出備份。</p>
+      <div class="settings-row">
+        <button class="btn ghost" id="exportBtn">匯出資料（JSON）</button>
+        <label class="btn ghost file-btn">
+          匯入資料
+          <input type="file" id="importFile" accept="application/json" hidden />
+        </label>
+        <button class="btn danger" id="resetBtn">清空所有資料</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== 單字卡彈出視窗 ===================== -->
+  <div id="cardModal" class="modal" hidden>
+    <div class="modal-overlay" data-close-modal></div>
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <span class="modal-title">單字卡</span>
+        <div class="modal-actions">
+          <button class="btn small primary" id="modalEditBtn">✏️ 編輯</button>
+          <button class="modal-close" id="modalCloseBtn" title="關閉" data-close-modal>✕</button>
+        </div>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- ===================== 加入詞庫彈窗（閱讀頁用） ===================== -->
+  <div id="readerAddModal" class="modal" hidden>
+    <div class="modal-overlay" data-close-radd></div>
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <span class="modal-title">加入詞庫</span>
+        <div class="modal-actions">
+          <button class="modal-close" id="raddCloseBtn" title="關閉" data-close-radd>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">單字 <em>*</em></span>
+          <input type="text" id="raddWord" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span class="field-label">貼上歐路詞典內容（可留空＝自動抓線上詞典）</span>
+          <textarea id="raddRaw" rows="8" placeholder="可貼上歐路內容；留空會自動抓線上詞典再整理。"></textarea>
+        </label>
+        <p class="hint" id="raddExample"></p>
+        <div class="add-btns">
+          <button class="btn primary" id="raddGenBtn">🤖 整理並加入詞庫</button>
+          <button class="btn ghost" data-close-radd>取消</button>
+        </div>
+        <div id="raddStatus" class="gen-status" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 貼上文章彈窗（閱讀頁用） ===================== -->
+  <div id="readerPasteModal" class="modal" hidden>
+    <div class="modal-overlay" data-close-rpaste></div>
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <span class="modal-title" id="rpasteModalTitle">貼上文章</span>
+        <div class="modal-actions">
+          <button class="modal-close" id="rpasteCloseBtn" title="關閉" data-close-rpaste>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p class="hint" id="rpasteHint" hidden></p>
+        <label class="field">
+          <span class="field-label">文章標題</span>
+          <input type="text" id="rpasteTitle" autocomplete="off" placeholder="例如：文章來源或主題" />
+        </label>
+        <label class="field">
+          <span class="field-label">文章內容（可整篇貼上，會保留段落）</span>
+          <textarea id="rpasteBody" rows="14" placeholder="把整篇文章貼在這裡。段落之間空一行即可保留分段。沒有字數限制。"></textarea>
+        </label>
+        <div class="add-btns">
+          <button class="btn primary" id="rpasteConfirm">開始精讀</button>
+          <button class="btn ghost" data-close-rpaste>取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== YouTube 聽力彈窗 ===================== -->
+  <div id="listenYoutubeModal" class="modal" hidden>
+    <div class="modal-overlay" data-close-lyt></div>
+    <div class="modal-box" role="dialog" aria-modal="true" style="max-width:520px">
+      <div class="modal-header">
+        <span class="modal-title">批量加入 YouTube</span>
+        <div class="modal-actions">
+          <button class="modal-close" title="關閉" data-close-lyt>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">YouTube 網址（每行一個，可貼多筆）</span>
+          <textarea id="lytUrl" rows="6" autocomplete="off" spellcheck="false" placeholder="https://youtu.be/…&#10;https://www.youtube.com/watch?v=…&#10;https://www.youtube.com/watch?v=…"></textarea>
+        </label>
+        <fieldset class="lyt-opts">
+          <legend>逐字稿來源</legend>
+          <label class="lyt-opt">
+            <input type="radio" name="lytCaption" value="cc" checked />
+            <span><b>優先 CC 字幕</b><small>有字幕就用（快）；沒有才改 Whisper</small></span>
+          </label>
+          <label class="lyt-opt">
+            <input type="radio" name="lytCaption" value="whisper" />
+            <span><b>強制 Whisper 掃描</b><small>下載音訊轉錄，時間軸較準、較慢</small></span>
+          </label>
+        </fieldset>
+        <fieldset class="lyt-opts">
+          <legend>中文翻譯</legend>
+          <label class="lyt-opt">
+            <input type="radio" name="lytTranslate" value="browser" checked />
+            <span><b>瀏覽器翻譯</b><small>快速、不耗 API 額度</small></span>
+          </label>
+          <label class="lyt-opt">
+            <input type="radio" name="lytTranslate" value="gemini" />
+            <span><b>Gemini 翻譯</b><small>品質較好，較慢／耗額度</small></span>
+          </label>
+        </fieldset>
+        <div class="add-btns">
+          <button class="btn primary" id="lytConfirm" type="button">加入佇列並處理</button>
+          <button class="btn ghost" data-close-lyt type="button">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 匯出聽力字幕 ===================== -->
+  <div id="listenExportModal" class="modal" hidden>
+    <div class="modal-overlay" data-close-lex></div>
+    <div class="modal-box" role="dialog" aria-modal="true" style="max-width:480px">
+      <div class="modal-header">
+        <span class="modal-title">匯出逐字稿／字幕</span>
+        <div class="modal-actions">
+          <button class="modal-close" title="關閉" data-close-lex>✕</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p class="hint" id="lexHint" style="margin-top:0">預設只匯出原文（CC／Whisper）。可再勾選中文與時間戳。</p>
+        <fieldset class="lyt-opts" id="lexScopeWrap">
+          <legend>範圍</legend>
+          <label class="lyt-opt">
+            <input type="radio" name="lexScope" value="one" checked />
+            <span><b>目前這則</b><small>只匯出正在開啟的聽力</small></span>
+          </label>
+          <label class="lyt-opt">
+            <input type="radio" name="lexScope" value="all" />
+            <span><b>全部聽力</b><small>有逐字稿的全部合併成一個檔（適合 Word）</small></span>
+          </label>
+        </fieldset>
+        <fieldset class="lyt-opts">
+          <legend>內容</legend>
+          <label class="lyt-opt">
+            <input type="checkbox" id="lexZh" />
+            <span><b>加上中文翻譯</b><small>每一句英文下方附中文（沒有翻譯的句子會略過中文行）</small></span>
+          </label>
+          <label class="lyt-opt" id="lexTsWrap">
+            <input type="checkbox" id="lexTs" />
+            <span><b>加上時間戳</b><small>純文字／Word 標 [分:秒]；SRT／VTT 本來就有時間軸</small></span>
+          </label>
+        </fieldset>
+        <fieldset class="lyt-opts">
+          <legend>格式</legend>
+          <label class="lyt-opt" data-lex-fmt="doc">
+            <input type="radio" name="lexFmt" value="doc" />
+            <span><b>Word (.doc)</b><small>可用 Word／Google 文件開啟；全部匯出首選</small></span>
+          </label>
+          <label class="lyt-opt" data-lex-fmt="txt">
+            <input type="radio" name="lexFmt" value="txt" checked />
+            <span><b>純文字 (.txt)</b><small>方便閱讀、貼到筆記</small></span>
+          </label>
+          <label class="lyt-opt" data-lex-fmt="srt">
+            <input type="radio" name="lexFmt" value="srt" />
+            <span><b>SubRip (.srt)</b><small>常用影片字幕（僅單則）</small></span>
+          </label>
+          <label class="lyt-opt" data-lex-fmt="vtt">
+            <input type="radio" name="lexFmt" value="vtt" />
+            <span><b>WebVTT (.vtt)</b><small>網頁字幕（僅單則）</small></span>
+          </label>
+        </fieldset>
+        <div class="add-btns">
+          <button class="btn primary" id="lexDownload" type="button">下載檔案</button>
+          <button class="btn ghost" id="lexCopy" type="button">複製到剪貼簿</button>
+          <button class="btn ghost" data-close-lex type="button">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全局 AI 助手：電腦右側欄／手機底部抽屜；用低調小鈕開關 -->
+  <button type="button" id="selAiFab" class="sel-ai-fab" title="AI 助手" aria-label="開啟 AI 助手" aria-expanded="false">✨</button>
+  <aside id="selAiPanel" class="sel-ai-panel" hidden>
+    <div class="sel-ai-panel-head">
+      <span class="sel-ai-panel-title">AI 助手</span>
+      <button type="button" class="sel-ai-close" id="selAiClose" title="收合">✕</button>
+    </div>
+    <p class="sel-ai-hint">可先框選文字再按「帶入選取」，或直接輸入要問的字詞。</p>
+    <div class="sel-ai-topic-row">
+      <input id="selAiTopic" type="text" placeholder="主題字詞／句子…" autocomplete="off" />
+      <button type="button" class="btn ghost small" id="selAiGrabSel" title="帶入目前選取的文字">帶入選取</button>
+      <button type="button" class="btn ghost small" id="selAiAddDeck" title="把主題加入詞庫">＋ 詞庫</button>
+    </div>
+    <div class="sel-ai-chips">
+      <button type="button" data-sel-chip="比較">比較</button>
+      <button type="button" data-sel-chip="解釋">解釋</button>
+      <button type="button" data-sel-chip="翻譯">翻譯</button>
+      <button type="button" data-sel-chip="舉例">舉例</button>
+      <button type="button" data-sel-chip="造句">造句</button>
+    </div>
+    <div class="sel-ai-row">
+      <input id="selAiInput" type="text" placeholder="問一個問題…" autocomplete="off" />
+      <button type="button" class="btn primary small" id="selAiAsk">問</button>
+    </div>
+    <div class="sel-ai-ans" id="selAiAns" hidden></div>
+  </aside>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- PDF.js：解析上傳的 PDF 文字（閱讀頁用） -->
+  <script type="module">
+    import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+    window.pdfjsLib = pdfjsLib;
+    window.dispatchEvent(new Event('pdfjs-ready'));
+  </script>
+  <!-- YouTube IFrame Player API（聽力頁 YouTube 播放與跳段） -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <!-- Firebase / Firestore 雲端同步 -->
+  <script type="module" src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
