@@ -990,6 +990,9 @@ function NotePageInner() {
     markDirty();
   };
 
+  const editorWidth = prefsCtx?.prefs.editorWidth || "medium";
+  const widthExtended = editorWidth === "full" || editorWidth === "wide";
+
   return (
     <div
       className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${splitId && splitId !== id ? " has-split" : ""}`}
@@ -1064,6 +1067,30 @@ function NotePageInner() {
               簡報
             </button>
           </div>
+          {viewMode === "write" && prefsCtx ? (
+            <div className="doc-view-switch doc-width-switch" role="tablist" aria-label="編輯區寬度">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!widthExtended}
+                className={!widthExtended ? "is-on" : ""}
+                title="置中寬度（閱讀舒適）"
+                onClick={() => prefsCtx.setPrefs({ editorWidth: "medium" })}
+              >
+                置中
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={widthExtended}
+                className={widthExtended ? "is-on" : ""}
+                title="延伸兩邊"
+                onClick={() => prefsCtx.setPrefs({ editorWidth: "full" })}
+              >
+                延伸
+              </button>
+            </div>
+          ) : null}
           <div className="doc-command-actions">
           <NotePresence noteId={note.id} />
           <NoteHuddle noteId={note.id} />

@@ -3489,6 +3489,18 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-direction: column;
 }
+[data-editor-width="narrow"] .doc-workspace {
+  --page-max: 640px;
+}
+[data-editor-width="medium"] .doc-workspace {
+  --page-max: 780px;
+}
+[data-editor-width="wide"] .doc-workspace {
+  --page-max: 1100px;
+}
+[data-editor-width="full"] .doc-workspace {
+  --page-max: 100%;
+}
 .doc-chrome {
   position: sticky;
   top: 0;
@@ -3698,10 +3710,18 @@ a.sidebar-user-name:hover {
   width: 100%;
   margin: 0 auto;
   padding: 1.25rem 2.5rem 6rem;
+  box-sizing: border-box;
+  transition: max-width 0.2s ease;
 }
 .doc-workspace.has-aside:not(.is-focus) .doc-page {
+  /* Still honor editor width; only full stretches into the remaining column */
+  max-width: min(var(--page-max), 100%);
+  margin-inline: auto;
+}
+[data-editor-width="full"] .doc-workspace .doc-page,
+[data-editor-width="full"] .doc-workspace.has-aside:not(.is-focus) .doc-page {
   max-width: none;
-  margin: 0;
+  margin-inline: 0;
 }
 .doc-banner-error {
   color: var(--danger);
@@ -7166,6 +7186,11 @@ a.sidebar-user-name:hover {
   max-width: 960px;
   margin-inline: auto;
 }
+[data-editor-width="full"] .note-editor-wrap,
+[data-editor-width="full"] .doc-editor {
+  max-width: none;
+  margin-inline: 0;
+}
 @media (max-width: 900px) {
   .st-layout { grid-template-columns: 1fr; }
   .st-nav {
@@ -8695,6 +8720,9 @@ body.is-sidebar-resizing iframe {
   background: var(--bg-elevated, #fff);
   color: var(--accent, #0d9488);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.doc-width-switch {
+  margin-right: 0;
 }
 .doc-ribbon.is-hidden {
   display: none;
