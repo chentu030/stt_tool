@@ -53,6 +53,8 @@ export type AccessApplicationInput = {
 export const USE_CASE_OPTIONS = [
   { id: "class", label: "上課／讀書筆記" },
   { id: "meeting", label: "會議／小組討論" },
+  { id: "work", label: "工作紀錄／專案整理" },
+  { id: "interview", label: "訪談／客戶通話" },
   { id: "self", label: "自學整理" },
   { id: "content", label: "內容創作" },
   { id: "other", label: "其他" },
@@ -60,6 +62,7 @@ export const USE_CASE_OPTIONS = [
 
 export const WORKFLOW_OPTIONS = [
   { id: "notion", label: "Notion／類似工具" },
+  { id: "docs", label: "Google 文件／Word" },
   { id: "hand", label: "手寫或紙本" },
   { id: "stt", label: "錄音後再轉文字" },
   { id: "mix", label: "以上混用" },

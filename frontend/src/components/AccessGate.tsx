@@ -202,7 +202,8 @@ function ApplyForm({
       <p className="access-kicker">封閉測試中</p>
       <h1>申請使用 Albireus</h1>
       <p className="access-lead">
-        目前還在開發、名額有限。登入帳號 <strong>{email}</strong> 需先申請，通過後才能進入產品。
+        目前還在開發、名額有限。無論是上課、開會還是工作整理，都歡迎申請；登入帳號{" "}
+        <strong>{email}</strong> 通過後就能進入產品。
       </p>
 
       <label className="access-field">
@@ -299,7 +300,7 @@ function ApplyForm({
           value={wished}
           disabled={busy}
           onChange={(e) => setWished(e.target.value)}
-          placeholder="例如：上課錄音自動整理成可搜尋筆記、會議待辦抽取…"
+          placeholder="例如：會議自動整理成待辦、訪談逐字稿可搜尋、專案進度一鍵摘要…"
           maxLength={500}
           required
         />
