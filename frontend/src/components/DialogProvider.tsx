@@ -6,6 +6,7 @@ import {
   useId,
   useRef,
   useState,
+  type ClipboardEvent,
   type FormEvent,
   type ReactNode,
   type RefObject,
@@ -139,9 +140,17 @@ function PromptModal({
 
   useEffect(() => {
     const t = window.setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 20);
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus({ preventScroll: true });
+      // Prefer caret at end so paste appends / replaces selection cleanly
+      try {
+        const len = el.value.length;
+        el.setSelectionRange(0, len);
+      } catch {
+        el.select();
+      }
+    }, 30);
     return () => window.clearTimeout(t);
   }, []);
 
@@ -149,16 +158,42 @@ function PromptModal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         onClose(null);
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     onClose(value);
+  };
+
+  const onPaste = (e: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    // Keep paste inside the dialog field; stop page-level Ctrl+V handlers (canvas etc.)
+    e.stopPropagation();
+    const text = e.clipboardData.getData("text/plain");
+    if (!text) return;
+    // If default is a bare scheme and the whole field is selected, replace with pasted URL
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const allSelected = start === 0 && end === el.value.length;
+    const bareScheme = /^https?:\/\/?$/i.test(el.value.trim());
+    if (allSelected || bareScheme) {
+      e.preventDefault();
+      const next = text.trim();
+      setValue(next);
+      requestAnimationFrame(() => {
+        try {
+          el.setSelectionRange(next.length, next.length);
+        } catch {
+          /* ignore */
+        }
+      });
+    }
   };
 
   return (
@@ -174,6 +209,7 @@ function PromptModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="cadence-dialog-title">
           {state.title}
@@ -187,15 +223,23 @@ function PromptModal({
               rows={4}
               value={value}
               placeholder={state.placeholder}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(e) => setValue(e.target.value)}
+              onPaste={onPaste}
             />
           ) : (
             <input
               ref={inputRef as RefObject<HTMLInputElement>}
               className="input cadence-dialog-input"
+              type="text"
+              inputMode="url"
               value={value}
               placeholder={state.placeholder}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(e) => setValue(e.target.value)}
+              onPaste={onPaste}
             />
           )}
           <div className="cadence-dialog-actions">

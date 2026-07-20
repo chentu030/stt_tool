@@ -953,8 +953,18 @@ export default function CanvasIdPage() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === "TEXTAREA" || tag === "INPUT") return;
+      // Never steal keys while a Cadence dialog is open (URL paste etc.)
+      if (document.querySelector(".cadence-dialog-backdrop")) return;
+      const t = e.target as HTMLElement | null;
+      if (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        t instanceof HTMLSelectElement ||
+        t?.isContentEditable ||
+        t?.closest?.(".cadence-dialog, [contenteditable='true']")
+      ) {
+        return;
+      }
       if (e.code === "Space") {
         e.preventDefault();
         setSpaceDown(true);

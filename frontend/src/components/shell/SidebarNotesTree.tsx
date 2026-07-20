@@ -412,9 +412,9 @@ export default function SidebarNotesTree() {
       if (kind === "web") {
         const raw = await askPrompt({
           title: "開啟網頁",
-          message: "輸入網址，將以瀏覽器分頁開啟",
-          placeholder: "https://",
-          defaultValue: "https://",
+          message: "貼上或輸入網址（Ctrl+V）",
+          placeholder: "https://example.com",
+          defaultValue: "",
         });
         if (raw === null) return;
         webUrl = raw.trim() || "https://www.google.com";
