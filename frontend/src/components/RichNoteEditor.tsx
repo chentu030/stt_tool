@@ -1535,6 +1535,21 @@ export default function RichNoteEditor({
   const ribbon = (
     <div className="doc-ribbon-inner">
       <div className="rich-toolbar rich-toolbar--ribbon">
+        <ToolbarBtn
+          disabled={!editor.can().undo()}
+          onClick={() => editor.chain().focus().undo().run()}
+          title="前一步 ⌘Z"
+        >
+          前一步
+        </ToolbarBtn>
+        <ToolbarBtn
+          disabled={!editor.can().redo()}
+          onClick={() => editor.chain().focus().redo().run()}
+          title="後一步 ⌘⇧Z"
+        >
+          後一步
+        </ToolbarBtn>
+        <span className="rich-toolbar-sep" aria-hidden />
         <ToolbarBtn active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()} title="粗體">B</ToolbarBtn>
         <ToolbarBtn active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} title="斜體"><em>I</em></ToolbarBtn>
         <ToolbarBtn active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()} title="底線"><u>U</u></ToolbarBtn>
@@ -1874,17 +1889,20 @@ function ToolbarBtn({
   active,
   title,
   accent,
+  disabled,
 }: {
   children: ReactNode;
   onClick: () => void;
   active?: boolean;
   title?: string;
   accent?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
+      disabled={disabled}
       className={`rich-tool-btn${active ? " is-active" : ""}${accent ? " is-ai" : ""}`}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}

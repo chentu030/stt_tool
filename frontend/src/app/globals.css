@@ -4396,6 +4396,14 @@ a.sidebar-user-name:hover {
   background: var(--bg-muted);
   color: var(--text-main);
 }
+.rich-tool-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.rich-tool-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
 .rich-tool-btn.is-active {
   background: var(--accent-soft);
   color: var(--accent);
