@@ -1052,8 +1052,9 @@ button, input, textarea, select {
   background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  margin: calc(var(--main-pad-y, 0.7rem) * -1) calc(var(--main-pad-x, 1.15rem) * -1) 0.45rem;
-  padding: 0.45rem var(--main-pad-x, 1.15rem) 0.45rem;
+  /* Keep content clear of the sticky rule — was 0.45rem and cards sat on the border */
+  margin: calc(var(--main-pad-y, 0.7rem) * -1) calc(var(--main-pad-x, 1.15rem) * -1) 1.15rem;
+  padding: 0.55rem var(--main-pad-x, 1.15rem) 0.9rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -5800,7 +5801,10 @@ button, input, textarea, select {
 }
 .kb-controls {
   flex-shrink: 0;
-  padding-bottom: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding-bottom: 0.55rem;
 }
 .kb-scroll {
   flex: 1;
@@ -5815,7 +5819,7 @@ button, input, textarea, select {
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0;
 }
 .kb-toolbar {
   padding: 0.3rem;
