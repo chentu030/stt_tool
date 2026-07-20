@@ -478,7 +478,8 @@ export const MathBlock = Node.create({
   addInputRules() {
     return [
       new InputRule({
-        find: /\$\$([^$\n]+)\$\$$/,
+        // Allow multiline formulas between $$ … $$
+        find: /\$\$\s*([\s\S]+?)\s*\$\$$/,
         handler: ({ range, match, chain }) => {
           const formula = normalizeLatexFormula(String(match[1] || "").trim());
           if (!formula) return null;

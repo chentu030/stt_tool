@@ -204,6 +204,23 @@ export function normalizeLatexFormula(raw: string): string {
   let s = (raw || "").trim();
   if (!s) return s;
 
+  // Users often paste including $$ / \[ \] wrappers into the formula editor
+  if (
+    (s.startsWith("$$") && s.endsWith("$$") && s.length > 4) ||
+    (s.startsWith("\\[") && s.endsWith("\\]"))
+  ) {
+    s = s
+      .replace(/^\$\$/, "")
+      .replace(/\$\$$/, "")
+      .replace(/^\\\[/, "")
+      .replace(/\\\]$/, "")
+      .trim();
+  } else if (s.startsWith("$") && s.endsWith("$") && s.length > 2 && !s.slice(1, -1).includes("\n")) {
+    s = s.slice(1, -1).trim();
+  } else if (s.startsWith("\\(") && s.endsWith("\\)")) {
+    s = s.slice(2, -2).trim();
+  }
+
   // Differential thin space: "f(x), dx" → "f(x)\, dx" (skip if already \,)
   s = s.replace(/(?<!\\),\s*(d[a-zA-Z]\b)/g, "\\, $1");
 

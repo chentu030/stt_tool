@@ -5646,7 +5646,23 @@ a.sidebar-user-name:hover {
 }
 .rich-math-inline .katex {
   font-size: 1.05em;
-  line-height: 1;
+  line-height: normal;
+}
+.rich-math-block .katex,
+.rich-math-block .katex-display {
+  line-height: normal;
+  text-align: center;
+}
+/* Don't let global styles collapse KaTeX subscript/superscript layout */
+.rich-math-inline .katex *,
+.rich-math-block .katex *,
+.note-ai-md .katex * {
+  line-height: inherit;
+}
+.rich-math-inline .vlist-t,
+.rich-math-block .vlist-t,
+.note-ai-md .vlist-t {
+  display: inline-table;
 }
 .rich-math-inline.is-editing {
   white-space: nowrap;
