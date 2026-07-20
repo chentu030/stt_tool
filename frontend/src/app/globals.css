@@ -3477,9 +3477,16 @@ a.sidebar-user-name:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem 0.75rem;
-  padding: 0.45rem 1rem;
+  padding: 0.55rem 1.15rem;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
+}
+.doc-workspace.is-slides .doc-command {
+  padding: 0.7rem 1.35rem 0.7rem 1.2rem;
+}
+.doc-workspace.is-slides .doc-command-actions {
+  gap: 0.35rem;
+  padding-right: 0.15rem;
 }
 .doc-workspace.is-focus .doc-command-left .doc-crumb,
 .doc-workspace.is-focus .doc-command-left .doc-crumb-sep {
@@ -8588,10 +8595,17 @@ body.is-sidebar-resizing iframe {
   --doc-slides-fade: 1;
 }
 .doc-workspace.is-slides .doc-body-row {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
 }
-.doc-workspace.is-slides.has-aside .doc-body-row {
-  grid-template-columns: 1fr;
+.doc-workspace.is-slides.has-aside:not(.is-focus) .doc-body-row {
+  grid-template-columns: minmax(0, 1fr) var(--note-aside-w, 300px);
+}
+.doc-workspace.has-aside .note-aside {
+  /* Grid column owns the width; prevent inline width from spilling over the AI rail */
+  width: 100% !important;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .doc-page--slides {
   max-width: none !important;
@@ -8937,7 +8951,7 @@ body.is-sidebar-resizing iframe {
   background: var(--accent-soft, rgba(13, 148, 136, 0.12));
 }
 .doc-workspace.is-slides.has-aside:not(.is-focus) .doc-body-row {
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) var(--note-aside-w, 300px);
 }
 .doc-workspace.is-slides .doc-page {
   min-width: 0;
