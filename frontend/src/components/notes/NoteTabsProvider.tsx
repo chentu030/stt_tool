@@ -79,17 +79,18 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     saveNoteTabs(state);
   }, [state, hydrated]);
 
-  // Sync split query param
+  // Sync split query param without App Router soft-nav (avoids wedging Link/router.push).
   useEffect(() => {
     if (!hydrated || !activeId) return;
     const cur = searchParams.get("split");
     const want = state.splitId;
     if ((cur || null) === (want || null)) return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     if (want) params.set("split", want);
     else params.delete("split");
     const qs = params.toString();
-    router.replace(qs ? `/notes/${activeId}?${qs}` : `/notes/${activeId}`, { scroll: false });
+    const next = qs ? `/notes/${activeId}?${qs}` : `/notes/${activeId}`;
+    window.history.replaceState(window.history.state, "", next);
   }, [state.splitId, activeId, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = useCallback((id: string) => {

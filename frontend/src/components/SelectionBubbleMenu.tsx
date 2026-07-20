@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import SelectionAiPanel, { type SelectionAiAction } from "@/components/SelectionAiPanel";
@@ -267,12 +267,18 @@ export default function SelectionBubbleMenu({
   };
 
   useEffect(() => {
+    // Only selection/focus changes need toolbar active-state refresh.
+    // Do NOT subscribe to every transaction — that re-renders this component
+    // constantly and used to feed TipTap BubbleMenu an infinite update loop
+    // (unstable appendTo/shouldShow/options → dispatch → render → …).
     const bump = () => setTick((t) => t + 1);
     editor.on("selectionUpdate", bump);
-    editor.on("transaction", bump);
+    editor.on("focus", bump);
+    editor.on("blur", bump);
     return () => {
       editor.off("selectionUpdate", bump);
-      editor.off("transaction", bump);
+      editor.off("focus", bump);
+      editor.off("blur", bump);
     };
   }, [editor]);
 
@@ -291,6 +297,46 @@ export default function SelectionBubbleMenu({
 
   void tick;
 
+  // Stable callbacks are required: TipTap's BubbleMenu re-dispatches a
+  // transaction whenever these props change identity, which freezes the UI.
+  const appendTo = useCallback(() => document.body, []);
+
+  const shouldShow = useCallback(
+    ({
+      editor: ed,
+      view,
+      from: a,
+      to: b,
+    }: {
+      editor: Editor;
+      view: { hasFocus: () => boolean };
+      from: number;
+      to: number;
+    }) => {
+      if (a === b) return false;
+      if (ed.isActive("codeBlock") || ed.isActive("mathBlock")) return false;
+      const menuEl = bubbleElRef.current;
+      const isChildOfMenu = !!(menuEl && document.activeElement && menuEl.contains(document.activeElement));
+      return view.hasFocus() || isChildOfMenu;
+    },
+    []
+  );
+
+  const floatingOptions = useMemo(
+    () => ({
+      placement: "top" as const,
+      offset: 8,
+      strategy: "fixed" as const,
+      onShow: () => {
+        if (bubbleElRef.current) bubbleElRef.current.dataset.open = "true";
+      },
+      onHide: () => {
+        if (bubbleElRef.current) delete bubbleElRef.current.dataset.open;
+      },
+    }),
+    []
+  );
+
   const selectionText = () => {
     const { from, to } = editor.state.selection;
     return editor.state.doc.textBetween(from, to, "\n");
@@ -303,26 +349,13 @@ export default function SelectionBubbleMenu({
     <BubbleMenu
       editor={editor}
       className="sel-bubble"
-      appendTo={() => document.body}
+      appendTo={appendTo}
       ref={(el) => {
         bubbleElRef.current = el;
       }}
-      shouldShow={({ editor: ed, state }) => {
-        const { from: a, to: b } = state.selection;
-        return a !== b && !ed.isActive("codeBlock") && !ed.isActive("mathBlock");
-      }}
-      options={{
-        placement: "top",
-        offset: 8,
-        strategy: "fixed",
-        onShow: () => {
-          if (bubbleElRef.current) bubbleElRef.current.dataset.open = "true";
-        },
-        onHide: () => {
-          if (bubbleElRef.current) delete bubbleElRef.current.dataset.open;
-        },
-      }}
-      updateDelay={0}
+      shouldShow={shouldShow}
+      options={floatingOptions}
+      updateDelay={100}
     >
       <div className="sel-bubble-inner" ref={wrapRef}>
         <div className="sel-bubble-row">
