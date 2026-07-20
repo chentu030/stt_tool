@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { askPrompt } from "@/lib/dialogs";
 import { generateAiImageFile } from "@/lib/aiImage";
+import AiMarkdown from "@/components/AiMarkdown";
 
 export type StageAiAction =
   | "improve"
@@ -210,7 +211,7 @@ export default function StageSelectionAi({
       {busy && !result && <p className="sel-ai-busy">思考中…</p>}
       {result && (
         <div className="sel-ai-result">
-          <pre>{result}</pre>
+          <AiMarkdown text={result} />
           <div className="sel-ai-actions">
             <button type="button" className="doc-cmd is-on" onClick={() => { onApplyReplace(result); onClose(); }}>
               {hasSelection ? "取代" : "套用"}
