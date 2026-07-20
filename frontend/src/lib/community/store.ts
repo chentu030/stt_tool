@@ -24,6 +24,23 @@ function tplCol(uid: string) {
   return collection(db, "users", uid, "community_templates");
 }
 
+function wrapCommunityStoreError(err: unknown, action: string): Error {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: string }).code || "")
+      : "";
+  const msg = err instanceof Error ? err.message : String(err);
+  if (code === "permission-denied" || /insufficient permissions/i.test(msg)) {
+    return new Error(
+      `${action}失敗：Firestore 權限不足（請確認已登入，且伺服器規則已更新）`
+    );
+  }
+  if (code === "unauthenticated" || /auth/i.test(code)) {
+    return new Error(`${action}失敗：請先登入`);
+  }
+  return err instanceof Error ? err : new Error(msg || `${action}失敗`);
+}
+
 function parseExt(id: string, data: Record<string, unknown>): InstalledExtension | null {
   const manifest = data.manifest as ExtensionManifest | undefined;
   if (!manifest || manifest.kind !== "extension") return null;
@@ -111,29 +128,37 @@ export function listenInstalledTemplates(
 }
 
 export async function saveInstalledExtension(uid: string, item: InstalledExtension) {
-  await setDoc(doc(extCol(uid), item.id), {
-    manifest: item.manifest,
-    enabled: item.enabled,
-    source: item.source,
-    sourceKind: item.sourceKind,
-    installedAt: item.installedAt,
-    updatedAt: item.updatedAt,
-    readme: item.readme || "",
-    settings: item.settings || {},
-  });
+  try {
+    await setDoc(doc(extCol(uid), item.id), {
+      manifest: item.manifest,
+      enabled: item.enabled,
+      source: item.source,
+      sourceKind: item.sourceKind,
+      installedAt: item.installedAt,
+      updatedAt: item.updatedAt,
+      readme: item.readme || "",
+      settings: item.settings || {},
+    });
+  } catch (err) {
+    throw wrapCommunityStoreError(err, "安裝擴充功能");
+  }
 }
 
 export async function saveInstalledTemplate(uid: string, item: InstalledTemplate) {
-  await setDoc(doc(tplCol(uid), item.id), {
-    manifest: item.manifest,
-    files: item.files,
-    enabled: item.enabled,
-    source: item.source,
-    sourceKind: item.sourceKind,
-    installedAt: item.installedAt,
-    updatedAt: item.updatedAt,
-    readme: item.readme || "",
-  });
+  try {
+    await setDoc(doc(tplCol(uid), item.id), {
+      manifest: item.manifest,
+      files: item.files,
+      enabled: item.enabled,
+      source: item.source,
+      sourceKind: item.sourceKind,
+      installedAt: item.installedAt,
+      updatedAt: item.updatedAt,
+      readme: item.readme || "",
+    });
+  } catch (err) {
+    throw wrapCommunityStoreError(err, "安裝模板");
+  }
 }
 
 export async function setExtensionEnabled(uid: string, id: string, enabled: boolean) {
