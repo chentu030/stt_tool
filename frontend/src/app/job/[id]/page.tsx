@@ -23,6 +23,7 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import { toast } from "@/lib/toast";
 import { setJobAiContext } from "@/lib/jobAiContext";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { createAiStudyNoteFromTranscript } from "@/lib/jobToNote";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -121,6 +122,34 @@ export default function JobPage() {
     }
   };
 
+  const runAiStudyNote = async () => {
+    if (!user || !job || !current) return;
+    setBusy(true);
+    setTplOpen(false);
+    try {
+      const noteId = await createAiStudyNoteFromTranscript({
+        uid: user.uid,
+        jobId: job.id,
+        title: titleDraft.trim() || jobDisplayTitle(job),
+        filename: current.filename,
+        transcriptRaw: liveText || current.text,
+        assistant: {
+          name: prefsCtx?.prefs.aiAssistantName,
+          style: prefsCtx?.prefs.aiStyle,
+          model: prefsCtx?.prefs.aiModel,
+          grounding: prefsCtx?.prefs.aiGrounding,
+        },
+      });
+      setLinkedNoteId(noteId);
+      toast("已建立 AI 筆記（含逐字稿 txt）");
+      router.push(`/notes/${noteId}`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "AI 整理失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) return <PageLoading />;
   if (!user) return <p>請先登入。</p>;
   if (!job) return <p style={{ color: "var(--text-muted)" }}>找不到此工作。</p>;
@@ -172,19 +201,34 @@ export default function JobPage() {
         {showWorkspace && (
           <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", position: "relative" }}>
             {linkedNoteId ? (
-              <Link href={`/notes/${linkedNoteId}`} className="btn btn-sm">
+              <Link href={`/notes/${linkedNoteId}`} className="btn btn-sm btn-ghost">
                 開啟筆記
               </Link>
             ) : null}
+            <button
+              className="btn btn-sm"
+              disabled={busy}
+              title="AI 依時間順序整理筆記，並把逐字稿存成 txt 放在筆記最上方"
+              onClick={() => void runAiStudyNote()}
+            >
+              {busy ? "整理中…" : linkedNoteId ? "再建 AI 筆記" : "AI 整理筆記"}
+            </button>
             <button
               className="btn btn-sm btn-ghost"
               disabled={busy}
               onClick={() => setTplOpen((v) => !v)}
             >
-              {linkedNoteId ? "再建一則 ▾" : "範本 ▾"}
+              範本 ▾
             </button>
             {tplOpen && (
               <div className="doc-more-menu" style={{ right: 0, top: "110%" }}>
+                <button
+                  type="button"
+                  className="doc-more-item"
+                  onClick={() => void runAiStudyNote()}
+                >
+                  AI 整理筆記
+                </button>
                 {NOTE_TEMPLATES.map((t) => (
                   <button
                     key={t.id}
@@ -208,7 +252,8 @@ export default function JobPage() {
                             `${t.title}${current.filename || "轉錄"}`.trim(),
                             body,
                             job.id,
-                            t.tags
+                            t.tags,
+                            { sort_order: -Date.now() }
                           );
                           setLinkedNoteId(noteId);
                           toast("已建立筆記");
@@ -223,92 +268,6 @@ export default function JobPage() {
                   </button>
                 ))}
               </div>
-            )}
-            <button
-              className="btn btn-sm btn-ghost"
-              disabled={busy}
-              title="AI 產出摘要、決議、待辦並寫入會議筆記"
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
-                  const res = await fetch("/api/ai/generate", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      action: "meeting_pack",
-                      title: current.filename || title,
-                      body: plain.slice(0, 14000),
-                      assistant: {
-                        name: prefsCtx?.prefs.aiAssistantName,
-                        style: prefsCtx?.prefs.aiStyle,
-                        model: prefsCtx?.prefs.aiModel,
-                        grounding: prefsCtx?.prefs.aiGrounding,
-                      },
-                    }),
-                  });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data.error || "AI 失敗");
-                  const pack = String(data.text || "").trim();
-                  const meeting = NOTE_TEMPLATES.find((t) => t.id === "meeting");
-                  const body = [
-                    meeting?.body?.trim() || "## 會議",
-                    "",
-                    "---",
-                    "",
-                    "## AI 會議整理",
-                    "",
-                    pack || "（無內容）",
-                    "",
-                    "---",
-                    "",
-                    "## 逐字稿",
-                    "",
-                    plain,
-                  ].join("\n");
-                  const noteId = await createNote(
-                    user.uid,
-                    `會議 — ${current.filename || title}`,
-                    body,
-                    job.id,
-                    ["會議", ...(meeting?.tags || [])]
-                  );
-                  setLinkedNoteId(noteId);
-                  toast("已建立會議筆記");
-                  router.push(`/notes/${noteId}`);
-                } catch (e) {
-                  toast(e instanceof Error ? e.message : "會議整理失敗");
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {busy ? "整理中…" : "AI 會議筆記"}
-            </button>
-            {!linkedNoteId && (
-              <button
-                className="btn btn-sm"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  try {
-                    const plain = segmentsToPlainText(parseTranscript(liveText || current.text));
-                    const noteId = await createNote(
-                      user.uid,
-                      current.filename || "來自轉錄的筆記",
-                      plain,
-                      job.id
-                    );
-                    setLinkedNoteId(noteId);
-                    toast("已轉成筆記");
-                    router.push(`/notes/${noteId}`);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                {busy ? "建立中…" : "轉成筆記"}
-              </button>
             )}
           </div>
         )}

@@ -2077,8 +2077,9 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     if (!canvas) return;
 
     const gutterWidth = () => {
-      const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 56;
-      return Math.max(44, pad);
+      const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
+      // When handles live in the left margin (pad≈0), still treat ~handle width as gutter.
+      return Math.max(52, pad || 0);
     };
 
     const positionHost = () =>
@@ -2089,10 +2090,13 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     const gripFromPos = (clientY: number, clientX?: number) => {
       const rootRect = root.getBoundingClientRect();
       const gutter = gutterWidth();
-      const inGutter = clientX != null && clientX < rootRect.left + gutter;
+      const inGutter =
+        clientX != null &&
+        clientX >= rootRect.left - gutter &&
+        clientX < rootRect.left + Math.max(8, parseFloat(getComputedStyle(root).paddingLeft || "0") || 0);
       const probeX = inGutter
-        ? rootRect.left + gutter + 6
-        : Math.max(clientX ?? rootRect.left + gutter + 6, rootRect.left + 8);
+        ? rootRect.left + Math.max(6, parseFloat(getComputedStyle(root).paddingLeft || "0") || 0) + 2
+        : Math.max(clientX ?? rootRect.left + 8, rootRect.left + 8);
       const pos = editor.view.posAtCoords({ left: probeX, top: clientY });
       if (!pos) return null;
       const block = draggableBlockAt(editor, pos.pos);
@@ -2104,9 +2108,11 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const br = dom.getBoundingClientRect();
       const handleW = 46;
       const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+      // Sit in the left margin so body text lines up with title / props
+      const left = br.left - hostRect.left - handleW - 6;
       return {
         top: br.top - hostRect.top + scrollTop + Math.min(4, br.height / 2 - 12),
-        left: Math.max(2, br.left - hostRect.left - handleW - 4),
+        left,
         from: block.from,
         to: block.to,
         index: block.index,
@@ -2131,6 +2137,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           const rootRect = root.getBoundingClientRect();
           const gutter = gutterWidth();
           const inApproach =
+            e.clientX >= rootRect.left - gutter &&
             e.clientX < rootRect.left + gutter + 8 &&
             e.clientY >= rootRect.top - 4 &&
             e.clientY <= rootRect.bottom + 4;
@@ -2162,8 +2169,9 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (t?.closest?.(".block-controls")) return;
       if (t?.closest?.(".ProseMirror")) return;
       const rootRect = root.getBoundingClientRect();
-      const gutter = gutterWidth();
-      if (e.clientX >= rootRect.left + gutter) return;
+      const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
+      // Only the margin left of body text (not the first letters of a line)
+      if (e.clientX >= rootRect.left + contentPad) return;
       const hit = gripFromPos(e.clientY, e.clientX);
       if (!hit) return;
       e.preventDefault();
@@ -2173,7 +2181,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       setGrip(hit);
 
       const onGutterMove = (ev: MouseEvent) => {
-        const h = gripFromPos(ev.clientY, rootRect.left + gutter + 6);
+        const h = gripFromPos(ev.clientY, rootRect.left + contentPad + 6);
         if (!h || h.parentFrom !== parentFrom) return;
         setBlockSel({ parentFrom, anchor, focus: h.index });
         setGrip(h);

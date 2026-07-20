@@ -35,6 +35,7 @@ type Body = {
     | "make_table"
     | "make_mermaid"
     | "meeting_pack"
+    | "transcript_study_notes"
     | "journal_review"
     | "board_scaffold"
     | "canvas";
@@ -189,6 +190,16 @@ function buildPrompt(data: Body): {
       prompt: `請產出會議整理包：\n\n${noteBlock}`,
     };
   }
+  if (action === "transcript_study_notes") {
+    const instruction =
+      data.prompt?.trim() ||
+      "幫我把全部內容，按照時間先後順序製作筆記，繁體中文，條列，1000字以上，文字清楚完整，重點寫到，方便之後複習";
+    return {
+      system: `${asst}你是 Albireus 逐字稿筆記助手。只輸出繁體中文 Markdown 筆記正文（可用 ##、-、粗體），不要開場白或結尾說明。務必依時間先後組織、條列清楚、涵蓋重點，篇幅至少約 1000 字，方便日後複習。若內容含時間戳，可在段落標註時間。`,
+      prompt: `${instruction}\n\n—— 逐字稿 ——\n${noteBlock}\n—— 結束 ——`,
+      temperature: 0.45,
+    };
+  }
   if (action === "journal_review") {
     return {
       system: `${asst}你是日誌復盤助手。根據多日日誌產出：本月亮點、挑戰、情緒／能量趨勢、學習、下月 3–5 個具體行動建議。繁體中文 Markdown，可直接存成筆記。`,
@@ -267,13 +278,15 @@ export async function POST(req: NextRequest) {
 
     const multi =
       data.action === "chat" || data.action === "library" || data.action === "note";
+    const longForm =
+      data.action === "transcript_study_notes" || data.action === "expand";
     const model = resolveAiTextModel(data.assistant?.model || data.model);
     const grounding = !!(data.assistant?.grounding ?? data.grounding);
     const result = await vertexGenerateContent(built.prompt, {
       system: built.system,
       history: built.history,
       temperature: built.temperature,
-      maxOutputTokens: multi ? 6144 : 4096,
+      maxOutputTokens: multi ? 6144 : longForm ? 8192 : 4096,
       model,
       grounding,
     });

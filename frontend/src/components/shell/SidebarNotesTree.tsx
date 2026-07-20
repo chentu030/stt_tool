@@ -43,12 +43,11 @@ import {
   renameFolderLeaf,
 } from "@/lib/noteTree";
 import {
-  isPageColorId,
+  normalizePageColor,
   normalizePageIcon,
   pageColorMeta,
   remapFolderStyles,
   setFolderStyle,
-  type PageColorId,
 } from "@/lib/pageChrome";
 import { toast } from "@/lib/toast";
 
@@ -480,31 +479,35 @@ export default function SidebarNotesTree() {
     y: number
   ) => {
     closeCtx();
-    const pos = clampMenuPos(x, y, 280, 320);
+    const pos = clampMenuPos(x, y, 300, 520);
     setStylePicker({ ...pos, target });
   };
 
-  const applyStyle = async (next: { icon: string; color: PageColorId | "" }) => {
+  const styleSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const applyStyle = (next: { icon: string; color: string }) => {
     if (!stylePicker) return;
     const icon = normalizePageIcon(next.icon);
-    if (stylePicker.target.kind === "note") {
-      await updateNote(stylePicker.target.noteId, {
-        icon,
-        color: next.color || "",
-      });
-      toast("已更新圖示");
-      return;
-    }
-    if (!prefsCtx) return;
-    const path = stylePicker.target.path;
-    prefsCtx.setPrefs((prev) => ({
-      ...prev,
-      folderStyles: setFolderStyle(prev.folderStyles || {}, path, {
-        icon,
-        color: next.color || undefined,
-      }),
-    }));
-    toast("已更新資料夾樣式");
+    const color = normalizePageColor(next.color);
+    const target = stylePicker.target;
+    if (styleSaveTimer.current) clearTimeout(styleSaveTimer.current);
+    styleSaveTimer.current = setTimeout(() => {
+      void (async () => {
+        if (target.kind === "note") {
+          await updateNote(target.noteId, { icon, color: color || "" });
+          toast("已更新圖示");
+          return;
+        }
+        if (!prefsCtx) return;
+        prefsCtx.setPrefs((prev) => ({
+          ...prev,
+          folderStyles: setFolderStyle(prev.folderStyles || {}, target.path, {
+            icon,
+            color: color || undefined,
+          }),
+        }));
+        toast("已更新資料夾樣式");
+      })();
+    }, 220);
   };
 
   const renameNote = async (note: Note) => {
@@ -975,7 +978,7 @@ export default function SidebarNotesTree() {
     const kids = flat ? [] : childrenByParent.get(note.id) || [];
     const open = !flat && expanded.has(`note:${note.id}`);
     const isFav = (prefs?.favoriteNoteIds || []).includes(note.id);
-    const colorId = isPageColorId(note.color) ? note.color : "";
+    const colorId = normalizePageColor(note.color);
     const color = pageColorMeta(colorId);
     const dropPlace =
       dropHint?.noteId === note.id ? dropHint.place : null;
@@ -1145,18 +1148,18 @@ export default function SidebarNotesTree() {
   const stylePickerPortal: ReactNode = (() => {
     if (!stylePicker || typeof document === "undefined") return null;
     let icon = "";
-    let color: PageColorId | "" = "";
+    let color = "";
     let mode: "note" | "folder" = "note";
     const target = stylePicker.target;
     if (target.kind === "note") {
       const note = notes.find((n) => n.id === target.noteId);
       icon = note?.icon || "";
-      color = isPageColorId(note?.color) ? note!.color! : "";
+      color = normalizePageColor(note?.color);
       mode = "note";
     } else {
       const st = folderStyles[target.path] || {};
       icon = st.icon || "";
-      color = st.color || "";
+      color = normalizePageColor(st.color);
       mode = "folder";
     }
     return createPortal(
@@ -1304,7 +1307,7 @@ export default function SidebarNotesTree() {
                 row.folder.id === "__none__" ? "__none__" : row.folder.path;
               const dropKey = row.folder.path;
               const fStyle = folderStyles[dropKey] || {};
-              const colorId = fStyle.color || "";
+              const colorId = normalizePageColor(fStyle.color);
               const color = pageColorMeta(colorId);
               return (
                 <div key={`f:${row.path}`}>

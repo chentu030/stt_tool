@@ -20,6 +20,11 @@ type Backlink = {
   title: string;
 };
 
+type LinkCandidate = {
+  id: string;
+  title: string;
+};
+
 type Props = {
   stats: NoteStats;
   outline: HeadingItem[];
@@ -36,6 +41,12 @@ type Props = {
     theme: { bg: string; fg: string; accent: string };
     onEnter: (index?: number) => void;
   };
+  /** Search / open / insert wiki links */
+  linkPicker?: string;
+  onLinkPickerChange?: (q: string) => void;
+  linkCandidates?: LinkCandidate[];
+  onOpenWikiNote?: (title: string) => void;
+  onInsertWiki?: (title: string) => void;
   open: boolean;
   tab: "outline" | "info";
   onTab: (t: "outline" | "info") => void;
@@ -52,6 +63,11 @@ export default function NoteAside({
   onJumpHeading,
   onOpenSlideForHeading,
   slidePreview,
+  linkPicker = "",
+  onLinkPickerChange,
+  linkCandidates = [],
+  onOpenWikiNote,
+  onInsertWiki,
   open,
   tab,
   onTab,
@@ -59,6 +75,9 @@ export default function NoteAside({
   onResizeWidth,
 }: Props) {
   if (!open) return null;
+
+  const q = linkPicker.trim();
+  const showLinkSearch = !!onLinkPickerChange;
 
   return (
     <aside className="note-aside" style={{ width: widthPx }}>
@@ -106,6 +125,80 @@ export default function NoteAside({
           </button>
         ))}
       </div>
+
+      {showLinkSearch && (
+        <div className="doc-link-insert doc-link-insert--aside">
+          <input
+            className="doc-prop-input doc-link-input"
+            placeholder="搜尋筆記… Enter 開啟"
+            value={linkPicker}
+            onChange={(e) => onLinkPickerChange?.(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                onLinkPickerChange?.("");
+                return;
+              }
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              if (!q) return;
+              if (linkCandidates[0]) onOpenWikiNote?.(linkCandidates[0].title);
+              else onOpenWikiNote?.(q);
+            }}
+            aria-label="搜尋筆記"
+          />
+          {q && (
+            <div className="doc-link-menu doc-link-menu--aside">
+              {linkCandidates.length === 0 ? (
+                <button
+                  type="button"
+                  className="doc-link-row-main"
+                  onClick={() => onOpenWikiNote?.(q)}
+                >
+                  <strong>{`建立並開啟「${q}」`}</strong>
+                  <span>新筆記</span>
+                </button>
+              ) : (
+                linkCandidates.map((n) => (
+                  <div key={n.id} className="doc-link-row">
+                    <button
+                      type="button"
+                      className="doc-link-row-main"
+                      onClick={() => onOpenWikiNote?.(n.title)}
+                    >
+                      <strong>{n.title || "未命名"}</strong>
+                      <span>開啟</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="doc-link-row-link"
+                      title="插入雙向連結到本文"
+                      onClick={() => onInsertWiki?.(n.title)}
+                    >
+                      連結
+                    </button>
+                  </div>
+                ))
+              )}
+              {linkCandidates.length > 0 &&
+                !linkCandidates.some(
+                  (n) => n.title.trim().toLowerCase() === q.toLowerCase()
+                ) && (
+                  <button
+                    type="button"
+                    className="doc-link-row-main doc-link-row-create"
+                    onClick={() => onOpenWikiNote?.(q)}
+                  >
+                    <strong>{`建立「${q}」`}</strong>
+                    <span>新筆記</span>
+                  </button>
+                )}
+            </div>
+          )}
+          <p className="note-aside-hint doc-link-aside-hint">
+            Enter 開啟 ·「連結」插入 [[雙向連結]]
+          </p>
+        </div>
+      )}
 
       {tab === "outline" && (
         <div className="note-aside-body">

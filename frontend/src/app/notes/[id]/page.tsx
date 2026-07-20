@@ -86,7 +86,7 @@ import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { fireConfetti } from "@/lib/confetti";
-import { isPageColorId, normalizePageIcon, pageColorMeta, type PageColorId } from "@/lib/pageChrome";
+import { normalizePageColor, normalizePageIcon, pageColorMeta } from "@/lib/pageChrome";
 
 function countTaskCheckboxes(md: string): { total: number; checked: number } {
   const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
@@ -117,7 +117,7 @@ function NotePageInner() {
   const [tags, setTags] = useState<string[]>([]);
   const [folder, setFolder] = useState("");
   const [icon, setIcon] = useState("");
-  const [color, setColor] = useState<PageColorId | "">("");
+  const [color, setColor] = useState("");
   const [cover, setCover] = useState("");
   const [parentId, setParentId] = useState("");
   const [tagInput, setTagInput] = useState("");
@@ -192,7 +192,7 @@ function NotePageInner() {
     tags: [] as string[],
     folder: "",
     icon: "",
-    color: "" as PageColorId | "",
+    color: "",
     cover: "",
     parent_id: "",
   });
@@ -214,7 +214,7 @@ function NotePageInner() {
       setTags(n.tags || []);
       setFolder(n.folder || "");
       setIcon(normalizePageIcon(n.icon || ""));
-      setColor(isPageColorId(n.color) ? n.color : "");
+      setColor(normalizePageColor(n.color));
       setCover(n.cover || "");
       setParentId(n.parent_id || "");
       setNoteShare(parseNoteShare(n.share));
@@ -227,7 +227,7 @@ function NotePageInner() {
         tags: n.tags || [],
         folder: n.folder || "",
         icon: normalizePageIcon(n.icon || ""),
-        color: isPageColorId(n.color) ? n.color : "",
+        color: normalizePageColor(n.color),
         cover: n.cover || "",
         parent_id: n.parent_id || "",
       };
@@ -1489,7 +1489,7 @@ function NotePageInner() {
                   color={color}
                   onChange={(next) => {
                     setIcon(normalizePageIcon(next.icon));
-                    setColor(next.color);
+                    setColor(normalizePageColor(next.color));
                     markDirty();
                   }}
                   onClose={() => setIconOpen(false)}
@@ -1581,77 +1581,6 @@ function NotePageInner() {
           )}
 
           <div className={`doc-pane doc-pane--write${viewMode === "write" ? " is-active" : ""}`} aria-hidden={viewMode !== "write"}>
-            <div className="doc-link-insert">
-              <input
-                className="doc-prop-input doc-link-input"
-                style={{ flex: 1, minWidth: 160 }}
-                placeholder="搜尋筆記… Enter 開啟 · 右側可插入連結"
-                value={linkPicker}
-                onChange={(e) => setLinkPicker(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setLinkPicker("");
-                    return;
-                  }
-                  if (e.key !== "Enter") return;
-                  e.preventDefault();
-                  const q = linkPicker.trim();
-                  if (!q) return;
-                  if (linkCandidates[0]) void openWikiNote(linkCandidates[0].title);
-                  else void openWikiNote(q);
-                }}
-              />
-              {linkPicker.trim() && (
-                <div className="doc-link-menu">
-                  {linkCandidates.length === 0 ? (
-                    <button
-                      type="button"
-                      className="doc-link-row-main"
-                      onClick={() => void openWikiNote(linkPicker.trim())}
-                    >
-                      <strong>{`建立並開啟「${linkPicker.trim()}」`}</strong>
-                      <span>新筆記</span>
-                    </button>
-                  ) : (
-                    linkCandidates.map((n) => (
-                      <div key={n.id} className="doc-link-row">
-                        <button
-                          type="button"
-                          className="doc-link-row-main"
-                          onClick={() => void openWikiNote(n.title)}
-                        >
-                          <strong>{n.title || "未命名"}</strong>
-                          <span>開啟</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="doc-link-row-link"
-                          title="插入雙向連結到本文"
-                          onClick={() => insertWiki(n.title)}
-                        >
-                          連結
-                        </button>
-                      </div>
-                    ))
-                  )}
-                  {linkCandidates.length > 0 &&
-                    linkPicker.trim() &&
-                    !linkCandidates.some(
-                      (n) => n.title.trim().toLowerCase() === linkPicker.trim().toLowerCase()
-                    ) && (
-                      <button
-                        type="button"
-                        className="doc-link-row-main doc-link-row-create"
-                        onClick={() => void openWikiNote(linkPicker.trim())}
-                      >
-                        <strong>{`建立「${linkPicker.trim()}」`}</strong>
-                        <span>新筆記</span>
-                      </button>
-                    )}
-                </div>
-              )}
-            </div>
-
           <div className="doc-editor-shell">
             <RichNoteEditor
               valueMd={body}
@@ -1763,6 +1692,11 @@ function NotePageInner() {
           backlinks={backlinks.map((n) => ({ id: n.id, title: n.title }))}
           onJumpHeading={jumpHeading}
           onOpenSlideForHeading={openSlideForHeading}
+          linkPicker={linkPicker}
+          onLinkPickerChange={setLinkPicker}
+          linkCandidates={linkCandidates.map((n) => ({ id: n.id, title: n.title }))}
+          onOpenWikiNote={(t) => void openWikiNote(t)}
+          onInsertWiki={insertWiki}
           slidePreview={
             viewMode === "write"
               ? {

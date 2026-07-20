@@ -324,11 +324,13 @@ export async function createNote(
     journal_date?: string;
     status?: Note["status"];
     icon?: string;
+    color?: string;
     cover?: string;
     parent_id?: string;
     database_id?: string;
     props?: Record<string, unknown>;
     app_link?: Note["app_link"];
+    sort_order?: number;
   }
 ): Promise<string> {
   const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -342,9 +344,10 @@ export async function createNote(
     status: extra?.status || "backlog",
     source_job_id: sourceJobId || "",
     icon: extra?.icon || "",
+    color: extra?.color || "",
     cover: extra?.cover || "",
     parent_id: extra?.parent_id || "",
-    sort_order: Date.now(),
+    sort_order: typeof extra?.sort_order === "number" ? extra.sort_order : Date.now(),
     database_id: extra?.database_id || "",
     props: extra?.props || {},
     ...(extra?.app_link ? { app_link: extra.app_link } : {}),

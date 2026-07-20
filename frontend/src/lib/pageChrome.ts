@@ -13,9 +13,12 @@ export type PageColorId =
   | "pink"
   | "red";
 
+/** Preset id or #rrggbb custom color */
+export type PageColorValue = PageColorId | string;
+
 export type FolderStyle = {
   icon?: string;
-  color?: PageColorId;
+  color?: PageColorValue;
 };
 
 /** Google Material Symbols Outlined names (stored on note.icon / folderStyles) */
@@ -141,13 +144,71 @@ export const PAGE_COLORS: {
   { id: "red", label: "紅", fg: "#DC2626", bg: "rgba(220,38,38,0.12)" },
 ];
 
-export function pageColorMeta(color?: string | null) {
-  const id = (color || "") as PageColorId;
-  return PAGE_COLORS.find((c) => c.id === id) || PAGE_COLORS[0];
+/** Hex presets shown in the custom color picker (same as note text color). */
+export const PAGE_COLOR_HEX_PRESETS = [
+  "#0f172a",
+  "#dc2626",
+  "#ea580c",
+  "#ca8a04",
+  "#16a34a",
+  "#0891b2",
+  "#2563eb",
+  "#7c3aed",
+];
+
+export function normalizeHexColor(c: string): string | null {
+  const s = c.trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(s)) {
+    const r = s[1];
+    const g = s[2];
+    const b = s[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  if (/^[0-9a-f]{6}$/i.test(s)) return `#${s.toLowerCase()}`;
+  return null;
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const n = normalizeHexColor(hex);
+  if (!n) return `rgba(100,116,139,${alpha})`;
+  const r = parseInt(n.slice(1, 3), 16);
+  const g = parseInt(n.slice(3, 5), 16);
+  const b = parseInt(n.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/** Accept preset ids or #rrggbb; empty string = default. */
+export function normalizePageColor(color?: string | null): string {
+  const c = (color || "").trim();
+  if (!c) return "";
+  if (PAGE_COLORS.some((x) => x.id === c)) return c;
+  return normalizeHexColor(c) || "";
+}
+
+export function pageColorMeta(color?: string | null): {
+  id: string;
+  label: string;
+  fg: string;
+  bg: string;
+} {
+  const raw = (color || "").trim();
+  const preset = PAGE_COLORS.find((c) => c.id === raw);
+  if (preset) return preset;
+  const hex = normalizeHexColor(raw);
+  if (hex) {
+    return { id: hex, label: hex, fg: hex, bg: hexToRgba(hex, 0.12) };
+  }
+  return PAGE_COLORS[0];
 }
 
 export function isPageColorId(v: unknown): v is PageColorId {
   return typeof v === "string" && PAGE_COLORS.some((c) => c.id === v);
+}
+
+/** True if value is a usable stored page/folder color (preset or hex). */
+export function isStoredPageColor(v: unknown): v is string {
+  return typeof v === "string" && normalizePageColor(v) !== "";
 }
 
 export function sanitizeFolderStyles(
@@ -160,7 +221,7 @@ export function sanitizeFolderStyles(
     if (!style || typeof style !== "object") continue;
     const s = style as FolderStyle;
     const icon = normalizePageIcon(typeof s.icon === "string" ? s.icon : "");
-    const color = isPageColorId(s.color) ? s.color : "";
+    const color = normalizePageColor(typeof s.color === "string" ? s.color : "");
     if (!icon && !color) continue;
     out[path] = { ...(icon ? { icon } : {}), ...(color ? { color } : {}) };
   }
@@ -193,7 +254,8 @@ export function setFolderStyle(
   const prev = styles[path] || {};
   const iconRaw = patch.icon !== undefined ? patch.icon : prev.icon || "";
   const icon = normalizePageIcon(iconRaw);
-  const color = patch.color !== undefined ? patch.color : prev.color || "";
+  const colorRaw = patch.color !== undefined ? patch.color : prev.color || "";
+  const color = normalizePageColor(colorRaw);
   const next = { ...styles };
   if (!icon && !color) {
     delete next[path];
