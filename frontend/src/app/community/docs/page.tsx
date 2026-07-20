@@ -14,7 +14,24 @@ export default function CommunityDocsPage() {
       <ScrambleText words="套件開發文件" as="h1" className="page-title font-display" />
       <p className="page-sub">
         Albireus 社群套件是宣告式 JSON（不在主程式執行遠端 JS）。擴充以沙箱 iframe 載入；模板為 Markdown 頁面包。
+        若要用 AI 協助開發，請把{" "}
+        <a href="/community/ai.md" target="_blank" rel="noreferrer">
+          /community/ai.md
+        </a>{" "}
+        整份貼給 AI（含接線規格與配色 token）。
       </p>
+
+      <section>
+        <h2>給 AI 的完整指南</h2>
+        <p>
+          <a className="btn" href="/community/ai.md" target="_blank" rel="noreferrer">
+            開啟 ai.md
+          </a>
+        </p>
+        <p className="page-sub" style={{ marginTop: "0.65rem" }}>
+          內容包含：架構限制、albireus.json、query / postMessage、權限、發佈流程，以及與主站融合的配色／字體／按鈕樣式。
+        </p>
+      </section>
 
       <section>
         <h2>albireus.json 必填欄位</h2>

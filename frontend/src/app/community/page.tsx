@@ -382,6 +382,9 @@ export default function CommunityStorePage() {
           </p>
           <div className="community-hero-links">
             <Link href="/community/docs">開發文件</Link>
+            <a href="/community/ai.md" target="_blank" rel="noreferrer">
+              AI 開發指南
+            </a>
             <Link href="/community/submit">驗證並發佈</Link>
             <a href="/samples/albireus-extension-sample.json" download>
               擴充範例
