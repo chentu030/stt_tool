@@ -1,11 +1,16 @@
 /** Built-in demo packages (no network) for the community catalog */
 
-import type { ResolvedPackage } from "@/lib/community/types";
+import type { ResolvedPackage, StoreCollection } from "@/lib/community/types";
 import catalog from "@/lib/community/catalog.json";
+import collections from "@/lib/community/collections.json";
 import type { CatalogEntry } from "@/lib/community/types";
 
 export function getCatalog(): CatalogEntry[] {
   return catalog as CatalogEntry[];
+}
+
+export function getCollections(): StoreCollection[] {
+  return collections as StoreCollection[];
 }
 
 const BUILTINS: Record<string, () => ResolvedPackage> = {
@@ -28,11 +33,20 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       description: "示範 iframe 頁面類型，安裝後出現在側欄頁面格線。",
       author: "Albireus",
       authorUrl: "https://github.com/chentu030/stt_tool",
+      homepage: "https://github.com/chentu030/stt_tool",
+      repository: "https://github.com/chentu030/stt_tool",
+      license: "MIT",
       icon: "language",
       category: "生產力",
       cover: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=60",
       screenshots: [
         "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=960&q=60",
+      ],
+      minAppVersion: "0.1.0",
+      permissions: ["iframe", "network", "settings", "storage", "clipboard"],
+      changelog: [
+        { version: "1.1.0", date: "2026-07-18", notes: "新增擴充設定與截圖。" },
+        { version: "1.0.0", date: "2026-07-01", notes: "初版示範擴充。" },
       ],
       nav: { label: "瀏覽", order: 80 },
       pageType: {
@@ -99,6 +113,9 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       description: "議程、決議、待辦三頁套件。",
       author: "Albireus",
       icon: "groups",
+      license: "MIT",
+      permissions: ["notes_write"],
+      changelog: [{ version: "1.0.0", notes: "初版：議程／決議／待辦。" }],
       pages: [
         { title: "會議議程", file: "agenda.md", icon: "event_note", tags: ["會議"], folder: "會議" },
         { title: "會議決議", file: "decisions.md", icon: "gavel", tags: ["會議"], folder: "會議" },
@@ -147,6 +164,7 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       description: "假設、實驗、文獻三頁。",
       author: "Albireus",
       icon: "science",
+      permissions: ["notes_write"],
       pages: [
         { title: "研究假設", file: "hypothesis.md", icon: "lightbulb", tags: ["研究"], folder: "研究" },
         { title: "實驗紀錄", file: "lab-notes.md", icon: "biotech", tags: ["研究"], folder: "研究" },
@@ -182,6 +200,7 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       description: "一週回顧單頁模板。",
       author: "Albireus",
       icon: "event_repeat",
+      permissions: ["notes_write"],
       pages: [
         { title: "週回顧", file: "weekly.md", icon: "event_repeat", tags: ["日誌"], folder: "日誌" },
       ],
@@ -225,6 +244,8 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       author: "Albireus",
       icon: "rocket_launch",
       category: "工作",
+      permissions: ["notes_write"],
+      changelog: [{ version: "1.0.0", notes: "初版啟動包。" }],
       pages: [
         { title: "專案簡報", file: "brief.md", icon: "flag", tags: ["專案"], folder: "專案" },
         { title: "里程碑", file: "milestones.md", icon: "timeline", tags: ["專案"], folder: "專案" },

@@ -2,7 +2,25 @@
 
 export const ALBIREUS_MANIFEST = "albireus.json";
 
+/** App version used for minAppVersion checks (keep in sync with frontend package.json). */
+export const ALBIREUS_APP_VERSION = "0.1.0";
+
 export type CommunityPackageKind = "extension" | "template";
+
+/** Declared capabilities — shown before install (Chrome/Obsidian-style transparency). */
+export type PackagePermission =
+  | "network"
+  | "iframe"
+  | "clipboard"
+  | "storage"
+  | "notes_write"
+  | "settings";
+
+export type ChangelogEntry = {
+  version: string;
+  date?: string;
+  notes: string;
+};
 
 export type ExtensionPageType = {
   type: "iframe";
@@ -20,7 +38,16 @@ export type ExtensionSettingDef = {
   description?: string;
 };
 
-export type ExtensionManifest = {
+type ListingFields = {
+  homepage?: string;
+  repository?: string;
+  changelogUrl?: string;
+  changelog?: ChangelogEntry[];
+  permissions?: PackagePermission[];
+  license?: string;
+};
+
+export type ExtensionManifest = ListingFields & {
   schema: 1;
   kind: "extension";
   id: string;
@@ -48,7 +75,7 @@ export type TemplatePageDef = {
   folder?: string;
 };
 
-export type TemplateManifest = {
+export type TemplateManifest = ListingFields & {
   schema: 1;
   kind: "template";
   id: string;
@@ -84,6 +111,14 @@ export type CatalogEntry = {
   /** Static seed rating 1–5 for catalog display */
   rating?: number;
   downloads?: number;
+  collectionIds?: string[];
+};
+
+export type StoreCollection = {
+  id: string;
+  name: string;
+  description: string;
+  packageIds: string[];
 };
 
 export type InstalledExtension = {
@@ -122,5 +157,12 @@ export type PackageRating = {
   packageId: string;
   stars: number;
   comment?: string;
+  updatedAt: number;
+};
+
+export type PackageReport = {
+  packageId: string;
+  reason: string;
+  detail?: string;
   updatedAt: number;
 };

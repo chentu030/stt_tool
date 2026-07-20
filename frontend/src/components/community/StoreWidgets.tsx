@@ -4,9 +4,15 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import AiMarkdown from "@/components/AiMarkdown";
-import type { CatalogEntry, InstalledTemplate, ResolvedPackage } from "@/lib/community/types";
+import type { CatalogEntry, CommunityManifest, InstalledTemplate, ResolvedPackage } from "@/lib/community/types";
 import { displayRating } from "@/lib/community/ratings";
 import type { PackageRating } from "@/lib/community/types";
+import {
+  effectivePermissions,
+  PERMISSION_META,
+  trustScore,
+} from "@/lib/community/permissions";
+import { isFavorite } from "@/lib/community/libraryPrefs";
 
 export function StarRow({
   value,
@@ -36,6 +42,27 @@ export function StarRow({
   );
 }
 
+export function TrustScorecard({ manifest }: { manifest: CommunityManifest }) {
+  const trust = trustScore(manifest);
+  const perms = effectivePermissions(manifest);
+  return (
+    <div className={`community-trust is-${trust.level}`}>
+      <div className="community-trust-head">
+        <strong>{trust.label}</strong>
+        <span>{trust.summary}</span>
+      </div>
+      <ul className="community-perm-list">
+        {perms.map((p) => (
+          <li key={p} data-risk={PERMISSION_META[p].risk}>
+            <strong>{PERMISSION_META[p].label}</strong>
+            <span>{PERMISSION_META[p].hint}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function PackageCard({
   entry,
   installed,
@@ -44,6 +71,7 @@ export function PackageCard({
   onOpen,
   busy,
   userRating,
+  favorited,
 }: {
   entry: CatalogEntry;
   installed: boolean;
@@ -52,8 +80,10 @@ export function PackageCard({
   onOpen?: () => void;
   busy?: boolean;
   userRating?: PackageRating | null;
+  favorited?: boolean;
 }) {
   const rating = displayRating(entry.rating, userRating || null);
+  const fav = favorited ?? (typeof window !== "undefined" ? isFavorite(entry.id) : false);
   return (
     <article className="community-card">
       {entry.cover ? (
@@ -68,11 +98,13 @@ export function PackageCard({
         <div>
           <strong>
             <Link href={href}>{entry.name}</Link>
+            {fav ? <span className="community-fav-mark" title="已收藏"> ★</span> : null}
           </strong>
           <span>
-            {entry.author}
+            <Link href={`/community/author/${encodeURIComponent(entry.author)}`}>{entry.author}</Link>
             {entry.featured ? " · 精選" : ""}
             {entry.category ? ` · ${entry.category}` : ""}
+            {installed ? " · 已安裝" : ""}
           </span>
         </div>
       </div>
@@ -149,6 +181,7 @@ export function TemplatePreviewModal({
             ×
           </button>
         </header>
+        <TrustScorecard manifest={tpl.manifest} />
         <div className="community-preview-tabs">
           {pages.map((p, i) => (
             <button
@@ -190,6 +223,7 @@ export function PackageDetailBody({
 }) {
   const shots = pack.manifest.screenshots || entry?.screenshots || [];
   const cover = pack.manifest.cover || entry?.cover;
+  const changelog = pack.manifest.changelog || [];
   return (
     <div className="community-detail-body">
       {cover ? (
@@ -205,6 +239,7 @@ export function PackageDetailBody({
         </div>
       )}
       <p className="community-detail-desc">{pack.manifest.description}</p>
+      <TrustScorecard manifest={pack.manifest} />
       <dl className="community-detail-dl">
         <div>
           <dt>版本</dt>
@@ -213,13 +248,17 @@ export function PackageDetailBody({
         <div>
           <dt>作者</dt>
           <dd>
+            <Link href={`/community/author/${encodeURIComponent(pack.manifest.author)}`}>
+              {pack.manifest.author}
+            </Link>
             {pack.manifest.authorUrl ? (
-              <a href={pack.manifest.authorUrl} target="_blank" rel="noreferrer">
-                {pack.manifest.author}
-              </a>
-            ) : (
-              pack.manifest.author
-            )}
+              <>
+                {" · "}
+                <a href={pack.manifest.authorUrl} target="_blank" rel="noreferrer">
+                  網站
+                </a>
+              </>
+            ) : null}
           </dd>
         </div>
         <div>
@@ -232,7 +271,36 @@ export function PackageDetailBody({
             <dd>{pack.manifest.category || entry?.category}</dd>
           </div>
         )}
+        {pack.manifest.license && (
+          <div>
+            <dt>授權</dt>
+            <dd>{pack.manifest.license}</dd>
+          </div>
+        )}
+        {pack.manifest.minAppVersion && (
+          <div>
+            <dt>最低版本</dt>
+            <dd>≥ {pack.manifest.minAppVersion}</dd>
+          </div>
+        )}
       </dl>
+      <div className="community-ext-links">
+        {pack.manifest.homepage && (
+          <a href={pack.manifest.homepage} target="_blank" rel="noreferrer">
+            首頁
+          </a>
+        )}
+        {pack.manifest.repository && (
+          <a href={pack.manifest.repository} target="_blank" rel="noreferrer">
+            原始碼
+          </a>
+        )}
+        {pack.manifest.changelogUrl && (
+          <a href={pack.manifest.changelogUrl} target="_blank" rel="noreferrer">
+            更新日誌網址
+          </a>
+        )}
+      </div>
       {pack.manifest.kind === "extension" && (
         <p className="community-detail-meta">
           入口：<code>{pack.manifest.pageType.entry}</code>
@@ -249,6 +317,20 @@ export function PackageDetailBody({
             </li>
           ))}
         </ul>
+      )}
+      {changelog.length > 0 && (
+        <div className="community-changelog">
+          <h3>更新日誌</h3>
+          <ol>
+            {changelog.map((c) => (
+              <li key={`${c.version}-${c.notes}`}>
+                <strong>v{c.version}</strong>
+                {c.date ? <span> · {c.date}</span> : null}
+                <p>{c.notes}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
       )}
       {pack.readme && (
         <div className="community-readme-md">

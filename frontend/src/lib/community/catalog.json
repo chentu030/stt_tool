@@ -15,7 +15,8 @@
     "tags": ["示範", "瀏覽器", "生產力"],
     "featured": true,
     "rating": 4.6,
-    "downloads": 1280
+    "downloads": 1280,
+    "collectionIds": ["getting-started", "research"]
   },
   {
     "id": "meeting-os",
@@ -30,7 +31,8 @@
     "tags": ["會議", "工作", "示範"],
     "featured": true,
     "rating": 4.8,
-    "downloads": 2140
+    "downloads": 2140,
+    "collectionIds": ["getting-started", "work-ops"]
   },
   {
     "id": "research-lab",
@@ -45,7 +47,8 @@
     "tags": ["研究", "學習", "示範"],
     "featured": true,
     "rating": 4.5,
-    "downloads": 890
+    "downloads": 890,
+    "collectionIds": ["research"]
   },
   {
     "id": "weekly-review",
@@ -59,7 +62,8 @@
     "tags": ["日誌", "生活", "示範"],
     "featured": false,
     "rating": 4.2,
-    "downloads": 560
+    "downloads": 560,
+    "collectionIds": ["getting-started", "work-ops"]
   },
   {
     "id": "project-kickoff",
@@ -73,6 +77,7 @@
     "tags": ["專案", "工作"],
     "featured": true,
     "rating": 4.4,
-    "downloads": 720
+    "downloads": 720,
+    "collectionIds": ["work-ops"]
   }
 ]

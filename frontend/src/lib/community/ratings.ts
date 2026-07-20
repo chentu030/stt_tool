@@ -1,8 +1,9 @@
-/** Local + Firestore package ratings */
+/** Local + Firestore package ratings / reports */
 
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { PackageRating } from "@/lib/community/types";
+import type { PackageRating, PackageReport } from "@/lib/community/types";
+import { saveLocalReport } from "@/lib/community/libraryPrefs";
 
 const LS_KEY = "albireus_community_ratings_v1";
 
@@ -41,8 +42,7 @@ export async function getUserRating(uid: string, packageId: string): Promise<Pac
   try {
     const snap = await getDoc(doc(db, "users", uid, "community_ratings", packageId));
     if (snap.exists()) {
-      const d = snap.data() as PackageRating;
-      return d;
+      return snap.data() as PackageRating;
     }
   } catch {
     /* fall through */
@@ -57,6 +57,16 @@ export async function saveUserRating(uid: string, rating: PackageRating) {
     stars: rating.stars,
     comment: rating.comment || "",
     updatedAt: rating.updatedAt,
+  });
+}
+
+export async function saveUserReport(uid: string, report: PackageReport) {
+  saveLocalReport(report);
+  await setDoc(doc(db, "users", uid, "community_reports", report.packageId), {
+    packageId: report.packageId,
+    reason: report.reason,
+    detail: report.detail || "",
+    updatedAt: report.updatedAt,
   });
 }
 

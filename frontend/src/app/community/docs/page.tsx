@@ -55,12 +55,24 @@ export default function CommunityDocsPage() {
   },
   "settings": [
     { "key": "theme", "label": "主題", "type": "enum", "options": ["light", "dark"], "default": "light" }
+  ],
+  "permissions": ["iframe", "network", "settings", "storage"],
+  "minAppVersion": "0.1.0",
+  "homepage": "https://example.com",
+  "repository": "https://github.com/you/repo",
+  "license": "MIT",
+  "changelog": [
+    { "version": "1.0.0", "date": "2026-07-01", "notes": "初版發佈" }
   ]
 }`}</pre>
         <p>
           <code>pageType.entry</code> 必須是 https。安裝後會出現在側欄「頁面」，建立的筆記以沙箱 iframe 開啟該網址（附帶{" "}
           <code>?note=</code>、<code>settings</code> JSON 與 <code>s_*</code> query）。也可監聽{" "}
           <code>postMessage</code> 事件 <code>albireus:settings</code>。
+        </p>
+        <p>
+          <code>permissions</code> 會顯示在商店信任分數卡（未填會依類型推斷）。模板請宣告{" "}
+          <code>notes_write</code>。<code>minAppVersion</code> 低於目前 App 版本時會拒絕安裝。
         </p>
       </section>
 

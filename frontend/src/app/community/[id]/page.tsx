@@ -16,8 +16,19 @@ import {
 } from "@/lib/community/actions";
 import type { CatalogEntry, InstalledTemplate, ResolvedPackage } from "@/lib/community/types";
 import PageChromeIcon from "@/components/PageChromeIcon";
-import { PackageDetailBody, StarRow, TemplatePreviewModal } from "@/components/community/StoreWidgets";
-import { getLocalRating, saveUserRating } from "@/lib/community/ratings";
+import {
+  PackageDetailBody,
+  StarRow,
+  TemplatePreviewModal,
+  TrustScorecard,
+} from "@/components/community/StoreWidgets";
+import { getLocalRating, saveUserRating, saveUserReport } from "@/lib/community/ratings";
+import {
+  isFavorite,
+  toggleFavorite,
+  touchRecentPackage,
+} from "@/lib/community/libraryPrefs";
+import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
@@ -36,8 +47,14 @@ function CommunityPackageDetailInner() {
   const [busy, setBusy] = useState(false);
   const [stars, setStars] = useState(0);
   const [previewTpl, setPreviewTpl] = useState<InstalledTemplate | null>(null);
+  const [fav, setFav] = useState(false);
 
   const catalog = useMemo(() => getCatalog(), []);
+
+  useEffect(() => {
+    touchRecentPackage(id);
+    setFav(isFavorite(id));
+  }, [id]);
 
   useEffect(() => {
     const e =
@@ -80,6 +97,36 @@ function CommunityPackageDetailInner() {
   const installedTpl = templates.find((t) => t.id === id);
   const installed = Boolean(installedExt || installedTpl);
 
+  const copyShare = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : `/community/${id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("已複製分享連結");
+    } catch {
+      toast(url);
+    }
+  };
+
+  const report = async () => {
+    if (!user) return;
+    const reason = await askPrompt({
+      title: "回報套件",
+      message: "簡述問題（惡意、誤導、失效、侵權等）",
+      placeholder: "例如：入口網址失效",
+    });
+    if (!reason?.trim()) return;
+    try {
+      await saveUserReport(user.uid, {
+        packageId: id,
+        reason: reason.trim().slice(0, 200),
+        updatedAt: Date.now(),
+      });
+      toast("已送出回報（僅你的帳號可見，供後續審核）");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "回報失敗");
+    }
+  };
+
   if (loading) return <PageLoading />;
   if (!user) {
     return (
@@ -113,8 +160,12 @@ function CommunityPackageDetailInner() {
             <div>
               <h1 className="page-title font-display">{pack.manifest.name}</h1>
               <p className="page-sub">
-                {pack.manifest.author} · v{pack.manifest.version}
+                <Link href={`/community/author/${encodeURIComponent(pack.manifest.author)}`}>
+                  {pack.manifest.author}
+                </Link>
+                {" · "}v{pack.manifest.version}
                 {installed ? " · 已安裝" : ""}
+                {fav ? " · 已收藏" : ""}
               </p>
             </div>
             <div className="community-detail-head-actions">
@@ -152,11 +203,30 @@ function CommunityPackageDetailInner() {
                   預覽並套用
                 </button>
               )}
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  const on = toggleFavorite(id);
+                  setFav(on);
+                  toast(on ? "已加入收藏" : "已取消收藏");
+                }}
+              >
+                {fav ? "取消收藏" : "收藏"}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => void copyShare()}>
+                分享
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => void report()}>
+                回報
+              </button>
               <Link className="btn btn-ghost" href="/community">
                 返回
               </Link>
             </div>
           </header>
+
+          <TrustScorecard manifest={pack.manifest} />
 
           <div className="community-rate-box">
             <span>為這個套件評分</span>

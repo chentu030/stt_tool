@@ -8,6 +8,12 @@
   "author": "Albireus",
   "icon": "menu_book",
   "category": "生產力",
+  "license": "MIT",
+  "minAppVersion": "0.1.0",
+  "permissions": ["iframe", "network", "settings"],
+  "changelog": [
+    { "version": "1.0.0", "notes": "初版示範。" }
+  ],
   "nav": { "label": "MDN", "order": 90 },
   "pageType": {
     "type": "iframe",

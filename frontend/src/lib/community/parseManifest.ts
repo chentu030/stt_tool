@@ -1,6 +1,8 @@
 /** Validate and normalize albireus.json manifests */
 
+import { parsePermissions } from "@/lib/community/permissions";
 import type {
+  ChangelogEntry,
   CommunityManifest,
   ExtensionManifest,
   ExtensionSettingDef,
@@ -31,6 +33,12 @@ function requireHttps(url: string, field: string): string {
   return parsed.toString();
 }
 
+function optionalHttps(url: string, field: string): string | undefined {
+  const u = url.trim();
+  if (!u) return undefined;
+  return requireHttps(u, field);
+}
+
 function slugId(raw: string): string {
   const id = raw
     .trim()
@@ -48,6 +56,22 @@ function parseHttpsList(raw: unknown, field: string): string[] | undefined {
     .filter((u): u is string => typeof u === "string")
     .map((u) => requireHttps(u, field))
     .slice(0, 8);
+}
+
+function parseChangelog(raw: unknown): ChangelogEntry[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw.slice(0, 20).map((item, i) => {
+    const o = asRecord(item);
+    if (!o) throw new Error(`changelog[${i}] 格式錯誤`);
+    const version = str(o.version);
+    const notes = str(o.notes);
+    if (!version || !notes) throw new Error(`changelog[${i}] 需 version 與 notes`);
+    return {
+      version,
+      date: str(o.date) || undefined,
+      notes,
+    };
+  });
 }
 
 function parseSettings(raw: unknown): ExtensionSettingDef[] | undefined {
@@ -108,6 +132,17 @@ function parsePages(raw: unknown): TemplatePageDef[] {
   });
 }
 
+function listingExtras(o: Record<string, unknown>) {
+  return {
+    homepage: optionalHttps(str(o.homepage), "homepage"),
+    repository: optionalHttps(str(o.repository), "repository"),
+    changelogUrl: optionalHttps(str(o.changelogUrl), "changelogUrl"),
+    changelog: parseChangelog(o.changelog),
+    permissions: parsePermissions(o.permissions),
+    license: str(o.license) || undefined,
+  };
+}
+
 export function parseCommunityManifest(raw: unknown): CommunityManifest {
   const o = asRecord(raw);
   if (!o) throw new Error("manifest 必須是 JSON 物件");
@@ -125,6 +160,7 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
   const category = str(o.category) || undefined;
   const screenshots = parseHttpsList(o.screenshots, "screenshots");
   const minAppVersion = str(o.minAppVersion) || undefined;
+  const extras = listingExtras(o);
 
   if (kind === "extension") {
     const page = asRecord(o.pageType);
@@ -148,6 +184,7 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
       screenshots,
       category,
       minAppVersion,
+      ...extras,
       settings,
       nav: nav
         ? {
@@ -179,6 +216,7 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
       screenshots,
       category,
       minAppVersion,
+      ...extras,
       pages: parsePages(o.pages),
     };
     return manifest;

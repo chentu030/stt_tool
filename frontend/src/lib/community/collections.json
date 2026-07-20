@@ -1,0 +1,20 @@
+[
+  {
+    "id": "getting-started",
+    "name": "新手入門",
+    "description": "第一次用社群商店？從這些示範套件開始。",
+    "packageIds": ["web-browser-pack", "meeting-os", "weekly-review"]
+  },
+  {
+    "id": "work-ops",
+    "name": "工作節奏",
+    "description": "會議、專案與週回顧模板合輯。",
+    "packageIds": ["meeting-os", "project-kickoff", "weekly-review"]
+  },
+  {
+    "id": "research",
+    "name": "研究與學習",
+    "description": "文獻、實驗與知識整理。",
+    "packageIds": ["research-lab", "web-browser-pack"]
+  }
+]

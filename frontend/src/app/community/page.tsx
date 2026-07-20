@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle } from "@/lib/firebase";
 import { useCommunity } from "@/components/community/CommunityProvider";
-import { getCatalog } from "@/lib/community/builtins";
+import { getCatalog, getCollections, resolveBuiltinSource } from "@/lib/community/builtins";
 import {
   applyInstalledTemplate,
   installFromFile,
@@ -34,10 +34,16 @@ import {
   PackageCard,
   TemplatePreviewModal,
 } from "@/components/community/StoreWidgets";
-import { resolveBuiltinSource } from "@/lib/community/builtins";
+import {
+  hasCommunityPluginsAck,
+  setCommunityPluginsAck,
+  getFavoriteIds,
+  getRecentPackageIds,
+} from "@/lib/community/libraryPrefs";
 
 type Tab = "extensions" | "templates" | "installed";
 type SortKey = "featured" | "rating" | "name" | "downloads";
+type ScopeFilter = "" | "installed" | "not_installed" | "favorites" | "recent";
 
 export default function CommunityStorePage() {
   const { user, loading } = useAuth();
@@ -47,14 +53,22 @@ export default function CommunityStorePage() {
   const [tab, setTab] = useState<Tab>("extensions");
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
+  const [scope, setScope] = useState<ScopeFilter>("");
   const [sort, setSort] = useState<SortKey>("featured");
   const [busy, setBusy] = useState(false);
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [updateMap, setUpdateMap] = useState<Record<string, string>>({});
   const [previewTpl, setPreviewTpl] = useState<InstalledTemplate | null>(null);
   const [installedQ, setInstalledQ] = useState("");
+  const [ack, setAck] = useState(false);
+  const [favTick, setFavTick] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const catalog = useMemo(() => getCatalog(), []);
+  const collections = useMemo(() => getCollections(), []);
+
+  useEffect(() => {
+    setAck(hasCommunityPluginsAck());
+  }, []);
 
   const installedExtIds = useMemo(() => new Set(extensions.map((e) => e.id)), [extensions]);
   const installedTplIds = useMemo(() => new Set(templates.map((t) => t.id)), [templates]);
@@ -72,6 +86,9 @@ export default function CommunityStorePage() {
 
   const filteredCatalog = useMemo(() => {
     const qq = q.trim().toLowerCase();
+    const favIds = new Set(getFavoriteIds());
+    const recentIds = getRecentPackageIds();
+    const recentSet = new Set(recentIds);
     let list = catalog.filter((c) => {
       if (tab === "extensions" && c.kind !== "extension") return false;
       if (tab === "templates" && c.kind !== "template") return false;
@@ -80,6 +97,14 @@ export default function CommunityStorePage() {
           c.category === category || (c.tags || []).includes(category);
         if (!hit) return false;
       }
+      const isInstalled =
+        c.kind === "extension"
+          ? installedExtIds.has(c.id)
+          : installedTplIds.has(c.id);
+      if (scope === "installed" && !isInstalled) return false;
+      if (scope === "not_installed" && isInstalled) return false;
+      if (scope === "favorites" && !favIds.has(c.id)) return false;
+      if (scope === "recent" && !recentSet.has(c.id)) return false;
       if (!qq) return true;
       return (
         c.name.toLowerCase().includes(qq) ||
@@ -88,19 +113,35 @@ export default function CommunityStorePage() {
         (c.tags || []).some((t) => t.toLowerCase().includes(qq))
       );
     });
-    list = [...list].sort((a, b) => {
-      if (sort === "featured") {
-        const af = a.featured ? 1 : 0;
-        const bf = b.featured ? 1 : 0;
-        if (af !== bf) return bf - af;
-        return (b.rating || 0) - (a.rating || 0);
-      }
-      if (sort === "rating") return (b.rating || 0) - (a.rating || 0);
-      if (sort === "downloads") return (b.downloads || 0) - (a.downloads || 0);
-      return a.name.localeCompare(b.name, "zh-Hant");
-    });
+    if (scope === "recent") {
+      list = [...list].sort(
+        (a, b) => recentIds.indexOf(a.id) - recentIds.indexOf(b.id)
+      );
+    } else {
+      list = [...list].sort((a, b) => {
+        if (sort === "featured") {
+          const af = a.featured ? 1 : 0;
+          const bf = b.featured ? 1 : 0;
+          if (af !== bf) return bf - af;
+          return (b.rating || 0) - (a.rating || 0);
+        }
+        if (sort === "rating") return (b.rating || 0) - (a.rating || 0);
+        if (sort === "downloads") return (b.downloads || 0) - (a.downloads || 0);
+        return a.name.localeCompare(b.name, "zh-Hant");
+      });
+    }
     return list;
-  }, [catalog, q, tab, category, sort]);
+  }, [
+    catalog,
+    q,
+    tab,
+    category,
+    scope,
+    sort,
+    installedExtIds,
+    installedTplIds,
+    favTick,
+  ]);
 
   const featured = useMemo(
     () => filteredCatalog.filter((c) => c.featured).slice(0, 6),
@@ -162,7 +203,7 @@ export default function CommunityStorePage() {
     }
   };
 
-  const checkUpdates = async () => {
+  const checkUpdates = async (): Promise<Record<string, string>> => {
     setCheckingUpdates(true);
     const next: Record<string, string> = {};
     try {
@@ -199,6 +240,7 @@ export default function CommunityStorePage() {
           ? `發現 ${Object.keys(next).length} 個可更新項目`
           : "已是最新版本"
       );
+      return next;
     } finally {
       setCheckingUpdates(false);
     }
@@ -226,6 +268,21 @@ export default function CommunityStorePage() {
       toast(e instanceof Error ? e.message : "更新失敗");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const updateAll = async () => {
+    let map = updateMap;
+    if (Object.keys(map).length === 0) {
+      map = await checkUpdates();
+    }
+    const keys = Object.keys(map);
+    if (keys.length === 0) return;
+    for (const key of keys) {
+      const [prefix, id] = key.split(":");
+      if (!id) continue;
+      if (prefix === "ext") await doUpdate("extension", id);
+      else if (prefix === "tpl") await doUpdate("template", id);
     }
   };
 
@@ -258,6 +315,9 @@ export default function CommunityStorePage() {
       </div>
     );
   }
+
+  const showCollections =
+    (tab === "extensions" || tab === "templates") && !q && !category && !scope;
 
   return (
     <div className="community-page">
@@ -298,6 +358,29 @@ export default function CommunityStorePage() {
           />
         </div>
       </div>
+
+      {!ack && (
+        <div className="community-ack-banner doc-banner-ingest">
+          <div className="doc-banner-ingest-main">
+            <strong>啟用社群套件</strong>
+            <p>
+              社群擴充以沙箱 iframe 載入；模板會寫入知識庫。請只安裝你信任的來源。
+            </p>
+            <div className="doc-banner-ingest-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setCommunityPluginsAck();
+                  setAck(true);
+                }}
+              >
+                啟用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="community-toolbar">
         <div className="community-tabs" role="tablist">
@@ -351,6 +434,14 @@ export default function CommunityStorePage() {
                 type="button"
                 className="btn btn-ghost"
                 disabled={checkingUpdates || busy}
+                onClick={() => void updateAll()}
+              >
+                全部更新
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={checkingUpdates || busy}
                 onClick={() => void checkUpdates()}
               >
                 {checkingUpdates ? "檢查中…" : "檢查更新"}
@@ -366,26 +457,50 @@ export default function CommunityStorePage() {
         </div>
       </div>
 
-      {tab !== "installed" && categories.length > 0 && (
-        <div className="community-chips">
-          <button
-            type="button"
-            className={!category ? "is-on" : ""}
-            onClick={() => setCategory("")}
-          >
-            全部
-          </button>
-          {categories.map((c) => (
-            <button
-              key={c}
-              type="button"
-              className={category === c ? "is-on" : ""}
-              onClick={() => setCategory(c === category ? "" : c)}
-            >
-              {c}
-            </button>
-          ))}
-        </div>
+      {tab !== "installed" && (
+        <>
+          <div className="community-chips" aria-label="範圍篩選">
+            {(
+              [
+                ["", "全部"],
+                ["installed", "已安裝"],
+                ["not_installed", "未安裝"],
+                ["favorites", "收藏"],
+                ["recent", "最近瀏覽"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={`scope-${id || "all"}`}
+                type="button"
+                className={scope === id ? "is-on" : ""}
+                onClick={() => setScope(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {categories.length > 0 && (
+            <div className="community-chips" aria-label="分類篩選">
+              <button
+                type="button"
+                className={!category ? "is-on" : ""}
+                onClick={() => setCategory("")}
+              >
+                全部
+              </button>
+              {categories.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={category === c ? "is-on" : ""}
+                  onClick={() => setCategory(c === category ? "" : c)}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {!ready && tab !== "installed" && (
@@ -452,7 +567,9 @@ export default function CommunityStorePage() {
                         disabled={busy}
                         onClick={() =>
                           void (async () => {
-                            const ok = await askConfirm("解除安裝此擴充？");
+                            const ok = await askConfirm(
+                              "解除安裝此擴充？相關設定也會一併移除。"
+                            );
                             if (!ok) return;
                             await uninstallExtension(user.uid, ext.id);
                             toast("已解除安裝");
@@ -542,7 +659,45 @@ export default function CommunityStorePage() {
         </div>
       ) : (
         <>
-          {featured.length > 0 && !q && !category && (
+          {showCollections &&
+            collections.map((col) => {
+              const packs = col.packageIds
+                .map((id) => catalog.find((c) => c.id === id))
+                .filter((c): c is CatalogEntry => {
+                  if (!c) return false;
+                  if (tab === "extensions") return c.kind === "extension";
+                  return c.kind === "template";
+                });
+              if (packs.length === 0) return null;
+              return (
+                <section key={col.id} className="community-featured">
+                  <h2>{col.name}</h2>
+                  <p className="page-sub">{col.description}</p>
+                  <div className="community-grid">
+                    {packs.map((entry) => (
+                      <CatalogCard
+                        key={`col-${col.id}-${entry.kind}-${entry.id}`}
+                        entry={entry}
+                        installed={
+                          entry.kind === "extension"
+                            ? installedExtIds.has(entry.id)
+                            : installedTplIds.has(entry.id)
+                        }
+                        busy={busy}
+                        onInstall={() => void doInstall(entry.source)}
+                        onOpen={() => {
+                          if (entry.kind === "template") {
+                            const tpl = templates.find((t) => t.id === entry.id);
+                            if (tpl) setPreviewTpl(tpl);
+                          } else router.push(`/ext/${entry.id}`);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          {featured.length > 0 && !q && !category && !scope && (
             <section className="community-featured">
               <h2>精選</h2>
               <div className="community-grid">
@@ -569,7 +724,9 @@ export default function CommunityStorePage() {
             </section>
           )}
           <section>
-            {(featured.length === 0 || q || category) && <h2 className="community-section-title">全部</h2>}
+            {(featured.length === 0 || q || category || scope) && (
+              <h2 className="community-section-title">全部</h2>
+            )}
             <div className="community-grid">
               {filteredCatalog.map((entry) => (
                 <CatalogCard

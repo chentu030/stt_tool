@@ -11,11 +11,13 @@ import {
   resolvePackageFromSource,
   resolvePackageFromZip,
 } from "@/lib/community/install";
+import { meetsMinAppVersion } from "@/lib/community/semver";
 import type {
   InstalledExtension,
   InstalledTemplate,
   ResolvedPackage,
 } from "@/lib/community/types";
+import { ALBIREUS_APP_VERSION } from "@/lib/community/types";
 
 export async function resolveAnySource(source: string): Promise<ResolvedPackage> {
   const builtin = resolveBuiltinSource(source);
@@ -23,10 +25,20 @@ export async function resolveAnySource(source: string): Promise<ResolvedPackage>
   return resolvePackageFromSource(source, source.startsWith("builtin:") ? "catalog" : "github");
 }
 
+function assertMinAppVersion(pack: ResolvedPackage) {
+  const min = pack.manifest.minAppVersion;
+  if (!meetsMinAppVersion(ALBIREUS_APP_VERSION, min)) {
+    throw new Error(
+      `此套件需要 Albireus ≥ ${min}（目前 ${ALBIREUS_APP_VERSION}）`
+    );
+  }
+}
+
 export async function installResolvedPackage(
   uid: string,
   pack: ResolvedPackage
 ): Promise<{ kind: "extension" | "template"; id: string }> {
+  assertMinAppVersion(pack);
   const now = Date.now();
   if (pack.manifest.kind === "extension") {
     const settings: Record<string, string | boolean | number> = {};
@@ -105,6 +117,7 @@ export async function updateInstalledPackage(
   if (pack.manifest.kind !== kind) {
     throw new Error("來源套件類型與已安裝項目不符");
   }
+  assertMinAppVersion(pack);
   const { isNewerVersion } = await import("@/lib/community/semver");
   const remoteVer = pack.manifest.version;
   const localVer = current.manifest.version;

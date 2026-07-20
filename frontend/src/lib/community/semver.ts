@@ -22,3 +22,9 @@ export function compareSemver(a: string, b: string): number {
 export function isNewerVersion(remote: string, local: string): boolean {
   return compareSemver(remote, local) > 0;
 }
+
+/** True when appVersion satisfies minAppVersion (app >= min). */
+export function meetsMinAppVersion(appVersion: string, minAppVersion?: string): boolean {
+  if (!minAppVersion) return true;
+  return compareSemver(appVersion, minAppVersion) >= 0;
+}
