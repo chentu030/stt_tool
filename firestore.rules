@@ -88,6 +88,38 @@ service cloud.firestore {
         && resource.data.user_id == request.auth.uid;
     }
 
+    function isAccessAllowlisted() {
+      return signedIn() && (
+        request.auth.token.email == 'lcy101120@gmail.com'
+        || request.auth.token.email == 'lingyu1122@gmail.com'
+        || request.auth.token.email == 'ljc123@gmail.com'
+      );
+    }
+
+    // Closed-beta access applications
+    match /access_requests/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAccessAllowlisted());
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll([
+          'uid', 'email', 'display_name', 'username', 'status',
+          'use_case', 'current_workflow', 'frequency', 'wished_features', 'referral'
+        ])
+        && (
+          (request.resource.data.status == 'pending')
+          || (request.resource.data.status == 'approved' && isAccessAllowlisted())
+        );
+      allow update: if signedIn() && (
+        isAccessAllowlisted()
+        || (
+          request.auth.uid == uid
+          && resource.data.status == 'pending'
+          && request.resource.data.status == 'pending'
+        )
+      );
+      allow delete: if isAccessAllowlisted();
+    }
+
     // Public profile fields (display name / username / avatar) for signed-in users
     match /users/{uid} {
       allow read: if signedIn();

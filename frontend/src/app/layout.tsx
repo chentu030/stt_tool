@@ -5,6 +5,7 @@ import { PrefsProvider } from "@/components/PrefsProvider";
 import DialogProvider from "@/components/DialogProvider";
 import ToastProvider from "@/components/ToastProvider";
 import AppShell from "@/components/shell/AppShell";
+import AccessGate from "@/components/AccessGate";
 
 export const metadata: Metadata = {
   title: "Albireus — 把說話寫成知識",
@@ -70,7 +71,9 @@ export default function RootLayout({
           <PrefsProvider>
             <DialogProvider>
               <ToastProvider>
-                <AppShell>{children}</AppShell>
+                <AccessGate>
+                  <AppShell>{children}</AppShell>
+                </AccessGate>
               </ToastProvider>
             </DialogProvider>
           </PrefsProvider>

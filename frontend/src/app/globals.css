@@ -11911,3 +11911,135 @@ body.is-sidebar-resizing iframe {
   from { transform: rotate(0deg) translateX(var(--r)) rotate(0deg); }
   to { transform: rotate(360deg) translateX(var(--r)) rotate(-360deg); }
 }
+
+/* Closed-beta access gate */
+.access-gate {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent),
+    var(--bg-primary);
+  color: var(--text-main);
+}
+.access-gate-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+}
+.access-gate-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.access-gate-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem 1rem 2.5rem;
+}
+.access-panel {
+  width: min(560px, 100%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem 1.35rem 1.6rem;
+  box-shadow: var(--shadow);
+}
+.access-panel h1 {
+  margin: 0.2rem 0 0.65rem;
+  font-family: "Space Grotesk", "Outfit", sans-serif;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.access-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.access-lead {
+  margin: 0 0 1.1rem;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.access-email {
+  margin: 0 0 0.85rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  word-break: break-all;
+}
+.access-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.access-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+.access-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.access-field > span,
+.access-field > legend {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.access-field > em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.access-field textarea.input {
+  resize: vertical;
+  min-height: 4.5rem;
+  line-height: 1.45;
+}
+.access-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg-muted));
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.access-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.access-chip.is-on {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.access-submit {
+  align-self: flex-end;
+  margin-top: 0.25rem;
+}
