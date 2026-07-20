@@ -36,6 +36,7 @@ import {
   Note,
   NoteVersion,
 } from "@/lib/firebase";
+import { takeNoteBodySeed } from "@/lib/jobToNote";
 import { noteOpenHref } from "@/lib/workspacePages";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import ShareDialog from "@/components/ShareDialog";
@@ -208,9 +209,15 @@ function NotePageInner() {
           return;
         }
       }
+      const seeded = takeNoteBodySeed(id);
+      // Prefer non-empty seed / cloud body so we never paint an empty editor over fresh AI notes.
+      const bodyMd = (seeded && seeded.trim()) || n.body_md || "";
+      if (seeded && seeded.trim() && seeded.trim() !== (n.body_md || "").trim()) {
+        void updateNote(id, { body_md: seeded }).catch(() => {});
+      }
       setNote(n);
       setTitle(n.title);
-      setBody(n.body_md);
+      setBody(bodyMd);
       setTags(n.tags || []);
       setFolder(n.folder || "");
       setIcon(normalizePageIcon(n.icon || ""));
@@ -223,7 +230,7 @@ function NotePageInner() {
       setDeck(fromCloud || fromLocal);
       latest.current = {
         title: n.title,
-        body: n.body_md,
+        body: bodyMd,
         tags: n.tags || [],
         folder: n.folder || "",
         icon: normalizePageIcon(n.icon || ""),
@@ -361,13 +368,20 @@ function NotePageInner() {
 
   const save = async (silent = false) => {
     if (!note) return;
+    const nextBody = latest.current.body;
+    // Never autosave an empty body over a note that already has content (race after AI create).
+    if (!nextBody.trim() && (note.body_md || "").trim()) {
+      setDirty(false);
+      setStatus("idle");
+      return;
+    }
     setStatus("saving");
     try {
-      const inlineTags = extractTagsFromText(latest.current.body);
+      const inlineTags = extractTagsFromText(nextBody);
       const mergedTags = Array.from(new Set([...latest.current.tags, ...inlineTags]));
       await updateNote(note.id, {
         title: latest.current.title,
-        body_md: latest.current.body,
+        body_md: nextBody,
         tags: mergedTags,
         folder: latest.current.folder,
         icon: latest.current.icon,
@@ -376,8 +390,9 @@ function NotePageInner() {
         parent_id: latest.current.parent_id,
       });
       try {
-        await pushNoteVersion(note.id, latest.current.title, latest.current.body);
+        await pushNoteVersion(note.id, latest.current.title, nextBody);
       } catch { /* best-effort */ }
+      setNote((n) => (n ? { ...n, body_md: nextBody } : n));
       setTags(mergedTags);
       setDirty(false);
       setStatus("saved");
@@ -1585,7 +1600,12 @@ function NotePageInner() {
           <div className="doc-editor-shell">
             <RichNoteEditor
               valueMd={body}
-              onChangeMd={(md) => { setBody(md); markDirty(); }}
+              onChangeMd={(md) => {
+                // Ignore spurious empty updates that would wipe a loaded note via autosave.
+                if (!md.trim() && body.trim()) return;
+                setBody(md);
+                markDirty();
+              }}
               placeholder="輸入文字，空白段按空白鍵或 /ai 呼叫助手…"
               findOpen={findOpen}
               onFindOpenChange={setFindOpen}
