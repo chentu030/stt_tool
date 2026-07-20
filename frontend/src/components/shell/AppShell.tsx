@@ -29,9 +29,11 @@ import {
   SIDEBAR_COLLAPSED_W,
   SIDEBAR_MAX,
   SIDEBAR_MIN,
+  loadSidebarAppsIcons,
   loadSidebarCollapsed,
   loadSidebarWidthPx,
   prefSidebarToPx,
+  saveSidebarAppsIcons,
   saveSidebarCollapsed,
   saveSidebarWidthPx,
 } from "@/lib/sidebarLayout";
@@ -200,6 +202,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     loadSidebarWidthPx(prefSidebarToPx(prefSidebar))
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
+  const [appsIconsOnly, setAppsIconsOnly] = useState(() => loadSidebarAppsIcons());
   const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
   const prefSidebarRef = useRef(prefSidebar);
   const isActive = (href: string) =>
@@ -217,6 +220,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
     setSidebarCollapsed((v) => {
       const next = !v;
       saveSidebarCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const toggleAppsIconsOnly = useCallback(() => {
+    setAppsIconsOnly((v) => {
+      const next = !v;
+      saveSidebarAppsIcons(next);
       return next;
     });
   }, []);
@@ -426,11 +437,31 @@ export default function AppShell({ children }: { children: ReactNode }) {
     />
   );
 
-  const renderAppsNav = (opts: { collapsed?: boolean; onNavigate?: () => void }) => {
-    const collapsed = Boolean(opts.collapsed);
+  const renderAppsNav = (opts: { collapsed?: boolean; iconsOnly?: boolean; onNavigate?: () => void }) => {
+    const rail = Boolean(opts.collapsed);
+    const iconsOnly = rail || Boolean(opts.iconsOnly);
     const onNavigate = opts.onNavigate;
     return (
-      <nav className={`sidebar-apps${collapsed ? " is-collapsed" : ""}`} aria-label="應用">
+      <div className={`sidebar-apps-block${iconsOnly ? " is-icons" : ""}${rail ? " is-rail" : ""}`}>
+        {!rail && (
+          <div className="sidebar-apps-head">
+            <span>頁面</span>
+            <button
+              type="button"
+              className="sidebar-apps-toggle"
+              title={iconsOnly ? "展開頁面標籤" : "收合為圖示"}
+              aria-label={iconsOnly ? "展開頁面標籤" : "收合為圖示"}
+              aria-pressed={iconsOnly}
+              onClick={toggleAppsIconsOnly}
+            >
+              {iconsOnly ? "▾" : "▴"}
+            </button>
+          </div>
+        )}
+      <nav
+        className={`sidebar-apps${rail ? " is-collapsed" : ""}${!rail && iconsOnly ? " is-icons" : ""}`}
+        aria-label="應用"
+      >
         {NAV_APPS.map((item) => {
           const Icon = NAV_ICONS[item.id] || LibraryIcon;
           return item.href === "/team" ? (
@@ -442,9 +473,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 onClick={onNavigate}
               >
                 <Icon />
-                {!collapsed && <span>{item.label}</span>}
+                {!iconsOnly && <span>{item.label}</span>}
               </Link>
-              {!collapsed && teamUnread + mentionUnread > 0 && (
+              {!iconsOnly && teamUnread + mentionUnread > 0 && (
                 <span
                   role="button"
                   tabIndex={0}
@@ -510,11 +541,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
               onClick={onNavigate}
             >
               <Icon />
-              {!collapsed && <span>{item.label}</span>}
+              {!iconsOnly && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
+      </div>
     );
   };
 
@@ -678,27 +710,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </button>
             </div>
           </div>
-          <div className="sidebar-nav-history">
-            <NavHistoryControls />
+          <div className="sidebar-search-row">
+            <button
+              type="button"
+              className="sidebar-search"
+              onClick={() => {
+                setCmdOpen(true);
+                closeNav();
+              }}
+              title="搜尋"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" />
+              </svg>
+              <span>搜尋筆記、指令…</span>
+            </button>
+            <div className="sidebar-nav-history">
+              <NavHistoryControls />
+            </div>
           </div>
 
-          <button
-            type="button"
-            className="sidebar-search"
-            onClick={() => {
-              setCmdOpen(true);
-              closeNav();
-            }}
-            title="搜尋"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <circle cx="11" cy="11" r="7" />
-              <path d="M20 20l-3.5-3.5" />
-            </svg>
-            <span>搜尋筆記、指令…</span>
-          </button>
-
-          {renderAppsNav({ onNavigate: closeNav })}
+          {renderAppsNav({ iconsOnly: appsIconsOnly, onNavigate: closeNav })}
 
           <div className="sidebar-tree-wrap" onClick={(e) => {
             const t = e.target as HTMLElement;
@@ -768,83 +801,81 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <AlbireusLogo height={22} showWord={false} />
             </button>
           )}
-          <div className="sidebar-brand-links">
-            {!sidebarCollapsed && (
-              <>
-                <button
-                  type="button"
-                  className="sidebar-icon-btn"
-                  title="Albireus AI ⌘⇧A"
-                  onClick={() => toggleGlobalAiRail()}
-                >
-                  AI
-                </button>
-                <Link
-                  href="/"
-                  className={`sidebar-icon-btn${isActive("/") ? " is-on" : ""}`}
-                  title="總覽"
-                >
-                  <HomeIcon />
-                </Link>
-                <Link
-                  href="/settings"
-                  className={`sidebar-icon-btn${isActive("/settings") ? " is-on" : ""}`}
-                  title="設定"
-                >
-                  <SettingsIcon />
-                </Link>
-              </>
-            )}
-            <button
-              type="button"
-              className="sidebar-icon-btn"
-              title={sidebarCollapsed ? "展開側欄 ⌘\\" : "收合側欄 ⌘\\"}
-              aria-label={sidebarCollapsed ? "展開側欄" : "收合側欄"}
-              aria-pressed={sidebarCollapsed}
-              onClick={toggleSidebarCollapsed}
-            >
-              {sidebarCollapsed ? "»" : "«"}
-            </button>
-          </div>
+          {!sidebarCollapsed && (
+            <div className="sidebar-brand-links">
+              <button
+                type="button"
+                className="sidebar-icon-btn"
+                title="Albireus AI ⌘⇧A"
+                onClick={() => toggleGlobalAiRail()}
+              >
+                AI
+              </button>
+              <Link
+                href="/"
+                className={`sidebar-icon-btn${isActive("/") ? " is-on" : ""}`}
+                title="總覽"
+              >
+                <HomeIcon />
+              </Link>
+              <Link
+                href="/settings"
+                className={`sidebar-icon-btn${isActive("/settings") ? " is-on" : ""}`}
+                title="設定"
+              >
+                <SettingsIcon />
+              </Link>
+              <button
+                type="button"
+                className="sidebar-icon-btn"
+                title="收合側欄 ⌘\\"
+                aria-label="收合側欄"
+                aria-pressed={false}
+                onClick={toggleSidebarCollapsed}
+              >
+                «
+              </button>
+            </div>
+          )}
         </div>
 
         {sidebarCollapsed ? (
-          <NavHistoryControls className="nav-history--collapsed" />
+          <>
+            <NavHistoryControls className="nav-history--rail" />
+            <button
+              type="button"
+              className="sidebar-icon-btn sidebar-search-collapsed"
+              title="搜尋 ⌘K"
+              onClick={() => setCmdOpen(true)}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" />
+              </svg>
+            </button>
+          </>
         ) : (
-          <div className="sidebar-nav-history">
-            <NavHistoryControls />
+          <div className="sidebar-search-row">
+            <button
+              type="button"
+              className="sidebar-search"
+              onClick={() => setCmdOpen(true)}
+              title="搜尋 ⌘K"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3.5-3.5" />
+              </svg>
+              <span>搜尋筆記、指令…</span>
+              <kbd>⌘K</kbd>
+            </button>
+            <div className="sidebar-nav-history">
+              <NavHistoryControls />
+            </div>
           </div>
         )}
 
-        {!sidebarCollapsed ? (
-          <button
-            type="button"
-            className="sidebar-search"
-            onClick={() => setCmdOpen(true)}
-            title="搜尋 ⌘K"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <circle cx="11" cy="11" r="7" />
-              <path d="M20 20l-3.5-3.5" />
-            </svg>
-            <span>搜尋筆記、指令…</span>
-            <kbd>⌘K</kbd>
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="sidebar-icon-btn sidebar-search-collapsed"
-            title="搜尋 ⌘K"
-            onClick={() => setCmdOpen(true)}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <circle cx="11" cy="11" r="7" />
-              <path d="M20 20l-3.5-3.5" />
-            </svg>
-          </button>
-        )}
-
-        {renderAppsNav({ collapsed: sidebarCollapsed })}
+        {renderAppsNav({ collapsed: sidebarCollapsed, iconsOnly: appsIconsOnly })}
 
         {!sidebarCollapsed && (
           <div className="sidebar-tree-wrap">

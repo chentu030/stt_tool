@@ -55,12 +55,26 @@ export interface Job {
   source_type: "upload" | "youtube";
   filenames: string[];
   youtube_url: string;
+  /** User-editable display name; falls back to filename / YouTube URL */
+  title?: string;
   storage_paths: string[];
   result_paths: string[];
   transcripts: { filename: string; text: string }[];
   error_message: string;
   position_label?: string;
   queue_ahead?: number;
+}
+
+export function jobDisplayTitle(
+  job: Pick<Job, "title" | "filenames" | "youtube_url">
+): string {
+  const custom = (job.title || "").trim();
+  if (custom) return custom;
+  return job.filenames?.[0] || job.youtube_url || "逐字稿";
+}
+
+export async function updateJobTitle(jobId: string, title: string) {
+  await updateDoc(doc(db, "jobs", jobId), { title: title.trim() });
 }
 
 // ─── Firestore helpers ───────────────────────────────────────

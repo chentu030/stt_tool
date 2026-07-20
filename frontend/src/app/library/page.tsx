@@ -20,6 +20,7 @@ import {
   loginWithGoogle,
   Job,
   Note,
+  jobDisplayTitle,
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -123,6 +124,7 @@ function LibraryPageInner() {
     if (!s) return jobs;
     return jobs.filter(
       (j) =>
+        (j.title || "").toLowerCase().includes(s) ||
         (j.filenames || []).join(" ").toLowerCase().includes(s) ||
         (j.youtube_url || "").toLowerCase().includes(s) ||
         j.status.includes(s)
@@ -629,7 +631,7 @@ function LibraryPageInner() {
                 filteredJobs.map((j) => (
                   <div key={j.id} className="kb-job">
                     <Link href={`/job/${j.id}`}>
-                      <strong>{j.filenames?.[0] || j.youtube_url || "未命名"}</strong>
+                      <strong>{jobDisplayTitle(j)}</strong>
                       <span>
                         {j.status} · {j.created_at.toLocaleString("zh-TW")}
                       </span>

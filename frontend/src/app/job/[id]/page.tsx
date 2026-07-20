@@ -12,14 +12,17 @@ import {
   saveJobTranscripts,
   createNote,
   listenToUserNotes,
+  jobDisplayTitle,
+  updateJobTitle,
   Job,
 } from "@/lib/firebase";
 import TranscriptEditor from "@/components/TranscriptEditor";
-import TranscriptChat from "@/components/TranscriptChat";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { toast } from "@/lib/toast";
+import { setJobAiContext } from "@/lib/jobAiContext";
+import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -33,6 +36,8 @@ export default function JobPage() {
   const [liveText, setLiveText] = useState("");
   const [tplOpen, setTplOpen] = useState(false);
   const [linkedNoteId, setLinkedNoteId] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleSaving, setTitleSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -73,12 +78,55 @@ export default function JobPage() {
     setLiveText(current?.text || "");
   }, [current?.text, fileIdx, job?.id]);
 
+  useEffect(() => {
+    if (!job) return;
+    setTitleDraft(jobDisplayTitle(job));
+  }, [job?.id, job?.title, job?.filenames, job?.youtube_url]);
+
+  useEffect(() => {
+    if (!job || job.status !== "done") {
+      setJobAiContext(null);
+      return;
+    }
+    const text = liveText || current?.text || "";
+    setJobAiContext({
+      jobId: job.id,
+      title: jobDisplayTitle(job),
+      filename: current?.filename,
+      transcript: text,
+    });
+    return () => setJobAiContext(null);
+  }, [job, liveText, current?.filename, current?.text]);
+
+  const commitTitle = async () => {
+    if (!job || titleSaving) return;
+    const next = titleDraft.trim();
+    const fallback = job.filenames?.[0] || job.youtube_url || "逐字稿";
+    const stored = (job.title || "").trim();
+    const toStore = !next || next === fallback ? "" : next;
+    if (toStore === stored) {
+      setTitleDraft(toStore || fallback);
+      return;
+    }
+    setTitleSaving(true);
+    try {
+      await updateJobTitle(job.id, toStore);
+      setTitleDraft(toStore || fallback);
+      toast("已更新名稱");
+    } catch (e) {
+      setTitleDraft(jobDisplayTitle(job));
+      toast(e instanceof Error ? e.message : "名稱儲存失敗");
+    } finally {
+      setTitleSaving(false);
+    }
+  };
+
   if (loading) return <PageLoading />;
   if (!user) return <p>請先登入。</p>;
   if (!job) return <p style={{ color: "var(--text-muted)" }}>找不到此工作。</p>;
   if (job.user_id !== user.uid) return <p>無權限檢視。</p>;
 
-  const title = job.filenames?.[0] || job.youtube_url || "逐字稿";
+  const title = jobDisplayTitle(job);
   const showWorkspace = job.status === "done" && current;
 
   return (
@@ -88,7 +136,25 @@ export default function JobPage() {
           <Link href="/library" className="tx-back">
             ← 知識庫
           </Link>
-          <h1 className="page-title font-display tx-title">{title}</h1>
+          <input
+            className="page-title font-display tx-title tx-title-input"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => void commitTitle()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                (e.target as HTMLInputElement).blur();
+              }
+              if (e.key === "Escape") {
+                setTitleDraft(jobDisplayTitle(job));
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            placeholder="逐字稿名稱"
+            aria-label="逐字稿名稱"
+            disabled={titleSaving}
+          />
           <p className="page-sub">
             {job.status === "done"
               ? "完成"
@@ -291,6 +357,12 @@ export default function JobPage() {
       {showWorkspace && (
         <div className="tx-layout">
           <div className="card tx-editor">
+            <div className="tx-editor-ai-hint">
+              <span>需要摘要、大綱或提問？用右側 Albireus AI</span>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => openGlobalAiRail()}>
+                開啟 AI
+              </button>
+            </div>
             <TranscriptEditor
               key={`${job.id}-${fileIdx}-${current.filename}`}
               initialText={current.text}
@@ -304,12 +376,6 @@ export default function JobPage() {
               }}
             />
           </div>
-          <TranscriptChat
-            jobId={job.id}
-            title={title}
-            filename={current.filename}
-            transcriptText={liveText || current.text}
-          />
         </div>
       )}
     </div>

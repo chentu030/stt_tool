@@ -7,6 +7,12 @@ import { listenToUserNotes, type Note } from "@/lib/firebase";
 import { packLibraryContext, AI_SUGGESTIONS } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { buildResearchUrl } from "@/lib/researchBridge";
+import {
+  JOB_AI_SUGGESTIONS,
+  packTranscriptForAi,
+  subscribeJobAiContext,
+  type JobAiContext,
+} from "@/lib/jobAiContext";
 
 type Msg = { id: string; role: "user" | "assistant"; text: string };
 type RailMode = "dock" | "float";
@@ -172,6 +178,7 @@ export default function GlobalAiDock() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
   const [focusNoteId, setFocusNoteId] = useState<string | null>(null);
+  const [jobCtx, setJobCtx] = useState<JobAiContext | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
   const listRef = useRef<HTMLDivElement>(null);
@@ -182,11 +189,14 @@ export default function GlobalAiDock() {
   const onNotePage = pathname?.startsWith("/notes/");
   const onLibraryPage = pathname === "/library" || pathname?.startsWith("/library/");
   const onCanvasPage = pathname?.startsWith("/canvas/");
-  const dockSuggestions = onLibraryPage
-    ? LIBRARY_SUGGESTIONS
-    : onCanvasPage
-      ? CANVAS_SUGGESTIONS
-      : DOCK_SUGGESTIONS;
+  const onJobPage = pathname?.startsWith("/job/");
+  const dockSuggestions = onJobPage && jobCtx
+    ? JOB_AI_SUGGESTIONS
+    : onLibraryPage
+      ? LIBRARY_SUGGESTIONS
+      : onCanvasPage
+        ? CANVAS_SUGGESTIONS
+        : DOCK_SUGGESTIONS;
   const focusNote = useMemo(
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
     [focusNoteId, notes]
@@ -307,6 +317,10 @@ export default function GlobalAiDock() {
   }, [pathname, open]);
 
   useEffect(() => {
+    return subscribeJobAiContext(setJobCtx);
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setNotes([]);
       return;
@@ -368,11 +382,15 @@ export default function GlobalAiDock() {
   }, [notes, pinnedIds, atQ]);
 
   const scopeLabel = useMemo(() => {
+    if (onJobPage && jobCtx) {
+      const t = jobCtx.filename || jobCtx.title || "逐字稿";
+      return t.length > 28 ? `${t.slice(0, 28)}…` : t;
+    }
     if (pinnedNotes.length) return `已 @ ${pinnedNotes.length} 篇`;
     if (focusNote) return focusNote.title || "筆記";
     if (onNotePage) return "跨庫提問 · 本篇可用 Ctrl+J";
     return `知識庫 ${notes.length} 篇`;
-  }, [onNotePage, notes.length, pinnedNotes.length, focusNote]);
+  }, [onJobPage, jobCtx, onNotePage, notes.length, pinnedNotes.length, focusNote]);
 
   const historySorted = useMemo(
     () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -462,41 +480,60 @@ export default function GlobalAiDock() {
       };
     }, tid);
     try {
-      const libNotes = notes.map((n) => ({
-        id: n.id,
-        title: n.title,
-        body_md: n.body_md,
-        tags: n.tags,
-        folder: n.folder,
-        updated_at: n.updated_at,
-        created_at: n.created_at,
-      }));
-      const packed = packLibraryContext(libNotes, prompt, {
-        selectedIds: snapshotPins.length ? snapshotPins : undefined,
-        maxNotes: snapshotPins.length ? Math.min(snapshotPins.length, 12) : 10,
-        maxChars: 14000,
-      });
-      const res = await fetch("/api/ai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const history = snapshotMsgs
+        .slice(-8)
+        .map((m) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          text: m.text,
+        }))
+        .slice(0, -1);
+      const assistant = {
+        name: prefsCtx?.prefs.aiAssistantName,
+        style: prefsCtx?.prefs.aiStyle,
+        model: prefsCtx?.prefs.aiModel,
+        grounding: webSearch,
+      };
+
+      let body: Record<string, unknown>;
+      if (onJobPage && jobCtx) {
+        const packed = packTranscriptForAi(jobCtx.transcript);
+        if (!packed.trim()) throw new Error("尚無逐字稿內容可詢問");
+        body = {
+          action: "note",
+          title: jobCtx.filename || jobCtx.title || "逐字稿",
+          prompt,
+          context: `來源：逐字稿\n檔名：${jobCtx.filename || "—"}\n\n${packed}`,
+          messages: history,
+          assistant,
+        };
+      } else {
+        const libNotes = notes.map((n) => ({
+          id: n.id,
+          title: n.title,
+          body_md: n.body_md,
+          tags: n.tags,
+          folder: n.folder,
+          updated_at: n.updated_at,
+          created_at: n.created_at,
+        }));
+        const packed = packLibraryContext(libNotes, prompt, {
+          selectedIds: snapshotPins.length ? snapshotPins : undefined,
+          maxNotes: snapshotPins.length ? Math.min(snapshotPins.length, 12) : 10,
+          maxChars: 14000,
+        });
+        body = {
           action: "library",
           prompt,
           context: packed.context,
-          assistant: {
-            name: prefsCtx?.prefs.aiAssistantName,
-            style: prefsCtx?.prefs.aiStyle,
-            model: prefsCtx?.prefs.aiModel,
-            grounding: webSearch,
-          },
-          messages: snapshotMsgs
-            .slice(-8)
-            .map((m) => ({
-              role: m.role === "assistant" ? "model" : "user",
-              text: m.text,
-            }))
-            .slice(0, -1),
-        }),
+          assistant,
+          messages: history,
+        };
+      }
+
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "失敗");
@@ -794,9 +831,15 @@ export default function GlobalAiDock() {
                 void send(input);
               }}
             >
-              {(focusNote || pinnedNotes[0]) && (
+              {(onJobPage && jobCtx
+                ? jobCtx.filename || jobCtx.title || "逐字稿"
+                : focusNote || pinnedNotes[0]
+                  ? pinnedNotes[0]?.title || focusNote?.title || "筆記"
+                  : null) && (
                 <div className="cadence-ai-ctx-chip">
-                  {pinnedNotes[0]?.title || focusNote?.title || "筆記"}
+                  {onJobPage && jobCtx
+                    ? jobCtx.filename || jobCtx.title || "逐字稿"
+                    : pinnedNotes[0]?.title || focusNote?.title || "筆記"}
                 </div>
               )}
               <textarea

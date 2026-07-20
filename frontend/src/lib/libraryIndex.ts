@@ -18,10 +18,17 @@ export type LibraryNote = {
 export type LibraryJob = {
   id: string;
   status: string;
+  title?: string;
   filenames?: string[];
   youtube_url?: string;
   created_at: Date;
 };
+
+export function libraryJobTitle(job: LibraryJob): string {
+  const custom = (job.title || "").trim();
+  if (custom) return custom;
+  return job.filenames?.[0] || job.youtube_url || "轉錄";
+}
 
 export type SortKey = "updated" | "created" | "title" | "length" | "relevance";
 export type ViewMode = "list" | "grid" | "compact" | "table";
@@ -341,7 +348,7 @@ export function recentActivity(notes: LibraryNote[], jobs: LibraryJob[], limit =
     ...jobs.map((j) => ({
       id: `j-${j.id}`,
       kind: "job" as const,
-      title: j.filenames?.[0] || j.youtube_url || "轉錄",
+      title: libraryJobTitle(j),
       at: j.created_at,
       href: `/job/${j.id}`,
       meta: j.status,

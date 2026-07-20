@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import SelectionAiPanel, { type SelectionAiAction } from "@/components/SelectionAiPanel";
@@ -256,7 +257,14 @@ export default function SelectionBubbleMenu({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [aiOpenLocal, setAiOpenLocal] = useState(false);
   const [tick, setTick] = useState(0);
+  const [turnPos, setTurnPos] = useState<{
+    top: number;
+    left: number;
+    maxHeight: number;
+  } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const turnWrapRef = useRef<HTMLDivElement>(null);
+  const turnPanelRef = useRef<HTMLDivElement>(null);
   const bubbleElRef = useRef<HTMLElement | null>(null);
   const turnItems = buildTurnItems({ onCreateSubpage });
 
@@ -285,15 +293,56 @@ export default function SelectionBubbleMenu({
   useEffect(() => {
     if (!turnOpen && !colorOpen && !emojiOpen) return;
     const onDoc = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setTurnOpen(false);
-        setColorOpen(false);
-        setEmojiOpen(false);
-      }
+      const t = e.target as Node;
+      if (wrapRef.current?.contains(t)) return;
+      if (turnPanelRef.current?.contains(t)) return;
+      setTurnOpen(false);
+      setColorOpen(false);
+      setEmojiOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [turnOpen, colorOpen, emojiOpen]);
+
+  useEffect(() => {
+    if (!turnOpen) {
+      setTurnPos(null);
+      return;
+    }
+    const place = () => {
+      const host = turnWrapRef.current;
+      if (!host) return;
+      const r = host.getBoundingClientRect();
+      const menuW = 240;
+      const preferH = 320;
+      const gap = 6;
+      const pad = 8;
+      const spaceAbove = r.top - pad;
+      const spaceBelow = window.innerHeight - r.bottom - pad;
+      // Bubble sits below the selection — prefer opening the turn list upward
+      // so it doesn't cover more of the following text.
+      const openBelow =
+        spaceBelow >= Math.min(200, preferH) && spaceBelow > spaceAbove + 48;
+      const maxHeight = Math.min(
+        preferH,
+        Math.max(140, (openBelow ? spaceBelow : spaceAbove) - gap)
+      );
+      const left = Math.min(
+        Math.max(pad, r.left),
+        Math.max(pad, window.innerWidth - menuW - pad)
+      );
+      let top = openBelow ? r.bottom + gap : r.top - maxHeight - gap;
+      top = Math.max(pad, Math.min(top, window.innerHeight - maxHeight - pad));
+      setTurnPos({ top, left, maxHeight });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [turnOpen]);
 
   void tick;
 
@@ -324,8 +373,8 @@ export default function SelectionBubbleMenu({
 
   const floatingOptions = useMemo(
     () => ({
-      placement: "top" as const,
-      offset: 8,
+      placement: "bottom" as const,
+      offset: 10,
       strategy: "fixed" as const,
       onShow: () => {
         if (bubbleElRef.current) bubbleElRef.current.dataset.open = "true";
@@ -359,7 +408,7 @@ export default function SelectionBubbleMenu({
     >
       <div className="sel-bubble-inner" ref={wrapRef}>
         <div className="sel-bubble-row">
-          <div className="sel-bub-turn-wrap">
+          <div className="sel-bub-turn-wrap" ref={turnWrapRef}>
             <BubBtn
               title="轉換成"
               active={turnOpen}
@@ -373,30 +422,43 @@ export default function SelectionBubbleMenu({
               <span className="sel-bub-turn-label">{currentTurnLabel(editor, turnItems)}</span>
               <span className="sel-bub-caret">▾</span>
             </BubBtn>
-            {turnOpen && (
-              <div className="sel-bub-panel sel-bub-turn-panel">
-                <p className="sel-bub-panel-label">轉換成</p>
-                {turnItems.map((item) => {
-                  const on = item.active(editor);
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={`sel-bub-turn-item${on ? " is-on" : ""}`}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        item.run(editor);
-                        setTurnOpen(false);
-                      }}
-                    >
-                      <span className="material-symbols-outlined">{item.icon}</span>
-                      <span>{item.label}</span>
-                      {on ? <span className="sel-bub-check">✓</span> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            {turnOpen &&
+              turnPos &&
+              createPortal(
+                <div
+                  ref={turnPanelRef}
+                  className="sel-bub-panel sel-bub-turn-panel sel-bub-turn-panel--fixed"
+                  style={{
+                    position: "fixed",
+                    top: turnPos.top,
+                    left: turnPos.left,
+                    maxHeight: turnPos.maxHeight,
+                    zIndex: 90,
+                  }}
+                >
+                  <p className="sel-bub-panel-label">轉換成</p>
+                  {turnItems.map((item) => {
+                    const on = item.active(editor);
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`sel-bub-turn-item${on ? " is-on" : ""}`}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          item.run(editor);
+                          setTurnOpen(false);
+                        }}
+                      >
+                        <span className="material-symbols-outlined">{item.icon}</span>
+                        <span>{item.label}</span>
+                        {on ? <span className="sel-bub-check">✓</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>,
+                document.body
+              )}
           </div>
 
           <span className="sel-bub-sep" />

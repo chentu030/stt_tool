@@ -895,11 +895,56 @@ function NotePageInner() {
   }, [note?.id, viewMode, deck, title, body]);
 
   const insertWiki = (noteTitle: string) => {
-    setBody((b) => `${b.trim()}${b.trim() ? "\n\n" : ""}[[${noteTitle}]]\n`);
+    const t = noteTitle.trim();
+    if (!t) return;
+    setBody((b) => `${b.trim()}${b.trim() ? "\n\n" : ""}[[${t}]]\n`);
     markDirty();
     setLinkPicker("");
-    toast(`已插入 [[${noteTitle}]]`);
+    toast(`已插入雙向連結 [[${t}]]`);
   };
+
+  const openWikiNote = useCallback(
+    async (noteTitle: string) => {
+      const t = noteTitle.trim();
+      if (!t || !user) return;
+      const hit = findNoteByTitle(
+        allNotes.map((n) => ({
+          id: n.id,
+          title: n.title,
+          body_md: n.body_md,
+          tags: n.tags,
+        })),
+        t
+      );
+      if (hit && hit.id === note?.id) {
+        toast("已在此筆記");
+        setLinkPicker("");
+        return;
+      }
+      if (hit) {
+        if (dirty) await save(false);
+        setLinkPicker("");
+        router.push(`/notes/${hit.id}`);
+        return;
+      }
+      const ok = await askConfirm({
+        title: `尚未有「${t}」`,
+        message: "要建立這則筆記並開啟嗎？",
+        confirmLabel: "建立並開啟",
+      });
+      if (!ok) return;
+      if (dirty) await save(false);
+      const id = await createNote(user.uid, t, "", undefined, [], {
+        folder: folder || undefined,
+        status: "backlog",
+      });
+      setLinkPicker("");
+      toast(`已建立「${t}」`);
+      router.push(`/notes/${id}`);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user, allNotes, note?.id, dirty, folder, router]
+  );
 
   const duplicate = async () => {
     if (!user || !note) return;
@@ -1537,29 +1582,75 @@ function NotePageInner() {
 
           <div className={`doc-pane doc-pane--write${viewMode === "write" ? " is-active" : ""}`} aria-hidden={viewMode !== "write"}>
             <div className="doc-link-insert">
-            <input
-              className="doc-prop-input"
-              style={{ flex: 1, minWidth: 160 }}
-              placeholder="插入雙向連結 [[筆記標題]]…"
-              value={linkPicker}
-              onChange={(e) => setLinkPicker(e.target.value)}
-            />
-            {linkPicker && (
-              <div className="doc-link-menu">
-                {linkCandidates.length === 0 ? (
-                  <button type="button" onClick={() => insertWiki(linkPicker.trim())}>
-                    {`建立 [[${linkPicker.trim()}]]`}
-                  </button>
-                ) : (
-                  linkCandidates.map((n) => (
-                    <button key={n.id} type="button" onClick={() => insertWiki(n.title)}>
-                      {n.title}
+              <input
+                className="doc-prop-input doc-link-input"
+                style={{ flex: 1, minWidth: 160 }}
+                placeholder="搜尋筆記… Enter 開啟 · 右側可插入連結"
+                value={linkPicker}
+                onChange={(e) => setLinkPicker(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setLinkPicker("");
+                    return;
+                  }
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  const q = linkPicker.trim();
+                  if (!q) return;
+                  if (linkCandidates[0]) void openWikiNote(linkCandidates[0].title);
+                  else void openWikiNote(q);
+                }}
+              />
+              {linkPicker.trim() && (
+                <div className="doc-link-menu">
+                  {linkCandidates.length === 0 ? (
+                    <button
+                      type="button"
+                      className="doc-link-row-main"
+                      onClick={() => void openWikiNote(linkPicker.trim())}
+                    >
+                      <strong>{`建立並開啟「${linkPicker.trim()}」`}</strong>
+                      <span>新筆記</span>
                     </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+                  ) : (
+                    linkCandidates.map((n) => (
+                      <div key={n.id} className="doc-link-row">
+                        <button
+                          type="button"
+                          className="doc-link-row-main"
+                          onClick={() => void openWikiNote(n.title)}
+                        >
+                          <strong>{n.title || "未命名"}</strong>
+                          <span>開啟</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="doc-link-row-link"
+                          title="插入雙向連結到本文"
+                          onClick={() => insertWiki(n.title)}
+                        >
+                          連結
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  {linkCandidates.length > 0 &&
+                    linkPicker.trim() &&
+                    !linkCandidates.some(
+                      (n) => n.title.trim().toLowerCase() === linkPicker.trim().toLowerCase()
+                    ) && (
+                      <button
+                        type="button"
+                        className="doc-link-row-main doc-link-row-create"
+                        onClick={() => void openWikiNote(linkPicker.trim())}
+                      >
+                        <strong>{`建立「${linkPicker.trim()}」`}</strong>
+                        <span>新筆記</span>
+                      </button>
+                    )}
+                </div>
+              )}
+            </div>
 
           <div className="doc-editor-shell">
             <RichNoteEditor
@@ -1607,6 +1698,7 @@ function NotePageInner() {
                 toast(`已套用範本：${tpl.label}`);
               }}
               onOpenThread={(selection) => setThreadSelection(selection)}
+              onOpenWikiNote={(t) => void openWikiNote(t)}
               onCreateSubpage={async (pageTitle) => {
                 if (!user || !note) return null;
                 try {

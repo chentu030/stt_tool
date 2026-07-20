@@ -70,6 +70,8 @@ type Props = {
   noteTitle?: string;
   /** Create a nested page under the current note; return created title for wiki link */
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
+  /** Open / create a note from a wiki link title (click on [[…]]) */
+  onOpenWikiNote?: (title: string) => void | Promise<void>;
   /** Open Albireus AI aside / chat */
   onOpenAiAssistant?: (opts?: { selection?: string; question?: string; focusChat?: boolean }) => void;
   /** Launch deep research with selected text */
@@ -233,6 +235,7 @@ export default function RichNoteEditor({
   pageMode = false,
   noteTitle = "",
   onCreateSubpage,
+  onOpenWikiNote,
   onOpenAiAssistant,
   onDeepResearchSelection,
   onRunAiAction,
@@ -286,7 +289,11 @@ export default function RichNoteEditor({
   }>({ open: false });
   const hlPanelRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
   const txPanelRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const readOnlyRef = useRef(readOnly);
@@ -555,6 +562,8 @@ export default function RichNoteEditor({
 
   const onCreateSubpageRef = useRef(onCreateSubpage);
   onCreateSubpageRef.current = onCreateSubpage;
+  const onOpenWikiNoteRef = useRef(onOpenWikiNote);
+  onOpenWikiNoteRef.current = onOpenWikiNote;
   const onOpenAiRef = useRef(onOpenAiAssistant);
   onOpenAiRef.current = onOpenAiAssistant;
   const onRunAiRef = useRef(onRunAiAction);
@@ -1050,12 +1059,17 @@ export default function RichNoteEditor({
         const el = target?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
         if (!el) return false;
         event.preventDefault();
+        const title = (el.getAttribute("data-wiki") || "").trim();
         const href = el.getAttribute("href");
+        const open = onOpenWikiNoteRef.current;
+        if (open && title) {
+          void open(title);
+          return true;
+        }
         if (href && href.startsWith("/notes/")) {
           window.location.href = href;
           return true;
         }
-        const title = el.getAttribute("data-wiki");
         if (title) {
           const id = resolveWikiRef.current(title);
           if (id) window.location.href = `/notes/${id}`;
@@ -1342,19 +1356,49 @@ export default function RichNoteEditor({
       setMenuPos(null);
       return;
     }
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    try {
-      const coords = editor.view.coordsAtPos(editor.state.selection.from);
-      const rect = canvas.getBoundingClientRect();
-      // Sit just past the caret so the menu never covers the triggering `/` or `@`
-      const rawLeft = coords.left - rect.left + 12;
-      const left = Math.min(Math.max(8, rawLeft), Math.max(8, rect.width - 292));
-      const top = coords.bottom - rect.top + 8;
-      setMenuPos({ left, top });
-    } catch {
-      setMenuPos({ left: 28, top: 40 });
+
+    const placeMenu = () => {
+      try {
+        const coords = editor.view.coordsAtPos(editor.state.selection.from);
+        const menuW = 300;
+        const preferH = 320;
+        const gap = 8;
+        const pad = 8;
+        const left = Math.min(
+          Math.max(pad, coords.left + 12),
+          Math.max(pad, window.innerWidth - menuW - pad)
+        );
+        const spaceBelow = window.innerHeight - coords.bottom - gap - pad;
+        const spaceAbove = coords.top - gap - pad;
+        const openDown =
+          spaceBelow >= Math.min(preferH, 160) || spaceBelow >= spaceAbove;
+        const maxHeight = Math.min(
+          preferH,
+          Math.max(120, openDown ? spaceBelow : spaceAbove)
+        );
+        let top = openDown
+          ? coords.bottom + gap
+          : coords.top - maxHeight - gap;
+        top = Math.max(pad, Math.min(top, window.innerHeight - maxHeight - pad));
+        setMenuPos({ left, top, maxHeight });
+      } catch {
+        setMenuPos({ left: 28, top: 40, maxHeight: 280 });
+      }
+    };
+
+    placeMenu();
+    window.addEventListener("resize", placeMenu);
+    const scrollParents: HTMLElement[] = [];
+    let node: HTMLElement | null = editor.view.dom;
+    while (node) {
+      node.addEventListener("scroll", placeMenu, { passive: true });
+      scrollParents.push(node);
+      node = node.parentElement;
     }
+    return () => {
+      window.removeEventListener("resize", placeMenu);
+      scrollParents.forEach((el) => el.removeEventListener("scroll", placeMenu));
+    };
   }, [editor, slash, wiki, atMenu]);
 
   useEffect(() => {
@@ -1779,7 +1823,7 @@ export default function RichNoteEditor({
       )}
 
       <div ref={canvasRef} className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
-        <div className={pageMode ? "rich-page-sheet" : undefined}>
+        <div className={pageMode ? "rich-page-sheet" : "rich-canvas-inner"}>
           {!readOnly && <BlockDragHandle editor={editor} />}
           <EditorContent editor={editor} />
         </div>
@@ -1811,7 +1855,17 @@ export default function RichNoteEditor({
         {wiki && (
           <div
             className="slash-menu rich-slash wiki-menu"
-            style={menuPos ? { left: menuPos.left, top: menuPos.top } : undefined}
+            style={
+              menuPos
+                ? {
+                    position: "fixed",
+                    left: menuPos.left,
+                    top: menuPos.top,
+                    maxHeight: menuPos.maxHeight,
+                    zIndex: 80,
+                  }
+                : undefined
+            }
           >
             <p className="rich-slash-label">連結筆記</p>
             {wikiItems.length === 0 ? (
@@ -1847,7 +1901,17 @@ export default function RichNoteEditor({
         {atMenu && atItems.length > 0 && !wiki && (
           <div
             className="slash-menu rich-slash at-menu"
-            style={menuPos ? { left: menuPos.left, top: menuPos.top } : undefined}
+            style={
+              menuPos
+                ? {
+                    position: "fixed",
+                    left: menuPos.left,
+                    top: menuPos.top,
+                    maxHeight: menuPos.maxHeight,
+                    zIndex: 80,
+                  }
+                : undefined
+            }
           >
             <p className="rich-slash-label">提及 @</p>
             {atItems.map((item, idx) => (
@@ -1869,7 +1933,17 @@ export default function RichNoteEditor({
         {slash && slashItems.length > 0 && !wiki && !atMenu && (
           <div
             className="slash-menu rich-slash"
-            style={menuPos ? { left: menuPos.left, top: menuPos.top } : undefined}
+            style={
+              menuPos
+                ? {
+                    position: "fixed",
+                    left: menuPos.left,
+                    top: menuPos.top,
+                    maxHeight: menuPos.maxHeight,
+                    zIndex: 80,
+                  }
+                : undefined
+            }
           >
             <p className="rich-slash-label">插入區塊</p>
             {slashItems.map((item, idx) => (
@@ -1940,6 +2014,7 @@ function nearestLineHeight(v: number): number {
 function BlockDragHandle({ editor }: { editor: Editor }) {
   const [grip, setGrip] = useState<{
     top: number;
+    left: number;
     from: number;
     to: number;
     index: number;
@@ -2002,9 +2077,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     if (!canvas) return;
 
     const gutterWidth = () => {
-      const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 44;
-      return Math.max(36, pad);
+      const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 56;
+      return Math.max(44, pad);
     };
+
+    const positionHost = () =>
+      (root.closest(".rich-page-sheet") as HTMLElement | null) ||
+      (root.closest(".rich-canvas-inner") as HTMLElement | null) ||
+      canvas;
 
     const gripFromPos = (clientY: number, clientX?: number) => {
       const rootRect = root.getBoundingClientRect();
@@ -2019,10 +2099,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (!block) return null;
       const dom = editor.view.nodeDOM(block.from);
       if (!(dom instanceof HTMLElement)) return null;
-      const rect = canvas.getBoundingClientRect();
+      const host = positionHost();
+      const hostRect = host.getBoundingClientRect();
       const br = dom.getBoundingClientRect();
+      const handleW = 46;
+      const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
       return {
-        top: br.top - rect.top + canvas.scrollTop + Math.min(4, br.height / 2 - 12),
+        top: br.top - hostRect.top + scrollTop + Math.min(4, br.height / 2 - 12),
+        left: Math.max(2, br.left - hostRect.left - handleW - 4),
         from: block.from,
         to: block.to,
         index: block.index,
@@ -2279,7 +2363,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
               ? " is-selected"
               : ""
           }`}
-          style={{ top: grip.top }}
+          style={{ top: grip.top, left: grip.left }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <button

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { createNote, deleteNote, updateNote, Note, Job } from "@/lib/firebase";
+import { createNote, deleteNote, updateNote, Note, Job, jobDisplayTitle } from "@/lib/firebase";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
@@ -300,7 +300,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     if (matchedNotes[0]) pushNoteActions(matchedNotes[0], "hit-");
 
     for (const j of jobs) {
-      const title = j.filenames?.[0] || j.youtube_url || j.id;
+      const title = jobDisplayTitle(j);
       if (String(title).toLowerCase().includes(s) || j.id.toLowerCase().includes(s)) {
         out.push({ kind: "job", id: j.id, label: String(title), hint: "逐字稿" });
       }

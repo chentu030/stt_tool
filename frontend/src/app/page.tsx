@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserJobs, listenToUserNotes, loginWithGoogle, Job, Note } from "@/lib/firebase";
+import { listenToUserJobs, listenToUserNotes, loginWithGoogle, Job, Note, jobDisplayTitle } from "@/lib/firebase";
 import LineRippleBackground from "@/components/motion/LineRippleBackground";
 import TypeWriter from "@/components/motion/TypeWriter";
 import ScrambleText from "@/components/motion/ScrambleText";
@@ -180,7 +180,7 @@ export default function HomePage() {
                 <motion.div key={j.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }} style={{ minWidth: 0 }}>
                   <Link href={`/job/${j.id}`} className="surface" style={{ padding: "0.75rem 0.9rem", display: "block", minWidth: 0 }}>
                     <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {j.filenames?.[0] || j.youtube_url || "未命名"}
+                      {jobDisplayTitle(j)}
                     </div>
                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                       {j.status} · {j.created_at.toLocaleString("zh-TW")}

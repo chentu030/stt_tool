@@ -2,6 +2,7 @@
 
 const WIDTH_KEY = "cadence_sidebar_px";
 const COLLAPSED_KEY = "cadence_sidebar_collapsed";
+const APPS_ICONS_KEY = "cadence_sidebar_apps_icons";
 
 export const SIDEBAR_MIN = 200;
 export const SIDEBAR_MAX = 480;
@@ -46,6 +47,25 @@ export function saveSidebarCollapsed(collapsed: boolean) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Page nav (知識庫／捕捉…) show icons only — independent of full sidebar collapse. */
+export function loadSidebarAppsIcons(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(APPS_ICONS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveSidebarAppsIcons(iconsOnly: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(APPS_ICONS_KEY, iconsOnly ? "1" : "0");
   } catch {
     /* ignore */
   }

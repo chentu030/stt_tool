@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, type Job,
+  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, jobDisplayTitle, type Job,
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -354,7 +354,7 @@ export default function CapturePage() {
               {recentJobs.map((j) => (
                 <li key={j.id}>
                   <Link href={`/job/${j.id}`}>
-                    <strong>{j.filenames?.[0] || j.youtube_url || "轉錄"}</strong>
+                    <strong>{jobDisplayTitle(j)}</strong>
                     <span>{j.status}</span>
                   </Link>
                 </li>
