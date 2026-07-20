@@ -188,8 +188,8 @@ function createInlineMathView({ node, getPos, editor }: NodeViewRendererProps) {
     },
     stopEvent: (event: Event) => {
       if (!editing) return false;
-      const t = event.target as Node | null;
-      return !!(t && dom.contains(t));
+      const t = event.target;
+      return !!(t instanceof globalThis.Node && dom.contains(t));
     },
     ignoreMutation: () => editing,
   };
@@ -302,8 +302,8 @@ function createBlockMathView({ node, getPos, editor }: NodeViewRendererProps) {
     },
     stopEvent: (event: Event) => {
       if (!editing) return false;
-      const t = event.target as Node | null;
-      return !!(t && dom.contains(t));
+      const t = event.target;
+      return !!(t instanceof globalThis.Node && dom.contains(t));
     },
     ignoreMutation: () => editing,
   };
