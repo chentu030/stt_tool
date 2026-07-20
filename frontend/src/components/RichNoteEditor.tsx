@@ -4,7 +4,7 @@ import PageLoading from "@/components/motion/PageLoading";
 
 import { askPrompt } from "@/lib/dialogs";
 
-import { useEffect, useRef, useState, useCallback, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useRef, useState, useCallback, useLayoutEffect, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { HexColorPicker } from "react-colorful";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
@@ -332,8 +332,14 @@ export default function RichNoteEditor({
     if (!hlOpen && !txOpen) return;
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (hlOpen && hlPanelRef.current && !hlPanelRef.current.contains(t)) setHlOpen(false);
-      if (txOpen && txPanelRef.current && !txPanelRef.current.contains(t)) setTxOpen(false);
+      const inHl =
+        hlPanelRef.current?.contains(t) ||
+        (t instanceof Element && !!t.closest("[data-color-picker-panel='hl']"));
+      const inTx =
+        txPanelRef.current?.contains(t) ||
+        (t instanceof Element && !!t.closest("[data-color-picker-panel='tx']"));
+      if (hlOpen && !inHl) setHlOpen(false);
+      if (txOpen && !inTx) setTxOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
@@ -1619,6 +1625,8 @@ export default function RichNoteEditor({
           </button>
           {hlOpen && (
             <ColorPickerPanel
+              panelId="hl"
+              anchorRef={hlPanelRef}
               color={hlColor}
               presets={HL_PRESETS}
               customs={hlCustoms}
@@ -1662,6 +1670,8 @@ export default function RichNoteEditor({
           </button>
           {txOpen && (
             <ColorPickerPanel
+              panelId="tx"
+              anchorRef={txPanelRef}
               color={txColor}
               presets={TX_PRESETS}
               customs={txCustoms}
@@ -2356,6 +2366,8 @@ function BlockDropLine({
 }
 
 function ColorPickerPanel({
+  panelId,
+  anchorRef,
   color,
   presets,
   customs,
@@ -2368,6 +2380,8 @@ function ColorPickerPanel({
   onClear,
   clearLabel,
 }: {
+  panelId: string;
+  anchorRef: RefObject<HTMLElement | null>;
   color: string;
   presets: string[];
   customs: string[];
@@ -2384,9 +2398,39 @@ function ColorPickerPanel({
   const normalized = normalizeHex(color);
   const canAdd =
     !!normalized && !presets.includes(normalized) && !customs.includes(normalized);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
-  return (
-    <div className="hl-panel">
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const width = 248;
+      let left = r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+      let top = r.bottom + 6;
+      if (top + 360 > window.innerHeight && r.top > 360) {
+        top = Math.max(8, r.top - 360);
+      }
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [anchorRef]);
+
+  if (!pos || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="hl-panel hl-panel--portal"
+      data-color-picker-panel={panelId}
+      style={{ position: "fixed", top: pos.top, left: pos.left, zIndex: 5000 }}
+    >
       <div className="hl-section">
         <p className="hl-section-label">預設</p>
         <div className="hl-presets">
@@ -2501,7 +2545,8 @@ function ColorPickerPanel({
           {clearLabel || "清除"}
         </button>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 

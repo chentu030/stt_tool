@@ -3512,11 +3512,12 @@ a.sidebar-user-name:hover {
 }
 .doc-ribbon {
   position: relative;
-  z-index: 2;
+  z-index: 30;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   min-height: 2.75rem;
   pointer-events: auto;
+  overflow: visible;
 }
 .doc-ribbon-inner {
   display: flex;
@@ -3524,6 +3525,7 @@ a.sidebar-user-name:hover {
   gap: 0.35rem;
   padding: 0.4rem 1rem 0.45rem;
   max-width: 100%;
+  overflow: visible;
 }
 .doc-command {
   position: relative;
@@ -4388,10 +4390,8 @@ a.sidebar-user-name:hover {
   border-radius: 0;
   padding: 0;
   gap: 3px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
+  flex-wrap: wrap;
+  overflow: visible;
 }
 .rich-toolbar--ribbon > * {
   flex-shrink: 0;
@@ -5596,6 +5596,15 @@ a.sidebar-user-name:hover {
   border-radius: 14px;
   box-shadow: 0 14px 40px rgba(15, 23, 42, 0.16);
   overflow: hidden;
+}
+.menu-select-menu--portal {
+  position: fixed;
+  top: auto;
+  left: auto;
+  z-index: 5000;
+}
+.menu-select-menu--portal.menu-select-menu--top {
+  top: auto;
 }
 .menu-select-menu--top {
   top: auto;
