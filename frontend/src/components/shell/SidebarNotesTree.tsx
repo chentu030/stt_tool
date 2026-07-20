@@ -273,19 +273,28 @@ export default function SidebarNotesTree() {
 
   useEffect(() => {
     if (!createMenu) return;
-    const close = () => setCreateMenu(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+    const dismiss = () => setCreateMenu(null);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".sb-ctx, .sb-create-menu, .sb-tree-new")) return;
+      dismiss();
     };
-    window.addEventListener("mousedown", close);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") dismiss();
+    };
+    // Defer so the opening click doesn't immediately dismiss the menu
+    const timer = window.setTimeout(() => {
+      window.addEventListener("mousedown", onDown);
+    }, 0);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", dismiss, true);
     return () => {
-      window.removeEventListener("mousedown", close);
+      window.clearTimeout(timer);
+      window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", dismiss);
+      window.removeEventListener("scroll", dismiss, true);
     };
   }, [createMenu]);
 
@@ -1443,7 +1452,7 @@ export default function SidebarNotesTree() {
       {createMenu && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="sb-ctx-menu sb-create-menu"
+              className="sb-ctx sb-create-menu"
               role="menu"
               style={{ left: createMenu.x, top: createMenu.y }}
               onMouseDown={(e) => e.stopPropagation()}

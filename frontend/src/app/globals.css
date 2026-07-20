@@ -7905,7 +7905,7 @@ body.is-sidebar-resizing iframe {
 }
 .sb-ctx {
   position: fixed;
-  z-index: 400;
+  z-index: 5200;
   min-width: 168px;
   max-width: 240px;
   padding: 0.25rem;
