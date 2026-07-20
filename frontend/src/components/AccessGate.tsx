@@ -377,13 +377,19 @@ function ApplyWizard({
                   color="var(--text-main)"
                 />
                 <p className="access-lead access-welcome-lead">
-                  名額有限，無論上課、開會或工作整理都歡迎申請。
+                  無論上課、開會或工作整理都歡迎申請。
                   <br />
                   目前登入：<strong>{email}</strong>
                 </p>
                 <p className="access-welcome-type">
                   <TypeWriter
-                    texts={["幾題即可", "大多可略過", "幫我們排優先功能"]}
+                    texts={[
+                      "語音／影片一鍵轉文字",
+                      "筆記可編輯、可搜尋",
+                      "寫作與簡報同一頁切換",
+                      "雙向連結串起知識",
+                      "AI 幫你摘要與整理",
+                    ]}
                     typedColor="var(--accent-2)"
                     cursorColor="var(--accent-2)"
                     typeMs={40}
