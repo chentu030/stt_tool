@@ -225,17 +225,36 @@ def _replicate_run(audio_path: str, language: str) -> dict:
 
 _opencc_converter = None
 
-def _to_traditional(text: str) -> str:
-    """Convert any Simplified Chinese in the text to Traditional (Taiwan) Chinese.
 
-    Whisper often emits Simplified characters; we normalise everything to zh-TW so
-    stored transcripts, history and downloaded .txt are all Traditional.
+def _cjk_count(text: str) -> int:
+    return sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+
+
+def _looks_like_chinese(text: str, detected_lang: Optional[str] = None) -> bool:
+    """True when transcript (or Whisper language tag) is Chinese and needs zh-TW normalize."""
+    lang = (detected_lang or "").strip().lower()
+    if lang in ("zh", "chinese", "yue", "cantonese", "zh-cn", "zh-tw", "zh-hk"):
+        return True
+    if not text:
+        return False
+    cjk = _cjk_count(text)
+    if cjk == 0:
+        return False
+    # Enough CJK, or CJK-heavy among letters/CJK (short Chinese lines still convert)
+    letters = sum(1 for ch in text if ch.isalpha() or ("\u4e00" <= ch <= "\u9fff"))
+    if cjk >= 2 and (letters == 0 or cjk / max(letters, 1) >= 0.25):
+        return True
+    return cjk >= 8
+
+
+def _to_traditional(text: str, detected_lang: Optional[str] = None) -> str:
+    """If result is Chinese, convert Simplified → Traditional (Taiwan phrasing).
+
+    Whisper auto-detect often emits Simplified; English/other languages are left as-is.
     """
     if not text:
         return text
-    # Skip OpenCC when almost no CJK (English-only transcripts)
-    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
-    if cjk < 8:
+    if not _looks_like_chinese(text, detected_lang):
         return text
     global _opencc_converter
     try:
@@ -247,8 +266,12 @@ def _to_traditional(text: str) -> str:
         print(f"[opencc] conversion skipped: {e}")
         return text
 
+
 def _format_output(output, offset: float = 0.0) -> str:
     """Turn model output into '[hh:mm:ss -> hh:mm:ss] text' lines with a time offset."""
+    detected = None
+    if isinstance(output, dict):
+        detected = output.get("language") or output.get("detected_language")
     result = None
     if isinstance(output, dict) and output.get("chunks"):
         lines = []
@@ -258,6 +281,7 @@ def _format_output(output, offset: float = 0.0) -> str:
             end = ts[1] if len(ts) > 1 and ts[1] is not None else start
             text = (c.get("text") or "").strip()
             if text:
+                text = _to_traditional(text, detected)
                 lines.append(f"[{_hhmmss(start + offset)} -> {_hhmmss(end + offset)}] {text}\n")
         if lines:
             result = "".join(lines)
@@ -267,7 +291,7 @@ def _format_output(output, offset: float = 0.0) -> str:
         result = output
     if result is None:
         result = str(output)
-    return _to_traditional(result)
+    return _to_traditional(result, detected)
 
 def _transcribe_audio_file(
     src_path: str,
@@ -861,17 +885,20 @@ _VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"}
 
 def _output_to_segments(output) -> List[dict]:
     """把 Replicate 輸出轉成 [{start,end,text}]（含繁體化）。"""
+    detected = None
+    if isinstance(output, dict):
+        detected = output.get("language") or output.get("detected_language")
     segs: List[dict] = []
     if isinstance(output, dict) and output.get("chunks"):
         for c in output["chunks"]:
             ts = c.get("timestamp") or [None, None]
             start = ts[0] if ts and ts[0] is not None else 0.0
             end = ts[1] if len(ts) > 1 and ts[1] is not None else start
-            text = _to_traditional((c.get("text") or "").strip())
+            text = _to_traditional((c.get("text") or "").strip(), detected)
             if text:
                 segs.append({"start": round(float(start), 2), "end": round(float(end if end is not None else start), 2), "text": text})
     if not segs and isinstance(output, dict) and output.get("text"):
-        segs.append({"start": 0.0, "end": 0.0, "text": _to_traditional(output["text"].strip())})
+        segs.append({"start": 0.0, "end": 0.0, "text": _to_traditional(output["text"].strip(), detected)})
     return segs
 
 def _transcribe_to_segments(src_path: str, language: str) -> List[dict]:

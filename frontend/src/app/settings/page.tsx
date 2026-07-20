@@ -745,7 +745,7 @@ export default function SettingsPage() {
               />
             </Row>
             <p className="st-hint">
-              選「繁體中文」會強制用中文解碼語音；英文影片請改「English」或「自動偵測」，否則容易被轉成中文。
+              預設「自動偵測」：英文維持英文；若偵測為中文，簡體會自動轉成繁體。選「繁體中文」會強制用中文解碼，英文片容易被聽成中文。
             </p>
             <Row label={`單次最多檔案 ${prefs.captureMaxFiles}`}>
               <input
