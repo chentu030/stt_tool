@@ -5380,11 +5380,13 @@ a.sidebar-user-name:hover {
   position: relative;
   flex-shrink: 0;
   align-self: center;
+  z-index: 150;
 }
 .note-tabs-create-menu {
   left: 0;
   right: auto;
   min-width: 11rem;
+  z-index: 200;
 }
 .note-tabs-actions {
   flex-shrink: 0;
@@ -5394,6 +5396,7 @@ a.sidebar-user-name:hover {
 }
 .note-tabs-split-wrap {
   position: relative;
+  z-index: 150;
 }
 .note-tabs-action {
   border: 1px solid var(--border);
@@ -5414,14 +5417,14 @@ a.sidebar-user-name:hover {
   right: 0;
   top: calc(100% + 4px);
   min-width: 200px;
-  max-height: 280px;
+  max-height: min(360px, 70vh);
   overflow: auto;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: var(--shadow);
   padding: 0.35rem;
-  z-index: 80;
+  z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 2px;

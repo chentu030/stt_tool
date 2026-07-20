@@ -56,6 +56,30 @@ export default function NoteTabsBar() {
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
 
+  useEffect(() => {
+    if (!createOpen && !menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      const root = document.querySelector(".note-tabs");
+      if (root && !root.contains(t)) {
+        setCreateOpen(false);
+        setMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setCreateOpen(false);
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [createOpen, menuOpen]);
+
   const byId = useMemo(() => {
     const m = new Map<string, Note>();
     notes.forEach((n) => m.set(n.id, n));
@@ -160,48 +184,56 @@ export default function NoteTabsBar() {
             </div>
           );
         })}
-        <div className="note-tab-new-wrap">
-          <button
-            type="button"
-            className="note-tab-new"
-            title="新增頁面"
-            aria-label="新增頁面"
-            aria-expanded={createOpen}
-            disabled={creating}
-            onClick={() => {
-              setMenuOpen(false);
-              setCreateOpen((v) => !v);
-            }}
+      </div>
+
+      <div className="note-tab-new-wrap">
+        <button
+          type="button"
+          className="note-tab-new"
+          title="新增頁面"
+          aria-label="新增頁面"
+          aria-expanded={createOpen}
+          disabled={creating || !user}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen(false);
+            setCreateOpen((v) => !v);
+          }}
+        >
+          +
+        </button>
+        {createOpen && (
+          <div
+            className="note-tabs-menu note-tabs-create-menu"
+            role="menu"
+            onClick={(e) => e.stopPropagation()}
           >
-            +
-          </button>
-          {createOpen && (
-            <div className="note-tabs-menu note-tabs-create-menu">
-              {pageOptions.map((opt) => (
-                <button
-                  key={opt.kind}
-                  type="button"
-                  disabled={creating}
-                  onClick={() => void createPage(opt.kind, opt.extension)}
-                >
-                  <span className="note-tabs-menu-row">
-                    <PageChromeIcon icon={opt.icon} fallback={opt.icon} className="note-tab-icon" />
-                    {opt.label}
-                  </span>
-                </button>
-              ))}
+            {pageOptions.map((opt) => (
               <button
+                key={opt.kind}
                 type="button"
-                onClick={() => {
-                  setCreateOpen(false);
-                  router.push("/library");
-                }}
+                role="menuitem"
+                disabled={creating}
+                onClick={() => void createPage(opt.kind, opt.extension)}
               >
-                前往知識庫…
+                <span className="note-tabs-menu-row">
+                  <PageChromeIcon icon={opt.icon} fallback={opt.icon} className="note-tab-icon" />
+                  {opt.label}
+                </span>
               </button>
-            </div>
-          )}
-        </div>
+            ))}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setCreateOpen(false);
+                router.push("/library");
+              }}
+            >
+              前往知識庫…
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="note-tabs-actions">
