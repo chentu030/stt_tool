@@ -903,10 +903,15 @@ a.sidebar-user-name:hover {
   display: flex;
   align-items: center;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.mobile-top-logo :is(img, svg, span) {
+  max-width: 100%;
 }
 .mobile-top-actions {
   display: flex;
-  gap: 0.35rem;
+  gap: 0.25rem;
   align-items: center;
   flex-shrink: 0;
 }
@@ -915,19 +920,26 @@ a.sidebar-user-name:hover {
   align-items: center;
   gap: 0.05rem;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 .nav-history-btn svg {
   display: block;
 }
+.nav-history--mobile {
+  margin-right: 0.1rem;
+  padding-right: 0.15rem;
+  border-right: 1px solid var(--border);
+}
 .nav-history--mobile .nav-history-btn {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  min-width: 32px;
+  min-width: 30px;
 }
 .nav-history--mobile .nav-history-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 .nav-history--collapsed {
   flex-direction: column;
@@ -935,6 +947,22 @@ a.sidebar-user-name:hover {
   align-items: center;
   gap: 0.15rem;
   margin: 0 0 0.45rem;
+}
+.sidebar-nav-history {
+  display: flex;
+  align-items: center;
+  padding: 0 0.35rem 0.45rem;
+}
+.sidebar-nav-history .nav-history {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-muted) 70%, transparent);
+}
+.mobile-nav-drawer .sidebar-nav-history {
+  padding: 0 0.35rem 0.55rem;
 }
 @media (max-width: 380px) {
   .nav-history--mobile {

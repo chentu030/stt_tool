@@ -590,9 +590,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <Link href={homeHref} className="mobile-top-logo" onClick={closeNav}>
               <AlbireusLogo height={24} />
             </Link>
-            <NavHistoryControls variant="ghost" className="nav-history--mobile" />
           </div>
           <div className="mobile-top-actions">
+            <NavHistoryControls variant="ghost" className="nav-history--mobile" />
             <button
               type="button"
               className="btn btn-sm btn-ghost"
@@ -640,7 +640,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <AlbireusLogo height={24} />
             </Link>
             <div className="sidebar-brand-links">
-              <NavHistoryControls />
               <button
                 type="button"
                 className="sidebar-icon-btn"
@@ -678,6 +677,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <CloseIcon />
               </button>
             </div>
+          </div>
+          <div className="sidebar-nav-history">
+            <NavHistoryControls />
           </div>
 
           <button
@@ -767,7 +769,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </button>
           )}
           <div className="sidebar-brand-links">
-            {!sidebarCollapsed && <NavHistoryControls />}
             {!sidebarCollapsed && (
               <>
                 <button
@@ -807,7 +808,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {sidebarCollapsed && <NavHistoryControls className="nav-history--collapsed" />}
+        {sidebarCollapsed ? (
+          <NavHistoryControls className="nav-history--collapsed" />
+        ) : (
+          <div className="sidebar-nav-history">
+            <NavHistoryControls />
+          </div>
+        )}
 
         {!sidebarCollapsed ? (
           <button
