@@ -2109,8 +2109,15 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const br = dom.getBoundingClientRect();
       const handleW = 46;
       const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
-      // Sit in the left margin so body text lines up with title / props
-      const left = br.left - hostRect.left - handleW - 6;
+      // List/todo markers sit left of the <li> box — anchor to the list edge instead
+      const node = editor.state.doc.nodeAt(block.from);
+      const kind = node?.type.name || "";
+      let anchorLeft = br.left;
+      if (kind === "listItem" || kind === "taskItem") {
+        const listEl = dom.closest("ul, ol");
+        if (listEl) anchorLeft = listEl.getBoundingClientRect().left;
+      }
+      const left = anchorLeft - hostRect.left - handleW - 6;
       return {
         top: br.top - hostRect.top + scrollTop + Math.min(4, br.height / 2 - 12),
         left,
