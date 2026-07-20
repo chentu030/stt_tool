@@ -2,143 +2,102 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle } from "@/lib/firebase";
-import {
-  listenBoards,
-  createBoard,
-  lastBoardKey,
-  type BoardConfig,
-} from "@/lib/boardStore";
+import { listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
+import { listenBoards, type BoardConfig } from "@/lib/boardStore";
+import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import ScrambleText from "@/components/motion/ScrambleText";
-import ShinyPill from "@/components/motion/ShinyPill";
+import { toast } from "@/lib/toast";
 
-const OPEN_TIMEOUT_MS = 20_000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]);
-}
-
-function boardErrMessage(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e || "無法開啟看板");
-  if (/permission|insufficient|Missing/i.test(msg)) {
-    return "沒有權限讀寫看板（請確認已部署含 boards 的 Firestore rules）";
-  }
-  return msg;
-}
-
-export default function BoardRedirectPage() {
+export default function BoardIndexPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [error, setError] = useState("");
-  const [retry, setRetry] = useState(0);
+  const [boards, setBoards] = useState<BoardConfig[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    let cancelled = false;
-    let unsub: (() => void) | undefined;
-    setError("");
+    return listenBoards(user.uid, setBoards);
+  }, [user]);
 
-    const timer = window.setTimeout(() => {
-      if (cancelled) return;
-      unsub?.();
-      unsub = undefined;
-      setError("開啟逾時，請重試");
-    }, OPEN_TIMEOUT_MS);
+  useEffect(() => {
+    if (!user) return;
+    return listenToUserNotes(user.uid, setNotes);
+  }, [user]);
 
-    const go = async (list: BoardConfig[]) => {
-      if (cancelled) return;
-      try {
-        let boards = list;
-        if (boards.length === 0) {
-          const id = await withTimeout(
-            createBoard(user.uid, "主看板"),
-            OPEN_TIMEOUT_MS,
-            "建立看板逾時"
-          );
-          if (cancelled) return;
-          try {
-            localStorage.setItem(lastBoardKey(user.uid), id);
-          } catch {
-            /* ignore */
-          }
-          window.clearTimeout(timer);
-          router.replace(`/board/${id}${window.location.search}`);
-          return;
-        }
-        let target = "";
-        try {
-          target = localStorage.getItem(lastBoardKey(user.uid)) || "";
-        } catch {
-          target = "";
-        }
-        if (!target || !boards.some((b) => b.id === target)) {
-          target = boards[0].id;
-        }
-        try {
-          localStorage.setItem(lastBoardKey(user.uid), target);
-        } catch {
-          /* ignore */
-        }
-        window.clearTimeout(timer);
-        router.replace(`/board/${target}${window.location.search}`);
-      } catch (e) {
-        if (!cancelled) setError(boardErrMessage(e));
-      }
-    };
+  const noteByBoard = useMemo(() => {
+    const m = new Map<string, Note>();
+    for (const n of notes) {
+      if (n.app_link?.type === "board" && n.app_link.id) m.set(n.app_link.id, n);
+    }
+    return m;
+  }, [notes]);
 
-    unsub = listenBoards(
-      user.uid,
-      (list) => {
-        void go(list);
-        unsub?.();
-        unsub = undefined;
-      },
-      (err) => {
-        if (!cancelled) {
-          window.clearTimeout(timer);
-          setError(boardErrMessage(err));
-        }
-      }
-    );
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      unsub?.();
-    };
-  }, [user, router, retry]);
+  const create = async () => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      const { href } = await createWorkspacePage(user.uid, "board");
+      router.push(href);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "建立失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading) return <PageLoading />;
   if (!user) {
     return (
-      <div className="bd-page bd-guest">
+      <div>
         <ScrambleText words="看板" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後使用看板。</p>
-        <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="bd-page bd-guest" style={{ padding: "1.5rem" }}>
-        <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>{error}</p>
-        <ShinyPill onClick={() => setRetry((n) => n + 1)}>重試</ShinyPill>
+        <p className="page-sub">登入後建立看板頁面。</p>
+        <button type="button" className="btn" onClick={() => void loginWithGoogle()}>
+          登入
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="bd-page bd-guest">
-      <PageLoading label="開啟看板中…" />
+    <div className="cdb-index">
+      <div className="cdb-index-head page-chrome">
+        <div>
+          <ScrambleText words="看板" as="h1" className="page-title font-display" />
+          <p className="page-sub">Kanban 總覽 — 與筆記同分頁列，也可插入筆記中。</p>
+        </div>
+        <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+          {busy ? "…" : "新建看板"}
+        </button>
+      </div>
+      {boards.length === 0 ? (
+        <div className="cdb-empty cdb-empty--cta">
+          <p>尚無看板。建立一個，或在側欄按 + 選「新看板」。</p>
+          <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+            {busy ? "…" : "建立第一個看板"}
+          </button>
+        </div>
+      ) : (
+        <div className="cdb-index-grid">
+          {boards.map((b) => {
+            const note = noteByBoard.get(b.id);
+            const href = note
+              ? noteOpenHref(note)
+              : `/board/${b.id}`;
+            return (
+              <Link key={b.id} href={href} className="cdb-index-card">
+                <span className="cdb-icon">▦</span>
+                <strong>{note?.title || b.name || "未命名看板"}</strong>
+                <span>看板頁面</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

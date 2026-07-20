@@ -50,6 +50,7 @@ import {
 } from "@/lib/boardMeta";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefs } from "@/components/PrefsProvider";
+import { useRedirectSpecialtyToNote } from "@/components/workspace/useRedirectSpecialtyToNote";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -78,6 +79,7 @@ export default function BoardByIdPage() {
   const { id: boardId } = useParams<{ id: string }>();
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
+  const { embed } = useRedirectSpecialtyToNote("board", boardId);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -671,6 +673,7 @@ export default function BoardByIdPage() {
   };
 
   if (loading) return <PageLoading />;
+  if (!embed) return <PageLoading />;
   if (!user) {
     return (
       <div className="bd-page bd-guest">

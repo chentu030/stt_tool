@@ -2,23 +2,24 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
 import {
-  createDatabase,
   listenUserDatabases,
   type CadenceDatabase,
 } from "@/lib/database";
-import { askPrompt } from "@/lib/dialogs";
-import { loginWithGoogle } from "@/lib/firebase";
+import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import ScrambleText from "@/components/motion/ScrambleText";
+import { toast } from "@/lib/toast";
 
 export default function DatabasesIndexPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [list, setList] = useState<CadenceDatabase[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -26,13 +27,27 @@ export default function DatabasesIndexPage() {
     return listenUserDatabases(user.uid, setList);
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    return listenToUserNotes(user.uid, setNotes);
+  }, [user]);
+
+  const noteByDb = useMemo(() => {
+    const m = new Map<string, Note>();
+    for (const n of notes) {
+      if (n.app_link?.type === "database" && n.app_link.id) m.set(n.app_link.id, n);
+    }
+    return m;
+  }, [notes]);
+
   const create = async () => {
     if (!user) return;
     setBusy(true);
     try {
-      const name = (await askPrompt("資料庫名稱", "任務清單"))?.trim() || "未命名資料庫";
-      const id = await createDatabase(user.uid, name, "tasks");
-      router.push(`/db/${id}`);
+      const { href } = await createWorkspacePage(user.uid, "database");
+      router.push(href);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "建立失敗");
     } finally {
       setBusy(false);
     }
@@ -71,13 +86,19 @@ export default function DatabasesIndexPage() {
         </div>
       ) : (
         <div className="cdb-index-grid">
-          {list.map((d) => (
-            <Link key={d.id} href={`/db/${d.id}`} className="cdb-index-card">
-              <span className="cdb-icon">{d.icon || "▦"}</span>
-              <strong>{d.name}</strong>
-              <span>{d.properties.length} 個屬性 · {d.views.length} 個視圖</span>
-            </Link>
-          ))}
+          {list.map((d) => {
+            const note = noteByDb.get(d.id);
+            const href = note ? noteOpenHref(note) : `/db/${d.id}`;
+            return (
+              <Link key={d.id} href={href} className="cdb-index-card">
+                <span className="cdb-icon">{d.icon || "▦"}</span>
+                <strong>{note?.title || d.name}</strong>
+                <span>
+                  {d.properties.length} 個屬性 · {d.views.length} 個視圖
+                </span>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

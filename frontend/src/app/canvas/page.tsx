@@ -2,92 +2,100 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle } from "@/lib/firebase";
+import { listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
+import { listenCanvases, type CanvasMeta } from "@/lib/canvasCloud";
+import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import ScrambleText from "@/components/motion/ScrambleText";
-import ShinyPill from "@/components/motion/ShinyPill";
-import { createCanvas, ensureCanvasesMigrated, lastCanvasKey } from "@/lib/canvasCloud";
-
-const OPEN_TIMEOUT_MS = 20_000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]);
-}
+import { toast } from "@/lib/toast";
 
 export default function CanvasIndexPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [error, setError] = useState("");
-  const [retry, setRetry] = useState(0);
+  const [list, setList] = useState<CanvasMeta[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    let cancelled = false;
-    setError("");
+    return listenCanvases(user.uid, setList);
+  }, [user]);
 
-    void (async () => {
-      try {
-        const id = await withTimeout(
-          ensureCanvasesMigrated(user.uid),
-          OPEN_TIMEOUT_MS,
-          "開啟逾時，請重試"
-        );
-        if (cancelled) return;
-        const target =
-          id ||
-          (await withTimeout(createCanvas(user.uid, "主白板"), OPEN_TIMEOUT_MS, "建立白板逾時"));
-        if (cancelled) return;
-        try {
-          localStorage.setItem(lastCanvasKey(user.uid), target);
-        } catch {
-          /* ignore */
-        }
-        router.replace(`/canvas/${target}${window.location.search}`);
-      } catch (e) {
-        if (!cancelled) {
-          const msg = e instanceof Error ? e.message : "無法開啟白板";
-          setError(
-            /permission|insufficient|Missing/i.test(msg)
-              ? "沒有權限讀寫白板（請確認已部署含 canvases 的 Firestore rules）"
-              : msg
-          );
-        }
-      }
-    })();
+  useEffect(() => {
+    if (!user) return;
+    return listenToUserNotes(user.uid, setNotes);
+  }, [user]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user, router, retry]);
+  const noteByCanvas = useMemo(() => {
+    const m = new Map<string, Note>();
+    for (const n of notes) {
+      if (n.app_link?.type === "canvas" && n.app_link.id) m.set(n.app_link.id, n);
+    }
+    return m;
+  }, [notes]);
 
-  if (loading) {
-    return <PageLoading />;
-  }
+  const create = async () => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      const { href } = await createWorkspacePage(user.uid, "canvas");
+      router.push(href);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "建立失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
-      <div className="cv-page cv-guest">
+      <div>
         <ScrambleText words="白板" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後使用白板。</p>
-        <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
+        <p className="page-sub">登入後建立白板頁面。</p>
+        <button type="button" className="btn" onClick={() => void loginWithGoogle()}>
+          登入
+        </button>
       </div>
     );
   }
 
-  if (error) {
-    return (
-      <div className="cv-page cv-guest" style={{ padding: "1.5rem" }}>
-        <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>{error}</p>
-        <ShinyPill onClick={() => setRetry((n) => n + 1)}>重試</ShinyPill>
+  return (
+    <div className="cdb-index">
+      <div className="cdb-index-head page-chrome">
+        <div>
+          <ScrambleText words="白板" as="h1" className="page-title font-display" />
+          <p className="page-sub">無限畫布總覽 — 與筆記同分頁列，也可插入筆記中。</p>
+        </div>
+        <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+          {busy ? "…" : "新建白板"}
+        </button>
       </div>
-    );
-  }
-
-  return <PageLoading label="開啟白板…" />;
+      {list.length === 0 ? (
+        <div className="cdb-empty cdb-empty--cta">
+          <p>尚無白板。建立一個，或在側欄按 + 選「新白板」。</p>
+          <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+            {busy ? "…" : "建立第一個白板"}
+          </button>
+        </div>
+      ) : (
+        <div className="cdb-index-grid">
+          {list.map((c) => {
+            const note = noteByCanvas.get(c.id);
+            const href = note ? noteOpenHref(note) : `/canvas/${c.id}`;
+            return (
+              <Link key={c.id} href={href} className="cdb-index-card">
+                <span className="cdb-icon">◇</span>
+                <strong>{note?.title || c.name || "未命名白板"}</strong>
+                <span>白板頁面</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }

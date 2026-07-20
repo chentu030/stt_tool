@@ -340,6 +340,17 @@ export default function SidebarNotesTree() {
     setCreating(true);
     setCreateMenu(null);
     try {
+      let webUrl: string | undefined;
+      if (kind === "web") {
+        const raw = await askPrompt({
+          title: "開啟網頁",
+          message: "輸入網址，將以瀏覽器分頁開啟",
+          placeholder: "https://",
+          defaultValue: "https://",
+        });
+        if (raw === null) return;
+        webUrl = raw.trim() || "https://www.google.com";
+      }
       const folder =
         !folderPath || folderPath === UNCATEGORIZED
           ? prefs?.defaultFolder || ""
@@ -350,6 +361,7 @@ export default function SidebarNotesTree() {
         parentId: parentId || "",
         tags,
         status: prefs?.defaultStatus || "backlog",
+        webUrl,
       });
       prefsCtx?.setPrefs((p) => touchRecentId(p, noteId));
       router.push(href);

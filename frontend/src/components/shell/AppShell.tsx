@@ -186,7 +186,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
     pathname.startsWith("/notes/") ||
     pathname.startsWith("/canvas") ||
     pathname.startsWith("/graph") ||
-    pathname.startsWith("/board");
+    pathname.startsWith("/board") ||
+    pathname.startsWith("/db/");
   const isDoc = isImmersive;
   const [cmdOpen, setCmdOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);

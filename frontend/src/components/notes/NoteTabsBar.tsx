@@ -8,13 +8,32 @@ import { useNoteTabs } from "@/components/notes/NoteTabsProvider";
 import { askPrompt } from "@/lib/dialogs";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { normalizePageIcon } from "@/lib/pageChrome";
+import {
+  WORKSPACE_PAGE_OPTIONS,
+  createWorkspacePage,
+  type WorkspacePageKind,
+} from "@/lib/workspacePages";
+import { usePrefs } from "@/components/PrefsProvider";
+import { touchRecentId } from "@/lib/userPrefs";
+import { toast } from "@/lib/toast";
+
+function parseDefaultTags(raw: string): string[] {
+  return raw
+    .split(/[,，\s]+/)
+    .map((t) => t.replace(/^#/, "").trim())
+    .filter(Boolean);
+}
 
 export default function NoteTabsBar() {
   const router = useRouter();
   const { user } = useAuth();
+  const prefsCtx = usePrefs();
+  const prefs = prefsCtx?.prefs;
   const { openIds, activeId, splitId, activate, close, setSplit, toggleSplitWith } = useNoteTabs();
   const [notes, setNotes] = useState<Note[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -26,6 +45,37 @@ export default function NoteTabsBar() {
     notes.forEach((n) => m.set(n.id, n));
     return m;
   }, [notes]);
+
+  const createPage = async (kind: WorkspacePageKind) => {
+    if (!user || creating) return;
+    setCreating(true);
+    setCreateOpen(false);
+    try {
+      let webUrl: string | undefined;
+      if (kind === "web") {
+        const raw = await askPrompt({
+          title: "開啟網頁",
+          message: "輸入網址，將以瀏覽器分頁開啟",
+          placeholder: "https://",
+          defaultValue: "https://",
+        });
+        if (raw === null) return;
+        webUrl = raw.trim() || "https://www.google.com";
+      }
+      const { noteId, href } = await createWorkspacePage(user.uid, kind, {
+        folder: prefs?.defaultFolder || "",
+        tags: parseDefaultTags(prefs?.defaultTags || ""),
+        status: prefs?.defaultStatus || "backlog",
+        webUrl,
+      });
+      prefsCtx?.setPrefs((p) => touchRecentId(p, noteId));
+      router.push(href);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "建立失敗");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   if (!openIds.length) return null;
 
@@ -44,7 +94,6 @@ export default function NoteTabsBar() {
               role="tab"
               aria-selected={isActive}
               onClick={(e) => {
-                // Whole tab is clickable (close button stops propagation)
                 if ((e.target as HTMLElement).closest(".note-tab-close")) return;
                 activate(id);
               }}
@@ -91,15 +140,48 @@ export default function NoteTabsBar() {
             </div>
           );
         })}
-        <button
-          type="button"
-          className="note-tab-new"
-          title="新增頁面（前往知識庫）"
-          aria-label="新增頁面"
-          onClick={() => router.push("/library")}
-        >
-          +
-        </button>
+        <div className="note-tab-new-wrap">
+          <button
+            type="button"
+            className="note-tab-new"
+            title="新增頁面"
+            aria-label="新增頁面"
+            aria-expanded={createOpen}
+            disabled={creating}
+            onClick={() => {
+              setMenuOpen(false);
+              setCreateOpen((v) => !v);
+            }}
+          >
+            +
+          </button>
+          {createOpen && (
+            <div className="note-tabs-menu note-tabs-create-menu">
+              {WORKSPACE_PAGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.kind}
+                  type="button"
+                  disabled={creating}
+                  onClick={() => void createPage(opt.kind)}
+                >
+                  <span className="note-tabs-menu-row">
+                    <PageChromeIcon icon={opt.icon} fallback={opt.icon} className="note-tab-icon" />
+                    {opt.label}
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateOpen(false);
+                  router.push("/library");
+                }}
+              >
+                前往知識庫…
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="note-tabs-actions">
@@ -108,7 +190,10 @@ export default function NoteTabsBar() {
             type="button"
             className={`note-tabs-action${splitId ? " is-on" : ""}`}
             title="雙頁並排（或雙擊另一個分頁）"
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => {
+              setCreateOpen(false);
+              setMenuOpen((v) => !v);
+            }}
           >
             {splitId ? "並排中" : "並排"}
           </button>

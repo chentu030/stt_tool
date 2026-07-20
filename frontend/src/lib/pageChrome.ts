@@ -47,6 +47,10 @@ export const PAGE_ICONS = [
   "biotech",
   "spa",
   "rocket_launch",
+  "view_kanban",
+  "table_chart",
+  "hub",
+  "language",
 ] as const;
 
 export const FOLDER_ICONS = [

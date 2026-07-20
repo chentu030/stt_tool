@@ -72,6 +72,7 @@ import {
   zoomAtClientPoint,
 } from "@/lib/canvasNav";
 import { usePrefs } from "@/components/PrefsProvider";
+import { useRedirectSpecialtyToNote } from "@/components/workspace/useRedirectSpecialtyToNote";
 
 type DragState =
   | { kind: "pan"; sx: number; sy: number; ox: number; oy: number }
@@ -87,6 +88,7 @@ export default function GraphDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const graphId = String(params.id || "");
+  const { embed } = useRedirectSpecialtyToNote("graph", graphId);
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [graphs, setGraphs] = useState<GraphConfig[]>([]);
@@ -861,6 +863,7 @@ ${orphanLines || "（無）"}`;
   }, [pathMode, path, pathEnds, full.byId]);
 
   if (loading) return <PageLoading />;
+  if (!embed) return <PageLoading />;
   if (!user) {
     return (
       <div className="gp-page gp-guest">

@@ -2,83 +2,100 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle } from "@/lib/firebase";
-import { ensureDefaultGraph } from "@/lib/graphStore";
+import { listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
+import { listenGraphs, type GraphConfig } from "@/lib/graphStore";
+import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import ScrambleText from "@/components/motion/ScrambleText";
-import ShinyPill from "@/components/motion/ShinyPill";
-
-const OPEN_TIMEOUT_MS = 20_000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(message)), ms);
-    }),
-  ]);
-}
+import { toast } from "@/lib/toast";
 
 export default function GraphIndexPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [error, setError] = useState("");
-  const [retry, setRetry] = useState(0);
+  const [list, setList] = useState<GraphConfig[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    let cancelled = false;
-    setError("");
+    return listenGraphs(user.uid, setList);
+  }, [user]);
 
-    void (async () => {
-      try {
-        const id = await withTimeout(
-          ensureDefaultGraph(user.uid),
-          OPEN_TIMEOUT_MS,
-          "載入逾時，請重試"
-        );
-        if (!cancelled) router.replace(`/graph/${id}${window.location.search}`);
-      } catch (e) {
-        if (!cancelled) {
-          const msg = e instanceof Error ? e.message : "無法開啟圖譜";
-          setError(
-            /permission|insufficient|Missing/i.test(msg)
-              ? "沒有權限讀寫圖譜（請確認已部署含 graphs 的 Firestore rules）"
-              : msg
-          );
-        }
-      }
-    })();
+  useEffect(() => {
+    if (!user) return;
+    return listenToUserNotes(user.uid, setNotes);
+  }, [user]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user, router, retry]);
+  const noteByGraph = useMemo(() => {
+    const m = new Map<string, Note>();
+    for (const n of notes) {
+      if (n.app_link?.type === "graph" && n.app_link.id) m.set(n.app_link.id, n);
+    }
+    return m;
+  }, [notes]);
 
-  if (loading) {
-    return <PageLoading />;
-  }
+  const create = async () => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      const { href } = await createWorkspacePage(user.uid, "graph");
+      router.push(href);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "建立失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
 
+  if (loading) return <PageLoading />;
   if (!user) {
     return (
-      <div className="gp-page gp-guest">
+      <div>
         <ScrambleText words="圖譜" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後查看圖譜。</p>
-        <ShinyPill onClick={() => loginWithGoogle()}>登入</ShinyPill>
+        <p className="page-sub">登入後建立知識圖譜頁面。</p>
+        <button type="button" className="btn" onClick={() => void loginWithGoogle()}>
+          登入
+        </button>
       </div>
     );
   }
 
-  if (error) {
-    return (
-      <div className="gp-page gp-guest" style={{ padding: "1.5rem" }}>
-        <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>{error}</p>
-        <ShinyPill onClick={() => setRetry((n) => n + 1)}>重試</ShinyPill>
+  return (
+    <div className="cdb-index">
+      <div className="cdb-index-head page-chrome">
+        <div>
+          <ScrambleText words="圖譜" as="h1" className="page-title font-display" />
+          <p className="page-sub">知識圖譜總覽 — 與筆記同分頁列，也可插入筆記中。</p>
+        </div>
+        <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+          {busy ? "…" : "新建圖譜"}
+        </button>
       </div>
-    );
-  }
-
-  return <PageLoading />;
+      {list.length === 0 ? (
+        <div className="cdb-empty cdb-empty--cta">
+          <p>尚無圖譜。建立一個，或在側欄按 + 選「新圖譜」。</p>
+          <button type="button" className="btn" disabled={busy} onClick={() => void create()}>
+            {busy ? "…" : "建立第一個圖譜"}
+          </button>
+        </div>
+      ) : (
+        <div className="cdb-index-grid">
+          {list.map((g) => {
+            const note = noteByGraph.get(g.id);
+            const href = note ? noteOpenHref(note) : `/graph/${g.id}`;
+            return (
+              <Link key={g.id} href={href} className="cdb-index-card">
+                <span className="cdb-icon">◎</span>
+                <strong>{note?.title || g.name || "未命名圖譜"}</strong>
+                <span>圖譜頁面</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }

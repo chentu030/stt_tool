@@ -37,7 +37,7 @@ import {
   NoteVersion,
 } from "@/lib/firebase";
 import { takeNoteBodySeed } from "@/lib/jobToNote";
-import { noteOpenHref } from "@/lib/workspacePages";
+import NoteAppSurface from "@/components/workspace/NoteAppSurface";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import ShareDialog from "@/components/ShareDialog";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
@@ -202,13 +202,6 @@ function NotePageInner() {
     if (!id) return;
     getNote(id).then((n) => {
       if (!n) return;
-      if (n.app_link?.type && n.app_link.id) {
-        const href = noteOpenHref(n);
-        if (href !== `/notes/${id}`) {
-          router.replace(href);
-          return;
-        }
-      }
       const seeded = takeNoteBodySeed(id);
       // Prefer non-empty seed / cloud body so we never paint an empty editor over fresh AI notes.
       const bodyMd = (seeded && seeded.trim()) || n.body_md || "";
@@ -1598,6 +1591,16 @@ function NotePageInner() {
 
           <div className={`doc-pane doc-pane--write${viewMode === "write" ? " is-active" : ""}`} aria-hidden={viewMode !== "write"}>
           <div className="doc-editor-shell">
+            {note.app_link?.type && note.app_link.id ? (
+              <NoteAppSurface
+                note={note}
+                userId={user.uid}
+                onTitleHint={(t) => {
+                  setTitle(t);
+                  markDirty();
+                }}
+              />
+            ) : (
             <RichNoteEditor
               valueMd={body}
               onChangeMd={(md) => {
@@ -1666,6 +1669,7 @@ function NotePageInner() {
                 }
               }}
             />
+            )}
           </div>
 
           </div>

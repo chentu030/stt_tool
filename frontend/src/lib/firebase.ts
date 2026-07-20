@@ -331,7 +331,7 @@ export interface Note {
   };
   /** Link to a separate app resource (board / canvas / graph / database) */
   app_link?: {
-    type: "board" | "canvas" | "graph" | "database";
+    type: "board" | "canvas" | "graph" | "database" | "web";
     id: string;
   };
   created_at: Date;
@@ -403,6 +403,7 @@ export async function updateNote(
       | "props"
       | "share"
       | "source_job_id"
+      | "app_link"
     >
   >,
   options?: { silent?: boolean }

@@ -29,7 +29,14 @@ import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
 import { CadenceDatabase } from "@/lib/tiptapDatabase";
+import {
+  CadenceBoard,
+  CadenceCanvas,
+  CadenceGraph,
+  CadenceWeb,
+} from "@/lib/tiptapWorkspace";
 import { createDatabase } from "@/lib/database";
+import { createWorkspacePage, normalizeWebUrl } from "@/lib/workspacePages";
 import {
   Callout,
   ToggleBlock,
@@ -705,7 +712,95 @@ export default function RichNoteEditor({
       app("calendar", "行事曆／日誌", "/journal", "/calendar 日誌"),
       app("list", "清單檢視", "/library", "/list 知識庫清單"),
       app("gallery", "畫廊", "/library", "/gallery 知識庫"),
-      app("timeline", "時間軸／圖譜", "/graph", "/timeline 圖譜"),
+      {
+        id: "board-embed",
+        label: "嵌入看板",
+        hint: "/看板 建立並插入區塊",
+        run: (e) => {
+          void (async () => {
+            if (!userId) {
+              setUploadError("請先登入");
+              return;
+            }
+            try {
+              const { noteId } = await createWorkspacePage(userId, "board");
+              // Resolve board id from the note we just created
+              const { getNote } = await import("@/lib/firebase");
+              const n = await getNote(noteId);
+              const boardId = n?.app_link?.type === "board" ? n.app_link.id : "";
+              if (boardId) e.chain().focus().setCadenceBoard({ boardId }).run();
+            } catch (err) {
+              setUploadError(err instanceof Error ? err.message : String(err));
+            }
+          })();
+        },
+      },
+      {
+        id: "canvas-embed",
+        label: "嵌入白板",
+        hint: "/白板 建立並插入區塊",
+        run: (e) => {
+          void (async () => {
+            if (!userId) {
+              setUploadError("請先登入");
+              return;
+            }
+            try {
+              const { noteId } = await createWorkspacePage(userId, "canvas");
+              const { getNote } = await import("@/lib/firebase");
+              const n = await getNote(noteId);
+              const canvasId = n?.app_link?.type === "canvas" ? n.app_link.id : "";
+              if (canvasId) e.chain().focus().setCadenceCanvas({ canvasId }).run();
+            } catch (err) {
+              setUploadError(err instanceof Error ? err.message : String(err));
+            }
+          })();
+        },
+      },
+      {
+        id: "graph-embed",
+        label: "嵌入圖譜",
+        hint: "/圖譜 建立並插入區塊",
+        run: (e) => {
+          void (async () => {
+            if (!userId) {
+              setUploadError("請先登入");
+              return;
+            }
+            try {
+              const { noteId } = await createWorkspacePage(userId, "graph");
+              const { getNote } = await import("@/lib/firebase");
+              const n = await getNote(noteId);
+              const graphId = n?.app_link?.type === "graph" ? n.app_link.id : "";
+              if (graphId) e.chain().focus().setCadenceGraph({ graphId }).run();
+            } catch (err) {
+              setUploadError(err instanceof Error ? err.message : String(err));
+            }
+          })();
+        },
+      },
+      {
+        id: "web-embed",
+        label: "嵌入網頁",
+        hint: "/網頁 網址 ⏎",
+        run: (e, arg) => {
+          void (async () => {
+            const raw =
+              (arg || "").trim() ||
+              (await askPrompt("網頁網址", "https://")) ||
+              "";
+            const url = normalizeWebUrl(raw);
+            if (!url) return;
+            let title = url;
+            try {
+              title = new URL(url).hostname.replace(/^www\./, "");
+            } catch {
+              /* keep */
+            }
+            e.chain().focus().setCadenceWeb({ url, title }).run();
+          })();
+        },
+      },
       {
         id: "database",
         label: "資料庫",
@@ -723,8 +818,17 @@ export default function RichNoteEditor({
                 if (raw == null) return;
                 name = raw.trim() || "未命名資料庫";
               }
-              const id = await createDatabase(userId, name, "tasks");
-              e.chain().focus().setCadenceDatabase({ databaseId: id, viewId: "v_table" }).run();
+              const { noteId } = await createWorkspacePage(userId, "database");
+              const { getNote, updateNote } = await import("@/lib/firebase");
+              const n = await getNote(noteId);
+              if (n && name !== n.title) await updateNote(noteId, { title: name });
+              const id = n?.app_link?.type === "database" ? n.app_link.id : "";
+              if (id) {
+                e.chain().focus().setCadenceDatabase({ databaseId: id, viewId: "v_table" }).run();
+              } else {
+                const fallback = await createDatabase(userId, name, "tasks");
+                e.chain().focus().setCadenceDatabase({ databaseId: fallback, viewId: "v_table" }).run();
+              }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
               setUploadError(
@@ -738,7 +842,8 @@ export default function RichNoteEditor({
       },
       app("library", "知識庫", "/library", "筆記庫"),
       app("journal", "日誌", "/journal", "日記與行事曆"),
-      app("graph", "圖譜", "/graph", "關聯圖譜"),
+      app("timeline", "時間軸／圖譜", "/graph", "關聯圖譜"),
+      app("graph", "圖譜總覽", "/graph", "關聯圖譜"),
       { id: "image", label: "圖片", hint: "/image ⏎ 上傳圖片", run: () => imageRef.current?.click() },
       {
         id: "create-photo",
@@ -1034,6 +1139,10 @@ export default function RichNoteEditor({
       MathBlock,
       NoteEmbed,
       CadenceDatabase,
+      CadenceBoard,
+      CadenceCanvas,
+      CadenceGraph,
+      CadenceWeb,
       Callout,
       ToggleBlock,
       ToggleHeading,

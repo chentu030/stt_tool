@@ -69,6 +69,7 @@ import {
   type CanvasMeta,
 } from "@/lib/canvasCloud";
 import { usePrefs } from "@/components/PrefsProvider";
+import { useRedirectSpecialtyToNote } from "@/components/workspace/useRedirectSpecialtyToNote";
 
 type ResizeHandle = "nw" | "ne" | "sw" | "se" | "e" | "w" | "n" | "s";
 
@@ -82,6 +83,7 @@ export default function CanvasIdPage() {
   const searchParams = useSearchParams();
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
+  const { embed } = useRedirectSpecialtyToNote("canvas", canvasId);
   const [notes, setNotes] = useState<Note[]>([]);
   const [list, setList] = useState<CanvasMeta[]>([]);
   const [doc, setDoc] = useState<CanvasDoc>(() => emptyDoc());
@@ -1056,6 +1058,7 @@ export default function CanvasIdPage() {
   }, [ready]);
 
   if (loading) return <PageLoading />;
+  if (!embed) return <PageLoading />;
   if (!user) {
     return (
       <div className="cv-page cv-guest">

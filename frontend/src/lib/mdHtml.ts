@@ -123,6 +123,48 @@ turndown.addRule("cadenceDatabase", {
   },
 });
 
+turndown.addRule("cadenceBoard", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-cadence-board") === "1",
+  replacement: (_c, node) => {
+    const id = (node as HTMLElement).getAttribute("data-board-id") || "";
+    return id ? `\n\n[board](${id})\n\n` : "";
+  },
+});
+
+turndown.addRule("cadenceCanvas", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-cadence-canvas") === "1",
+  replacement: (_c, node) => {
+    const id = (node as HTMLElement).getAttribute("data-canvas-id") || "";
+    return id ? `\n\n[canvas](${id})\n\n` : "";
+  },
+});
+
+turndown.addRule("cadenceGraph", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-cadence-graph") === "1",
+  replacement: (_c, node) => {
+    const id = (node as HTMLElement).getAttribute("data-graph-id") || "";
+    return id ? `\n\n[graph](${id})\n\n` : "";
+  },
+});
+
+turndown.addRule("cadenceWeb", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-cadence-web") === "1",
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const url = el.getAttribute("data-url") || "";
+    const title = el.getAttribute("data-title") || "";
+    return url ? `\n\n[web|${title}](${url})\n\n` : "";
+  },
+});
+
 turndown.addRule("noteEmbed", {
   filter: (node) => {
     if (node.nodeName !== "DIV") return false;
@@ -447,6 +489,22 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<div class="cdb-embed-shell" data-cadence-database="1" data-database-id="${escapeAttr(databaseId)}" data-view-id="${escapeAttr(viewId || "v_table")}"></div>`;
   });
 
+  s = s.replace(/\[board\]\(([^)]+)\)/g, (_m, boardId) => {
+    return `<div class="ws-board-embed-shell" data-cadence-board="1" data-board-id="${escapeAttr(boardId)}"></div>`;
+  });
+
+  s = s.replace(/\[canvas\]\(([^)]+)\)/g, (_m, canvasId) => {
+    return `<div class="ws-canvas-embed-shell" data-cadence-canvas="1" data-canvas-id="${escapeAttr(canvasId)}"></div>`;
+  });
+
+  s = s.replace(/\[graph\]\(([^)]+)\)/g, (_m, graphId) => {
+    return `<div class="ws-graph-embed-shell" data-cadence-graph="1" data-graph-id="${escapeAttr(graphId)}"></div>`;
+  });
+
+  s = s.replace(/\[web\|([^\]]*)\]\(([^)]+)\)/g, (_m, title, url) => {
+    return `<div class="ws-web-embed-shell" data-cadence-web="1" data-url="${escapeAttr(url)}" data-title="${escapeAttr(title || "")}"></div>`;
+  });
+
   s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {
     const emb = resolveEmbedUrl(String(original), String(title || ""));
     const k = emb?.kind || kind || "web";
@@ -689,6 +747,39 @@ export function htmlToMarkdown(html: string): string {
           return;
         }
         el.replaceWith(doc.createTextNode(`\n\n[database|${viewId}](${id})\n\n`));
+      });
+      doc.querySelectorAll("[data-cadence-board]").forEach((el) => {
+        const id = el.getAttribute("data-board-id") || "";
+        if (!id) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n[board](${id})\n\n`));
+      });
+      doc.querySelectorAll("[data-cadence-canvas]").forEach((el) => {
+        const id = el.getAttribute("data-canvas-id") || "";
+        if (!id) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n[canvas](${id})\n\n`));
+      });
+      doc.querySelectorAll("[data-cadence-graph]").forEach((el) => {
+        const id = el.getAttribute("data-graph-id") || "";
+        if (!id) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n[graph](${id})\n\n`));
+      });
+      doc.querySelectorAll("[data-cadence-web]").forEach((el) => {
+        const url = el.getAttribute("data-url") || "";
+        const title = el.getAttribute("data-title") || "";
+        if (!url) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n[web|${title}](${url})\n\n`));
       });
       doc.querySelectorAll("[data-note-video]").forEach((el) => {
         const src = el.getAttribute("src") || "";
