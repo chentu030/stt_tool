@@ -73,20 +73,19 @@ export default function NoteAside({
             e.preventDefault();
             const startX = e.clientX;
             const startW = widthPx;
-            const target = e.currentTarget;
-            target.setPointerCapture(e.pointerId);
             const onMove = (ev: globalThis.PointerEvent) => {
               const dx = startX - ev.clientX;
               const next = Math.round(Math.min(560, Math.max(220, startW + dx)));
               onResizeWidth(next);
             };
-            const onUp = (ev: globalThis.PointerEvent) => {
-              target.releasePointerCapture(ev.pointerId);
+            const onUp = () => {
               window.removeEventListener("pointermove", onMove);
               window.removeEventListener("pointerup", onUp);
+              window.removeEventListener("pointercancel", onUp);
             };
             window.addEventListener("pointermove", onMove);
             window.addEventListener("pointerup", onUp);
+            window.addEventListener("pointercancel", onUp);
           }}
         />
       )}

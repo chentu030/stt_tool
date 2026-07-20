@@ -220,61 +220,58 @@ export default function AppShell({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const clearSidebarResize = useCallback(() => {
+    sidebarDrag.current = null;
+    document.body.classList.remove("is-sidebar-resizing");
+  }, []);
+
   const onSidebarResizeStart = useCallback(
     (e: REPointerEvent<HTMLDivElement>) => {
       if (sidebarCollapsed) return;
       e.preventDefault();
-      sidebarDrag.current = { startX: e.clientX, startW: sidebarW };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      const startX = e.clientX;
+      const startW = sidebarW;
+      sidebarDrag.current = { startX, startW };
       document.body.classList.add("is-sidebar-resizing");
+
+      // Window-level listeners (not setPointerCapture): capture on a React node
+      // can stick after re-renders and make the whole page look hoverable but
+      // dead to clicks — matches "wait a few seconds, buttons stop working".
+      const onMove = (ev: PointerEvent) => {
+        if (!sidebarDrag.current) return;
+        const dx = ev.clientX - startX;
+        const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + dx));
+        setSidebarW(next);
+      };
+      const onUp = (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        const dx = ev.clientX - startX;
+        const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + dx));
+        sidebarDrag.current = null;
+        setSidebarW(next);
+        saveSidebarWidthPx(next);
+        document.body.classList.remove("is-sidebar-resizing");
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
     },
     [sidebarCollapsed, sidebarW]
   );
 
-  const onSidebarResizeMove = useCallback((e: REPointerEvent<HTMLDivElement>) => {
-    if (!sidebarDrag.current) return;
-    const dx = e.clientX - sidebarDrag.current.startX;
-    const next = Math.min(
-      SIDEBAR_MAX,
-      Math.max(SIDEBAR_MIN, sidebarDrag.current.startW + dx)
-    );
-    setSidebarW(next);
-  }, []);
-
-  const onSidebarResizeEnd = useCallback((e: REPointerEvent<HTMLDivElement>) => {
-    if (!sidebarDrag.current) {
-      document.body.classList.remove("is-sidebar-resizing");
-      return;
-    }
-    const dx = e.clientX - sidebarDrag.current.startX;
-    const next = Math.min(
-      SIDEBAR_MAX,
-      Math.max(SIDEBAR_MIN, sidebarDrag.current.startW + dx)
-    );
-    sidebarDrag.current = null;
-    setSidebarW(next);
-    saveSidebarWidthPx(next);
-    document.body.classList.remove("is-sidebar-resizing");
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  // If the window blurs mid-resize, never leave the page in a dead-click state
+  // Never leave the page in a dead-click state after blur / tab switch
   useEffect(() => {
-    const clear = () => {
-      if (!sidebarDrag.current) return;
-      sidebarDrag.current = null;
-      document.body.classList.remove("is-sidebar-resizing");
-    };
+    const clear = () => clearSidebarResize();
     window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", clear);
     return () => {
       window.removeEventListener("blur", clear);
-      document.body.classList.remove("is-sidebar-resizing");
+      document.removeEventListener("visibilitychange", clear);
+      clearSidebarResize();
     };
-  }, []);
+  }, [clearSidebarResize]);
 
   useEffect(() => {
     if (!user) {
@@ -841,9 +838,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
             aria-label="調整側欄寬度"
             title="拖曳調整寬度"
             onPointerDown={onSidebarResizeStart}
-            onPointerMove={onSidebarResizeMove}
-            onPointerUp={onSidebarResizeEnd}
-            onPointerCancel={onSidebarResizeEnd}
             onDoubleClick={() => {
               const mid = Math.round((SIDEBAR_MIN + SIDEBAR_MAX) / 2);
               setSidebarW(mid);

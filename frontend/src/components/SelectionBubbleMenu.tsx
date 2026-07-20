@@ -257,6 +257,7 @@ export default function SelectionBubbleMenu({
   const [aiOpenLocal, setAiOpenLocal] = useState(false);
   const [tick, setTick] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const bubbleElRef = useRef<HTMLElement | null>(null);
   const turnItems = buildTurnItems({ onCreateSubpage });
 
   const aiOpen = aiOpenProp ?? aiOpenLocal;
@@ -303,11 +304,25 @@ export default function SelectionBubbleMenu({
       editor={editor}
       className="sel-bubble"
       appendTo={() => document.body}
+      ref={(el) => {
+        bubbleElRef.current = el;
+      }}
       shouldShow={({ editor: ed, state }) => {
         const { from: a, to: b } = state.selection;
         return a !== b && !ed.isActive("codeBlock") && !ed.isActive("mathBlock");
       }}
-      options={{ placement: "top", offset: 8, strategy: "fixed" }}
+      options={{
+        placement: "top",
+        offset: 8,
+        strategy: "fixed",
+        onShow: () => {
+          if (bubbleElRef.current) bubbleElRef.current.dataset.open = "true";
+        },
+        onHide: () => {
+          if (bubbleElRef.current) delete bubbleElRef.current.dataset.open;
+        },
+      }}
+      updateDelay={0}
     >
       <div className="sel-bubble-inner" ref={wrapRef}>
         <div className="sel-bubble-row">

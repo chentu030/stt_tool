@@ -4302,15 +4302,14 @@ button, input, textarea, select {
   z-index: 50;
 }
 
-/* Notion-style selection bubble — root never steals hits when hidden */
+/* Notion-style selection bubble — only the inner toolbar receives hits when open */
 .sel-bubble {
   z-index: 60;
   max-width: min(520px, calc(100vw - 24px));
   pointer-events: none !important;
 }
-.sel-bubble[style*="visibility: visible"] .sel-bubble-inner,
-.sel-bubble[style*="visibility:visible"] .sel-bubble-inner {
-  pointer-events: auto;
+.sel-bubble[data-open="true"] .sel-bubble-inner {
+  pointer-events: auto !important;
 }
 .sel-bubble-inner {
   display: flex;

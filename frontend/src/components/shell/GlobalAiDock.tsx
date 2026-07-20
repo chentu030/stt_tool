@@ -56,14 +56,6 @@ function readFocusNoteId(pathname: string | null): string | null {
   }
 }
 
-function loadOpen(): boolean {
-  try {
-    return localStorage.getItem(OPEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
 function saveOpen(open: boolean) {
   try {
     localStorage.setItem(OPEN_KEY, open ? "1" : "0");
@@ -254,7 +246,9 @@ export default function GlobalAiDock() {
   };
 
   useEffect(() => {
-    setOpen(loadOpen());
+    // Never auto-reopen the rail on mount — restoring float+open from
+    // localStorage left a document-level closer that raced with real clicks
+    // ("hover works, buttons dead"). Mode preference still restores.
     setMode(loadMode());
     const loaded = loadThreads();
     setThreads(loaded.threads);
@@ -304,20 +298,9 @@ export default function GlobalAiDock() {
     return () => window.removeEventListener("cadence-ai-rail", onEvt);
   }, []);
 
-  // Float mode: close on outside *click* (not mousedown). Using mousedown
-  // closes the panel before the target's click runs, so sidebar links / ribbon
-  // buttons look hoverable but never fire. No full-screen backdrop — it stole
-  // hits even when semi-transparent.
-  useEffect(() => {
-    if (!open || mode !== "float" || isMobile) return;
-    const onClick = (e: MouseEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t?.closest?.(".cadence-ai-rail")) return;
-      setOpen(false);
-    };
-    document.addEventListener("click", onClick);
-    return () => document.removeEventListener("click", onClick);
-  }, [open, mode, isMobile]);
+  // Float mode: no full-screen backdrop and no document-level outside closer.
+  // Both previously swallowed clicks (mousedown race / invisible hit layer).
+  // Close via the X button, Escape, or toggling the rail explicitly.
 
   useEffect(() => {
     setFocusNoteId(readFocusNoteId(pathname));
@@ -540,24 +523,25 @@ export default function GlobalAiDock() {
   const onSheetPointerDown = (e: REPointerEvent<HTMLButtonElement>) => {
     if (!isMobile) return;
     e.preventDefault();
-    sheetDrag.current = { startY: e.clientY, startH: sheetH };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onSheetPointerMove = (e: REPointerEvent<HTMLButtonElement>) => {
-    if (!sheetDrag.current) return;
-    const dy = sheetDrag.current.startY - e.clientY;
-    const vh = window.innerHeight || 1;
-    const next = Math.min(72, Math.max(28, sheetDrag.current.startH + (dy / vh) * 100));
-    setSheetH(Math.round(next));
-  };
-  const onSheetPointerUp = (e: REPointerEvent<HTMLButtonElement>) => {
-    if (!sheetDrag.current) return;
-    sheetDrag.current = null;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* ignore */
-    }
+    const startY = e.clientY;
+    const startH = sheetH;
+    sheetDrag.current = { startY, startH };
+    const onMove = (ev: PointerEvent) => {
+      if (!sheetDrag.current) return;
+      const dy = startY - ev.clientY;
+      const vh = window.innerHeight || 1;
+      const next = Math.min(72, Math.max(28, startH + (dy / vh) * 100));
+      setSheetH(Math.round(next));
+    };
+    const onUp = () => {
+      sheetDrag.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   return (
@@ -583,9 +567,6 @@ export default function GlobalAiDock() {
               aria-label="拖曳調整 AI 高度"
               title="拖曳調整高度"
               onPointerDown={onSheetPointerDown}
-              onPointerMove={onSheetPointerMove}
-              onPointerUp={onSheetPointerUp}
-              onPointerCancel={onSheetPointerUp}
             />
             <div className="cadence-ai-dock-head">
               <button
