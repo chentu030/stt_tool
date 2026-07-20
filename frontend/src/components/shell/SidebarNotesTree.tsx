@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -78,6 +79,9 @@ type CtxTarget =
   | { kind: "blank" };
 
 type CtxMenu = {
+  /** Anchor (click / button) — used to re-clamp after measure */
+  ax: number;
+  ay: number;
   x: number;
   y: number;
   target: CtxTarget;
@@ -99,11 +103,29 @@ type MenuItem =
     }
   | { type: "sep" };
 
-function clampMenuPos(x: number, y: number, w = 200, h = 280) {
+/** Keep fixed menus inside the viewport. `h` should be actual or a high estimate. */
+function clampMenuPos(x: number, y: number, w = 220, h = 420) {
   const pad = 8;
-  const maxX = Math.max(pad, window.innerWidth - w - pad);
-  const maxY = Math.max(pad, window.innerHeight - h - pad);
-  return { x: Math.min(Math.max(pad, x), maxX), y: Math.min(Math.max(pad, y), maxY) };
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const menuH = Math.min(h, vh - pad * 2);
+  const menuW = Math.min(w, vw - pad * 2);
+  const maxX = Math.max(pad, vw - menuW - pad);
+  const maxY = Math.max(pad, vh - menuH - pad);
+  let left = Math.min(Math.max(pad, x), maxX);
+  let top = y;
+  if (top + menuH > vh - pad) {
+    // Prefer opening upward from the anchor when there is more room above
+    const above = y - pad;
+    const below = vh - pad - y;
+    if (above > below) {
+      top = y - menuH;
+    } else {
+      top = vh - menuH - pad;
+    }
+  }
+  top = Math.min(Math.max(pad, top), maxY);
+  return { x: left, y: top };
 }
 
 export default function SidebarNotesTree() {
@@ -118,9 +140,13 @@ export default function SidebarNotesTree() {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([UNCATEGORIZED]));
   const [creating, setCreating] = useState(false);
-  const [createMenu, setCreateMenu] = useState<{ x: number; y: number; folder?: string } | null>(
-    null
-  );
+  const [createMenu, setCreateMenu] = useState<{
+    ax: number;
+    ay: number;
+    x: number;
+    y: number;
+    folder?: string;
+  } | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ noteId: string; place: "before" | "after" } | null>(
     null
@@ -130,6 +156,8 @@ export default function SidebarNotesTree() {
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
   const [hintDismissed, setHintDismissed] = useState(true);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
+  const createMenuRef = useRef<HTMLDivElement>(null);
 
   const pageOptions = useMemo(() => {
     const extras = (community?.enabledExtensions || []).map((ext) => ({
@@ -286,6 +314,18 @@ export default function SidebarNotesTree() {
     };
   }, [ctx]);
 
+  useLayoutEffect(() => {
+    if (!ctx) return;
+    const el = ctxMenuRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    if (width < 8 || height < 8) return;
+    const next = clampMenuPos(ctx.ax, ctx.ay, width, height);
+    if (Math.abs(next.x - ctx.x) > 0.5 || Math.abs(next.y - ctx.y) > 0.5) {
+      setCtx((c) => (c ? { ...c, x: next.x, y: next.y } : null));
+    }
+  }, [ctx]);
+
   useEffect(() => {
     if (!createMenu) return;
     const dismiss = () => setCreateMenu(null);
@@ -311,6 +351,18 @@ export default function SidebarNotesTree() {
       window.removeEventListener("resize", dismiss);
       window.removeEventListener("scroll", dismiss, true);
     };
+  }, [createMenu]);
+
+  useLayoutEffect(() => {
+    if (!createMenu) return;
+    const el = createMenuRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    if (width < 8 || height < 8) return;
+    const next = clampMenuPos(createMenu.ax, createMenu.ay, width, height);
+    if (Math.abs(next.x - createMenu.x) > 0.5 || Math.abs(next.y - createMenu.y) > 0.5) {
+      setCreateMenu((c) => (c ? { ...c, x: next.x, y: next.y } : null));
+    }
   }, [createMenu]);
 
   const toggle = (path: string) => {
@@ -394,8 +446,10 @@ export default function SidebarNotesTree() {
     e.preventDefault();
     e.stopPropagation();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const pos = clampMenuPos(r.left, r.bottom + 4, 200, 280);
-    setCreateMenu({ ...pos, folder: folderPath });
+    const ax = r.left;
+    const ay = r.bottom + 4;
+    const pos = clampMenuPos(ax, ay, 220, 360);
+    setCreateMenu({ ax, ay, ...pos, folder: folderPath });
   };
 
   const onDropToFolder = async (folderPath: string, noteId: string) => {
@@ -505,8 +559,10 @@ export default function SidebarNotesTree() {
         return new Set([target.noteId]);
       });
     }
-    const pos = clampMenuPos(e.clientX, e.clientY);
-    setCtx({ ...pos, target });
+    const ax = e.clientX;
+    const ay = e.clientY;
+    const pos = clampMenuPos(ax, ay, 220, 420);
+    setCtx({ ax, ay, ...pos, target });
   };
 
   const closeCtx = () => setCtx(null);
@@ -902,8 +958,8 @@ export default function SidebarNotesTree() {
           label: "新增其他頁面…",
           action: () => {
             const folder = target.path === UNCATEGORIZED ? "" : target.path;
-            const pos = clampMenuPos(menuX, menuY, 200, 280);
-            setCreateMenu({ ...pos, folder });
+            const pos = clampMenuPos(menuX, menuY, 220, 360);
+            setCreateMenu({ ax: menuX, ay: menuY, ...pos, folder });
           },
         },
         { type: "sep" },
@@ -937,8 +993,8 @@ export default function SidebarNotesTree() {
         type: "item",
         label: "新增其他頁面…",
         action: () => {
-          const pos = clampMenuPos(menuX, menuY, 200, 280);
-          setCreateMenu({ ...pos });
+          const pos = clampMenuPos(menuX, menuY, 220, 360);
+          setCreateMenu({ ax: menuX, ay: menuY, ...pos });
         },
       }
     );
@@ -982,8 +1038,8 @@ export default function SidebarNotesTree() {
         return new Set([target.noteId]);
       });
     }
-    const pos = clampMenuPos(x, y);
-    setCtx({ ...pos, target });
+    const pos = clampMenuPos(x, y, 220, 420);
+    setCtx({ ax: x, ay: y, ...pos, target });
   };
 
   const bindLongPress = (target: CtxTarget) => ({
@@ -1157,6 +1213,7 @@ export default function SidebarNotesTree() {
     ctx && typeof document !== "undefined"
       ? createPortal(
           <div
+            ref={ctxMenuRef}
             className="sb-ctx"
             role="menu"
             style={{ left: ctx.x, top: ctx.y }}
@@ -1481,6 +1538,7 @@ export default function SidebarNotesTree() {
       {createMenu && typeof document !== "undefined"
         ? createPortal(
             <div
+              ref={createMenuRef}
               className="sb-ctx sb-create-menu"
               role="menu"
               style={{ left: createMenu.x, top: createMenu.y }}

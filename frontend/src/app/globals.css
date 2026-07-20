@@ -8993,6 +8993,10 @@ body.is-sidebar-resizing iframe {
   z-index: 5200;
   min-width: 168px;
   max-width: 240px;
+  max-height: calc(100vh - 16px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.25rem;
   border-radius: 10px;
   border: 1px solid var(--border);
