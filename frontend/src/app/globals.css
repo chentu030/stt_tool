@@ -4954,8 +4954,9 @@ a.sidebar-user-name:hover {
   top: -6px;
   bottom: -6px;
   left: 100%;
-  width: 1.6rem;
-  pointer-events: auto;
+  width: 0.35rem;
+  /* Must not cover task checkboxes / first glyphs of the line */
+  pointer-events: none;
 }
 .rich-canvas:hover .block-controls,
 .block-controls:hover,
@@ -5111,14 +5112,42 @@ a.sidebar-user-name:hover {
 .rich-prose ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0.15em;
+  margin: 0.35em 0;
 }
 .rich-prose ul[data-type="taskList"] li {
   display: flex;
-  gap: 0.5em;
+  flex-direction: row;
   align-items: flex-start;
+  gap: 0.45em;
+  margin: 0.2em 0;
 }
 .rich-prose ul[data-type="taskList"] li > label {
-  margin-top: 0.35em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  /* Match first text line so checkbox sits on the same baseline row */
+  height: calc(var(--editor-line-height, 1.65) * 1em);
+  line-height: 1;
+  user-select: none;
+  cursor: pointer;
+}
+.rich-prose ul[data-type="taskList"] li > label input[type="checkbox"] {
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.rich-prose ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+.rich-prose ul[data-type="taskList"] li > div > p {
+  margin: 0;
 }
 .rich-prose blockquote {
   border-left: 3px solid var(--accent);

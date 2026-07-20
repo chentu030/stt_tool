@@ -24,7 +24,11 @@ turndown.addRule("taskList", {
     (node as HTMLElement).getAttribute?.("data-type") === "taskItem",
   replacement: (content, node) => {
     const checked = (node as HTMLElement).getAttribute("data-checked") === "true";
-    const text = content.replace(/^\s*/, "").trim();
+    const text = content
+      .replace(/\[[\sxX]?\]/g, "")
+      .replace(/^\s+/, "")
+      .replace(/\n+/g, " ")
+      .trim();
     return `- [${checked ? "x" : " "}] ${text}\n`;
   },
 });
@@ -532,7 +536,38 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
     }
   );
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
-  return marked.parse(withMedia, { async: false }) as string;
+  const html = marked.parse(withMedia, { async: false }) as string;
+  return normalizeTaskListHtml(html);
+}
+
+/**
+ * marked emits GFM checkboxes as disabled <input> inside plain <ul>/<li>.
+ * TipTap TaskList only accepts ul[data-type=taskList] + li[data-type=taskItem].
+ */
+function normalizeTaskListHtml(html: string): string {
+  if (!/<input[^>]*type=["']?checkbox/i.test(html)) return html;
+  return html.replace(/<ul>([\s\S]*?)<\/ul>/gi, (full, inner: string) => {
+    if (!/<input[^>]*type=["']?checkbox/i.test(inner)) return full;
+    const items: string[] = [];
+    const liRe = /<li>([\s\S]*?)<\/li>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = liRe.exec(inner))) {
+      const li = m[1];
+      const checked = /\bchecked\b/i.test(li);
+      let body = li.replace(/<input[^>]*>/gi, "").trim();
+      if (!body) body = "<p></p>";
+      else if (!/^<(p|h[1-6]|div|ul|ol|blockquote)\b/i.test(body)) {
+        body = `<p>${body}</p>`;
+      }
+      items.push(
+        `<li data-type="taskItem" data-checked="${checked ? "true" : "false"}">` +
+          `<label contenteditable="false"><input type="checkbox"${checked ? " checked" : ""}><span></span></label>` +
+          `<div>${body}</div></li>`
+      );
+    }
+    if (!items.length) return full;
+    return `<ul data-type="taskList">${items.join("")}</ul>`;
+  });
 }
 
 /** True when clipboard text has LaTeX delimiters worth converting on paste. */
