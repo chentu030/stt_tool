@@ -7346,12 +7346,16 @@ body.is-sidebar-resizing iframe {
   display: flex;
   align-items: center;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 .sidebar-brand-links {
   display: flex;
   align-items: center;
   gap: 0.1rem;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 .sidebar-icon-btn {
   width: 28px;
@@ -7514,6 +7518,40 @@ body.is-sidebar-resizing iframe {
 .sb-tree-new {
   font-weight: 700 !important;
   color: var(--accent) !important;
+}
+.sb-tree-new.is-on {
+  background: var(--accent-soft) !important;
+}
+.sb-create-menu {
+  min-width: 188px;
+  padding: 6px;
+}
+.sb-create-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sb-create-menu button:hover {
+  background: var(--bg-muted);
+}
+.sb-create-menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sb-create-menu .page-chrome-icon {
+  font-size: 1.05rem;
+  color: var(--text-muted);
 }
 .sb-tree-search {
   width: 100%;

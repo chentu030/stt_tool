@@ -36,6 +36,7 @@ import {
   Note,
   NoteVersion,
 } from "@/lib/firebase";
+import { noteOpenHref } from "@/lib/workspacePages";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import ShareDialog from "@/components/ShareDialog";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
@@ -200,6 +201,13 @@ function NotePageInner() {
     if (!id) return;
     getNote(id).then((n) => {
       if (!n) return;
+      if (n.app_link?.type && n.app_link.id) {
+        const href = noteOpenHref(n);
+        if (href !== `/notes/${id}`) {
+          router.replace(href);
+          return;
+        }
+      }
       setNote(n);
       setTitle(n.title);
       setBody(n.body_md);
@@ -224,7 +232,7 @@ function NotePageInner() {
         parent_id: n.parent_id || "",
       };
     });
-  }, [id]);
+  }, [id, router]);
 
   // Consume research insert handoff (when returning from /research)
   useEffect(() => {

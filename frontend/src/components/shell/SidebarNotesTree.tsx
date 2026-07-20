@@ -21,10 +21,16 @@ import {
   updateNote,
   Note,
 } from "@/lib/firebase";
+import {
+  WORKSPACE_PAGE_OPTIONS,
+  createWorkspacePage,
+  noteOpenHref,
+  type WorkspacePageKind,
+} from "@/lib/workspacePages";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import IconColorPicker from "@/components/IconColorPicker";
 import PageChromeIcon from "@/components/PageChromeIcon";
-import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
+import { parseDefaultTags, toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import {
   UNCATEGORIZED,
@@ -111,6 +117,9 @@ export default function SidebarNotesTree() {
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([UNCATEGORIZED]));
   const [creating, setCreating] = useState(false);
+  const [createMenu, setCreateMenu] = useState<{ x: number; y: number; folder?: string } | null>(
+    null
+  );
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ noteId: string; place: "before" | "after" } | null>(
     null
@@ -263,6 +272,24 @@ export default function SidebarNotesTree() {
     };
   }, [ctx]);
 
+  useEffect(() => {
+    if (!createMenu) return;
+    const close = () => setCreateMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [createMenu]);
+
   const toggle = (path: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -293,23 +320,45 @@ export default function SidebarNotesTree() {
   };
 
   const newNote = async (folderPath?: string, parentId?: string) => {
+    await createPage("note", folderPath, parentId);
+  };
+
+  const createPage = async (
+    kind: WorkspacePageKind,
+    folderPath?: string,
+    parentId?: string
+  ) => {
     if (!user || creating) return;
     setCreating(true);
+    setCreateMenu(null);
     try {
       const folder =
         !folderPath || folderPath === UNCATEGORIZED
           ? prefs?.defaultFolder || ""
           : folderPath;
       const tags = parseDefaultTags(prefs?.defaultTags || "");
-      const id = await createNote(user.uid, "未命名筆記", "", undefined, tags, {
+      const { noteId, href } = await createWorkspacePage(user.uid, kind, {
         folder: parentId ? "" : folder,
+        parentId: parentId || "",
+        tags,
         status: prefs?.defaultStatus || "backlog",
-        parent_id: parentId || "",
       });
-      router.push(`/notes/${id}`);
+      prefsCtx?.setPrefs((p) => touchRecentId(p, noteId));
+      router.push(href);
+    } catch (err) {
+      console.error("[createPage]", err);
+      toast(err instanceof Error ? err.message : "建立失敗");
     } finally {
       setCreating(false);
     }
+  };
+
+  const openCreateMenu = (e: REMouseEvent, folderPath?: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const pos = clampMenuPos(r.left, r.bottom + 4, 200, 280);
+    setCreateMenu({ ...pos, folder: folderPath });
   };
 
   const onDropToFolder = async (folderPath: string, noteId: string) => {
@@ -744,7 +793,7 @@ export default function SidebarNotesTree() {
       if (!note) return items;
       const isSel = selected.has(note.id);
       items.push(
-        { type: "item", label: "開啟", action: () => router.push(`/notes/${note.id}`) },
+        { type: "item", label: "開啟", action: () => router.push(noteOpenHref(note)) },
         { type: "item", label: "重新命名", action: () => renameNote(note) },
         {
           type: "item",
@@ -807,6 +856,15 @@ export default function SidebarNotesTree() {
           label: "新增筆記",
           action: () => newNote(target.path === UNCATEGORIZED ? "" : target.path),
         },
+        {
+          type: "item",
+          label: "新增其他頁面…",
+          action: () => {
+            const folder = target.path === UNCATEGORIZED ? "" : target.path;
+            const pos = clampMenuPos(menuX, menuY, 200, 280);
+            setCreateMenu({ ...pos, folder });
+          },
+        },
         { type: "sep" },
         { type: "item", label: "全選可見", action: selectAllVisible }
       );
@@ -833,7 +891,15 @@ export default function SidebarNotesTree() {
         action: clearSelection,
       },
       { type: "sep" },
-      { type: "item", label: "新增筆記", action: () => newNote() }
+      { type: "item", label: "新增筆記", action: () => newNote() },
+      {
+        type: "item",
+        label: "新增其他頁面…",
+        action: () => {
+          const pos = clampMenuPos(menuX, menuY, 200, 280);
+          setCreateMenu({ ...pos });
+        },
+      }
     );
     return items;
   };
@@ -995,11 +1061,15 @@ export default function SidebarNotesTree() {
             />
           </button>
           <Link
-            href={`/notes/${note.id}`}
+            href={noteOpenHref(note)}
             className="sb-note-main"
             title={note.title || "未命名"}
             onClick={(e) => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey) e.preventDefault();
+              if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                e.preventDefault();
+                return;
+              }
+              prefsCtx?.setPrefs((p) => touchRecentId(p, note.id));
             }}
             onDoubleClick={(e) => {
               e.preventDefault();
@@ -1134,12 +1204,12 @@ export default function SidebarNotesTree() {
           </button>
           <button
             type="button"
-            className="sb-tree-new"
+            className={`sb-tree-new${createMenu && createMenu.folder == null ? " is-on" : ""}`}
             disabled={creating}
-            title="新筆記"
-            onClick={() => {
-              void newNote();
-            }}
+            title="新增…"
+            aria-haspopup="menu"
+            aria-expanded={!!createMenu && createMenu.folder == null}
+            onClick={(e) => openCreateMenu(e)}
           >
             {creating ? "…" : "+"}
           </button>
@@ -1336,11 +1406,12 @@ export default function SidebarNotesTree() {
                       type="button"
                       className="sb-row-add"
                       title="在此資料夾新增"
-                      onClick={() => {
-                        void newNote(
+                      onClick={(e) =>
+                        openCreateMenu(
+                          e,
                           row.folder!.path === UNCATEGORIZED ? "" : row.folder!.path
-                        );
-                      }}
+                        )
+                      }
                     >
                       +
                     </button>
@@ -1366,6 +1437,36 @@ export default function SidebarNotesTree() {
 
       {menuPortal}
       {stylePickerPortal}
+      {createMenu && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="sb-ctx-menu sb-create-menu"
+              role="menu"
+              style={{ left: createMenu.x, top: createMenu.y }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {WORKSPACE_PAGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.kind}
+                  type="button"
+                  role="menuitem"
+                  disabled={creating}
+                  onClick={() =>
+                    void createPage(
+                      opt.kind,
+                      createMenu.folder,
+                      undefined
+                    )
+                  }
+                >
+                  <PageChromeIcon icon={opt.icon} fallback={opt.icon} />
+                  <span>{opt.label}</span>
+                </button>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }

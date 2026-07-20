@@ -290,6 +290,11 @@ export interface Note {
     token: string;
     mode: "view" | "edit" | "copy";
   };
+  /** Link to a separate app resource (board / canvas / graph / database) */
+  app_link?: {
+    type: "board" | "canvas" | "graph" | "database";
+    id: string;
+  };
   created_at: Date;
   updated_at: Date;
 }
@@ -309,6 +314,7 @@ export async function createNote(
     parent_id?: string;
     database_id?: string;
     props?: Record<string, unknown>;
+    app_link?: Note["app_link"];
   }
 ): Promise<string> {
   const id = `${uid}_n_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -327,6 +333,7 @@ export async function createNote(
     sort_order: Date.now(),
     database_id: extra?.database_id || "",
     props: extra?.props || {},
+    ...(extra?.app_link ? { app_link: extra.app_link } : {}),
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   });
@@ -367,9 +374,14 @@ export async function getNote(noteId: string): Promise<Note | null> {
   const snap = await getDoc(doc(db, "notes", noteId));
   if (!snap.exists()) return null;
   const data = snap.data();
+  const appLink =
+    data.app_link && typeof data.app_link === "object"
+      ? (data.app_link as Note["app_link"])
+      : undefined;
   return {
     id: snap.id,
     ...data,
+    app_link: appLink,
     created_at: data.created_at?.toDate?.() || new Date(),
     updated_at: data.updated_at?.toDate?.() || new Date(),
   } as Note;
@@ -380,9 +392,14 @@ export function listenToUserNotes(uid: string, callback: (notes: Note[]) => void
   return onSnapshot(q, (snap) => {
     const notes = snap.docs.map((d) => {
       const data = d.data();
+      const appLink =
+        data.app_link && typeof data.app_link === "object"
+          ? (data.app_link as Note["app_link"])
+          : undefined;
       return {
         id: d.id,
         ...data,
+        app_link: appLink,
         created_at: data.created_at?.toDate?.() || new Date(),
         updated_at: data.updated_at?.toDate?.() || new Date(),
       } as Note;
