@@ -3423,6 +3423,27 @@ a.sidebar-user-name:hover {
   background: var(--bg-card);
   color: var(--danger);
 }
+.note-tab-new {
+  flex-shrink: 0;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 0.15rem 0.1rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.note-tab-new:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
 .note-tabs-actions {
   flex-shrink: 0;
   display: flex;

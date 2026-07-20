@@ -1049,32 +1049,60 @@ export default function RichNoteEditor({
       attributes: { class: "rich-prose" },
       handleClick: (_view, _pos, event) => {
         const target = event.target as HTMLElement | null;
+        const openHref = (href: string, externalPreferred: boolean) => {
+          const h = href.trim();
+          if (!h || h === "#" || /^javascript:/i.test(h)) return;
+          if (h.startsWith("/") && !h.startsWith("//")) {
+            window.location.href = h;
+            return;
+          }
+          if (externalPreferred || /^https?:\/\//i.test(h) || h.startsWith("//") || h.startsWith("mailto:")) {
+            window.open(h, "_blank", "noopener,noreferrer");
+            return;
+          }
+          window.location.href = h;
+        };
+
         const app = target?.closest?.("a[data-note-app]") as HTMLAnchorElement | null;
         if (app) {
           event.preventDefault();
           const href = app.getAttribute("href");
-          if (href) window.location.href = href;
+          if (href) openHref(href, false);
           return true;
         }
         const el = target?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
-        if (!el) return false;
-        event.preventDefault();
-        const title = (el.getAttribute("data-wiki") || "").trim();
-        const href = el.getAttribute("href");
-        const open = onOpenWikiNoteRef.current;
-        if (open && title) {
-          void open(title);
+        if (el) {
+          event.preventDefault();
+          const title = (el.getAttribute("data-wiki") || "").trim();
+          const href = el.getAttribute("href");
+          const open = onOpenWikiNoteRef.current;
+          if (open && title) {
+            void open(title);
+            return true;
+          }
+          if (href && href.startsWith("/notes/")) {
+            window.location.href = href;
+            return true;
+          }
+          if (title) {
+            const id = resolveWikiRef.current(title);
+            if (id) window.location.href = `/notes/${id}`;
+          }
           return true;
         }
-        if (href && href.startsWith("/notes/")) {
-          window.location.href = href;
+        // TipTap Link uses openOnClick: false so contenteditable won't follow <a> —
+        // open URL / bookmark / file links ourselves.
+        const link = target?.closest?.(
+          "a.rich-link, a[data-note-bookmark], a.rich-file, a.rich-bookmark"
+        ) as HTMLAnchorElement | null;
+        if (link) {
+          const href = link.getAttribute("href");
+          if (!href) return false;
+          event.preventDefault();
+          openHref(href, true);
           return true;
         }
-        if (title) {
-          const id = resolveWikiRef.current(title);
-          if (id) window.location.href = `/notes/${id}`;
-        }
-        return true;
+        return false;
       },
       handlePaste: (_view, event) => {
         if (readOnlyRef.current) return true;

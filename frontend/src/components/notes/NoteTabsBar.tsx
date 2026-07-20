@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, type Note } from "@/lib/firebase";
 import { useNoteTabs } from "@/components/notes/NoteTabsProvider";
@@ -9,6 +10,7 @@ import PageChromeIcon from "@/components/PageChromeIcon";
 import { normalizePageIcon } from "@/lib/pageChrome";
 
 export default function NoteTabsBar() {
+  const router = useRouter();
   const { user } = useAuth();
   const { openIds, activeId, splitId, activate, close, setSplit, toggleSplitWith } = useNoteTabs();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -89,6 +91,15 @@ export default function NoteTabsBar() {
             </div>
           );
         })}
+        <button
+          type="button"
+          className="note-tab-new"
+          title="新增頁面（前往知識庫）"
+          aria-label="新增頁面"
+          onClick={() => router.push("/library")}
+        >
+          +
+        </button>
       </div>
 
       <div className="note-tabs-actions">
