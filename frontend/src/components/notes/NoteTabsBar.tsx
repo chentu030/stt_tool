@@ -11,6 +11,7 @@ import { normalizePageIcon } from "@/lib/pageChrome";
 import {
   WORKSPACE_PAGE_OPTIONS,
   createWorkspacePage,
+  noteOpenHref,
   type WorkspacePageKind,
 } from "@/lib/workspacePages";
 import { usePrefs } from "@/components/PrefsProvider";
@@ -31,7 +32,8 @@ export default function NoteTabsBar() {
   const { user } = useAuth();
   const prefsCtx = usePrefs();
   const prefs = prefsCtx?.prefs;
-  const { openIds, activeId, splitId, activate, close, setSplit, toggleSplitWith } = useNoteTabs();
+  const { openIds, activeId, splitId, open, activate, close, setSplit, toggleSplitWith } =
+    useNoteTabs();
   const community = useCommunityOptional();
   const [notes, setNotes] = useState<Note[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -113,6 +115,7 @@ export default function NoteTabsBar() {
         extension,
       });
       prefsCtx?.setPrefs((p) => touchRecentId(p, noteId));
+      open(noteId);
       router.push(href);
     } catch (err) {
       toast(err instanceof Error ? err.message : "建立失敗");
@@ -139,7 +142,7 @@ export default function NoteTabsBar() {
               aria-selected={isActive}
               onClick={(e) => {
                 if ((e.target as HTMLElement).closest(".note-tab-close")) return;
-                activate(id);
+                activate(id, n ? noteOpenHref(n) : undefined);
               }}
               onDoubleClick={(e) => {
                 if ((e.target as HTMLElement).closest(".note-tab-close")) return;
@@ -152,7 +155,7 @@ export default function NoteTabsBar() {
                 title={title}
                 onClick={(e) => {
                   e.stopPropagation();
-                  activate(id);
+                  activate(id, n ? noteOpenHref(n) : undefined);
                 }}
                 onDoubleClick={(e) => {
                   e.stopPropagation();

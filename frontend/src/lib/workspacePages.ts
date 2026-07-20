@@ -95,9 +95,33 @@ export function parseNoteAppLink(raw: unknown): NoteAppLink | null {
   return null;
 }
 
-/** Canonical open path — all workspace pages stay on /notes so tab bar works. */
+/**
+ * Canonical open path for sidebar / + menu / tabs.
+ * Specialty apps (board / canvas / graph / database) open their full-screen
+ * native routes. Only slash-command embeds stay inside a note (via embed=1).
+ */
 export function noteOpenHref(note: Pick<Note, "id" | "app_link">): string {
+  const link = note.app_link;
+  const noteQ = `note=${encodeURIComponent(note.id)}`;
+  if (link?.type === "board" && link.id) return `/board/${link.id}?${noteQ}`;
+  if (link?.type === "canvas" && link.id) return `/canvas/${link.id}?${noteQ}`;
+  if (link?.type === "graph" && link.id) return `/graph/${link.id}?${noteQ}`;
+  if (link?.type === "database" && link.id) return `/db/${link.id}?${noteQ}`;
   return `/notes/${note.id}`;
+}
+
+/** Specialty app types that own a full-screen route (not note-shell iframe). */
+export function isFullScreenAppLink(
+  link: Note["app_link"] | null | undefined
+): link is NoteAppLink & { type: "board" | "canvas" | "graph" | "database" } {
+  return (
+    !!link &&
+    (link.type === "board" ||
+      link.type === "canvas" ||
+      link.type === "graph" ||
+      link.type === "database") &&
+    !!link.id
+  );
 }
 
 /** Deep-link path for embedding specialty UIs (iframe / legacy routes). */
@@ -209,7 +233,7 @@ export async function createExtensionWorkspacePage(
     },
     app_link: { type: "extension", id: ext.id },
   });
-  return { noteId, href: noteOpenHref({ id: noteId }) };
+  return { noteId, href: noteOpenHref({ id: noteId, app_link: { type: "extension", id: ext.id } }) };
 }
 
 export async function createWorkspacePage(

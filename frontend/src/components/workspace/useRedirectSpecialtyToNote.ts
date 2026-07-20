@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
   ensureNoteForAppLink,
   type NoteAppLinkType,
 } from "@/lib/workspacePages";
 
-/** When not iframe-embedded, send specialty routes to their note shell. */
+/**
+ * Specialty routes (/canvas, /graph, /board, /db) are full-screen pages.
+ * - ?embed=1 → compact iframe chrome for slash embeds inside notes
+ * - otherwise stay on the native route; ensure a paired note exists for the tree
+ */
 export function useRedirectSpecialtyToNote(
   type: Exclude<NoteAppLinkType, "web" | "extension">,
   appId: string | undefined,
@@ -16,6 +20,7 @@ export function useRedirectSpecialtyToNote(
 ) {
   const { user } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const embed = searchParams.get("embed") === "1";
   const noteQ = searchParams.get("note");
@@ -37,7 +42,14 @@ export function useRedirectSpecialtyToNote(
           (noteQ && noteQ.trim()) ||
           (await ensureNoteForAppLink(user.uid, type, appId, title));
         if (cancelled || !noteId) return;
-        router.replace(`/notes/${noteId}`);
+        if (noteQ && noteQ.trim() === noteId) return;
+        const params = new URLSearchParams(
+          typeof window !== "undefined" ? window.location.search : ""
+        );
+        params.set("note", noteId);
+        params.delete("embed");
+        const qs = params.toString();
+        router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
       } catch {
         /* stay on specialty route if ensure fails */
       }
@@ -45,7 +57,7 @@ export function useRedirectSpecialtyToNote(
     return () => {
       cancelled = true;
     };
-  }, [embed, user, appId, type, title, noteQ, router]);
+  }, [embed, user, appId, type, title, noteQ, router, pathname]);
 
   return { embed };
 }

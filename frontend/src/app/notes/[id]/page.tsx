@@ -90,6 +90,7 @@ import IconColorPicker from "@/components/IconColorPicker";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { fireConfetti } from "@/lib/confetti";
 import { normalizePageColor, normalizePageIcon, pageColorMeta } from "@/lib/pageChrome";
+import { isFullScreenAppLink, noteOpenHref } from "@/lib/workspacePages";
 
 function countTaskCheckboxes(md: string): { total: number; checked: number } {
   const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
@@ -240,6 +241,14 @@ function NotePageInner() {
       };
     });
   }, [id, router]);
+
+  // Specialty apps own full-screen routes — leave the note shell (iframe) path.
+  // Keep note shell when split-view is active so both panes can stay on /notes.
+  useEffect(() => {
+    if (!note || splitId) return;
+    if (!isFullScreenAppLink(note.app_link)) return;
+    router.replace(noteOpenHref(note));
+  }, [note, splitId, router]);
 
   // Consume research insert handoff (when returning from /research)
   useEffect(() => {

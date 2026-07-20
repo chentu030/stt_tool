@@ -25,7 +25,8 @@ type Ctx = {
   activeId: string | null;
   open: (id: string) => void;
   close: (id: string) => void;
-  activate: (id: string) => void;
+  /** Optional href: specialty pages use /canvas|/graph|/board|/db instead of /notes. */
+  activate: (id: string, href?: string) => void;
   setSplit: (id: string | null) => void;
   toggleSplitWith: (id: string) => void;
 };
@@ -42,16 +43,23 @@ export function useNoteTabsOptional() {
   return useContext(NoteTabsContext);
 }
 
-function noteIdFromPath(pathname: string): string | null {
+function noteIdFromPath(pathname: string, noteQuery: string | null): string | null {
   const m = pathname.match(/^\/notes\/([^/?#]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+  if (m) return decodeURIComponent(m[1]);
+  if (
+    noteQuery &&
+    /^\/(canvas|graph|board|db)\/[^/]+/.test(pathname)
+  ) {
+    return noteQuery;
+  }
+  return null;
 }
 
 export default function NoteTabsProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeId = noteIdFromPath(pathname);
+  const activeId = noteIdFromPath(pathname, searchParams.get("note"));
   const [state, setState] = useState<NoteTabsState>({ openIds: [], splitId: null });
   const [hydrated, setHydrated] = useState(false);
 
@@ -98,18 +106,21 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const activate = useCallback(
-    (id: string) => {
+    (id: string, href?: string) => {
       if (!id) return;
       setState((prev) => openNoteTab(prev, id));
-      // Read latest split from functional update path via session + state
       const split = state.splitId;
-      if (id === activeId) {
-        // Already on this note — still refresh URL (clears stale soft-nav)
-        const qs = split && split !== id ? `?split=${encodeURIComponent(split)}` : "";
-        router.replace(`/notes/${id}${qs}`, { scroll: false });
+      const target = (href && href.trim()) || `/notes/${id}`;
+      const isNotesPath = target.startsWith("/notes/");
+      if (!isNotesPath) {
+        router.push(target, { scroll: false });
         return;
       }
       const qs = split && split !== id ? `?split=${encodeURIComponent(split)}` : "";
+      if (id === activeId) {
+        router.replace(`/notes/${id}${qs}`, { scroll: false });
+        return;
+      }
       router.push(`/notes/${id}${qs}`, { scroll: false });
     },
     [router, state.splitId, activeId]
