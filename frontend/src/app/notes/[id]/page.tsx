@@ -87,6 +87,7 @@ import NoteHuddle from "@/components/notes/NoteHuddle";
 import NotePageLog from "@/components/notes/NotePageLog";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
+import ColorSwatchUtility from "@/components/ColorSwatchUtility";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { fireConfetti } from "@/lib/confetti";
 import { normalizePageColor, normalizePageIcon, pageColorMeta } from "@/lib/pageChrome";
@@ -1766,6 +1767,15 @@ function NotePageInner() {
             onClose={() => setThreadSelection(null)}
           />
         </div>
+      )}
+
+      {viewMode === "write" && !focusMode && (
+        <ColorSwatchUtility
+          onApply={(hex) => {
+            setColor(normalizePageColor(hex));
+            markDirty();
+          }}
+        />
       )}
 
       {user && note && (

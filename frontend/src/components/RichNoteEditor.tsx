@@ -7,6 +7,7 @@ import { askPrompt } from "@/lib/dialogs";
 import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { HexColorPicker } from "react-colorful";
+import ColorEyedropperTools from "@/components/ColorEyedropperTools";
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
@@ -2676,7 +2677,7 @@ function ColorPickerPanel({
       left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
       let top = r.bottom + 6;
       if (top + 360 > window.innerHeight && r.top > 360) {
-        top = Math.max(8, r.top - 360);
+        top = Math.max(8, r.top - 420);
       }
       setPos({ top, left });
     };
@@ -2762,6 +2763,10 @@ function ColorPickerPanel({
           onChange={onColorChange}
           className="hl-wheel"
         />
+      </div>
+      <div className="hl-section" onMouseDown={(e) => e.preventDefault()}>
+        <p className="hl-section-label">吸取顏色</p>
+        <ColorEyedropperTools color={normalized || color} onSample={onColorChange} />
       </div>
       <div className="hl-rgb">
         {(["r", "g", "b"] as const).map((ch) => (

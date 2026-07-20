@@ -94,6 +94,24 @@ export default function CommunityDocsPage() {
       </section>
 
       <section>
+        <h2>擴充頁面 vs 一般擴充功能</h2>
+        <ul>
+          <li>
+            <strong>擴充頁面</strong>（社群 <code>kind: &quot;extension&quot;</code>）：完整工作區頁面，以沙箱 iframe
+            載入你的 HTTPS 入口（可全螢幕或嵌在筆記中）。
+          </li>
+          <li>
+            <strong>一般擴充功能</strong>：協助特定頁面操作、本身不是工作區頁面。目前由主程式內建（例如筆記「色票工具」吸取螢幕顏色），社群 manifest{" "}
+            <strong>尚不支援</strong> <code>kind: &quot;tool&quot;</code>。細節見{" "}
+            <a href="/community/ai.md" target="_blank" rel="noreferrer">
+              ai.md §11
+            </a>
+            。
+          </li>
+        </ul>
+      </section>
+
+      <section>
         <h2>模板（template）</h2>
         <pre className="community-code">{`{
   "schema": 1,

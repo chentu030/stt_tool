@@ -12,6 +12,7 @@ import {
   pageColorMeta,
 } from "@/lib/pageChrome";
 import PageChromeIcon from "@/components/PageChromeIcon";
+import ColorEyedropperTools from "@/components/ColorEyedropperTools";
 
 type Props = {
   mode: "note" | "folder";
@@ -254,6 +255,17 @@ export default function IconColorPicker({
             pickColor(c);
           }}
           className="hl-wheel"
+        />
+      </div>
+
+      <div className="hl-section">
+        <p className="hl-section-label">吸取顏色</p>
+        <ColorEyedropperTools
+          color={normalizeHexColor(draft) || draft}
+          onSample={(hex) => {
+            setDraft(hex);
+            pickColor(hex);
+          }}
         />
       </div>
 

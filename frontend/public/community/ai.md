@@ -427,4 +427,24 @@ Copy-paste:
 
 ---
 
-*Generated for Albireus community packaging. Keep in sync with `frontend/src/lib/community/types.ts`, `extensionSettings.ts`, and `globals.css` theme tokens.*
+## 11. Extension classes: page vs utility (host)
+
+Community packages today only install **page extensions** (`kind: "extension"` + iframe). The host also ships a second class of assistive tools:
+
+| Class | Product name | How it runs | Workspace page? |
+|-------|--------------|-------------|-----------------|
+| **擴充頁面** | Page extension | Sandboxed **iframe** (`pageType.type: "iframe"`) | Yes — full-screen like board/canvas, or embedded as a note frame |
+| **一般擴充功能** | Utility tool | **Host React UI** (no remote JS) | No — assists notes / chrome (e.g. color pickers) |
+
+### Built-in prototype: 色票工具 (`color-eyedropper`)
+
+- Lives in the host (`frontend/src/lib/colorPick.ts`, `ColorEyedropperTools`, note floating「色票」).
+- Uses the browser `EyeDropper` API when available; otherwise shows a clear unsupported message (no empty iframe install required).
+- Surfaces: `IconColorPicker` (page/folder icon color), note font/highlight color panels, optional floating panel on note pages.
+- Metadata registry: `frontend/src/lib/hostUtilities.ts` (`kind: "utility"`). Community schema does **not** yet accept `kind: "tool"` / `"utility"` — do not put utilities in `albireus.json` until the parser supports them.
+
+**AI guidance:** If the user asks for an on-screen eyedropper / color sampler, implement or extend the **host utility**, not a new iframe extension page.
+
+---
+
+*Generated for Albireus community packaging. Keep in sync with `frontend/src/lib/community/types.ts`, `extensionSettings.ts`, `hostUtilities.ts`, and `globals.css` theme tokens.*
