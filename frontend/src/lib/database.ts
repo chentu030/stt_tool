@@ -33,6 +33,7 @@ export type DbPropType =
   | "files"
   | "person"
   | "relation"
+  | "rollup"
   | "formula"
   | "unique_id"
   | "created_time"
@@ -51,6 +52,16 @@ export type DbFileValue = {
   name?: string;
 };
 
+export type DbRollupCalc =
+  | "count"
+  | "sum"
+  | "avg"
+  | "min"
+  | "max"
+  | "earliest"
+  | "latest"
+  | "show";
+
 export type DbProperty = {
   id: string;
   name: string;
@@ -58,19 +69,27 @@ export type DbProperty = {
   options?: DbSelectOption[];
   /** For status: groups of option ids */
   statusGroups?: { name: string; optionIds: string[] }[];
-  /** formula: template with {{propId}} or simple math like {{a}}+{{b}} */
+  /** formula: template with {{propId}} or simple math / if() */
   formula?: string;
   /** relation: target database id (empty = same database) */
   relationDbId?: string;
+  /** rollup: aggregate related rows */
+  rollup?: {
+    relationPropId: string;
+    targetPropId: string;
+    calc: DbRollupCalc;
+  };
   /** number display hint */
   numberFormat?: "number" | "percent" | "currency";
 };
 
 export type DbViewType = "table" | "list" | "board" | "calendar" | "gallery" | "form";
 
+export type DbFilterOp = "eq" | "neq" | "contains" | "empty" | "not_empty";
+
 export type DbFilter = {
   propId: string;
-  op: "eq" | "neq" | "contains" | "empty" | "not_empty";
+  op: DbFilterOp;
   value?: string | number | boolean;
 };
 
@@ -89,6 +108,8 @@ export type DbView = {
   groupBy?: string;
   /** Calendar: date property */
   dateProp?: string;
+  /** Property ids visible in this view; undefined = all */
+  visiblePropIds?: string[];
 };
 
 export type CadenceDatabase = {
@@ -352,14 +373,25 @@ function schemaForTemplate(template: DbTemplateId): {
   }
 }
 
+function normalizeView(v: DbView): DbView {
+  return {
+    ...v,
+    filters: Array.isArray(v.filters) ? v.filters : [],
+    sorts: Array.isArray(v.sorts) ? v.sorts : [],
+  };
+}
+
 function mapDb(id: string, data: Record<string, unknown>): CadenceDatabase {
+  const views = Array.isArray(data.views)
+    ? (data.views as DbView[]).map(normalizeView)
+    : defaultViews().map(normalizeView);
   return {
     id,
     user_id: String(data.user_id || ""),
     name: String(data.name || "未命名資料庫"),
     icon: data.icon ? String(data.icon) : undefined,
     properties: Array.isArray(data.properties) ? (data.properties as DbProperty[]) : defaultTaskProperties(),
-    views: Array.isArray(data.views) ? (data.views as DbView[]) : defaultViews(),
+    views,
     created_at: (data.created_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     updated_at: (data.updated_at as { toDate?: () => Date })?.toDate?.() || new Date(),
   };
@@ -509,6 +541,7 @@ export function addProperty(
     files: "檔案／媒體",
     person: "人員",
     relation: "關聯",
+    rollup: "彙總",
     formula: "公式",
     unique_id: "唯一 ID",
     created_time: "建立時間",
@@ -542,6 +575,14 @@ export function addProperty(
   if (type === "formula") {
     prop.formula = "{{title}}";
   }
+  if (type === "rollup") {
+    const rel = properties.find((p) => p.type === "relation");
+    prop.rollup = {
+      relationPropId: rel?.id || "",
+      targetPropId: "title",
+      calc: "count",
+    };
+  }
   if (type === "unique_id") {
     prop.name = name || "ID";
   }
@@ -550,25 +591,64 @@ export function addProperty(
   );
 }
 
+function resolvePropToken(
+  pid: string,
+  row: Note,
+  properties: DbProperty[],
+  allRows?: Note[]
+): string {
+  const p = properties.find((x) => x.id === pid);
+  if (!p) return "";
+  if (p.type === "formula") return evalFormula(p, row, properties, allRows);
+  if (p.type === "rollup") return evalRollup(p, row, properties, allRows || []);
+  const v = getCellValue(row, p);
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.map(String).join(",");
+  if (typeof v === "object" && v && "url" in (v as object)) {
+    return String((v as DbFileValue).url || "");
+  }
+  return String(v);
+}
+
+/** Days between two ISO date strings (b - a). */
+function daysBetween(a: string, b: string): number | null {
+  const da = Date.parse(a.slice(0, 10));
+  const db = Date.parse(b.slice(0, 10));
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return null;
+  return Math.round((db - da) / 86400000);
+}
+
 export function evalFormula(
   prop: DbProperty,
   row: Note,
-  properties: DbProperty[]
+  properties: DbProperty[],
+  allRows?: Note[]
 ): string {
   const expr = (prop.formula || "").trim();
   if (!expr) return "";
-  let replaced = expr.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_, pid: string) => {
-    const p = properties.find((x) => x.id === pid);
-    if (!p) return "";
-    const v = getCellValue(row, p);
-    if (v == null) return "";
-    if (Array.isArray(v)) return v.map(String).join(",");
-    if (typeof v === "object" && v && "url" in (v as object)) {
-      return String((v as DbFileValue).url || "");
+  let replaced = expr.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_, pid: string) =>
+    resolvePropToken(pid, row, properties, allRows)
+  );
+
+  // if(cond, then, else) — cond is non-empty / non-zero / "true"
+  replaced = replaced.replace(
+    /if\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^)]+)\s*\)/gi,
+    (_, cond: string, thenV: string, elseV: string) => {
+      const c = cond.trim().replace(/^["']|["']$/g, "");
+      const truthy = c !== "" && c !== "0" && c.toLowerCase() !== "false" && c !== "null";
+      return (truthy ? thenV : elseV).trim().replace(/^["']|["']$/g, "");
     }
-    return String(v);
-  });
-  // Safe-ish arithmetic if expression is only numbers/operators after replace
+  );
+
+  // days(a, b)
+  replaced = replaced.replace(
+    /days\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)/gi,
+    (_, a: string, b: string) => {
+      const n = daysBetween(a.trim().replace(/^["']|["']$/g, ""), b.trim().replace(/^["']|["']$/g, ""));
+      return n == null ? "" : String(n);
+    }
+  );
+
   if (/^[\d.\s+\-*/()]+$/.test(replaced)) {
     try {
       // eslint-disable-next-line no-new-func
@@ -579,6 +659,146 @@ export function evalFormula(
     }
   }
   return replaced;
+}
+
+export function evalRollup(
+  prop: DbProperty,
+  row: Note,
+  properties: DbProperty[],
+  allRows: Note[]
+): string {
+  const cfg = prop.rollup;
+  if (!cfg?.relationPropId) return "";
+  const relProp = properties.find((p) => p.id === cfg.relationPropId);
+  if (!relProp) return "";
+  const ids = (getCellValue(row, relProp) as string[]) || [];
+  const related = allRows.filter((r) => ids.includes(r.id));
+  const calc = cfg.calc || "count";
+  if (calc === "count") return String(related.length);
+
+  const target =
+    properties.find((p) => p.id === cfg.targetPropId) ||
+    ({ id: cfg.targetPropId, name: cfg.targetPropId, type: "title" } as DbProperty);
+
+  const values = related.map((r) => {
+    if (target.type === "formula") return evalFormula(target, r, properties, allRows);
+    if (target.id === "title" || target.type === "title") return r.title || "";
+    return getCellValue(r, target);
+  });
+
+  if (calc === "show") {
+    return values
+      .map((v) => (Array.isArray(v) ? v.join(", ") : v == null ? "" : String(v)))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  const nums = values
+    .map((v) => (typeof v === "number" ? v : Number(v)))
+    .filter((n) => Number.isFinite(n));
+  if (calc === "sum") return nums.length ? String(nums.reduce((a, b) => a + b, 0)) : "";
+  if (calc === "avg") return nums.length ? String(nums.reduce((a, b) => a + b, 0) / nums.length) : "";
+  if (calc === "min") return nums.length ? String(Math.min(...nums)) : "";
+  if (calc === "max") return nums.length ? String(Math.max(...nums)) : "";
+
+  const dates = values
+    .map((v) => String(v || "").slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}/.test(d))
+    .sort();
+  if (calc === "earliest") return dates[0] || "";
+  if (calc === "latest") return dates[dates.length - 1] || "";
+  return "";
+}
+
+function cellSortKey(row: Note, prop: DbProperty, properties: DbProperty[], allRows: Note[]): string | number {
+  if (prop.type === "formula") return evalFormula(prop, row, properties, allRows);
+  if (prop.type === "rollup") return evalRollup(prop, row, properties, allRows);
+  const v = getCellValue(row, prop);
+  if (v == null || v === "") return "";
+  if (typeof v === "number") return v;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (Array.isArray(v)) return v.map(String).join(",");
+  return String(v);
+}
+
+function matchFilter(
+  row: Note,
+  filter: DbFilter,
+  properties: DbProperty[],
+  allRows: Note[]
+): boolean {
+  const prop = properties.find((p) => p.id === filter.propId);
+  if (!prop) return true;
+  let raw: unknown;
+  if (prop.type === "formula") raw = evalFormula(prop, row, properties, allRows);
+  else if (prop.type === "rollup") raw = evalRollup(prop, row, properties, allRows);
+  else raw = getCellValue(row, prop);
+
+  const empty =
+    raw == null ||
+    raw === "" ||
+    (Array.isArray(raw) && raw.length === 0);
+
+  if (filter.op === "empty") return empty;
+  if (filter.op === "not_empty") return !empty;
+  if (empty) return filter.op === "neq";
+
+  const needle = filter.value == null ? "" : String(filter.value).toLowerCase();
+  const hay = Array.isArray(raw)
+    ? raw.map(String).join(" ").toLowerCase()
+    : String(raw).toLowerCase();
+
+  if (filter.op === "eq") return hay === needle || (Array.isArray(raw) && raw.map(String).includes(String(filter.value)));
+  if (filter.op === "neq") return hay !== needle && !(Array.isArray(raw) && raw.map(String).includes(String(filter.value)));
+  if (filter.op === "contains") return hay.includes(needle);
+  return true;
+}
+
+/** Apply view filters + sorts (search is applied separately in UI). */
+export function applyViewPipeline(
+  rows: Note[],
+  view: DbView | undefined,
+  properties: DbProperty[]
+): Note[] {
+  if (!view) return rows;
+  let out = rows;
+  const filters = view.filters || [];
+  if (filters.length) {
+    out = out.filter((row) => filters.every((f) => matchFilter(row, f, properties, rows)));
+  }
+  const sorts = view.sorts || [];
+  if (sorts.length) {
+    out = [...out].sort((a, b) => {
+      for (const s of sorts) {
+        const prop = properties.find((p) => p.id === s.propId);
+        if (!prop) continue;
+        const ka = cellSortKey(a, prop, properties, rows);
+        const kb = cellSortKey(b, prop, properties, rows);
+        let cmp = 0;
+        if (typeof ka === "number" && typeof kb === "number") cmp = ka - kb;
+        else cmp = String(ka).localeCompare(String(kb), "zh-TW", { numeric: true });
+        if (cmp !== 0) return s.dir === "desc" ? -cmp : cmp;
+      }
+      return 0;
+    });
+  }
+  return out;
+}
+
+export function visibleProperties(properties: DbProperty[], view?: DbView): DbProperty[] {
+  if (!view?.visiblePropIds?.length) return properties;
+  const ordered = view.visiblePropIds
+    .map((id) => properties.find((p) => p.id === id))
+    .filter((p): p is DbProperty => !!p);
+  if (!ordered.some((p) => p.type === "title")) {
+    const title = properties.find((p) => p.type === "title");
+    if (title) return [title, ...ordered.filter((p) => p.id !== title.id)];
+  }
+  return ordered;
+}
+
+export function patchView(views: DbView[], viewId: string, patch: Partial<DbView>): DbView[] {
+  return views.map((v) => (v.id === viewId ? normalizeView({ ...v, ...patch }) : v));
 }
 
 export function getCellValue(row: Note, prop: DbProperty): unknown {
@@ -592,7 +812,7 @@ export function getCellValue(row: Note, prop: DbProperty): unknown {
   if (prop.type === "unique_id") {
     return row.props?.[prop.id] || row.id.slice(-6).toUpperCase();
   }
-  if (prop.type === "formula") return null; // computed in UI
+  if (prop.type === "formula" || prop.type === "rollup") return null; // computed in UI
   return row.props?.[prop.id];
 }
 
@@ -607,6 +827,7 @@ export async function setCellValue(
     prop.type === "created_by" ||
     prop.type === "last_edited_by" ||
     prop.type === "formula" ||
+    prop.type === "rollup" ||
     prop.type === "unique_id"
   ) {
     return;

@@ -1,23 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Note } from "@/lib/firebase";
+import { uploadFile } from "@/lib/firebase";
 import {
   addDatabaseView,
   addProperty,
+  applyViewPipeline,
   createDatabaseRow,
   evalFormula,
+  evalRollup,
   getCellValue,
   listenDatabase,
   listenDatabaseRows,
+  patchView,
   setCellValue,
   updateDatabase,
+  visibleProperties,
   type CadenceDatabase,
   type DbFileValue,
+  type DbFilter,
+  type DbFilterOp,
   type DbPropType,
   type DbProperty,
+  type DbRollupCalc,
+  type DbSort,
   type DbView,
   type DbViewType,
 } from "@/lib/database";
@@ -47,7 +56,8 @@ const ADDABLE: { type: DbPropType; label: string; group: string }[] = [
   { type: "phone", label: "電話", group: "聯絡" },
   { type: "person", label: "人員", group: "聯絡" },
   { type: "files", label: "檔案／媒體", group: "進階" },
-  { type: "relation", label: "關聯（列 ID）", group: "進階" },
+  { type: "relation", label: "關聯", group: "進階" },
+  { type: "rollup", label: "彙總（Rollup）", group: "進階" },
   { type: "formula", label: "公式", group: "進階" },
   { type: "unique_id", label: "唯一 ID", group: "系統" },
   { type: "created_time", label: "建立時間", group: "系統" },
@@ -65,6 +75,25 @@ const VIEW_TYPES: { type: DbViewType; label: string }[] = [
   { type: "form", label: "表單" },
 ];
 
+const FILTER_OPS: { value: DbFilterOp; label: string }[] = [
+  { value: "eq", label: "等於" },
+  { value: "neq", label: "不等於" },
+  { value: "contains", label: "包含" },
+  { value: "empty", label: "為空" },
+  { value: "not_empty", label: "不為空" },
+];
+
+const ROLLUP_CALCS: { value: DbRollupCalc; label: string }[] = [
+  { value: "count", label: "計數" },
+  { value: "sum", label: "加總" },
+  { value: "avg", label: "平均" },
+  { value: "min", label: "最小" },
+  { value: "max", label: "最大" },
+  { value: "earliest", label: "最早" },
+  { value: "latest", label: "最晚" },
+  { value: "show", label: "顯示原值" },
+];
+
 export default function DatabaseView({ databaseId, userId, viewId, compact }: Props) {
   const router = useRouter();
   const [db, setDb] = useState<CadenceDatabase | null>(null);
@@ -72,6 +101,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [activeViewId, setActiveViewId] = useState(viewId || "");
   const [addOpen, setAddOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [panel, setPanel] = useState<"filter" | "sort" | "props" | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
 
@@ -98,24 +128,43 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   );
 
   const props = db?.properties || [];
+  const shownProps = useMemo(() => visibleProperties(props, view), [props, view]);
+
+  const pipedRows = useMemo(() => applyViewPipeline(rows, view, props), [rows, view, props]);
 
   const filteredRows = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    if (!qq) return rows;
-    return rows.filter((row) => {
+    if (!qq) return pipedRows;
+    return pipedRows.filter((row) => {
       if ((row.title || "").toLowerCase().includes(qq)) return true;
       if ((row.body_md || "").toLowerCase().includes(qq)) return true;
       for (const p of props) {
-        const v = p.type === "formula" ? evalFormula(p, row, props) : getCellValue(row, p);
+        const v =
+          p.type === "formula"
+            ? evalFormula(p, row, props, rows)
+            : p.type === "rollup"
+              ? evalRollup(p, row, props, rows)
+              : getCellValue(row, p);
         if (v == null) continue;
         const s = Array.isArray(v) ? v.join(" ") : String(v);
         if (s.toLowerCase().includes(qq)) return true;
       }
       return false;
     });
-  }, [rows, q, props]);
+  }, [pipedRows, q, props, rows]);
 
   const openRow = (id: string) => router.push(`/notes/${id}`);
+
+  const saveViews = async (next: DbView[]) => {
+    if (!db) return;
+    setDb({ ...db, views: next });
+    await updateDatabase(db.id, { views: next });
+  };
+
+  const patchActiveView = async (patch: Partial<DbView>) => {
+    if (!db || !view) return;
+    await saveViews(patchView(db.views, view.id, patch));
+  };
 
   const addRow = async () => {
     try {
@@ -134,7 +183,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     if (type === "formula") {
       const expr = await askPrompt({
         title: "公式",
-        message: "可用 {{屬性id}}，例如 {{title}} 或 {{priority}}。也可寫 {{a}}+{{b}}。",
+        message: "可用 {{屬性id}}、if(條件,是,否)、days(日期a,日期b)。例如 if({{status}},完成,未完成)",
         defaultValue: "{{title}}",
         placeholder: "{{title}}",
       });
@@ -142,6 +191,23 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
         const last = next[next.length - 1];
         next = next.map((p) => (p.id === last.id ? { ...p, formula: expr.trim() || "{{title}}" } : p));
       }
+    }
+    if (type === "rollup") {
+      const rel = next.find((p) => p.type === "relation");
+      if (!rel) toast("建議先新增「關聯」屬性，再設定彙總來源");
+      const last = next[next.length - 1];
+      next = next.map((p) =>
+        p.id === last.id
+          ? {
+              ...p,
+              rollup: {
+                relationPropId: rel?.id || "",
+                targetPropId: "title",
+                calc: "count",
+              },
+            }
+          : p
+      );
     }
     await updateDatabase(db.id, { properties: next });
   };
@@ -157,6 +223,9 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   if (!db) {
     return <p className="cdb-empty">{error || "載入資料庫…"}</p>;
   }
+
+  const filterCount = view?.filters?.length || 0;
+  const sortCount = view?.sorts?.length || 0;
 
   return (
     <div className={`cdb${compact ? " cdb--compact" : ""}`}>
@@ -174,7 +243,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           </Link>
         </div>
         <p className="cdb-hint">
-          每一列都是完整筆記頁：可放入文字、圖片、嵌入、白板連結等任意內容。點標題或「開啟頁面」編輯。
+          每一列都是完整筆記頁。用篩選／排序切視圖；點標題或 ↗ 開啟後可放入任意內容。
         </p>
         <div className="cdb-toolbar-row">
           <div className="cdb-views">
@@ -183,7 +252,10 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 key={v.id}
                 type="button"
                 className={`cdb-view-tab${view?.id === v.id ? " is-on" : ""}`}
-                onClick={() => setActiveViewId(v.id)}
+                onClick={() => {
+                  setActiveViewId(v.id);
+                  setPanel(null);
+                }}
               >
                 {v.name}
               </button>
@@ -207,6 +279,53 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
               )}
             </div>
           </div>
+          <div className="cdb-ops">
+            <button
+              type="button"
+              className={`cdb-op-btn${panel === "filter" ? " is-on" : ""}${filterCount ? " has-val" : ""}`}
+              onClick={() => setPanel((p) => (p === "filter" ? null : "filter"))}
+            >
+              篩選{filterCount ? ` ${filterCount}` : ""}
+            </button>
+            <button
+              type="button"
+              className={`cdb-op-btn${panel === "sort" ? " is-on" : ""}${sortCount ? " has-val" : ""}`}
+              onClick={() => setPanel((p) => (p === "sort" ? null : "sort"))}
+            >
+              排序{sortCount ? ` ${sortCount}` : ""}
+            </button>
+            <button
+              type="button"
+              className={`cdb-op-btn${panel === "props" ? " is-on" : ""}`}
+              onClick={() => setPanel((p) => (p === "props" ? null : "props"))}
+            >
+              屬性
+            </button>
+            {view?.type === "board" && (
+              <MenuSelect
+                variant="toolbar"
+                size="sm"
+                ariaLabel="分組依據"
+                value={view.groupBy || "status"}
+                options={props
+                  .filter((p) => p.type === "status" || p.type === "select")
+                  .map((p) => ({ value: p.id, label: `分組：${p.name}` }))}
+                onChange={(groupBy) => void patchActiveView({ groupBy })}
+              />
+            )}
+            {view?.type === "calendar" && (
+              <MenuSelect
+                variant="toolbar"
+                size="sm"
+                ariaLabel="日期欄"
+                value={view.dateProp || "due"}
+                options={props
+                  .filter((p) => p.type === "date" || p.type === "datetime")
+                  .map((p) => ({ value: p.id, label: `日期：${p.name}` }))}
+                onChange={(dateProp) => void patchActiveView({ dateProp })}
+              />
+            )}
+          </div>
           <input
             className="cdb-search"
             value={q}
@@ -218,6 +337,62 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             + 新增列
           </button>
         </div>
+
+        {panel === "filter" && view && (
+          <FilterPanel
+            props={props}
+            filters={view.filters || []}
+            onChange={(filters) => void patchActiveView({ filters })}
+          />
+        )}
+        {panel === "sort" && view && (
+          <SortPanel
+            props={props}
+            sorts={view.sorts || []}
+            onChange={(sorts) => void patchActiveView({ sorts })}
+          />
+        )}
+        {panel === "props" && view && (
+          <PropsPanel
+            props={props}
+            visibleIds={view.visiblePropIds}
+            onChange={(visiblePropIds) => void patchActiveView({ visiblePropIds })}
+            onConfigureRollup={async (propId) => {
+              const p = props.find((x) => x.id === propId);
+              if (!p || p.type !== "rollup") return;
+              const rels = props.filter((x) => x.type === "relation");
+              if (!rels.length) {
+                toast("請先新增關聯屬性");
+                return;
+              }
+              const relId =
+                (await askPrompt({
+                  title: "彙總 — 關聯來源",
+                  message: `輸入關聯屬性 id（可用：${rels.map((r) => `${r.name}=${r.id}`).join("、")}）`,
+                  defaultValue: p.rollup?.relationPropId || rels[0].id,
+                })) || "";
+              const targetId =
+                (await askPrompt({
+                  title: "彙總 — 目標屬性",
+                  message: "輸入要彙總的屬性 id（例如 title、數字欄 id）",
+                  defaultValue: p.rollup?.targetPropId || "title",
+                })) || "title";
+              const calcRaw =
+                (await askPrompt({
+                  title: "彙總方式",
+                  message: "count / sum / avg / min / max / earliest / latest / show",
+                  defaultValue: p.rollup?.calc || "count",
+                })) || "count";
+              const calc = (ROLLUP_CALCS.some((c) => c.value === calcRaw) ? calcRaw : "count") as DbRollupCalc;
+              const next = props.map((x) =>
+                x.id === propId
+                  ? { ...x, rollup: { relationPropId: relId.trim(), targetPropId: targetId.trim(), calc } }
+                  : x
+              );
+              await updateDatabase(db.id, { properties: next });
+            }}
+          />
+        )}
       </div>
 
       {error && <p className="cdb-error">{error}</p>}
@@ -273,7 +448,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             <thead>
               <tr>
                 <th className="cdb-th-open" />
-                {props.map((p) => (
+                {shownProps.map((p) => (
                   <th key={p.id}>
                     <span>{p.name}</span>
                     <em>{typeLabel(p.type)}</em>
@@ -304,16 +479,24 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
               {filteredRows.map((row) => (
                 <tr key={row.id}>
                   <td className="cdb-td-open">
-                    <button type="button" className="cdb-open-page" onClick={() => openRow(row.id)} title="開啟完整筆記頁">
+                    <button
+                      type="button"
+                      className="cdb-open-page"
+                      onClick={() => openRow(row.id)}
+                      title="開啟完整筆記頁"
+                    >
                       ↗
                     </button>
                   </td>
-                  {props.map((p) => (
+                  {shownProps.map((p) => (
                     <td key={p.id}>
                       <PropertyCell
                         row={row}
                         prop={p}
                         allProps={props}
+                        allRows={rows}
+                        userId={userId}
+                        databaseId={databaseId}
                         onOpen={() => openRow(row.id)}
                       />
                     </td>
@@ -328,6 +511,206 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function FilterPanel({
+  props,
+  filters,
+  onChange,
+}: {
+  props: DbProperty[];
+  filters: DbFilter[];
+  onChange: (f: DbFilter[]) => void;
+}) {
+  const add = () => {
+    const first = props[0];
+    if (!first) return;
+    onChange([...filters, { propId: first.id, op: "eq", value: "" }]);
+  };
+  return (
+    <div className="cdb-panel">
+      <header>
+        <strong>篩選</strong>
+        <button type="button" className="btn btn-ghost" onClick={add}>
+          + 條件
+        </button>
+      </header>
+      {filters.length === 0 && <p className="cdb-panel-empty">尚無條件 — 此視圖顯示全部列</p>}
+      {filters.map((f, i) => (
+        <div key={i} className="cdb-panel-row">
+          <select
+            value={f.propId}
+            onChange={(e) => {
+              const next = [...filters];
+              next[i] = { ...f, propId: e.target.value };
+              onChange(next);
+            }}
+          >
+            {props.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={f.op}
+            onChange={(e) => {
+              const next = [...filters];
+              next[i] = { ...f, op: e.target.value as DbFilterOp };
+              onChange(next);
+            }}
+          >
+            {FILTER_OPS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {f.op !== "empty" && f.op !== "not_empty" && (
+            <input
+              value={f.value == null ? "" : String(f.value)}
+              onChange={(e) => {
+                const next = [...filters];
+                next[i] = { ...f, value: e.target.value };
+                onChange(next);
+              }}
+              placeholder="值"
+            />
+          )}
+          <button
+            type="button"
+            className="cdb-panel-remove"
+            onClick={() => onChange(filters.filter((_, j) => j !== i))}
+            aria-label="移除"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      {filters.length > 0 && (
+        <button type="button" className="btn btn-ghost" onClick={() => onChange([])}>
+          清除全部
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SortPanel({
+  props,
+  sorts,
+  onChange,
+}: {
+  props: DbProperty[];
+  sorts: DbSort[];
+  onChange: (s: DbSort[]) => void;
+}) {
+  return (
+    <div className="cdb-panel">
+      <header>
+        <strong>排序</strong>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => {
+            const first = props[0];
+            if (!first) return;
+            onChange([...sorts, { propId: first.id, dir: "asc" }]);
+          }}
+        >
+          + 規則
+        </button>
+      </header>
+      {sorts.length === 0 && <p className="cdb-panel-empty">尚未排序 — 預設依最近更新</p>}
+      {sorts.map((s, i) => (
+        <div key={i} className="cdb-panel-row">
+          <select
+            value={s.propId}
+            onChange={(e) => {
+              const next = [...sorts];
+              next[i] = { ...s, propId: e.target.value };
+              onChange(next);
+            }}
+          >
+            {props.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={s.dir}
+            onChange={(e) => {
+              const next = [...sorts];
+              next[i] = { ...s, dir: e.target.value as "asc" | "desc" };
+              onChange(next);
+            }}
+          >
+            <option value="asc">升冪</option>
+            <option value="desc">降冪</option>
+          </select>
+          <button
+            type="button"
+            className="cdb-panel-remove"
+            onClick={() => onChange(sorts.filter((_, j) => j !== i))}
+            aria-label="移除"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PropsPanel({
+  props,
+  visibleIds,
+  onChange,
+  onConfigureRollup,
+}: {
+  props: DbProperty[];
+  visibleIds?: string[];
+  onChange: (ids: string[] | undefined) => void;
+  onConfigureRollup: (propId: string) => void;
+}) {
+  const active = visibleIds?.length ? new Set(visibleIds) : null;
+  return (
+    <div className="cdb-panel">
+      <header>
+        <strong>此視圖顯示的屬性</strong>
+        <button type="button" className="btn btn-ghost" onClick={() => onChange(undefined)}>
+          全部顯示
+        </button>
+      </header>
+      <div className="cdb-prop-toggles">
+        {props.map((p) => {
+          const on = !active || active.has(p.id) || p.type === "title";
+          return (
+            <label key={p.id} className="cdb-prop-toggle">
+              <input
+                type="checkbox"
+                checked={on}
+                disabled={p.type === "title"}
+                onChange={() => {
+                  const base = active ? [...active] : props.map((x) => x.id);
+                  const next = on ? base.filter((id) => id !== p.id) : [...base, p.id];
+                  onChange(next);
+                }}
+              />
+              <span>{p.name}</span>
+              <em>{typeLabel(p.type)}</em>
+              {p.type === "rollup" && (
+                <button type="button" className="btn btn-ghost" onClick={() => onConfigureRollup(p.id)}>
+                  設定
+                </button>
+              )}
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -350,6 +733,7 @@ function typeLabel(t: DbPropType) {
     files: "檔案",
     person: "人員",
     relation: "關聯",
+    rollup: "彙總",
     formula: "公式",
     unique_id: "ID",
     created_time: "建立",
@@ -364,11 +748,17 @@ function PropertyCell({
   row,
   prop,
   allProps,
+  allRows,
+  userId,
+  databaseId,
   onOpen,
 }: {
   row: Note;
   prop: DbProperty;
   allProps: DbProperty[];
+  allRows: Note[];
+  userId: string;
+  databaseId: string;
   onOpen: () => void;
 }) {
   const raw = getCellValue(row, prop);
@@ -380,14 +770,18 @@ function PropertyCell({
 
   if (prop.type === "title") {
     return (
-      <button type="button" className="cdb-title-cell" onClick={onOpen}>
+      <button type="button" className="cdb-title-cell" onClick={onOpen} onDoubleClick={onOpen}>
         {row.title || "未命名"}
       </button>
     );
   }
 
   if (prop.type === "formula") {
-    return <span className="cdb-readonly cdb-formula">{evalFormula(prop, row, allProps) || "—"}</span>;
+    return <span className="cdb-readonly cdb-formula">{evalFormula(prop, row, allProps, allRows) || "—"}</span>;
+  }
+
+  if (prop.type === "rollup") {
+    return <span className="cdb-readonly cdb-rollup">{evalRollup(prop, row, allProps, allRows) || "—"}</span>;
   }
 
   if (prop.type === "checkbox") {
@@ -411,9 +805,19 @@ function PropertyCell({
         value={String(raw || "")}
         options={[
           { value: "", label: "—" },
-          ...opts.map((o) => ({ value: o.id, label: o.label })),
+          ...opts.map((o) => ({ value: o.id, label: o.label, color: o.color })),
         ]}
         onChange={(v) => void setCellValue(row, prop, v || null)}
+      />
+    );
+  }
+
+  if (prop.type === "multi_select" || prop.type === "tags") {
+    return (
+      <ChipSelect
+        prop={prop}
+        values={(Array.isArray(raw) ? raw : []).map(String)}
+        onChange={(vals) => void setCellValue(row, prop, vals)}
       />
     );
   }
@@ -433,33 +837,24 @@ function PropertyCell({
   }
 
   if (prop.type === "files") {
-    const files = (Array.isArray(raw) ? raw : []) as DbFileValue[];
     return (
-      <div className="cdb-files-cell">
-        {files.map((f) => (
-          <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="cdb-file-chip">
-            {f.name || "檔案"}
-          </a>
-        ))}
-        <input
-          className="cdb-cell-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void setCellValue(row, prop, draft)}
-          placeholder="貼上 https 連結…"
-        />
-      </div>
+      <FilesCell
+        row={row}
+        prop={prop}
+        files={(Array.isArray(raw) ? raw : []) as DbFileValue[]}
+        userId={userId}
+        databaseId={databaseId}
+      />
     );
   }
 
   if (prop.type === "relation") {
     return (
-      <input
-        className="cdb-cell-input"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void setCellValue(row, prop, draft)}
-        placeholder="關聯列 ID，逗號分隔"
+      <RelationPicker
+        selected={(Array.isArray(raw) ? raw : []).map(String)}
+        candidates={allRows.filter((r) => r.id !== row.id)}
+        onChange={(ids) => void setCellValue(row, prop, ids)}
+        onOpen={onOpen}
       />
     );
   }
@@ -488,22 +883,209 @@ function PropertyCell({
       onBlur={() => {
         let v: unknown = draft;
         if (prop.type === "number") v = draft === "" ? null : Number(draft);
-        if (prop.type === "tags" || prop.type === "multi_select") {
-          v = draft
-            .split(/[,，]/)
-            .map((x) => x.trim())
-            .filter(Boolean);
-        }
         void setCellValue(row, prop, v);
       }}
-      placeholder={
-        prop.type === "tags" || prop.type === "multi_select"
-          ? "逗號分隔"
-          : prop.type === "person"
-            ? "人名"
-            : ""
-      }
+      placeholder={prop.type === "person" ? "人名" : ""}
     />
+  );
+}
+
+function ChipSelect({
+  prop,
+  values,
+  onChange,
+}: {
+  prop: DbProperty;
+  values: string[];
+  onChange: (vals: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const options = prop.options || [];
+  const isTags = prop.type === "tags";
+  const [tagDraft, setTagDraft] = useState("");
+
+  const labelOf = (id: string) => options.find((o) => o.id === id)?.label || id;
+
+  const toggle = (id: string) => {
+    if (values.includes(id)) onChange(values.filter((v) => v !== id));
+    else onChange([...values, id]);
+  };
+
+  return (
+    <div className="cdb-chips">
+      <div className="cdb-chip-list">
+        {values.map((v) => (
+          <button key={v} type="button" className="cdb-chip" onClick={() => toggle(v)} title="點擊移除">
+            {isTags ? `#${v}` : labelOf(v)}
+          </button>
+        ))}
+        <button type="button" className="cdb-chip-add" onClick={() => setOpen((o) => !o)}>
+          +
+        </button>
+      </div>
+      {open && (
+        <div className="cdb-chip-menu">
+          {isTags ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const t = tagDraft.replace(/^#/, "").trim();
+                if (t && !values.includes(t)) onChange([...values, t]);
+                setTagDraft("");
+                setOpen(false);
+              }}
+            >
+              <input
+                autoFocus
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                placeholder="新增標籤"
+              />
+            </form>
+          ) : (
+            options.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                className={values.includes(o.id) ? "is-on" : ""}
+                onClick={() => toggle(o.id)}
+              >
+                {o.label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilesCell({
+  row,
+  prop,
+  files,
+  userId,
+  databaseId,
+}: {
+  row: Note;
+  prop: DbProperty;
+  files: DbFileValue[];
+  userId: string;
+  databaseId: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    try {
+      const safe = file.name.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
+      const path = `users/${userId}/db/${databaseId}/${row.id}/${Date.now()}_${safe}`;
+      const url = await uploadFile(path, file);
+      await setCellValue(row, prop, [...files, { url, name: file.name }]);
+      toast("已上傳檔案");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "上傳失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="cdb-files-cell">
+      {files.map((f) => (
+        <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="cdb-file-chip">
+          {f.name || "檔案"}
+        </a>
+      ))}
+      <div className="cdb-files-actions">
+        <button type="button" className="cdb-file-btn" disabled={busy} onClick={() => inputRef.current?.click()}>
+          {busy ? "上傳中…" : "上傳"}
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void upload(f);
+            e.target.value = "";
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RelationPicker({
+  selected,
+  candidates,
+  onChange,
+  onOpen,
+}: {
+  selected: string[];
+  candidates: Note[];
+  onChange: (ids: string[]) => void;
+  onOpen: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const byId = useMemo(() => new Map(candidates.map((c) => [c.id, c])), [candidates]);
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    return candidates
+      .filter((c) => !qq || (c.title || "").toLowerCase().includes(qq) || c.id.includes(qq))
+      .slice(0, 40);
+  }, [candidates, q]);
+
+  return (
+    <div className="cdb-rel">
+      <div className="cdb-chip-list">
+        {selected.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className="cdb-chip cdb-chip--rel"
+            onClick={() => onChange(selected.filter((x) => x !== id))}
+            title="點擊取消關聯"
+          >
+            {byId.get(id)?.title || id.slice(-6)}
+          </button>
+        ))}
+        <button type="button" className="cdb-chip-add" onClick={() => setOpen((o) => !o)}>
+          +
+        </button>
+      </div>
+      {open && (
+        <div className="cdb-rel-menu">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="搜尋列標題…"
+          />
+          {filtered.map((c) => {
+            const on = selected.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                className={on ? "is-on" : ""}
+                onClick={() => {
+                  onChange(on ? selected.filter((x) => x !== c.id) : [...selected, c.id]);
+                }}
+              >
+                {c.title || "未命名"}
+              </button>
+            );
+          })}
+          {!filtered.length && <p className="cdb-panel-empty">無符合列</p>}
+          <button type="button" className="btn btn-ghost" onClick={onOpen}>
+            開啟本列頁面
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -537,11 +1119,7 @@ function BoardView({
   onAdd: () => void;
 }) {
   const sp = statusProp(props, groupBy);
-  const cols = sp?.options?.length
-    ? sp.options
-    : [
-        { id: "_none", label: "未分類" },
-      ];
+  const cols = sp?.options?.length ? sp.options : [{ id: "_none", label: "未分類" }];
   const byCol = new Map<string, Note[]>();
   for (const c of cols) byCol.set(c.id, []);
   if (!byCol.has("_none")) byCol.set("_none", []);
@@ -550,19 +1128,46 @@ function BoardView({
     const key = byCol.has(v) ? v : "_none";
     byCol.get(key)!.push(row);
   }
+
+  const onDrop = async (colId: string, rowId: string) => {
+    if (!sp || colId === "_none") return;
+    const row = rows.find((r) => r.id === rowId);
+    if (!row) return;
+    await setCellValue(row, sp, colId);
+  };
+
   return (
     <div className="cdb-board">
       {cols.map((c) => (
-        <div key={c.id} className="cdb-board-col">
+        <div
+          key={c.id}
+          className="cdb-board-col"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = e.dataTransfer.getData("text/plain");
+            if (id) void onDrop(c.id, id);
+          }}
+        >
           <header>
             <strong>{c.label}</strong>
             <span>{byCol.get(c.id)?.length || 0}</span>
           </header>
           <div className="cdb-board-cards">
             {(byCol.get(c.id) || []).map((row) => (
-              <button key={row.id} type="button" className="cdb-board-card" onClick={() => onOpen(row.id)}>
+              <button
+                key={row.id}
+                type="button"
+                className="cdb-board-card"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", row.id);
+                  e.dataTransfer.effectAllowed = "move";
+                }}
+                onClick={() => onOpen(row.id)}
+              >
                 <strong>{row.title || "未命名"}</strong>
-                <span>{(row.body_md || "").replace(/[#>*`\[\]]/g, "").slice(0, 60) || "開啟頁面編輯內容"}</span>
+                <span>{(row.body_md || "").replace(/[#>*`\[\]]/g, "").slice(0, 60) || "拖曳改狀態 · 點擊開啟"}</span>
               </button>
             ))}
           </div>
@@ -576,7 +1181,14 @@ function BoardView({
           </header>
           <div className="cdb-board-cards">
             {(byCol.get("_none") || []).map((row) => (
-              <button key={row.id} type="button" className="cdb-board-card" onClick={() => onOpen(row.id)}>
+              <button
+                key={row.id}
+                type="button"
+                className="cdb-board-card"
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData("text/plain", row.id)}
+                onClick={() => onOpen(row.id)}
+              >
                 <strong>{row.title || "未命名"}</strong>
               </button>
             ))}
@@ -588,6 +1200,14 @@ function BoardView({
       </button>
     </div>
   );
+}
+
+function firstBodyImage(body?: string): string | undefined {
+  if (!body) return undefined;
+  const md = body.match(/!\[[^\]]*\]\((https?:[^)\s]+)\)/);
+  if (md?.[1]) return md[1];
+  const html = body.match(/<img[^>]+src=["'](https?:[^"']+)["']/i);
+  return html?.[1];
 }
 
 function GalleryView({
@@ -605,10 +1225,10 @@ function GalleryView({
   return (
     <div className="cdb-gallery">
       {rows.map((row) => {
-        const files = fileProp
-          ? ((getCellValue(row, fileProp) as DbFileValue[]) || [])
-          : [];
-        const cover = files.find((f) => /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(f.url))?.url;
+        const files = fileProp ? ((getCellValue(row, fileProp) as DbFileValue[]) || []) : [];
+        const cover =
+          files.find((f) => /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(f.url))?.url ||
+          firstBodyImage(row.body_md);
         return (
           <button key={row.id} type="button" className="cdb-gallery-card" onClick={() => onOpen(row.id)}>
             <div
@@ -703,9 +1323,18 @@ function FormView({
   const [busy, setBusy] = useState(false);
   const editable = props.filter(
     (p) =>
-      !["title", "formula", "unique_id", "created_time", "last_edited_time", "created_by", "last_edited_by"].includes(
-        p.type
-      )
+      ![
+        "title",
+        "formula",
+        "rollup",
+        "unique_id",
+        "created_time",
+        "last_edited_time",
+        "created_by",
+        "last_edited_by",
+        "files",
+        "relation",
+      ].includes(p.type)
   );
 
   const submit = async () => {

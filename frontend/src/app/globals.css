@@ -539,6 +539,213 @@ button, input, textarea, select {
   color: var(--text-muted);
   line-height: 1.4;
 }
+.cdb-ops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+.cdb-op-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 0.28rem 0.55rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cdb-op-btn:hover,
+.cdb-op-btn.is-on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.cdb-op-btn.has-val {
+  color: var(--accent);
+}
+.cdb-panel {
+  margin-top: 0.55rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.cdb-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.cdb-panel header strong {
+  font-size: 0.84rem;
+}
+.cdb-panel-empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.cdb-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.cdb-panel-row select,
+.cdb-panel-row input {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+.cdb-panel-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+}
+.cdb-prop-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 220px;
+  overflow: auto;
+}
+.cdb-prop-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+}
+.cdb-prop-toggle em {
+  font-style: normal;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  margin-left: auto;
+}
+.cdb-chips,
+.cdb-rel {
+  position: relative;
+  min-width: 7rem;
+}
+.cdb-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+.cdb-chip {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cdb-chip--rel {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.cdb-chip-add {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  width: 1.4rem;
+  height: 1.4rem;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+.cdb-chip-menu,
+.cdb-rel-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  max-width: 240px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cdb-chip-menu button,
+.cdb-rel-menu button:not(.btn) {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.cdb-chip-menu button:hover,
+.cdb-chip-menu button.is-on,
+.cdb-rel-menu button:not(.btn):hover,
+.cdb-rel-menu button.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cdb-chip-menu input,
+.cdb-rel-menu input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 0.78rem;
+  margin-bottom: 4px;
+}
+.cdb-files-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+.cdb-file-btn {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.cdb-file-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.cdb-rollup {
+  font-variant-numeric: tabular-nums;
+}
+.cdb-board-card {
+  cursor: grab;
+}
+.cdb-board-card:active {
+  cursor: grabbing;
+  opacity: 0.85;
+}
 .cdb-toolbar-row {
   display: flex;
   flex-wrap: wrap;
