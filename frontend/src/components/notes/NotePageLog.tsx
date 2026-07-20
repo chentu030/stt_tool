@@ -84,17 +84,21 @@ export default function NotePageLog({ noteId }: { noteId: string }) {
   const toggleReaction = async (emoji: string) => {
     if (!user) return;
     const ref = doc(pageLogCol(noteId), `react_${user.uid}`);
-    if (myReaction === emoji) {
-      await deleteDoc(ref).catch(() => undefined);
-      return;
+    try {
+      if (myReaction === emoji) {
+        await deleteDoc(ref);
+        return;
+      }
+      await setDoc(ref, {
+        uid: user.uid,
+        name: displayName || "訪客",
+        kind: "reaction",
+        emoji,
+        created_at: Timestamp.now(),
+      });
+    } catch (err) {
+      console.error("[NotePageLog] toggleReaction", err);
     }
-    await setDoc(ref, {
-      uid: user.uid,
-      name: displayName || "訪客",
-      kind: "reaction",
-      emoji,
-      created_at: Timestamp.now(),
-    });
   };
 
   if (!noteId) return null;

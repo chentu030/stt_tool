@@ -69,7 +69,11 @@ service cloud.firestore {
       }
 
       match /page_log/{entryId} {
-        allow read, create: if canCommentOnNote(noteId);
+        allow read: if canCommentOnNote(noteId);
+        allow create: if canCommentOnNote(noteId)
+          && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if canCommentOnNote(noteId)
+          && resource.data.uid == request.auth.uid;
       }
     }
 
