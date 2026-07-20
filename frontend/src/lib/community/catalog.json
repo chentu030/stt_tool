@@ -79,5 +79,43 @@
     "rating": 4.4,
     "downloads": 720,
     "collectionIds": ["work-ops"]
+  },
+  {
+    "id": "yahoo-stocks",
+    "kind": "extension",
+    "name": "台股／美股看盤",
+    "description": "Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RSI／OBV。",
+    "author": "Albireus",
+    "icon": "candlestick_chart",
+    "cover": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=60",
+    "screenshots": [
+      "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=960&q=60"
+    ],
+    "category": "財經",
+    "source": "builtin:yahoo-stocks",
+    "tags": ["財經", "股市", "台股", "Yahoo"],
+    "featured": true,
+    "rating": 4.7,
+    "downloads": 0,
+    "collectionIds": ["getting-started"]
+  },
+  {
+    "id": "vocab-srs",
+    "kind": "extension",
+    "name": "背單字",
+    "description": "間隔重複背單字：AI 整理詞典、多模式複習、閱讀與聽力精讀。",
+    "author": "Albireus",
+    "icon": "menu_book",
+    "cover": "https://images.unsplash.com/photo-1456513080880-7d93fd81bda1?w=800&q=60",
+    "screenshots": [
+      "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=960&q=60"
+    ],
+    "category": "學習",
+    "source": "builtin:vocab-srs",
+    "tags": ["學習", "單字", "SRS", "英語"],
+    "featured": true,
+    "rating": 4.8,
+    "downloads": 0,
+    "collectionIds": ["getting-started", "research"]
   }
 ]

@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "kind": "extension",
+  "id": "yahoo-stocks",
+  "name": "台股／美股看盤",
+  "version": "1.0.0",
+  "description": "Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RSI／OBV，支援搜尋與即時報價輪詢。",
+  "author": "Albireus",
+  "authorUrl": "https://github.com/chentu030/stt_tool",
+  "icon": "candlestick_chart",
+  "category": "財經",
+  "cover": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=60",
+  "screenshots": [
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=960&q=60"
+  ],
+  "nav": { "label": "看盤", "order": 55 },
+  "pageType": {
+    "type": "iframe",
+    "entry": "/community-apps/stocks/index.html",
+    "createLabel": "新看盤頁"
+  },
+  "settings": [
+    {
+      "key": "default_symbol",
+      "label": "預設代號",
+      "type": "string",
+      "default": "2330.TW",
+      "description": "台股可填 2330 或 2330.TW；美股如 AAPL"
+    },
+    {
+      "key": "refresh_seconds",
+      "label": "報價刷新秒數",
+      "type": "number",
+      "default": 20,
+      "description": "頁面開啟時輪詢間隔（約 15–30 秒建議）"
+    },
+    {
+      "key": "theme",
+      "label": "主題",
+      "type": "enum",
+      "options": ["auto", "light", "dark"],
+      "default": "auto"
+    }
+  ],
+  "permissions": ["iframe", "network", "settings", "storage"],
+  "minAppVersion": "0.1.0",
+  "homepage": "https://albireus.com/community-apps/stocks/",
+  "repository": "https://github.com/chentu030/stt_tool",
+  "license": "MIT",
+  "changelog": [
+    { "version": "1.0.0", "date": "2026-07-21", "notes": "初版：日 K、均線、指標面板與報價輪詢。" }
+  ]
+}

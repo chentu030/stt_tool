@@ -3,7 +3,7 @@
     "id": "getting-started",
     "name": "新手入門",
     "description": "第一次用社群商店？從這些示範套件開始。",
-    "packageIds": ["web-browser-pack", "meeting-os", "weekly-review"]
+    "packageIds": ["web-browser-pack", "meeting-os", "weekly-review", "yahoo-stocks"]
   },
   {
     "id": "work-ops",
@@ -15,6 +15,6 @@
     "id": "research",
     "name": "研究與學習",
     "description": "文獻、實驗與知識整理。",
-    "packageIds": ["research-lab", "web-browser-pack"]
+    "packageIds": ["research-lab", "web-browser-pack", "vocab-srs"]
   }
 ]
