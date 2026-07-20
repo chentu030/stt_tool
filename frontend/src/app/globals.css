@@ -756,6 +756,9 @@ button, input, textarea, select {
   top: 0;
   height: 100vh;
   height: 100dvh;
+  z-index: 80;
+  isolation: isolate;
+  pointer-events: auto;
 }
 
 .sidebar-section {
@@ -4287,6 +4290,7 @@ button, input, textarea, select {
 .sel-bubble {
   z-index: 60;
   max-width: min(520px, calc(100vw - 24px));
+  pointer-events: none;
 }
 .sel-bubble-inner {
   display: flex;
@@ -4297,6 +4301,7 @@ button, input, textarea, select {
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16);
   overflow: visible;
+  pointer-events: auto;
 }
 .sel-bubble-row {
   display: flex;
@@ -6948,6 +6953,9 @@ button, input, textarea, select {
   padding: 0.65rem 0.5rem 0.75rem;
   gap: 0;
   position: relative;
+  z-index: 80;
+  isolation: isolate;
+  pointer-events: auto;
   transition: width 0.18s ease;
 }
 .desktop-sidebar--tree.is-collapsed {

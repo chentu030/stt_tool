@@ -971,6 +971,9 @@ export default function RichNoteEditor({
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
         codeBlock: false,
+        // StarterKit 3.x ships link/underline — we add custom ones below
+        link: false,
+        underline: false,
         undoRedo: { depth: 200 },
       }),
       CodeBlockLowlight.configure({
