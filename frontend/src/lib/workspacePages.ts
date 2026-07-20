@@ -7,11 +7,13 @@ import {
   where,
 } from "firebase/firestore";
 import { createNote, db, updateNote, type Note } from "@/lib/firebase";
-import { createBoard } from "@/lib/boardStore";
+import { createBoard, updateBoard } from "@/lib/boardStore";
 import { createCanvas } from "@/lib/canvasCloud";
-import { createGraph } from "@/lib/graphStore";
+import { createGraph, updateGraph } from "@/lib/graphStore";
 import { createDatabase } from "@/lib/database";
 import type { ExtensionManifest } from "@/lib/community/types";
+import type { BoardStatus } from "@/lib/boardMeta";
+import type { GraphFilters, LayoutMode } from "@/lib/graphModel";
 
 export type NoteAppLinkType =
   | "board"
@@ -222,12 +224,18 @@ export async function createWorkspacePage(
     extension?: ExtensionManifest;
     databaseTemplate?: import("@/lib/database").DbTemplateId;
     databaseName?: string;
+    /** Display name for board / canvas / graph */
+    name?: string;
+    boardStatuses?: BoardStatus[];
+    graphFilters?: GraphFilters;
+    graphLayout?: LayoutMode;
   }
 ): Promise<{ noteId: string; href: string }> {
   const folder = opts?.parentId ? "" : opts?.folder || "";
   const parentId = opts?.parentId || "";
   const tags = opts?.tags || [];
   const status = opts?.status || "backlog";
+  const pageName = (opts?.name || "").trim();
 
   if (typeof kind === "string" && kind.startsWith("ext:")) {
     const ext = opts?.extension;
@@ -284,8 +292,14 @@ export async function createWorkspacePage(
   }
 
   if (kind === "board") {
-    const appId = await createBoard(uid, "未命名看板");
-    const noteId = await createNote(uid, "未命名看板", "", undefined, tags, {
+    const name = pageName || "未命名看板";
+    const appId = await createBoard(uid, name);
+    if (opts?.boardStatuses) {
+      await updateBoard(uid, appId, { statuses: opts.boardStatuses, name });
+    } else if (pageName) {
+      await updateBoard(uid, appId, { name });
+    }
+    const noteId = await createNote(uid, name, "", undefined, tags, {
       folder,
       status,
       parent_id: parentId,
@@ -297,7 +311,7 @@ export async function createWorkspacePage(
 
   if (kind === "database") {
     const tpl = opts?.databaseTemplate || "tasks";
-    const name = (opts?.databaseName || "").trim() || "未命名資料庫";
+    const name = (opts?.databaseName || pageName || "").trim() || "未命名資料庫";
     const appId = await createDatabase(uid, name, tpl);
     const noteId = await createNote(uid, name, "", undefined, tags, {
       folder,
@@ -310,8 +324,9 @@ export async function createWorkspacePage(
   }
 
   if (kind === "canvas") {
-    const appId = await createCanvas(uid, "未命名白板");
-    const noteId = await createNote(uid, "未命名白板", "", undefined, tags, {
+    const name = pageName || "未命名白板";
+    const appId = await createCanvas(uid, name);
+    const noteId = await createNote(uid, name, "", undefined, tags, {
       folder,
       status,
       parent_id: parentId,
@@ -321,8 +336,16 @@ export async function createWorkspacePage(
     return { noteId, href: noteOpenHref({ id: noteId, app_link: { type: "canvas", id: appId } }) };
   }
 
-  const appId = await createGraph(uid, "未命名圖譜");
-  const noteId = await createNote(uid, "未命名圖譜", "", undefined, tags, {
+  const name = pageName || "未命名圖譜";
+  const appId = await createGraph(uid, name);
+  if (opts?.graphFilters || opts?.graphLayout) {
+    await updateGraph(uid, appId, {
+      name,
+      ...(opts.graphFilters ? { filters: opts.graphFilters } : {}),
+      ...(opts.graphLayout ? { layout: opts.graphLayout } : {}),
+    });
+  }
+  const noteId = await createNote(uid, name, "", undefined, tags, {
     folder,
     status,
     parent_id: parentId,

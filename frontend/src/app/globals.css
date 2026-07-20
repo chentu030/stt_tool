@@ -2213,6 +2213,141 @@ html.is-note-app-embed main {
   margin: 0;
   font-size: 1.1rem;
 }
+
+/* Shared workspace hub visual previews (board / canvas / graph / database) */
+.ws-hub .db-hub-card-main {
+  gap: 0.65rem;
+}
+.ws-hub-preview {
+  width: 100%;
+  height: 88px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(160deg, color-mix(in srgb, var(--accent) 8%, var(--bg-muted)), var(--bg-muted));
+  overflow: hidden;
+  position: relative;
+}
+.ws-hub-preview--board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 8px;
+}
+.ws-hub-preview-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ws-hub-preview-col i {
+  display: block;
+  height: 6px;
+  width: 42%;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+.ws-hub-preview-col span {
+  display: block;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.ws-hub-preview--canvas {
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(160deg, color-mix(in srgb, var(--accent) 8%, var(--bg-muted)), var(--bg-muted));
+  background-size: 14px 14px, 14px 14px, auto;
+}
+.ws-hub-preview-sticky {
+  position: absolute;
+  width: 34px;
+  height: 26px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.ws-hub-preview-sticky.is-alt {
+  background: color-mix(in srgb, #0369a1 18%, var(--bg-card));
+  border-color: color-mix(in srgb, #0369a1 30%, var(--border));
+}
+.ws-hub-preview-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.ws-hub-preview-lines path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 2;
+}
+.ws-hub-preview--graph svg {
+  width: 100%;
+  height: 100%;
+}
+.ws-hub-preview--graph line {
+  stroke: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  stroke-width: 1.4;
+}
+.ws-hub-preview--graph circle {
+  stroke: var(--bg-card);
+  stroke-width: 1.5;
+}
+.ws-hub-preview--graph circle.is-a { fill: var(--accent); }
+.ws-hub-preview--graph circle.is-b { fill: #7c3aed; }
+.ws-hub-preview--graph circle.is-c { fill: #0369a1; }
+.ws-hub-preview--database {
+  padding: 10px 12px;
+}
+.ws-hub-preview-table {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  height: 100%;
+}
+.ws-hub-preview-table b,
+.ws-hub-preview-table i {
+  display: block;
+  border-radius: 4px;
+  min-height: 12px;
+}
+.ws-hub-preview-table b {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-card));
+}
+.ws-hub-preview-table i {
+  background: var(--bg-card);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+.ws-hub-template {
+  padding: 0;
+  overflow: hidden;
+}
+.ws-hub-template .ws-hub-preview {
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  height: 96px;
+}
+.ws-hub-template-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem 1rem;
+  width: 100%;
+}
+.db-hub-list .ws-hub-preview {
+  display: none;
+}
+@media (max-width: 720px) {
+  .ws-hub-preview { height: 72px; }
+}
 .db-hub-picker-close {
   border: none;
   background: transparent;

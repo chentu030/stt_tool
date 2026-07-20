@@ -18,6 +18,7 @@ import {
 import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import ScrambleText from "@/components/motion/ScrambleText";
+import { HubPreview } from "@/components/workspace/WorkspaceHub";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
@@ -188,7 +189,7 @@ export default function DatabasesIndexPage() {
   }
 
   return (
-    <div className="db-hub">
+    <div className="db-hub ws-hub">
       <header className="db-hub-hero page-chrome">
         <div>
           <ScrambleText words="資料庫" as="h1" className="page-title font-display" />
@@ -335,6 +336,7 @@ export default function DatabasesIndexPage() {
                   return (
                     <article key={d.id} className="db-hub-card">
                       <Link href={href} className="db-hub-card-main">
+                        <HubPreview kind="database" />
                         <div className="db-hub-card-top">
                           <PageChromeIcon
                             icon={note?.icon || d.icon || "table_chart"}
