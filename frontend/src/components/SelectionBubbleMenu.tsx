@@ -304,6 +304,51 @@ export default function SelectionBubbleMenu({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [turnOpen, colorOpen, emojiOpen]);
 
+  // Keep the bubble fully visible to the right of the left sidebar.
+  useEffect(() => {
+    let locking = false;
+    const clamp = () => {
+      if (locking) return;
+      const el = bubbleElRef.current;
+      if (!el || el.dataset.open !== "true") {
+        if (el) el.style.translate = "";
+        return;
+      }
+      locking = true;
+      try {
+        el.style.translate = "";
+        const r = el.getBoundingClientRect();
+        const sidebar = document.querySelector(".desktop-sidebar") as HTMLElement | null;
+        const minLeft = Math.max(8, (sidebar?.getBoundingClientRect().right ?? 0) + 8);
+        const maxRight = window.innerWidth - 8;
+        let dx = 0;
+        if (r.left < minLeft) dx = minLeft - r.left;
+        else if (r.right > maxRight) dx = maxRight - r.right;
+        el.style.translate = dx ? `${dx}px 0` : "";
+      } finally {
+        locking = false;
+      }
+    };
+    clamp();
+    const el = bubbleElRef.current;
+    const mo =
+      el &&
+      new MutationObserver(() => {
+        requestAnimationFrame(clamp);
+      });
+    if (el && mo) mo.observe(el, { attributes: true, attributeFilter: ["style", "data-open"] });
+    window.addEventListener("resize", clamp);
+    window.addEventListener("scroll", clamp, true);
+    editor.on("selectionUpdate", clamp);
+    return () => {
+      mo?.disconnect();
+      window.removeEventListener("resize", clamp);
+      window.removeEventListener("scroll", clamp, true);
+      editor.off("selectionUpdate", clamp);
+      if (bubbleElRef.current) bubbleElRef.current.style.translate = "";
+    };
+  }, [editor, tick, aiOpen]);
+
   useEffect(() => {
     if (!turnOpen) {
       setTurnPos(null);
@@ -433,7 +478,7 @@ export default function SelectionBubbleMenu({
                     top: turnPos.top,
                     left: turnPos.left,
                     maxHeight: turnPos.maxHeight,
-                    zIndex: 90,
+                    zIndex: 1500,
                   }}
                 >
                   <p className="sel-bub-panel-label">轉換成</p>

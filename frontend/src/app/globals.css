@@ -4705,7 +4705,8 @@ a.sidebar-user-name:hover {
 
 /* Notion-style selection bubble — only the inner toolbar receives hits when open */
 .sel-bubble {
-  z-index: 60;
+  /* Above desktop sidebar (z-index 130) so left edge isn't covered */
+  z-index: 1400 !important;
   max-width: min(520px, calc(100vw - 24px));
   pointer-events: none !important;
 }
