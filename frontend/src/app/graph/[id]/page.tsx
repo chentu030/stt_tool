@@ -63,6 +63,7 @@ import {
   tagBuckets,
   topHubs,
 } from "@/lib/graphModel";
+import { GraphForceSim } from "@/lib/graphForce";
 import {
   applyStageWheel,
   isDragGesture,
@@ -97,6 +98,10 @@ export default function GraphDetailPage() {
   const [relayoutNonce, setRelayoutNonce] = useState(0);
   const appliedRelayout = useRef(0);
   const [dragVer, setDragVer] = useState(0);
+  /** Bumps every force-sim frame so SVG re-renders */
+  const [simTick, setSimTick] = useState(0);
+  const simRef = useRef(new GraphForceSim({ centerX: 700, centerY: 450 }));
+  const simStructureKey = useRef("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pan, setPan] = useState({ x: 40, y: 40 });
@@ -237,11 +242,19 @@ export default function GraphDetailPage() {
 
     if (forceAll) {
       for (const n of bundle.nodes) delete positionsRef.current[n.id];
-      layoutGraph(bundle, layout, 1400, 900, layout === "force" ? 90 : 1);
+      layoutGraph(bundle, layout, 1400, 900, layout === "force" ? 160 : 1);
       writeAll();
+      if (layout === "force") {
+        simStructureKey.current = "";
+        simRef.current.reheat(1);
+      }
     } else if (missingNodes.length === bundle.nodes.length && bundle.nodes.length > 0) {
-      layoutGraph(bundle, layout, 1400, 900, layout === "force" ? 90 : 1);
+      layoutGraph(bundle, layout, 1400, 900, layout === "force" ? 160 : 1);
       writeAll();
+      if (layout === "force") {
+        simStructureKey.current = "";
+        simRef.current.reheat(1);
+      }
     } else if (missingNodes.length > 0) {
       const placed = bundle.nodes.filter((n) => positionsRef.current[n.id]);
       const cx =
@@ -298,8 +311,96 @@ export default function GraphDetailPage() {
       }
     }
     return filtered;
-    // dragVer forces redraw while dragging
-  }, [full, filters, layout, relayoutNonce, dragVer]);
+    // dragVer / simTick force redraw while dragging or simulating
+  }, [full, filters, layout, relayoutNonce, dragVer, simTick]);
+
+  // Keep force-sim graph structure in sync (not every frame)
+  useEffect(() => {
+    if (!configReady || layout !== "force") return;
+    const bundle = filterGraph(full, filters);
+    const key =
+      bundle.nodes
+        .map((n) => n.id)
+        .sort()
+        .join("|") +
+      "#" +
+      bundle.edges
+        .map((e) => e.id)
+        .sort()
+        .join("|");
+    const isNew = key !== simStructureKey.current;
+    simStructureKey.current = key;
+
+    for (const n of bundle.nodes) {
+      const saved = positionsRef.current[n.id];
+      if (saved) {
+        n.x = saved.x;
+        n.y = saved.y;
+      } else {
+        const src = full.byId.get(n.id);
+        if (src) {
+          n.x = src.x;
+          n.y = src.y;
+        }
+      }
+    }
+
+    simRef.current.setGraph(
+      bundle.nodes.map((n) => ({
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        r: radiusForNode(n),
+      })),
+      bundle.edges.map((e) => ({
+        source: e.from,
+        target: e.to,
+        distance: e.kind === "wiki" ? 100 : e.kind === "tag" ? 140 : 160,
+        strength: e.kind === "wiki" ? 0.8 : 0.45,
+      }))
+    );
+    if (isNew) simRef.current.reheat(bundle.nodes.length > 40 ? 0.7 : 0.95);
+  }, [full, filters, layout, configReady, relayoutNonce]);
+
+  // Continuous Obsidian-like force loop
+  useEffect(() => {
+    if (!configReady || layout !== "force") return;
+    let raf = 0;
+    let alive = true;
+    let persistCool: number | null = null;
+
+    const loop = () => {
+      if (!alive) return;
+      const sim = simRef.current;
+      const moving = sim.tick();
+      if (moving || dragRef.current?.kind === "node") {
+        for (const n of sim.nodes) {
+          positionsRef.current[n.id] = { x: n.x, y: n.y };
+          const t = full.byId.get(n.id);
+          if (t) {
+            t.x = n.x;
+            t.y = n.y;
+            t.vx = n.vx;
+            t.vy = n.vy;
+          }
+        }
+        setSimTick((v) => v + 1);
+        if (moving && dragRef.current?.kind !== "node") {
+          if (persistCool) window.clearTimeout(persistCool);
+          persistCool = window.setTimeout(() => {
+            if (!sim.isActive()) persistPositions();
+          }, 600);
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+      if (persistCool) window.clearTimeout(persistCool);
+    };
+  }, [layout, configReady, full, persistPositions]);
 
   const stats = useMemo(() => computeStats(full, notes.length), [full, notes.length]);
   const hubs = useMemo(() => topHubs(full, 8), [full]);
@@ -509,6 +610,10 @@ export default function GraphDetailPage() {
       sx: e.clientX,
       sy: e.clientY,
     };
+    if (layout === "force") {
+      simRef.current.pin(id, n.x, n.y);
+      simRef.current.reheat(0.65);
+    }
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
@@ -534,11 +639,22 @@ export default function GraphDetailPage() {
       t.x = nx;
       t.y = ny;
     }
+    if (layout === "force") {
+      simRef.current.pin(d.id, nx, ny);
+      simRef.current.reheat(0.4);
+    }
     setDragVer((v) => v + 1);
   };
 
   const onPointerUp = () => {
-    if (dragRef.current?.kind === "node") persistPositions();
+    if (dragRef.current?.kind === "node") {
+      const id = dragRef.current.id;
+      if (layout === "force") {
+        simRef.current.unpin(id);
+        simRef.current.reheat(0.5);
+      }
+      persistPositions();
+    }
     dragRef.current = null;
     rightPanRef.current = null;
   };

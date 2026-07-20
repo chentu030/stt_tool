@@ -101,7 +101,7 @@ export const DEFAULT_FILTERS: GraphFilters = {
 };
 
 export const LAYOUT_OPTIONS: { id: LayoutMode; label: string; hint: string }[] = [
-  { id: "force", label: "力導向", hint: "依連線張力自動散開" },
+  { id: "force", label: "力導向", hint: "持續物理：互斥、連線張力、聚成一球" },
   { id: "radial", label: "放射", hint: "以樞紐為中心向外" },
   { id: "cluster", label: "資料夾簇", hint: "同資料夾聚在一起" },
   { id: "grid", label: "網格", hint: "依度數排序整齊排列" },
@@ -109,9 +109,10 @@ export const LAYOUT_OPTIONS: { id: LayoutMode; label: string; hint: string }[] =
 ];
 
 export const GRAPH_TIPS = [
+  "力導向佈局會持續模擬：節點互相推開、連線拉近，整體聚成一球。",
+  "拖曳節點時其他節點會被引力帶動；放開後會慢慢穩定。",
   "點選節點可查看入鏈／出鏈與鄰居。",
   "按住空白鍵或中鍵可平移；Ctrl+滾輪或 Ctrl+/- 縮放。",
-  "拖曳節點會記住位置，換佈局前可先「重算」。",
   "開啟「標籤邊」可看出共同主題；「資料夾邊」看分組。",
   "幽靈節點代表 [[連結]] 到尚未建立的標題。",
   "焦點模式只顯示選中節點的一階鄰居。",
@@ -601,23 +602,27 @@ export function layoutGraph(
     return;
   }
 
-  // force
+  // force (seed for continuous sim / one-shot when needed)
   const N = nodes.length;
-  const seedR = Math.min(width, height) * 0.35;
+  const seedR = Math.min(width, height) * 0.32;
   nodes.forEach((n, i) => {
     if (n.x === 0 && n.y === 0) {
-      const a = (i / Math.max(N, 1)) * Math.PI * 2;
-      n.x = cx + Math.cos(a) * (seedR * (0.4 + (i % 7) * 0.08));
-      n.y = cy + Math.sin(a) * (seedR * (0.4 + (i % 5) * 0.1));
+      const a = (i / Math.max(N, 1)) * Math.PI * 2 + (i % 3) * 0.35;
+      const ring = seedR * (0.35 + (i % 9) * 0.07);
+      n.x = cx + Math.cos(a) * ring;
+      n.y = cy + Math.sin(a) * ring;
     }
     n.vx = 0;
     n.vy = 0;
   });
 
-  const wikiEdges = bundle.edges.filter((e) => e.kind === "wiki" || e.kind === "tag" || e.kind === "folder");
-  for (let iter = 0; iter < iterations; iter++) {
-    const cooling = 1 - iter / iterations;
-    // repulsion
+  const wikiEdges = bundle.edges.filter(
+    (e) => e.kind === "wiki" || e.kind === "tag" || e.kind === "folder"
+  );
+  const iters = Math.max(iterations, 120);
+  for (let iter = 0; iter < iters; iter++) {
+    const cooling = Math.max(0.15, 1 - iter / iters);
+    // repulsion + collision
     for (let i = 0; i < N; i++) {
       for (let j = i + 1; j < N; j++) {
         const a = nodes[i];
@@ -625,7 +630,9 @@ export function layoutGraph(
         let dx = a.x - b.x;
         let dy = a.y - b.y;
         let dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const force = (2200 / (dist * dist)) * cooling;
+        const minDist = 28;
+        let force = (2800 / (dist * dist)) * cooling;
+        if (dist < minDist) force += ((minDist - dist) / dist) * 8 * cooling;
         dx = (dx / dist) * force;
         dy = (dy / dist) * force;
         a.vx += dx;
@@ -642,8 +649,8 @@ export function layoutGraph(
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const ideal = e.kind === "wiki" ? 140 : e.kind === "tag" ? 180 : 200;
-      const force = ((dist - ideal) * 0.02 * e.weight) * cooling;
+      const ideal = e.kind === "wiki" ? 110 : e.kind === "tag" ? 150 : 170;
+      const force = (dist - ideal) * 0.035 * e.weight * cooling;
       dx = (dx / dist) * force;
       dy = (dy / dist) * force;
       a.vx += dx;
@@ -651,12 +658,12 @@ export function layoutGraph(
       b.vx -= dx;
       b.vy -= dy;
     }
-    // center gravity
+    // center gravity → ball
     for (const n of nodes) {
-      n.vx += (cx - n.x) * 0.008;
-      n.vy += (cy - n.y) * 0.008;
-      n.vx *= 0.85;
-      n.vy *= 0.85;
+      n.vx += (cx - n.x) * 0.02 * cooling;
+      n.vy += (cy - n.y) * 0.02 * cooling;
+      n.vx *= 0.82;
+      n.vy *= 0.82;
       n.x += n.vx;
       n.y += n.vy;
     }
