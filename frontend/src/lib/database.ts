@@ -30,13 +30,25 @@ export type DbPropType =
   | "url"
   | "email"
   | "phone"
+  | "files"
+  | "person"
+  | "relation"
+  | "formula"
+  | "unique_id"
   | "created_time"
-  | "last_edited_time";
+  | "last_edited_time"
+  | "created_by"
+  | "last_edited_by";
 
 export type DbSelectOption = {
   id: string;
   label: string;
   color?: string;
+};
+
+export type DbFileValue = {
+  url: string;
+  name?: string;
 };
 
 export type DbProperty = {
@@ -46,6 +58,12 @@ export type DbProperty = {
   options?: DbSelectOption[];
   /** For status: groups of option ids */
   statusGroups?: { name: string; optionIds: string[] }[];
+  /** formula: template with {{propId}} or simple math like {{a}}+{{b}} */
+  formula?: string;
+  /** relation: target database id (empty = same database) */
+  relationDbId?: string;
+  /** number display hint */
+  numberFormat?: "number" | "percent" | "currency";
 };
 
 export type DbViewType = "table" | "list" | "board" | "calendar" | "gallery" | "form";
@@ -192,7 +210,9 @@ export function defaultContactsProperties(): DbProperty[] {
 export function defaultViews(): DbView[] {
   return [
     { id: "v_table", name: "表格", type: "table" },
+    { id: "v_board", name: "看板", type: "board", groupBy: "status" },
     { id: "v_list", name: "列表", type: "list" },
+    { id: "v_gallery", name: "畫廊", type: "gallery" },
   ];
 }
 
@@ -239,7 +259,7 @@ export const DB_TEMPLATES: DbTemplateDef[] = [
     icon: "checklist",
     defaultName: "任務清單",
     previewProps: ["狀態", "截止日期", "優先級", "標籤"],
-    viewLabels: ["表格", "列表"],
+    viewLabels: ["表格", "看板", "列表", "畫廊"],
   },
   {
     id: "projects",
@@ -266,7 +286,7 @@ export const DB_TEMPLATES: DbTemplateDef[] = [
     icon: "contacts",
     defaultName: "聯絡人",
     previewProps: ["公司", "職稱", "Email", "電話"],
-    viewLabels: ["表格", "列表"],
+    viewLabels: ["表格", "列表", "表單"],
   },
   {
     id: "blank",
@@ -288,13 +308,19 @@ function schemaForTemplate(template: DbTemplateId): {
     case "blank":
       return {
         properties: [{ id: "title", name: "名稱", type: "title" }],
-        views: defaultViews(),
+        views: [
+          { id: "v_table", name: "表格", type: "table" },
+          { id: "v_list", name: "列表", type: "list" },
+        ],
         icon: "table_chart",
       };
     case "projects":
       return {
         properties: defaultProjectProperties(),
-        views: projectViews(),
+        views: [
+          ...projectViews(),
+          { id: "v_form", name: "表單", type: "form" },
+        ],
         icon: "rocket_launch",
       };
     case "reading":
@@ -306,14 +332,21 @@ function schemaForTemplate(template: DbTemplateId): {
     case "contacts":
       return {
         properties: defaultContactsProperties(),
-        views: contactsViews(),
+        views: [
+          ...contactsViews(),
+          { id: "v_form", name: "表單", type: "form" },
+        ],
         icon: "contacts",
       };
     case "tasks":
     default:
       return {
         properties: defaultTaskProperties(),
-        views: defaultViews(),
+        views: [
+          ...defaultViews(),
+          { id: "v_calendar", name: "日曆", type: "calendar", dateProp: "due" },
+          { id: "v_form", name: "表單", type: "form" },
+        ],
         icon: "checklist",
       };
   }
@@ -473,6 +506,15 @@ export function addProperty(
     url: "網址",
     email: "電子郵件",
     phone: "電話",
+    files: "檔案／媒體",
+    person: "人員",
+    relation: "關聯",
+    formula: "公式",
+    unique_id: "唯一 ID",
+    created_time: "建立時間",
+    last_edited_time: "最後編輯",
+    created_by: "建立者",
+    last_edited_by: "編輯者",
   };
   const prop: DbProperty = {
     id,
@@ -491,10 +533,52 @@ export function addProperty(
       { id: "doing", label: "進行中", color: SELECT_COLORS[0] },
       { id: "done", label: "已完成", color: SELECT_COLORS[5] },
     ];
+    prop.statusGroups = [
+      { name: "未開始", optionIds: ["todo"] },
+      { name: "進行中", optionIds: ["doing"] },
+      { name: "已完成", optionIds: ["done"] },
+    ];
+  }
+  if (type === "formula") {
+    prop.formula = "{{title}}";
+  }
+  if (type === "unique_id") {
+    prop.name = name || "ID";
   }
   return [...properties.filter((p) => p.type !== "title" || p.id === "title"), prop].sort((a, b) =>
     a.type === "title" ? -1 : b.type === "title" ? 1 : 0
   );
+}
+
+export function evalFormula(
+  prop: DbProperty,
+  row: Note,
+  properties: DbProperty[]
+): string {
+  const expr = (prop.formula || "").trim();
+  if (!expr) return "";
+  let replaced = expr.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (_, pid: string) => {
+    const p = properties.find((x) => x.id === pid);
+    if (!p) return "";
+    const v = getCellValue(row, p);
+    if (v == null) return "";
+    if (Array.isArray(v)) return v.map(String).join(",");
+    if (typeof v === "object" && v && "url" in (v as object)) {
+      return String((v as DbFileValue).url || "");
+    }
+    return String(v);
+  });
+  // Safe-ish arithmetic if expression is only numbers/operators after replace
+  if (/^[\d.\s+\-*/()]+$/.test(replaced)) {
+    try {
+      // eslint-disable-next-line no-new-func
+      const n = Function(`"use strict"; return (${replaced});`)();
+      if (typeof n === "number" && Number.isFinite(n)) return String(n);
+    } catch {
+      /* fall through */
+    }
+  }
+  return replaced;
 }
 
 export function getCellValue(row: Note, prop: DbProperty): unknown {
@@ -502,6 +586,13 @@ export function getCellValue(row: Note, prop: DbProperty): unknown {
   if (prop.type === "tags") return row.tags || [];
   if (prop.type === "created_time") return row.created_at?.toISOString?.() || "";
   if (prop.type === "last_edited_time") return row.updated_at?.toISOString?.() || "";
+  if (prop.type === "created_by" || prop.type === "last_edited_by") {
+    return row.user_id || "";
+  }
+  if (prop.type === "unique_id") {
+    return row.props?.[prop.id] || row.id.slice(-6).toUpperCase();
+  }
+  if (prop.type === "formula") return null; // computed in UI
   return row.props?.[prop.id];
 }
 
@@ -510,6 +601,16 @@ export async function setCellValue(
   prop: DbProperty,
   value: unknown
 ): Promise<void> {
+  if (
+    prop.type === "created_time" ||
+    prop.type === "last_edited_time" ||
+    prop.type === "created_by" ||
+    prop.type === "last_edited_by" ||
+    prop.type === "formula" ||
+    prop.type === "unique_id"
+  ) {
+    return;
+  }
   if (prop.type === "title") {
     await updateNote(row.id, { title: String(value || "未命名") });
     return;
@@ -524,7 +625,45 @@ export async function setCellValue(
     await updateNote(row.id, { tags });
     return;
   }
-  if (prop.type === "created_time" || prop.type === "last_edited_time") return;
+  if (prop.type === "files") {
+    let files: DbFileValue[] = [];
+    if (Array.isArray(value)) {
+      files = value
+        .map((x): DbFileValue | null => {
+          if (typeof x === "string") {
+            const url = x.trim();
+            return url ? { url, name: url.split("/").pop() } : null;
+          }
+          if (x && typeof x === "object" && "url" in x) {
+            const url = String((x as DbFileValue).url || "").trim();
+            if (!url) return null;
+            return { url, name: (x as DbFileValue).name };
+          }
+          return null;
+        })
+        .filter((x): x is DbFileValue => x != null);
+    } else if (typeof value === "string" && value.trim()) {
+      files = value
+        .split(/[\n,]+/)
+        .map((u) => u.trim())
+        .filter(Boolean)
+        .map((url) => ({ url, name: url.split("/").pop() }));
+    }
+    const next = { ...(row.props || {}), [prop.id]: files };
+    await updateNote(row.id, { props: next });
+    return;
+  }
+  if (prop.type === "relation") {
+    const ids = Array.isArray(value)
+      ? value.map(String).filter(Boolean)
+      : String(value || "")
+          .split(/[\s,，]+/)
+          .map((t) => t.trim())
+          .filter(Boolean);
+    const next = { ...(row.props || {}), [prop.id]: ids };
+    await updateNote(row.id, { props: next });
+    return;
+  }
   const next = { ...(row.props || {}), [prop.id]: value };
   const extra: Partial<Pick<Note, "status">> = {};
   if (prop.type === "status" && typeof value === "string") {
@@ -533,6 +672,29 @@ export async function setCellValue(
     }
   }
   await updateNote(row.id, { props: next, ...extra });
+}
+
+export function addDatabaseView(
+  views: DbView[],
+  type: DbViewType,
+  name?: string
+): DbView[] {
+  const labels: Record<DbViewType, string> = {
+    table: "表格",
+    list: "列表",
+    board: "看板",
+    calendar: "日曆",
+    gallery: "畫廊",
+    form: "表單",
+  };
+  const view: DbView = {
+    id: uid("v"),
+    name: name || labels[type],
+    type,
+  };
+  if (type === "board") view.groupBy = "status";
+  if (type === "calendar") view.dateProp = "due";
+  return [...views, view];
 }
 
 export async function listUserDatabasesOnce(uid: string): Promise<CadenceDatabase[]> {

@@ -515,6 +515,202 @@ button, input, textarea, select {
   font-size: 0.82rem;
 }
 .cdb-add-menu button:hover { background: var(--bg-muted); }
+.cdb-add-menu--wide {
+  min-width: 220px;
+  max-height: 320px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cdb-add-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.cdb-add-group strong {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 0.25rem 0.45rem 0.1rem;
+}
+.cdb-hint {
+  margin: 0.15rem 0 0.45rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.cdb-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.35rem;
+}
+.cdb-search {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+}
+.cdb-view-add-wrap { position: relative; }
+.cdb-view-menu { left: 0; right: auto; min-width: 120px; }
+.cdb-th-open, .cdb-td-open { width: 2rem; border-right: none !important; }
+.cdb-open-page {
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.cdb-open-page:hover { color: var(--accent); border-color: var(--accent); }
+.cdb-formula { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.cdb-files-cell { display: flex; flex-direction: column; gap: 0.25rem; min-width: 8rem; }
+.cdb-file-chip {
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.cdb-list-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.cdb-list-row-wrap .cdb-list-row { flex: 1; border-bottom: none; }
+.cdb-list-excerpt {
+  flex: 1;
+  font-size: 0.75rem !important;
+  color: var(--text-muted) !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdb-board {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  align-items: flex-start;
+}
+.cdb-board-col {
+  min-width: 220px;
+  max-width: 260px;
+  background: var(--bg-muted);
+  border-radius: 12px;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+}
+.cdb-board-col header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin-bottom: 0.45rem;
+  color: var(--text-muted);
+}
+.cdb-board-cards { display: flex; flex-direction: column; gap: 0.4rem; }
+.cdb-board-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.cdb-board-card strong { display: block; font-size: 0.88rem; }
+.cdb-board-card span {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.cdb-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+.cdb-gallery-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--text-main);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cdb-gallery-cover {
+  height: 110px;
+  background: linear-gradient(135deg, var(--bg-muted), color-mix(in srgb, var(--accent) 18%, var(--bg-muted)));
+  background-size: cover;
+  background-position: center;
+}
+.cdb-gallery-card strong, .cdb-gallery-card span {
+  padding: 0.45rem 0.7rem 0;
+  display: block;
+}
+.cdb-gallery-card span {
+  padding-bottom: 0.7rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.cdb-gallery-add {
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+.cdb-calendar { display: flex; flex-direction: column; gap: 0.85rem; }
+.cdb-cal-day h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.cdb-cal-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  margin-bottom: 0.3rem;
+  cursor: pointer;
+  color: var(--text-main);
+  font-size: 0.85rem;
+}
+.cdb-form {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0 1rem;
+}
+.cdb-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+.cdb-form input, .cdb-form select {
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+}
 .cdb-cell-input, .cdb-select {
   width: 100%;
   border: none;
