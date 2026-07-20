@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import { logout } from "@/lib/firebase";
 import AlbireusLogo from "@/components/AlbireusLogo";
 import PageLoading from "@/components/motion/PageLoading";
 import ThemeToggle from "@/components/ThemeToggle";
+import LineRippleBackground from "@/components/motion/LineRippleBackground";
+import ScrambleText from "@/components/motion/ScrambleText";
+import TypeWriter from "@/components/motion/TypeWriter";
+import ShinyPill from "@/components/motion/ShinyPill";
 import { toast } from "@/lib/toast";
 import {
   FREQUENCY_OPTIONS,
@@ -41,7 +46,6 @@ export default function AccessGate({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Allowlist: never block the UI on Firestore; seed approved doc in background.
     if (isAllowlistedEmail(user.email)) {
       setReqLoading(false);
       void ensureAllowlistAccess(user).catch((e) => console.warn("[ensureAllowlistAccess]", e));
@@ -51,14 +55,12 @@ export default function AccessGate({ children }: { children: ReactNode }) {
     let cancelled = false;
     setReqLoading(true);
 
-    // Hard timeout so a hung listener can't spin forever for new users.
     const timeout = window.setTimeout(() => {
       if (cancelled) return;
       console.warn("[AccessGate] access check timed out — showing apply form");
       setReqLoading(false);
     }, 4000);
 
-    // Prefer a quick getDoc so we don't depend solely on the first snapshot.
     void fetchAccessRequest(user.uid).then((req) => {
       if (cancelled) return;
       window.clearTimeout(timeout);
@@ -83,7 +85,6 @@ export default function AccessGate({ children }: { children: ReactNode }) {
   const status = useMemo(() => resolveAccess(user, request), [user, request]);
 
   if (bypass || !user) return <>{children}</>;
-  // Allowlisted users skip the waitlist UI entirely (don't wait on Firestore).
   if (allowlisted) return <>{children}</>;
   if (loading || reqLoading) return <PageLoading label="確認使用權限…" />;
   if (status === "approved") return <>{children}</>;
@@ -104,7 +105,7 @@ export default function AccessGate({ children }: { children: ReactNode }) {
 
   return (
     <AccessShell>
-      <ApplyForm
+      <ApplyWizard
         defaultName={displayName}
         defaultUsername={username}
         email={user.email || ""}
@@ -140,36 +141,53 @@ function AccessShell({ children }: { children: ReactNode }) {
 
 function PendingPanel({ email, name }: { email: string; name: string }) {
   return (
-    <div className="access-panel">
+    <div className="access-panel access-panel--status">
       <p className="access-kicker">封閉測試中</p>
-      <h1>申請已送出，請稍候</h1>
+      <ScrambleText
+        words="申請已送出"
+        as="h1"
+        className="font-display"
+        speed={22}
+        color="var(--text-main)"
+      />
       <p className="access-lead">
         {name ? `${name}，` : ""}
-        我們正在控制同時上線人數，避免塞車。審核通過後就能使用 Albireus，結果會以這個帳號通知／開放：
+        我們正在控制同時上線人數。通過後會以這個帳號開放：
       </p>
       <p className="access-email">{email}</p>
-      <p className="access-hint">通常會在幾天內處理。你隨時可以登出，之後再用同一帳號回來查看狀態。</p>
+      <p className="access-hint">通常幾天內處理。可先登出，之後用同一帳號回來查看。</p>
     </div>
   );
 }
 
 function RejectedPanel() {
   return (
-    <div className="access-panel">
+    <div className="access-panel access-panel--status">
       <p className="access-kicker">封閉測試中</p>
-      <h1>這次暫時無法開放</h1>
-      <p className="access-lead">感謝你的申請。目前額度已滿或條件不符，之後若再開名額會再公告。</p>
+      <ScrambleText words="這次暫時無法開放" as="h1" className="font-display" speed={22} />
+      <p className="access-lead">感謝申請。目前額度已滿或條件不符，之後若再開名額會再公告。</p>
     </div>
   );
 }
+
+type StepId = "welcome" | "profile" | "usecase" | "workflow" | "frequency" | "wish" | "referral" | "review";
+
+const STEPS: { id: StepId; title: string; optional?: boolean }[] = [
+  { id: "welcome", title: "歡迎" },
+  { id: "profile", title: "你的帳號" },
+  { id: "usecase", title: "使用場景", optional: true },
+  { id: "workflow", title: "整理方式", optional: true },
+  { id: "frequency", title: "使用頻率", optional: true },
+  { id: "wish", title: "希望功能", optional: true },
+  { id: "referral", title: "從哪裡來", optional: true },
+  { id: "review", title: "確認送出" },
+];
 
 function toggleId(list: string[], id: string): string[] {
   return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 }
 
-function MultiChoice({
-  legend,
-  hint,
+function ChoiceGrid({
   options,
   value,
   onChange,
@@ -177,8 +195,6 @@ function MultiChoice({
   otherText,
   onOtherText,
 }: {
-  legend: string;
-  hint?: string;
   options: readonly { id: string; label: string }[];
   value: string[];
   onChange: (next: string[]) => void;
@@ -188,30 +204,33 @@ function MultiChoice({
 }) {
   const showOther = value.includes("other") && onOtherText;
   return (
-    <fieldset className="access-field" disabled={disabled}>
-      <legend>
-        {legend}
-        <span className="access-optional">選填 · 可多選</span>
-      </legend>
-      {hint ? <em>{hint}</em> : null}
-      <div className="access-choices">
-        {options.map((o) => {
-          const on = value.includes(o.id);
-          return (
-            <label key={o.id} className={`access-chip${on ? " is-on" : ""}`}>
-              <input
-                type="checkbox"
-                checked={on}
-                onChange={() => onChange(toggleId(value, o.id))}
-              />
-              {o.label}
-            </label>
-          );
-        })}
-      </div>
+    <div className="access-choices">
+      {options.map((o, i) => {
+        const on = value.includes(o.id);
+        return (
+          <motion.label
+            key={o.id}
+            className={`access-chip${on ? " is-on" : ""}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.04 * i, duration: 0.28 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <input
+              type="checkbox"
+              checked={on}
+              disabled={disabled}
+              onChange={() => onChange(toggleId(value, o.id))}
+            />
+            {o.label}
+          </motion.label>
+        );
+      })}
       {showOther ? (
-        <input
+        <motion.input
           className="input access-other-input"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
           value={otherText || ""}
           disabled={disabled}
           onChange={(e) => onOtherText?.(e.target.value)}
@@ -219,11 +238,11 @@ function MultiChoice({
           maxLength={120}
         />
       ) : null}
-    </fieldset>
+    </div>
   );
 }
 
-function ApplyForm({
+function ApplyWizard({
   defaultName,
   defaultUsername,
   email,
@@ -234,6 +253,8 @@ function ApplyForm({
   email: string;
   onSubmit: (payload: AccessApplicationInput) => Promise<void>;
 }) {
+  const [step, setStep] = useState(0);
+  const [dir, setDir] = useState(1);
   const [name, setName] = useState(defaultName || "");
   const [handle, setHandle] = useState(defaultUsername || "");
   const [useCases, setUseCases] = useState<string[]>([]);
@@ -251,16 +272,49 @@ function ApplyForm({
     if (defaultUsername) setHandle(defaultUsername);
   }, [defaultName, defaultUsername]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const current = STEPS[step];
+  const progress = step / (STEPS.length - 1);
+
+  const go = (next: number) => {
+    setDir(next > step ? 1 : -1);
+    setStep(next);
+  };
+
+  const next = () => {
+    if (current.id === "profile") {
+      const nameErr = validateDisplayName(name);
+      if (nameErr) {
+        toast(nameErr);
+        return;
+      }
+      const userErr = validateUsername(handle);
+      if (userErr) {
+        toast(userErr);
+        return;
+      }
+    }
+    if (step < STEPS.length - 1) go(step + 1);
+  };
+
+  const back = () => {
+    if (step > 0) go(step - 1);
+  };
+
+  const skip = () => {
+    if (current.optional && step < STEPS.length - 1) go(step + 1);
+  };
+
+  const submit = async () => {
     const nameErr = validateDisplayName(name);
     if (nameErr) {
       toast(nameErr);
+      go(1);
       return;
     }
     const userErr = validateUsername(handle);
     if (userErr) {
       toast(userErr);
+      go(1);
       return;
     }
     setBusy(true);
@@ -284,112 +338,266 @@ function ApplyForm({
     }
   };
 
+  const labelOf = (opts: readonly { id: string; label: string }[], ids: string[]) =>
+    ids.map((id) => opts.find((o) => o.id === id)?.label || id).join("、") || "（略過）";
+
   return (
-    <form className="access-panel access-form" onSubmit={(e) => void submit(e)}>
-      <div className="access-form-intro">
-        <p className="access-kicker">封閉測試中</p>
-        <h1>申請使用 Albireus</h1>
-        <p className="access-lead">
-          目前還在開發、名額有限，無論上課、開會或工作整理都歡迎申請。
-          你現在登入的是 <strong>{email}</strong>；送出申請並通過審核後，才能用這個帳號進入 Albireus。
-        </p>
-        <p className="access-hint">下方調查皆可略過；有填會幫助我們排優先功能。</p>
-      </div>
-
-      <label className="access-field">
-        <span>
-          顯示名稱 <span className="access-required">必填</span>
-        </span>
-        <input
-          className="input"
-          value={name}
-          maxLength={40}
-          disabled={busy}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="其他人會看到的名字"
-          required
-        />
-      </label>
-
-      <label className="access-field">
-        <span>
-          用戶名稱 <span className="access-required">必填</span>
-        </span>
-        <div className="st-username-field">
-          <span className="st-username-at">@</span>
-          <input
-            className="input"
-            value={handle}
-            maxLength={20}
-            disabled={busy}
-            onChange={(e) => setHandle(e.target.value.toLowerCase())}
-            placeholder="your_name"
-            autoComplete="username"
-            spellCheck={false}
-            required
-          />
+    <div className="access-panel access-wizard">
+      {current.id !== "welcome" ? (
+        <div className="access-wizard-progress" aria-hidden>
+          <div className="access-wizard-progress-bar" style={{ width: `${progress * 100}%` }} />
         </div>
-        <em>小寫字母開頭，3–20 字（a-z、0-9、_）</em>
-      </label>
+      ) : null}
 
-      <MultiChoice
-        legend="你主要用什麼場景？"
-        options={USE_CASE_OPTIONS}
-        value={useCases}
-        onChange={setUseCases}
-        disabled={busy}
-        otherText={useCaseOther}
-        onOtherText={setUseCaseOther}
-      />
+      <AnimatePresence mode="wait" custom={dir}>
+        <motion.div
+          key={current.id}
+          className="access-wizard-step"
+          custom={dir}
+          initial={{ opacity: 0, x: dir * 28, filter: "blur(4px)" }}
+          animate={{ opacity: 1, x: 0, filter: "blur(0px)" }}
+          exit={{ opacity: 0, x: dir * -22, filter: "blur(4px)" }}
+          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+        >
+          {current.id === "welcome" ? (
+            <div className="access-welcome">
+              <LineRippleBackground
+                count={40}
+                movement={16}
+                strokeColor="rgba(13, 148, 136, 0.22)"
+                force={3}
+              />
+              <div className="access-welcome-inner">
+                <p className="access-kicker">封閉測試中</p>
+                <ScrambleText
+                  words="申請使用 Albireus"
+                  as="h1"
+                  className="font-display"
+                  speed={20}
+                  color="var(--text-main)"
+                />
+                <p className="access-lead access-welcome-lead">
+                  名額有限，無論上課、開會或工作整理都歡迎申請。
+                  <br />
+                  目前登入：<strong>{email}</strong>
+                </p>
+                <p className="access-welcome-type">
+                  <TypeWriter
+                    texts={["幾題即可", "大多可略過", "幫我們排優先功能"]}
+                    typedColor="var(--accent-2)"
+                    cursorColor="var(--accent-2)"
+                    typeMs={40}
+                    holdMs={1800}
+                  />
+                </p>
+                <ShinyPill onClick={() => go(1)}>開始申請</ShinyPill>
+              </div>
+            </div>
+          ) : null}
 
-      <MultiChoice
-        legend="目前怎麼整理筆記？"
-        options={WORKFLOW_OPTIONS}
-        value={workflows}
-        onChange={setWorkflows}
-        disabled={busy}
-        otherText={workflowOther}
-        onOtherText={setWorkflowOther}
-      />
+          {current.id === "profile" ? (
+            <>
+              <StepHead title="先設定你的身分" hint="這兩項必填，之後可在設定裡改" required />
+              <label className="access-field">
+                <span>顯示名稱</span>
+                <input
+                  className="input"
+                  value={name}
+                  maxLength={40}
+                  disabled={busy}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="其他人會看到的名字"
+                  autoFocus
+                />
+              </label>
+              <label className="access-field">
+                <span>用戶名稱</span>
+                <div className="st-username-field">
+                  <span className="st-username-at">@</span>
+                  <input
+                    className="input"
+                    value={handle}
+                    maxLength={20}
+                    disabled={busy}
+                    onChange={(e) => setHandle(e.target.value.toLowerCase())}
+                    placeholder="your_name"
+                    autoComplete="username"
+                    spellCheck={false}
+                  />
+                </div>
+                <em>小寫字母開頭，3–20 字（a-z、0-9、_）</em>
+              </label>
+            </>
+          ) : null}
 
-      <MultiChoice
-        legend="一週大概會用幾次？"
-        options={FREQUENCY_OPTIONS}
-        value={frequencies}
-        onChange={setFrequencies}
-        disabled={busy}
-      />
+          {current.id === "usecase" ? (
+            <>
+              <StepHead title="你主要用什麼場景？" hint="可多選，也可直接略過" optional />
+              <ChoiceGrid
+                options={USE_CASE_OPTIONS}
+                value={useCases}
+                onChange={setUseCases}
+                disabled={busy}
+                otherText={useCaseOther}
+                onOtherText={setUseCaseOther}
+              />
+            </>
+          ) : null}
 
-      <label className="access-field">
-        <span>
-          最希望有的功能 <span className="access-optional">選填</span>
-        </span>
-        <textarea
-          className="input"
-          rows={4}
-          value={wished}
-          disabled={busy}
-          onChange={(e) => setWished(e.target.value)}
-          placeholder="例如：會議自動整理成待辦、訪談逐字稿可搜尋、專案進度一鍵摘要…"
-          maxLength={500}
-        />
-      </label>
+          {current.id === "workflow" ? (
+            <>
+              <StepHead title="目前怎麼整理筆記？" hint="可多選，也可略過" optional />
+              <ChoiceGrid
+                options={WORKFLOW_OPTIONS}
+                value={workflows}
+                onChange={setWorkflows}
+                disabled={busy}
+                otherText={workflowOther}
+                onOtherText={setWorkflowOther}
+              />
+            </>
+          ) : null}
 
-      <MultiChoice
-        legend="你怎麼知道 Albireus？"
-        options={REFERRAL_OPTIONS}
-        value={referrals}
-        onChange={setReferrals}
-        disabled={busy}
-        otherText={referralOther}
-        onOtherText={setReferralOther}
-      />
+          {current.id === "frequency" ? (
+            <>
+              <StepHead title="一週大概會用幾次？" hint="選一個或幾個都行" optional />
+              <ChoiceGrid
+                options={FREQUENCY_OPTIONS}
+                value={frequencies}
+                onChange={setFrequencies}
+                disabled={busy}
+              />
+            </>
+          ) : null}
 
-      <div className="access-submit-row">
-        <button type="submit" className="btn access-submit" disabled={busy}>
-          {busy ? "送出中…" : "送出申請並等待審核"}
-        </button>
-      </div>
-    </form>
+          {current.id === "wish" ? (
+            <>
+              <StepHead title="最希望有的功能？" hint="一句話就好，可不填" optional />
+              <label className="access-field">
+                <textarea
+                  className="input"
+                  rows={5}
+                  value={wished}
+                  disabled={busy}
+                  onChange={(e) => setWished(e.target.value)}
+                  placeholder="例如：會議自動整理成待辦、訪談逐字稿可搜尋…"
+                  maxLength={500}
+                  autoFocus
+                />
+              </label>
+            </>
+          ) : null}
+
+          {current.id === "referral" ? (
+            <>
+              <StepHead title="你怎麼知道 Albireus？" hint="可多選，也可略過" optional />
+              <ChoiceGrid
+                options={REFERRAL_OPTIONS}
+                value={referrals}
+                onChange={setReferrals}
+                disabled={busy}
+                otherText={referralOther}
+                onOtherText={setReferralOther}
+              />
+            </>
+          ) : null}
+
+          {current.id === "review" ? (
+            <>
+              <StepHead title="確認並送出" hint="通過後會用這個 Google 帳號開放" />
+              <ul className="access-review">
+                <li>
+                  <span>顯示名稱</span>
+                  <strong>{name.trim() || "—"}</strong>
+                </li>
+                <li>
+                  <span>用戶名稱</span>
+                  <strong>@{handle.trim().toLowerCase() || "—"}</strong>
+                </li>
+                <li>
+                  <span>帳號</span>
+                  <strong className="access-review-email">{email}</strong>
+                </li>
+                <li>
+                  <span>場景</span>
+                  <strong>{labelOf(USE_CASE_OPTIONS, useCases)}</strong>
+                </li>
+                <li>
+                  <span>整理方式</span>
+                  <strong>{labelOf(WORKFLOW_OPTIONS, workflows)}</strong>
+                </li>
+                <li>
+                  <span>頻率</span>
+                  <strong>{labelOf(FREQUENCY_OPTIONS, frequencies)}</strong>
+                </li>
+                <li>
+                  <span>希望功能</span>
+                  <strong>{wished.trim() || "（略過）"}</strong>
+                </li>
+                <li>
+                  <span>來源</span>
+                  <strong>{labelOf(REFERRAL_OPTIONS, referrals)}</strong>
+                </li>
+              </ul>
+            </>
+          ) : null}
+        </motion.div>
+      </AnimatePresence>
+
+      {current.id !== "welcome" ? (
+        <div className="access-wizard-nav">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={back} disabled={busy || step === 0}>
+            上一步
+          </button>
+          <div className="access-wizard-nav-right">
+            {current.optional ? (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={skip} disabled={busy}>
+                略過
+              </button>
+            ) : null}
+            {current.id === "review" ? (
+              <button type="button" className="btn access-submit" onClick={() => void submit()} disabled={busy}>
+                {busy ? "送出中…" : "送出申請"}
+              </button>
+            ) : (
+              <button type="button" className="btn access-submit" onClick={next} disabled={busy}>
+                下一步
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {current.id !== "welcome" ? (
+        <p className="access-step-meta">
+          {step}/{STEPS.length - 1} · {current.title}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function StepHead({
+  title,
+  hint,
+  required,
+  optional,
+}: {
+  title: string;
+  hint?: string;
+  required?: boolean;
+  optional?: boolean;
+}) {
+  return (
+    <div className="access-step-head">
+      <ScrambleText words={title} as="h1" className="font-display" speed={18} color="var(--text-main)" />
+      {hint ? (
+        <p className="access-hint">
+          {hint}
+          {required ? <span className="access-required"> 必填</span> : null}
+          {optional ? <span className="access-optional"> 選填</span> : null}
+        </p>
+      ) : null}
+    </div>
   );
 }

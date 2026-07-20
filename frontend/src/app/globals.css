@@ -11948,6 +11948,7 @@ body.is-sidebar-resizing iframe {
     radial-gradient(ellipse 80% 50% at 50% -10%, color-mix(in srgb, var(--accent) 18%, transparent), transparent),
     var(--bg-primary);
   color: var(--text-main);
+  overflow-x: clip;
 }
 .access-gate-top {
   display: flex;
@@ -11965,15 +11966,23 @@ body.is-sidebar-resizing iframe {
   flex: 1;
   display: flex;
   justify-content: center;
-  padding: 0.75rem 1.25rem 3rem;
+  align-items: flex-start;
+  padding: 0.75rem 1rem 3rem;
+  min-width: 0;
 }
 .access-panel {
-  width: min(640px, 100%);
+  width: min(520px, 100%);
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 20px;
-  padding: 2rem 1.75rem 2rem;
+  padding: 2rem 1.5rem 1.75rem;
   box-shadow: var(--shadow);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.access-panel--status {
+  padding-top: 2.25rem;
 }
 .access-panel h1 {
   margin: 0.35rem 0 0.85rem;
@@ -11981,9 +11990,6 @@ body.is-sidebar-resizing iframe {
   font-size: clamp(1.45rem, 3vw, 1.9rem);
   letter-spacing: -0.03em;
   line-height: 1.2;
-}
-.access-form-intro {
-  margin-bottom: 0.35rem;
 }
 .access-kicker {
   margin: 0;
@@ -12011,17 +12017,12 @@ body.is-sidebar-resizing iframe {
   color: var(--text-muted);
   line-height: 1.55;
 }
-.access-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.55rem;
-}
 .access-field {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.55rem;
   border: none;
-  margin: 0;
+  margin: 0 0 1rem;
   padding: 0;
   min-width: 0;
 }
@@ -12034,7 +12035,6 @@ body.is-sidebar-resizing iframe {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-main);
-  margin-bottom: 0.15rem;
 }
 .access-optional {
   font-size: 0.72rem;
@@ -12054,7 +12054,7 @@ body.is-sidebar-resizing iframe {
 }
 .access-field textarea.input {
   resize: vertical;
-  min-height: 5.5rem;
+  min-height: 7rem;
   line-height: 1.5;
   padding: 0.75rem 0.85rem;
 }
@@ -12062,12 +12062,15 @@ body.is-sidebar-resizing iframe {
   padding: 0.7rem 0.85rem;
 }
 .access-other-input {
-  margin-top: 0.15rem;
+  width: 100%;
+  margin-top: 0.35rem;
+  flex-basis: 100%;
 }
 .access-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
 }
 .access-chip {
   display: inline-flex;
@@ -12076,12 +12079,13 @@ body.is-sidebar-resizing iframe {
   border: 1px solid var(--border);
   background: var(--bg-elevated, var(--bg-muted));
   border-radius: 999px;
-  padding: 0.5rem 0.9rem;
+  padding: 0.55rem 0.95rem;
   font-size: 0.84rem;
   cursor: pointer;
   color: var(--text-main);
   user-select: none;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  max-width: 100%;
 }
 .access-chip input {
   position: absolute;
@@ -12094,12 +12098,152 @@ body.is-sidebar-resizing iframe {
   color: var(--accent);
   font-weight: 600;
 }
-.access-submit-row {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 0.35rem;
-}
 .access-submit {
   min-height: 2.6rem;
   padding-inline: 1.25rem;
 }
+
+/* Guided wizard */
+.access-wizard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-top: 1.5rem;
+  overflow: hidden;
+}
+.access-wizard-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  overflow: hidden;
+}
+.access-wizard-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.access-wizard-step {
+  min-height: min(52dvh, 420px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.access-step-head {
+  margin-bottom: 1.25rem;
+}
+.access-step-head h1 {
+  margin: 0 0 0.45rem;
+}
+.access-wizard-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.access-wizard-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.access-step-meta {
+  margin: 0.75rem 0 0;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.access-welcome {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  margin: -0.25rem -0.35rem 0;
+  min-height: min(58dvh, 460px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1.25rem;
+}
+.access-welcome-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  max-width: 100%;
+}
+.access-welcome-inner h1 {
+  margin: 0;
+}
+.access-welcome-lead {
+  max-width: 28rem;
+  margin: 0;
+}
+.access-welcome-type {
+  min-height: 1.5em;
+  margin: 0.15rem 0 0.5rem;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.access-review {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.access-review li {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+.access-review li span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding-top: 0.1rem;
+}
+.access-review li strong {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+  min-width: 0;
+}
+.access-review-email {
+  word-break: break-all;
+}
+
+@media (max-width: 520px) {
+  .access-panel {
+    padding: 1.5rem 1.1rem 1.35rem;
+    border-radius: 16px;
+  }
+  .access-wizard-step {
+    min-height: min(48dvh, 380px);
+  }
+  .access-review li {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
