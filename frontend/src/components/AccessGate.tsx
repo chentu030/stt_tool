@@ -259,8 +259,8 @@ function ApplyForm({
         <p className="access-kicker">封閉測試中</p>
         <h1>申請使用 Albireus</h1>
         <p className="access-lead">
-          目前還在開發、名額有限。無論是上課、開會還是工作整理，都歡迎申請；登入帳號{" "}
-          <strong>{email}</strong> 通過後就能進入產品。
+          目前還在開發、名額有限，無論上課、開會或工作整理都歡迎申請。
+          你現在登入的是 <strong>{email}</strong>；送出申請並通過審核後，才能用這個帳號進入 Albireus。
         </p>
         <p className="access-hint">下方調查皆可略過；有填會幫助我們排優先功能。</p>
       </div>
