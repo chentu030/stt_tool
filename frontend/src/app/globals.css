@@ -644,6 +644,32 @@ button, input, textarea, select {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* Full-page circular wipe when toggling theme (View Transitions API) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+/* Dark overlay sits on top while light shrinks away feels odd; keep new on top for expand wipe */
+html[data-theme-transition="to-dark"]::view-transition-old(root) {
+  z-index: 1;
+}
+html[data-theme-transition="to-dark"]::view-transition-new(root) {
+  z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
 .sidebar-footer {
   margin-top: auto;
   flex-shrink: 0;
