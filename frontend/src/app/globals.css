@@ -10624,6 +10624,12 @@ body.is-sidebar-resizing iframe {
 
 
 /* Deep Research */
+.app-main:has(.dr-chat-shell) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.65rem clamp(1rem, 2.2vw, 1.55rem) 0.7rem;
+}
 .dr-page {
   max-width: 1100px;
   margin: 0 auto;
@@ -10631,10 +10637,12 @@ body.is-sidebar-resizing iframe {
 }
 .dr-page.dr-chat-shell {
   max-width: 920px;
-  height: calc(100dvh - 4.5rem);
-  min-height: 480px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  height: auto;
   margin: 0 auto;
-  padding: 0.75rem 1rem 0.85rem;
+  padding: 0.35rem 0 0;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -11599,6 +11607,7 @@ body.is-sidebar-resizing iframe {
 }
 .dr-chat-composer {
   flex-shrink: 0;
+  margin-top: auto;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: var(--bg-elevated);
@@ -11693,9 +11702,12 @@ body.is-sidebar-resizing iframe {
   margin-top: 0.85rem;
 }
 @media (max-width: 720px) {
+  .app-main:has(.dr-chat-shell) {
+    padding: 0.45rem 0.7rem 0.55rem;
+  }
   .dr-page.dr-chat-shell {
-    height: calc(100dvh - 3.5rem);
-    padding: 0.5rem 0.65rem 0.65rem;
+    height: auto;
+    padding: 0.15rem 0 0;
     max-width: none;
   }
   .dr-chat-title {
