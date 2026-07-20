@@ -65,7 +65,7 @@ export default function BoardByIdPage() {
   const { id: boardId } = useParams<{ id: string }>();
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
-  const { embed } = useRedirectSpecialtyToNote("board", boardId);
+  useRedirectSpecialtyToNote("board", boardId);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -659,7 +659,6 @@ export default function BoardByIdPage() {
   };
 
   if (loading) return <PageLoading />;
-  if (!embed) return <PageLoading />;
   if (!user) {
     return (
       <div className="bd-page bd-guest">

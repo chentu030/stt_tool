@@ -97,8 +97,8 @@ export function parseNoteAppLink(raw: unknown): NoteAppLink | null {
 
 /**
  * Canonical open path for sidebar / + menu / tabs.
- * Specialty apps (board / canvas / graph / database) open their full-screen
- * native routes. Only slash-command embeds stay inside a note (via embed=1).
+ * Specialty apps open their full-screen native routes.
+ * Only slash-command embeds stay inside a note (via embed=1 / TipTap nodes).
  */
 export function noteOpenHref(note: Pick<Note, "id" | "app_link">): string {
   const link = note.app_link;
@@ -107,19 +107,23 @@ export function noteOpenHref(note: Pick<Note, "id" | "app_link">): string {
   if (link?.type === "canvas" && link.id) return `/canvas/${link.id}?${noteQ}`;
   if (link?.type === "graph" && link.id) return `/graph/${link.id}?${noteQ}`;
   if (link?.type === "database" && link.id) return `/db/${link.id}?${noteQ}`;
+  if (link?.type === "web") return `/web/${note.id}`;
   return `/notes/${note.id}`;
 }
 
 /** Specialty app types that own a full-screen route (not note-shell iframe). */
 export function isFullScreenAppLink(
   link: Note["app_link"] | null | undefined
-): link is NoteAppLink & { type: "board" | "canvas" | "graph" | "database" } {
+): link is NoteAppLink & {
+  type: "board" | "canvas" | "graph" | "database" | "web";
+} {
   return (
     !!link &&
     (link.type === "board" ||
       link.type === "canvas" ||
       link.type === "graph" ||
-      link.type === "database") &&
+      link.type === "database" ||
+      link.type === "web") &&
     !!link.id
   );
 }

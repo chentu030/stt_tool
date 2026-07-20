@@ -88,7 +88,7 @@ export default function GraphDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const graphId = String(params.id || "");
-  const { embed } = useRedirectSpecialtyToNote("graph", graphId);
+  useRedirectSpecialtyToNote("graph", graphId);
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [graphs, setGraphs] = useState<GraphConfig[]>([]);
@@ -868,7 +868,6 @@ ${orphanLines || "（無）"}`;
   }, [pathMode, path, pathEnds, full.byId]);
 
   if (loading) return <PageLoading />;
-  if (!embed) return <PageLoading />;
   if (!user) {
     return (
       <div className="gp-page gp-guest">

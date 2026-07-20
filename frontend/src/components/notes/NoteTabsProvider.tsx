@@ -48,10 +48,12 @@ function noteIdFromPath(pathname: string, noteQuery: string | null): string | nu
   if (m) return decodeURIComponent(m[1]);
   if (
     noteQuery &&
-    /^\/(canvas|graph|board|db)\/[^/]+/.test(pathname)
+    /^\/(canvas|graph|board|db|web)\/[^/]+/.test(pathname)
   ) {
     return noteQuery;
   }
+  const webOnly = pathname.match(/^\/web\/([^/?#]+)/);
+  if (webOnly) return decodeURIComponent(webOnly[1]);
   return null;
 }
 

@@ -15,7 +15,6 @@ export default function DatabasePage() {
   const { embed } = useRedirectSpecialtyToNote("database", id);
 
   if (loading) return <PageLoading />;
-  if (!embed) return <PageLoading />;
   if (!user) {
     return (
       <div style={{ padding: "2rem" }}>
