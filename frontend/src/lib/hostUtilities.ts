@@ -36,6 +36,7 @@ export function getHostUtility(id: string): HostUtilityMeta | undefined {
 }
 
 const SWATCH_OPEN_KEY = "albireus_utility_color_swatch_open";
+const SWATCH_HIDDEN_KEY = "albireus_utility_color_swatch_hidden";
 
 export function loadColorSwatchOpen(): boolean {
   if (typeof window === "undefined") return false;
@@ -49,6 +50,23 @@ export function loadColorSwatchOpen(): boolean {
 export function saveColorSwatchOpen(open: boolean) {
   try {
     localStorage.setItem(SWATCH_OPEN_KEY, open ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadColorSwatchHidden(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(SWATCH_HIDDEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveColorSwatchHidden(hidden: boolean) {
+  try {
+    localStorage.setItem(SWATCH_HIDDEN_KEY, hidden ? "1" : "0");
   } catch {
     /* ignore */
   }

@@ -24,9 +24,10 @@
         <input
           id="searchInput"
           type="search"
-          placeholder="搜尋代號或名稱（如 2330、AAPL）"
+          placeholder="搜尋代號或名稱（/ 聚焦）"
           autocomplete="off"
           spellcheck="false"
+          aria-keyshortcuts="/"
         />
         <div id="suggest" class="suggest" role="listbox"></div>
       </div>
@@ -35,8 +36,13 @@
     </header>
 
     <div id="errorBanner" class="error-banner" role="alert"></div>
+    <div id="emptyState" class="empty-state" hidden>
+      <p class="empty-title">尚無圖表資料</p>
+      <p class="empty-sub">在上方搜尋台股代號（如 2330）或美股（如 AAPL）後載入。</p>
+      <button type="button" class="btn" id="emptyRetry">重試載入</button>
+    </div>
 
-    <div class="layout">
+    <div class="layout" id="mainLayout">
       <section class="main">
         <div class="quote-bar" id="quoteBar">
           <span class="title" id="qSymbol">—</span>
@@ -63,6 +69,12 @@
         </div>
 
         <div class="charts" id="charts">
+          <div id="chartSkeleton" class="chart-skeleton" aria-hidden="true">
+            <div class="sk-bar"></div>
+            <div class="sk-pane sk-main"></div>
+            <div class="sk-pane sk-vol"></div>
+            <div class="sk-pane sk-ind"></div>
+          </div>
           <div class="chart-pane main-pane">
             <span class="pane-label">日 K</span>
             <div class="chart-host" id="chartMain"></div>
@@ -88,11 +100,11 @@
             <div class="chart-host" id="chartObv"></div>
           </div>
         </div>
-        <p class="hint">拖曳平移 · 滾輪／捏合縮放時間軸 · 資料來源 Yahoo Finance（經本站代理）</p>
+        <p class="hint">拖曳平移 · 滾輪／捏合縮放 · 十字線跨面板同步 · <kbd>/</kbd> 聚焦搜尋 · 資料來源 Yahoo Finance（經本站代理）</p>
       </section>
 
       <aside class="watchlist" aria-label="觀察清單">
-        <h2>觀察清單</h2>
+        <h2>觀察清單 <span class="watch-live" id="watchLive" title="報價輪詢中">LIVE</span></h2>
         <div id="watchList"></div>
       </aside>
     </div>

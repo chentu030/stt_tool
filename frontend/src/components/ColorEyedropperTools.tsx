@@ -21,6 +21,8 @@ type Props = {
   /** compact = picker toolbar; panel = floating 色票工具 */
   variant?: "compact" | "panel";
   className?: string;
+  /** Optional close control for floating panel */
+  onClose?: () => void;
 };
 
 export default function ColorEyedropperTools({
@@ -28,15 +30,31 @@ export default function ColorEyedropperTools({
   onSample,
   variant = "compact",
   className = "",
+  onClose,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [last, setLast] = useState<SampledColor | null>(null);
+  const [pasteHex, setPasteHex] = useState("");
   const supported = isEyeDropperSupported();
 
   const display =
     toSampledColor(color || "") ||
     last ||
     toSampledColor("#64748b")!;
+
+  const applySample = useCallback(
+    (hex: string) => {
+      const colorObj = toSampledColor(hex);
+      if (!colorObj) {
+        toast("無法解析顏色，請輸入如 #0d9488");
+        return false;
+      }
+      setLast(colorObj);
+      onSample?.(colorObj.hex);
+      return true;
+    },
+    [onSample]
+  );
 
   const sample = useCallback(async () => {
     if (busy) return;
@@ -57,6 +75,18 @@ export default function ColorEyedropperTools({
     toast(ok ? `已複製 ${label}` : "複製失敗");
   }, []);
 
+  const applyPaste = useCallback(() => {
+    const hex = normalizeHexColor(pasteHex);
+    if (!hex) {
+      toast("請輸入有效 Hex（如 #0d9488）");
+      return;
+    }
+    if (applySample(hex)) {
+      setPasteHex(hex);
+      toast("已套用顏色");
+    }
+  }, [pasteHex, applySample]);
+
   if (variant === "panel") {
     const rgb = display.rgb;
     return (
@@ -65,10 +95,23 @@ export default function ColorEyedropperTools({
           <span className="material-symbols-outlined ced-icon" aria-hidden>
             colorize
           </span>
-          <div>
+          <div className="ced-panel-head-text">
             <p className="ced-title">色票工具</p>
             <p className="ced-sub">一般擴充功能 · 吸取螢幕顏色</p>
           </div>
+          {onClose && (
+            <button
+              type="button"
+              className="ced-panel-close"
+              title="關閉色票"
+              aria-label="關閉色票"
+              onClick={onClose}
+            >
+              <span className="material-symbols-outlined" aria-hidden>
+                close
+              </span>
+            </button>
+          )}
         </div>
         <div className="ced-swatch-row">
           <span
@@ -85,7 +128,7 @@ export default function ColorEyedropperTools({
           <button
             type="button"
             className="btn btn-sm btn-soft"
-            disabled={busy}
+            disabled={busy || !supported}
             title={supported ? "吸取螢幕上的顏色" : "此瀏覽器不支援 EyeDropper"}
             onClick={() => void sample()}
           >
@@ -110,9 +153,30 @@ export default function ColorEyedropperTools({
           </button>
         </div>
         {!supported && (
-          <p className="ced-warn">
-            此瀏覽器無法吸取螢幕像素。請改用 Chrome 或 Edge，或手動輸入 Hex／RGB。
-          </p>
+          <div className="ced-paste">
+            <p className="ced-warn">
+              此瀏覽器無法吸取螢幕像素。請貼上 Hex 色碼套用，或改用 Chrome／Edge。
+            </p>
+            <div className="ced-paste-row">
+              <input
+                className="input ced-paste-input"
+                value={pasteHex}
+                placeholder="#0d9488"
+                spellCheck={false}
+                aria-label="貼上 Hex 色碼"
+                onChange={(e) => setPasteHex(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    applyPaste();
+                  }
+                }}
+              />
+              <button type="button" className="btn btn-sm btn-soft" onClick={applyPaste}>
+                套用
+              </button>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -126,8 +190,8 @@ export default function ColorEyedropperTools({
       <button
         type="button"
         className="btn btn-sm btn-soft ced-pick"
-        disabled={busy}
-        title={supported ? "吸取螢幕上的顏色" : "此瀏覽器不支援 EyeDropper"}
+        disabled={busy || !supported}
+        title={supported ? "吸取螢幕上的顏色" : "此瀏覽器不支援 EyeDropper，請用下方 Hex 輸入"}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => void sample()}
       >
@@ -155,6 +219,33 @@ export default function ColorEyedropperTools({
       >
         {hex.toUpperCase()}
       </button>
+      {!supported && (
+        <div className="ced-paste-row ced-paste-row--inline">
+          <input
+            className="input ced-paste-input"
+            value={pasteHex}
+            placeholder="貼上 #hex"
+            spellCheck={false}
+            aria-label="貼上 Hex 色碼"
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => setPasteHex(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyPaste();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={applyPaste}
+          >
+            套用
+          </button>
+        </div>
+      )}
     </div>
   );
 }

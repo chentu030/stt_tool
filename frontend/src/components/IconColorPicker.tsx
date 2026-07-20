@@ -13,6 +13,11 @@ import {
 } from "@/lib/pageChrome";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import ColorEyedropperTools from "@/components/ColorEyedropperTools";
+import {
+  hexToRgb as pickHexToRgb,
+  normalizeHexColor as pickNormalizeHex,
+  rgbToHex as pickRgbToHex,
+} from "@/lib/colorPick";
 
 type Props = {
   mode: "note" | "folder";
@@ -55,17 +60,11 @@ function saveCustoms(list: string[]) {
 }
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const n = normalizeHexColor(hex) || "#64748b";
-  return {
-    r: parseInt(n.slice(1, 3), 16),
-    g: parseInt(n.slice(3, 5), 16),
-    b: parseInt(n.slice(5, 7), 16),
-  };
+  return pickHexToRgb(pickNormalizeHex(hex) || hex);
 }
 
 function rgbToHex(r: number, g: number, b: number): string {
-  const h = (n: number) => Math.min(255, Math.max(0, n | 0)).toString(16).padStart(2, "0");
-  return `#${h(r)}${h(g)}${h(b)}`;
+  return pickRgbToHex(r, g, b);
 }
 
 /** Resolve stored preset id / hex → display hex for the wheel. */
@@ -263,8 +262,9 @@ export default function IconColorPicker({
         <ColorEyedropperTools
           color={normalizeHexColor(draft) || draft}
           onSample={(hex) => {
-            setDraft(hex);
-            pickColor(hex);
+            const n = pickNormalizeHex(hex) || normalizeHexColor(hex) || hex;
+            setDraft(n);
+            pickColor(n);
           }}
         />
       </div>

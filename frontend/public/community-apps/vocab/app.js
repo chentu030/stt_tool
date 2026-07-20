@@ -131,12 +131,15 @@ const DEFAULT_SETTINGS = {
 
 
 /* ---------------------- Albireus host settings bridge ---------------------- */
-const ALBIREUS_NOTE = (() => {
-  try { return new URLSearchParams(location.search).get('note') || ''; } catch { return ''; }
+const ALBIREUS_QS = (() => {
+  try { return new URLSearchParams(location.search); } catch { return new URLSearchParams(); }
 })();
+const ALBIREUS_NOTE = ALBIREUS_QS.get('note') || '';
+const IS_ALBIREUS_EMBED = ALBIREUS_QS.get('albireus') === '1' || !!ALBIREUS_NOTE;
+const LS_GATE_SKIP = 'vocab_gate_skip_v1';
 
 function parseAlbireusSettingsFromQuery() {
-  const qs = new URLSearchParams(location.search);
+  const qs = ALBIREUS_QS;
   let s = {};
   try { s = JSON.parse(qs.get('settings') || '{}') || {}; } catch { s = {}; }
   for (const [k, v] of qs.entries()) {
@@ -148,6 +151,8 @@ function parseAlbireusSettingsFromQuery() {
 function splitKeys(raw) {
   return String(raw || '').split(/[\n,]+/).map(k => k.trim()).filter(Boolean);
 }
+
+let hostThemeLocked = false; // when host sends theme, prefer it over local toggle persistence fights
 
 function applyAlbireusHostSettings(host) {
   if (!host || typeof host !== 'object') return;
@@ -166,10 +171,12 @@ function applyAlbireusHostSettings(host) {
     if (Number.isFinite(n) && n > 0) settings.dailyGoal = n;
   }
   if (host.theme === 'light' || host.theme === 'dark') {
-    try { applyTheme(host.theme); } catch { /* theme not ready */ }
+    hostThemeLocked = true;
+    try { applyTheme(host.theme, { fromHost: true }); } catch { /* theme not ready */ }
   } else if (host.theme === 'auto') {
+    hostThemeLocked = true;
     const dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    try { applyTheme(dark ? 'dark' : 'light'); } catch { /* ignore */ }
+    try { applyTheme(dark ? 'dark' : 'light', { fromHost: true }); } catch { /* ignore */ }
   }
   const apiEl = document.getElementById('apiKeysInput');
   if (apiEl) apiEl.value = (settings.apiKeys || []).join('\n');
@@ -184,6 +191,12 @@ function applyAlbireusHostSettings(host) {
 }
 
 function bindAlbireusHost() {
+  if (IS_ALBIREUS_EMBED) {
+    try {
+      document.documentElement.classList.add('albireus-embed');
+      document.body.classList.add('albireus-embed');
+    } catch { /* ignore */ }
+  }
   applyAlbireusHostSettings(parseAlbireusSettingsFromQuery());
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'albireus:settings') {
@@ -194,6 +207,16 @@ function bindAlbireusHost() {
   if (ALBIREUS_NOTE) {
     try { document.documentElement.dataset.albireusNote = ALBIREUS_NOTE; } catch { /* ignore */ }
   }
+  // Keep auto theme in sync with OS when host asked for auto
+  try {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    mq.addEventListener('change', () => {
+      const host = parseAlbireusSettingsFromQuery();
+      if (host.theme === 'auto' && hostThemeLocked) {
+        applyTheme(mq.matches ? 'dark' : 'light', { fromHost: true });
+      }
+    });
+  } catch { /* ignore */ }
 }
 
 let keyIndex = 0;          // 金鑰輪詢游標
@@ -849,10 +872,58 @@ function init() {
   }
 }
 
-/* ---------------------- Google 登入（必須登入） ---------------------- */
+/* ---------------------- Google 登入（Albireus 嵌入可軟跳過） ---------------------- */
 const MIGRATE_OWNER_EMAIL = 'lcy101120@gmail.com'; // 舊資料歸屬的帳號
 const LS_MIGRATED = 'vocab_migrated_lcy_v1';
 let authBound = false;
+let gateSkipped = false;
+
+function isGateSkipped() {
+  if (gateSkipped) return true;
+  try {
+    if (IS_ALBIREUS_EMBED && localStorage.getItem(LS_GATE_SKIP) === '1') {
+      gateSkipped = true;
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+function skipLoginGate() {
+  gateSkipped = true;
+  try { if (IS_ALBIREUS_EMBED) localStorage.setItem(LS_GATE_SKIP, '1'); } catch { /* ignore */ }
+  showGate(false);
+  // Reload local deck for anonymous / local-only mode
+  try {
+    cards = loadJSON(nsKey(LS_CARDS), []);
+    folders = loadJSON(nsKey(LS_FOLDERS), []);
+    daily = loadJSON(nsKey(LS_DAILY), { date: todayStr(), count: 0, streak: 0, lastMetDate: '', countedIds: [] });
+    if (!Array.isArray(daily.countedIds)) daily.countedIds = [];
+    renderFolderSelects();
+    renderDailyPanel();
+    renderDeck();
+    restoreLastUi();
+  } catch { /* ignore */ }
+}
+
+function configureGateForEmbed() {
+  const skipBtn = $('#gateSkipBtn');
+  const msg = $('#gateMessage');
+  if (!IS_ALBIREUS_EMBED) {
+    if (skipBtn) skipBtn.hidden = true;
+    return;
+  }
+  if (msg) {
+    msg.textContent = '登入後可跨裝置同步詞庫。也可先以本機資料在嵌入頁使用，稍後再登入。';
+  }
+  if (skipBtn && !skipBtn.dataset.bound) {
+    skipBtn.hidden = false;
+    skipBtn.dataset.bound = '1';
+    skipBtn.addEventListener('click', () => skipLoginGate());
+  } else if (skipBtn) {
+    skipBtn.hidden = false;
+  }
+}
 
 function showGate(show, status) {
   const gate = $('#loginGate');
@@ -863,6 +934,8 @@ function showGate(show, status) {
 function bindAuth() {
   const topBtn = $('#loginBtn');
   const gateBtn = $('#gateLoginBtn');
+  configureGateForEmbed();
+
   // 無 Auth（例如未部署 Firebase）：不強制登入，維持本機資料
   if (!window.Auth || !window.Auth.enabled) {
     showGate(false);
@@ -873,6 +946,11 @@ function bindAuth() {
   }
   if (authBound) return;
   authBound = true;
+
+  // Albireus iframe：若曾選擇略過，不要一進來就擋畫面
+  if (isGateSkipped() && !window.Auth.user) {
+    showGate(false);
+  }
 
   gateBtn?.addEventListener('click', () => { showGate(true, '登入中…'); window.Auth.signInGoogle(); });
   topBtn?.addEventListener('click', () => {
@@ -886,17 +964,31 @@ function bindAuth() {
 async function onAuthChanged(u) {
   const topBtn = $('#loginBtn');
   if (!u) {
-    // 未登入：清空畫面、顯示登入牆
+    // 未登入：清空雲端狀態；Albireus 嵌入且已略過則不擋 iframe
     currentUid = null;
     if (window.Cloud?.setUser) window.Cloud.setUser(null);
     if (cloudUnsub) { try { cloudUnsub(); } catch { } cloudUnsub = null; }
-    cards = [];
     if (topBtn) { topBtn.textContent = '登入'; topBtn.title = '以 Google 登入'; topBtn.classList.remove('signed-in'); }
     setCloudBadge('');
+    if (isGateSkipped()) {
+      showGate(false);
+      try {
+        cards = loadJSON(nsKey(LS_CARDS), []);
+        folders = loadJSON(nsKey(LS_FOLDERS), []);
+        renderFolderSelects();
+        renderDailyPanel();
+        renderDeck();
+      } catch { /* ignore */ }
+      return;
+    }
+    cards = [];
     renderDeck();
     showGate(true, '');
     return;
   }
+  // Signed in — clear skip so next logout can soft-gate again in embed if desired
+  try { localStorage.removeItem(LS_GATE_SKIP); } catch { /* ignore */ }
+  gateSkipped = false;
   // 已登入
   currentUid = u.uid;
   if (window.Cloud?.setUser) window.Cloud.setUser(u.uid);
@@ -1310,14 +1402,19 @@ function bindNav() {
   });
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem(LS_THEME, theme);
-  $('.theme-icon').textContent = theme === 'dark' ? '☀️' : '🌙';
+function applyTheme(theme, opts = {}) {
+  const t = theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', t);
+  if (!opts.fromHost) {
+    try { localStorage.setItem(LS_THEME, t); } catch { /* ignore */ }
+  }
+  const icon = $('.theme-icon');
+  if (icon) icon.textContent = t === 'dark' ? '☀️' : '🌙';
 }
 function bindTheme() {
-  $('#themeToggle').addEventListener('click', () => {
+  $('#themeToggle')?.addEventListener('click', () => {
     const cur = document.documentElement.getAttribute('data-theme');
+    hostThemeLocked = false; // user override
     applyTheme(cur === 'dark' ? 'light' : 'dark');
   });
 }

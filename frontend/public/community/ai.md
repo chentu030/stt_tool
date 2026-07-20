@@ -439,11 +439,70 @@ Community packages today only install **page extensions** (`kind: "extension"` +
 ### Built-in prototype: 色票工具 (`color-eyedropper`)
 
 - Lives in the host (`frontend/src/lib/colorPick.ts`, `ColorEyedropperTools`, note floating「色票」).
-- Uses the browser `EyeDropper` API when available; otherwise shows a clear unsupported message (no empty iframe install required).
-- Surfaces: `IconColorPicker` (page/folder icon color), note font/highlight color panels, optional floating panel on note pages.
+- Uses the browser `EyeDropper` API when available; otherwise shows paste-Hex fallback (no empty iframe install required).
+- Surfaces: `IconColorPicker` (page/folder icon color — sampled color syncs Hex **and** RGB inputs), note font/highlight color panels, optional floating panel on note pages.
+- Floating chip: dismiss / hide remembers preference in `localStorage` (`albireus_utility_color_swatch_open`, `albireus_utility_color_swatch_hidden`).
 - Metadata registry: `frontend/src/lib/hostUtilities.ts` (`kind: "utility"`). Community schema does **not** yet accept `kind: "tool"` / `"utility"` — do not put utilities in `albireus.json` until the parser supports them.
 
 **AI guidance:** If the user asks for an on-screen eyedropper / color sampler, implement or extend the **host utility**, not a new iframe extension page.
+
+---
+
+## 12. Reference implementations (shipped in-repo)
+
+Use these as production-quality patterns when building new packages. Paths are relative to the Albireus monorepo root.
+
+### A) 背單字 — page extension (`builtin:vocab-srs`)
+
+| Item | Location |
+|------|----------|
+| Manifest | `frontend/public/community-apps/vocab/albireus.json` |
+| UI | `frontend/public/community-apps/vocab/` (`index.html`, `app.js`, `styles.css`, `db.js`) |
+| Host id | Often registered as builtin `vocab-srs` |
+
+**Patterns to copy**
+
+- Read `?note=`, `?albireus=1`, `?settings=` / `s_*`, and `albireus:settings` postMessage.
+- Soft login gate when `albireus=1`: offer「先用本機資料繼續」so the iframe is not blocked awkwardly; denser `.topbar` under `.albireus-embed`.
+- Host `settings.theme` (`light` / `dark` / `auto`) wired into the page theme; never bake Gemini / Vertex API secrets into the repo — blank defaults + settings UI / host settings only.
+- Teal tokens + Outfit / Space Grotesk; Traditional Chinese UI.
+
+### B) 台股／美股看盤 — page extension (`builtin:yahoo-stocks`)
+
+| Item | Location |
+|------|----------|
+| Manifest | `frontend/public/community-apps/stocks/albireus.json` |
+| UI | `frontend/public/community-apps/stocks/` |
+| API proxy | `frontend/src/app/api/stocks/{search,quote,chart}/route.ts` + `frontend/src/lib/stocks/yahoo.ts` |
+| Host id | Often registered as builtin `yahoo-stocks` |
+
+**Patterns to copy**
+
+- Same-origin `/api/stocks/*` proxy (never call Yahoo from the browser with secrets; this proxy is public-data only).
+- Loading skeleton, empty / error states, `/` keyboard focus on search.
+- Multi-pane charts: sync **time scale** and **crosshair** across panes; watchlist soft-poll with LIVE indicator.
+- Settings: `default_symbol`, `refresh_seconds`, `theme`.
+
+### C) 色票工具 — host utility (not an iframe package)
+
+| Item | Location |
+|------|----------|
+| Helpers | `frontend/src/lib/colorPick.ts` |
+| UI | `ColorEyedropperTools.tsx`, `ColorSwatchUtility.tsx`, `IconColorPicker.tsx` |
+| Registry | `frontend/src/lib/hostUtilities.ts` (`id: color-eyedropper`) |
+
+**Patterns to copy**
+
+- Host React only — no `albireus.json` until `kind: "utility"` exists.
+- EyeDropper when supported; paste Hex when not; apply sample into both Hex and RGB fields in pickers.
+- Floating chip dismiss / hide preference via `localStorage`.
+
+### Prompt hint
+
+```text
+請參考 /community/ai.md §12 的三個實作（vocab iframe、stocks iframe + /api/stocks、色票 host utility），
+依同樣架構與視覺 token 做【你的工具】。
+```
 
 ---
 

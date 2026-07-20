@@ -7571,6 +7571,30 @@ a.sidebar-user-name:hover {
   align-items: flex-start;
   gap: 0.5rem;
 }
+.ced-panel-head-text {
+  flex: 1;
+  min-width: 0;
+}
+.ced-panel-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.ced-panel-close:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.ced-panel-close .material-symbols-outlined {
+  font-size: 1.05rem;
+}
 .ced-icon {
   font-size: 1.25rem;
   color: var(--accent);
@@ -7624,6 +7648,26 @@ a.sidebar-user-name:hover {
   line-height: 1.4;
   color: var(--text-muted);
 }
+.ced-paste {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.ced-paste-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.ced-paste-row--inline {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+.ced-paste-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem !important;
+  padding: 0.35rem 0.5rem !important;
+}
 .ced-float {
   position: fixed;
   right: 1.1rem;
@@ -7637,6 +7681,11 @@ a.sidebar-user-name:hover {
 }
 .ced-float > * {
   pointer-events: auto;
+}
+.ced-float-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 .ced-float-toggle {
   display: inline-flex;
@@ -7660,6 +7709,46 @@ a.sidebar-user-name:hover {
 .ced-float-toggle.is-on {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   background: var(--accent-soft, rgba(15, 118, 110, 0.08));
+}
+.ced-float-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+.ced-float-dismiss:hover {
+  color: var(--text-main);
+  background: var(--bg-muted);
+}
+.ced-float-dismiss .material-symbols-outlined {
+  font-size: 0.95rem;
+}
+.ced-float-restore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.55;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+.ced-float-restore:hover {
+  opacity: 1;
+}
+.ced-float-restore .material-symbols-outlined {
+  font-size: 1.1rem;
 }
 .ced-float-label {
   letter-spacing: 0.01em;

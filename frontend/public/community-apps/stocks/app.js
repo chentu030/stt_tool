@@ -32,8 +32,11 @@
     inds: new Set(["kd", "macd", "rsi", "obv"]),
     bars: [],
     quoteTimer: null,
+    watchTimer: null,
     searchTimer: null,
     syncing: false,
+    syncingXh: false,
+    loading: false,
   };
 
   const el = {
@@ -42,6 +45,11 @@
     btnLoad: document.getElementById("btnLoad"),
     btnRefresh: document.getElementById("btnRefresh"),
     error: document.getElementById("errorBanner"),
+    empty: document.getElementById("emptyState"),
+    emptyRetry: document.getElementById("emptyRetry"),
+    skeleton: document.getElementById("chartSkeleton"),
+    mainLayout: document.getElementById("mainLayout"),
+    watchLive: document.getElementById("watchLive"),
     qSymbol: document.getElementById("qSymbol"),
     qPrice: document.getElementById("qPrice"),
     qChg: document.getElementById("qChg"),
@@ -79,6 +87,28 @@
     }
     el.error.textContent = msg;
     el.error.classList.add("show");
+  }
+
+  function setLoading(on) {
+    state.loading = !!on;
+    if (el.skeleton) el.skeleton.classList.toggle("show", !!on);
+    if (el.btnLoad) el.btnLoad.disabled = !!on;
+    if (el.btnRefresh) el.btnRefresh.disabled = !!on;
+    document.getElementById("charts")?.classList.toggle("is-loading", !!on);
+  }
+
+  function showEmpty(on, title, sub) {
+    if (!el.empty) return;
+    el.empty.hidden = !on;
+    if (on) {
+      const t = el.empty.querySelector(".empty-title");
+      const s = el.empty.querySelector(".empty-sub");
+      if (t && title) t.textContent = title;
+      if (s && sub) s.textContent = sub;
+      if (el.mainLayout) el.mainLayout.classList.add("is-empty");
+    } else if (el.mainLayout) {
+      el.mainLayout.classList.remove("is-empty");
+    }
   }
 
   function parseSettings() {
@@ -248,6 +278,48 @@
       });
     });
 
+    // Crosshair sync across panes
+    const seriesFor = {
+      main: () => series.candle,
+      vol: () => series.vol,
+      kd: () => series.k,
+      macd: () => series.dif,
+      rsi: () => series.rsi,
+      obv: () => series.obv,
+    };
+    list.forEach((key) => {
+      charts[key].subscribeCrosshairMove((param) => {
+        if (state.syncingXh) return;
+        state.syncingXh = true;
+        try {
+          if (!param || param.time === undefined) {
+            list.forEach((other) => {
+              if (other === key) return;
+              try {
+                charts[other].clearCrosshairPosition();
+              } catch {
+                /* ignore */
+              }
+            });
+          } else {
+            list.forEach((other) => {
+              if (other === key) return;
+              const s = seriesFor[other]?.();
+              if (!s || !charts[other]) return;
+              try {
+                // price 0 is fine — LWC places the vertical crosshair by time
+                charts[other].setCrosshairPosition(0, param.time, s);
+              } catch {
+                /* ignore */
+              }
+            });
+          }
+        } finally {
+          state.syncingXh = false;
+        }
+      });
+    });
+
     const ro = new ResizeObserver(() => resizeCharts());
     ro.observe(document.getElementById("charts"));
     window.addEventListener("resize", resizeCharts);
@@ -306,6 +378,8 @@
     state.symbol = normalizeLocal(symbol);
     el.qStatus.textContent = "載入 K 線…";
     showError("");
+    showEmpty(false);
+    setLoading(true);
     try {
       const data = await fetchJson(
         "/chart?symbol=" + encodeURIComponent(state.symbol) + "&range=2y&interval=1d"
@@ -318,9 +392,13 @@
       el.search.value = state.symbol;
       el.qStatus.textContent = "已更新 " + new Date().toLocaleTimeString("zh-TW");
       startQuotePoll();
+      startWatchPoll();
     } catch (e) {
       showError(e.message || "載入失敗");
       el.qStatus.textContent = "錯誤";
+      showEmpty(true, "無法載入圖表", e.message || "請檢查代號後重試，或稍後再試。");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -446,11 +524,47 @@
     }
   }
 
+  function startWatchPoll() {
+    stopWatchPoll();
+    if (el.watchLive) el.watchLive.classList.add("on");
+    const tick = () => {
+      if (document.hidden) return;
+      refreshWatchQuotes();
+    };
+    // Stagger slightly vs main quote poll
+    state.watchTimer = setInterval(tick, Math.max(15, state.refreshSec) * 1000);
+    refreshWatchQuotes();
+  }
+
+  function stopWatchPoll() {
+    if (state.watchTimer) {
+      clearInterval(state.watchTimer);
+      state.watchTimer = null;
+    }
+    if (el.watchLive) el.watchLive.classList.remove("on");
+  }
+
+  async function refreshWatchQuotes() {
+    // Soft sequential refresh so we don't stampede Yahoo via proxy
+    for (const w of DEFAULT_WATCH) {
+      if (document.hidden) break;
+      try {
+        const q = await fetchJson("/quote?symbol=" + encodeURIComponent(w.symbol));
+        updateWatchQuote(q, true);
+      } catch {
+        /* ignore single failures */
+      }
+    }
+  }
+
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopQuotePoll();
-    else {
+    if (document.hidden) {
+      stopQuotePoll();
+      stopWatchPoll();
+    } else {
       refreshQuote();
       startQuotePoll();
+      startWatchPoll();
     }
   });
 
@@ -484,12 +598,7 @@
       btn.addEventListener("click", () => loadChart(w.symbol));
       el.watchList.appendChild(btn);
     });
-    // Soft-refresh watch quotes
-    DEFAULT_WATCH.forEach((w) => {
-      fetchJson("/quote?symbol=" + encodeURIComponent(w.symbol))
-        .then((q) => updateWatchQuote(q))
-        .catch(() => {});
-    });
+    startWatchPoll();
   }
 
   function highlightWatch() {
@@ -498,17 +607,25 @@
     });
   }
 
-  function updateWatchQuote(q) {
+  function updateWatchQuote(q, flash) {
     if (!q || !q.symbol) return;
     const node = el.watchList.querySelector('[data-symbol="' + q.symbol + '"]');
     if (!node) return;
     const px = node.querySelector("[data-px]");
     const pct = node.querySelector("[data-pct]");
-    if (px) px.textContent = fmtNum(q.price, q.price != null && q.price < 10 ? 2 : 1);
+    const nextPx = fmtNum(q.price, q.price != null && q.price < 10 ? 2 : 1);
+    const prevPx = px ? px.textContent : "";
+    if (px) px.textContent = nextPx;
     if (pct) {
       const up = (q.changePercent || 0) >= 0;
       pct.className = "pct " + (up ? "up" : "down");
       pct.textContent = fmtPct(q.changePercent);
+    }
+    if (flash && px && prevPx && prevPx !== "—" && prevPx !== nextPx) {
+      node.classList.remove("flash");
+      // reflow to restart animation
+      void node.offsetWidth;
+      node.classList.add("flash");
     }
   }
 
@@ -587,6 +704,17 @@
   el.btnRefresh.addEventListener("click", async () => {
     await loadChart(state.symbol);
   });
+  el.emptyRetry?.addEventListener("click", () => loadChart(el.search.value || state.symbol));
+
+  // `/` focuses search (skip when typing in inputs)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || (e.target && e.target.isContentEditable)) return;
+    e.preventDefault();
+    el.search.focus();
+    el.search.select();
+  });
 
   document.querySelectorAll("[data-ma]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -631,6 +759,7 @@
 
   // Boot
   parseSettings();
+  setLoading(true);
   createCharts();
   renderWatchList();
   loadChart(state.symbol);
