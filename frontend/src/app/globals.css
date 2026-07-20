@@ -5680,25 +5680,28 @@ a.sidebar-user-name:hover {
 }
 .rich-math-block {
   margin: 0.85em 0;
-  padding: 0.85rem 1rem;
+  padding: 0.15rem 0;
   overflow-x: auto;
-  border-radius: 10px;
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  border: none;
   text-align: center;
   cursor: text;
 }
 .rich-math-block:hover {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-color: transparent;
 }
 .rich-math-block.is-editing,
 .rich-math-block.is-selected {
-  border-color: var(--accent);
+  border-radius: 8px;
+  border: 1px solid var(--accent);
   box-shadow: 0 0 0 2px var(--accent-soft);
+  padding: 0.55rem 0.75rem;
 }
 .rich-math-block.is-editing {
   text-align: left;
   cursor: auto;
+  background: var(--bg-muted);
 }
 .rich-math-error {
   color: var(--danger);
