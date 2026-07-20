@@ -317,7 +317,21 @@ export const MathInline = Node.create({
   selectable: true,
   addAttributes() {
     return {
-      formula: { default: "" },
+      formula: {
+        default: "",
+        parseHTML: (el) =>
+          normalizeLatexFormula(
+            decodeFormulaAttr((el as HTMLElement).getAttribute("data-formula") || "")
+          ),
+        renderHTML: (attrs) => {
+          const formula = normalizeLatexFormula(attrs.formula || "");
+          if (!formula) return {};
+          return {
+            "data-math-inline": "1",
+            "data-formula": encodeFormulaAttr(formula),
+          };
+        },
+      },
     };
   },
   parseHTML() {
@@ -330,18 +344,38 @@ export const MathInline = Node.create({
           ),
         }),
       },
+      {
+        tag: "span.rich-math-inline",
+        getAttrs: (el) => ({
+          formula: normalizeLatexFormula(
+            decodeFormulaAttr((el as HTMLElement).getAttribute("data-formula") || "")
+          ),
+        }),
+      },
     ];
   },
   renderHTML({ HTMLAttributes }) {
-    const formula = normalizeLatexFormula(HTMLAttributes.formula || "");
+    const formula = normalizeLatexFormula(
+      HTMLAttributes.formula ||
+        decodeFormulaAttr(String(HTMLAttributes["data-formula"] || ""))
+    );
+    // Include $...$ text so serializers that ignore empty atoms still keep the formula.
     return [
       "span",
-      mergeAttributes({
-        class: "rich-math-inline",
-        "data-math-inline": "1",
-        "data-formula": encodeFormulaAttr(formula),
-        contenteditable: "false",
-      }),
+      mergeAttributes(
+        {
+          class: "rich-math-inline",
+          "data-math-inline": "1",
+          "data-formula": encodeFormulaAttr(formula),
+          contenteditable: "false",
+        },
+        HTMLAttributes,
+        {
+          // Avoid duplicating raw formula attr onto the DOM
+          formula: undefined,
+        }
+      ),
+      formula ? `$${formula}$` : "",
     ];
   },
   addNodeView() {
@@ -379,7 +413,21 @@ export const MathBlock = Node.create({
   selectable: true,
   addAttributes() {
     return {
-      formula: { default: "" },
+      formula: {
+        default: "",
+        parseHTML: (el) =>
+          normalizeLatexFormula(
+            decodeFormulaAttr((el as HTMLElement).getAttribute("data-formula") || "")
+          ),
+        renderHTML: (attrs) => {
+          const formula = normalizeLatexFormula(attrs.formula || "");
+          if (!formula) return {};
+          return {
+            "data-math-block": "1",
+            "data-formula": encodeFormulaAttr(formula),
+          };
+        },
+      },
     };
   },
   parseHTML() {
@@ -392,18 +440,36 @@ export const MathBlock = Node.create({
           ),
         }),
       },
+      {
+        tag: "div.rich-math-block",
+        getAttrs: (el) => ({
+          formula: normalizeLatexFormula(
+            decodeFormulaAttr((el as HTMLElement).getAttribute("data-formula") || "")
+          ),
+        }),
+      },
     ];
   },
   renderHTML({ HTMLAttributes }) {
-    const formula = normalizeLatexFormula(HTMLAttributes.formula || "");
+    const formula = normalizeLatexFormula(
+      HTMLAttributes.formula ||
+        decodeFormulaAttr(String(HTMLAttributes["data-formula"] || ""))
+    );
     return [
       "div",
-      mergeAttributes({
-        class: "rich-math-block",
-        "data-math-block": "1",
-        "data-formula": encodeFormulaAttr(formula),
-        contenteditable: "false",
-      }),
+      mergeAttributes(
+        {
+          class: "rich-math-block",
+          "data-math-block": "1",
+          "data-formula": encodeFormulaAttr(formula),
+          contenteditable: "false",
+        },
+        HTMLAttributes,
+        {
+          formula: undefined,
+        }
+      ),
+      formula ? `$$\n${formula}\n$$` : "",
     ];
   },
   addNodeView() {

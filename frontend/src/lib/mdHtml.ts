@@ -72,25 +72,40 @@ turndown.addRule("noteFile", {
 });
 
 turndown.addRule("mathInline", {
-  filter: (node) =>
-    node.nodeName === "SPAN" &&
-    (node as HTMLElement).getAttribute("data-math-inline") === "1",
-  replacement: (_c, node) => {
-    const f = normalizeLatexFormula(
-      decodeFormulaAttr((node as HTMLElement).getAttribute("data-formula") || "")
+  filter: (node) => {
+    if (node.nodeName !== "SPAN") return false;
+    const el = node as HTMLElement;
+    return (
+      el.getAttribute("data-math-inline") != null ||
+      el.classList?.contains("rich-math-inline") === true
     );
+  },
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const f = normalizeLatexFormula(
+      decodeFormulaAttr(el.getAttribute("data-formula") || "") || (_c || "").replace(/^\$|\$$/g, "").trim()
+    );
+    if (!f) return "";
     return `$${f}$`;
   },
 });
 
 turndown.addRule("mathBlock", {
-  filter: (node) =>
-    node.nodeName === "DIV" &&
-    (node as HTMLElement).getAttribute("data-math-block") === "1",
-  replacement: (_c, node) => {
-    const f = normalizeLatexFormula(
-      decodeFormulaAttr((node as HTMLElement).getAttribute("data-formula") || "")
+  filter: (node) => {
+    if (node.nodeName !== "DIV") return false;
+    const el = node as HTMLElement;
+    return (
+      el.getAttribute("data-math-block") != null ||
+      el.classList?.contains("rich-math-block") === true
     );
+  },
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const f = normalizeLatexFormula(
+      decodeFormulaAttr(el.getAttribute("data-formula") || "") ||
+        (_c || "").replace(/^\$\$|\$\$$/g, "").trim()
+    );
+    if (!f) return "";
     return `\n\n$$\n${f}\n$$\n\n`;
   },
 });
@@ -591,7 +606,38 @@ export function clipboardHasLatex(text: string): boolean {
 
 export function htmlToMarkdown(html: string): string {
   if (!html || html === "<p></p>" || html === "<p><br></p>") return "";
-  return turndown.turndown(html).trim();
+  // TipTap math nodes serialize as empty <span/div data-formula> atoms. Turndown's
+  // blank-node rule would drop them before our math rules run — expand to $...$ first.
+  let input = html;
+  if (typeof DOMParser !== "undefined") {
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      doc.querySelectorAll("[data-math-inline], .rich-math-inline").forEach((el) => {
+        const f = normalizeLatexFormula(
+          decodeFormulaAttr(el.getAttribute("data-formula") || "")
+        );
+        if (!f) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`$${f}$`));
+      });
+      doc.querySelectorAll("[data-math-block], .rich-math-block").forEach((el) => {
+        const f = normalizeLatexFormula(
+          decodeFormulaAttr(el.getAttribute("data-formula") || "")
+        );
+        if (!f) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(`\n\n$$\n${f}\n$$\n\n`));
+      });
+      input = doc.body.innerHTML;
+    } catch {
+      input = html;
+    }
+  }
+  return turndown.turndown(input).trim();
 }
 
 export function formatFileSize(bytes: number): string {
