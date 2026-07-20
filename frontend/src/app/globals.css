@@ -1894,6 +1894,8 @@ button, input, textarea, select {
   flex-direction: column;
   overflow-x: clip;
   box-sizing: border-box;
+  /* app-main--doc zeros padding; keep breathing room from the sidebar */
+  padding: 0.85rem clamp(1rem, 2.2vw, 1.6rem) 1.25rem;
 }
 .bd-guest { text-align: center; padding: 3rem 1rem; }
 .bd-hero-switch {
