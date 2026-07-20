@@ -999,7 +999,7 @@ function NotePageInner() {
       <div className={`doc-ribbon${viewMode === "slides" ? " is-hidden" : ""}`} ref={setRibbonHost} />
 
       <div className="doc-command">
-        <div className="doc-command-left">
+        <nav className="doc-command-path" aria-label="筆記路徑">
           <Link href="/library" className="doc-crumb">知識庫</Link>
           {splitFolderPath(folder).map((seg, i, arr) => {
             const path = arr.slice(0, i + 1).join("/");
@@ -1040,6 +1040,8 @@ function NotePageInner() {
           {statusLabel && (
             <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>{statusLabel}</span>
           )}
+        </nav>
+        <div className="doc-command-bar">
           <div className="doc-view-switch" role="tablist" aria-label="檢視模式">
             <button
               type="button"
@@ -1062,8 +1064,7 @@ function NotePageInner() {
               簡報
             </button>
           </div>
-        </div>
-        <div className="doc-command-actions">
+          <div className="doc-command-actions">
           <NotePresence noteId={note.id} />
           <NoteHuddle noteId={note.id} />
           {viewMode === "slides" && slideActions && (
@@ -1242,6 +1243,7 @@ function NotePageInner() {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
       </div>

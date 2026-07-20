@@ -3501,16 +3501,28 @@ a.sidebar-user-name:hover {
   gap: 0.35rem;
   padding-right: 0.15rem;
 }
-.doc-workspace.is-focus .doc-command-left .doc-crumb,
-.doc-workspace.is-focus .doc-command-left .doc-crumb-sep {
+.doc-workspace.is-focus .doc-command-path .doc-crumb,
+.doc-workspace.is-focus .doc-command-path .doc-crumb-sep {
   display: none;
 }
-.doc-command-left {
+.doc-command-path {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   min-width: 0;
   flex: 1;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.doc-command-path::-webkit-scrollbar {
+  display: none;
+}
+.doc-command-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  min-width: 0;
 }
 .doc-crumb {
   font-size: 0.8rem;
@@ -3553,6 +3565,43 @@ a.sidebar-user-name:hover {
 .doc-cmd.is-on { background: var(--accent-soft); color: var(--accent); }
 .doc-cmd:disabled { opacity: 0.45; cursor: not-allowed; }
 .doc-more-wrap { position: relative; }
+@media (max-width: 900px) {
+  .doc-command {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+    padding: 0.5rem 0.9rem 0.55rem;
+  }
+  .doc-command-path {
+    flex: none;
+    width: 100%;
+    max-width: 100%;
+  }
+  .doc-crumb-current {
+    max-width: min(12rem, 46vw);
+  }
+  .doc-command-bar {
+    width: 100%;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+  .doc-command-actions {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-left: auto;
+  }
+  .doc-command-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .doc-command-actions .doc-cmd:not(.doc-cmd--keep) {
+    display: none;
+  }
+  .doc-command-bar .doc-view-switch {
+    margin-left: 0;
+    flex-shrink: 0;
+  }
+}
 @media (max-width: 720px) {
   .doc-command-actions .doc-cmd:not(.doc-cmd--keep) {
     display: none;
@@ -8717,8 +8766,8 @@ body.is-sidebar-resizing iframe {
 }
 
 /* Slide UX pass2: dual pane + bridge */
-.doc-command-left .doc-view-switch {
-  margin-left: 0.55rem;
+.doc-command-bar .doc-view-switch {
+  margin-left: 0;
 }
 .doc-title-row.is-compact {
   margin-bottom: 0.35rem;
@@ -8816,10 +8865,6 @@ body.is-sidebar-resizing iframe {
 @media (max-width: 960px) {
   .slide-studio--embedded.is-props-collapsed .slide-studio-body {
     grid-template-columns: 1fr;
-  }
-  .doc-command-left .doc-view-switch {
-    margin-left: 0;
-    margin-top: 0.35rem;
   }
 }
 
