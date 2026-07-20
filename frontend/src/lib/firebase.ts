@@ -71,8 +71,28 @@ export function jobDisplayTitle(
   job: Pick<Job, "title" | "filenames" | "youtube_url">
 ): string {
   const custom = (job.title || "").trim();
-  if (custom) return custom;
-  return job.filenames?.[0] || job.youtube_url || "逐字稿";
+  if (custom && !/^https?:\/\//i.test(custom)) return custom;
+  const fn = (job.filenames?.[0] || "").trim();
+  if (fn && !/^https?:\/\//i.test(fn)) return fn;
+  return "逐字稿";
+}
+
+/** Fetch YouTube video title via oEmbed (no API key). */
+export async function fetchYoutubeTitle(url: string): Promise<string | null> {
+  const raw = (url || "").trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) return null;
+  try {
+    const u = new URL("https://www.youtube.com/oembed");
+    u.searchParams.set("url", raw);
+    u.searchParams.set("format", "json");
+    const res = await fetch(u.toString());
+    if (!res.ok) return null;
+    const data = (await res.json()) as { title?: string };
+    const title = (data.title || "").trim();
+    return title || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateJobTitle(jobId: string, title: string) {
@@ -84,10 +104,12 @@ export async function createJob(
   uid: string,
   sourceType: "upload" | "youtube",
   filenames: string[],
-  youtubeUrl: string = ""
+  youtubeUrl: string = "",
+  title: string = ""
 ): Promise<string> {
   const jobId = `${uid}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const jobRef = doc(db, "jobs", jobId);
+  const displayTitle = (title || "").trim();
   await setDoc(jobRef, {
     user_id: uid,
     created_at: Timestamp.now(),
@@ -98,6 +120,7 @@ export async function createJob(
     source_type: sourceType,
     filenames,
     youtube_url: youtubeUrl,
+    ...(displayTitle ? { title: displayTitle } : {}),
     storage_paths: [],
     result_paths: [],
     transcripts: [],

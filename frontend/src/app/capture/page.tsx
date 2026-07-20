@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, jobDisplayTitle, type Job,
+  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, jobDisplayTitle, fetchYoutubeTitle, type Job,
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -239,9 +239,14 @@ export default function CapturePage() {
       let ytForServer = youtubeUrl;
       let sourceType: "upload" | "youtube" = files.length ? "upload" : "youtube";
       let filenames = files.length ? files.map((f) => f.name) : [youtubeUrl];
+      let ytTitle = "";
+      if (!files.length && youtubeUrl.trim()) {
+        ytTitle = (await fetchYoutubeTitle(youtubeUrl.trim())) || "";
+        if (ytTitle) filenames = [ytTitle];
+      }
 
       if (useExt) {
-        jobId = await createJob(user.uid, "upload", ["YouTube 音訊"], "");
+        jobId = await createJob(user.uid, "upload", filenames, "", ytTitle);
         setProgress({ status: "extracting", pct: 0, label: "解析影片連結…" });
         const token = await user.getIdToken();
         const r = await extractAndUpload(youtubeUrl, user.uid, jobId, token, (stage, pct) => {
@@ -252,12 +257,18 @@ export default function CapturePage() {
           });
         });
         storagePaths = [r.storagePath];
-        filenames = [r.filename];
-        await updateJobStatus(jobId, { status: "queued", storage_paths: storagePaths, filenames, total_files: 1 });
+        filenames = [ytTitle || r.filename];
+        await updateJobStatus(jobId, {
+          status: "queued",
+          storage_paths: storagePaths,
+          filenames,
+          total_files: 1,
+          ...(ytTitle ? { title: ytTitle } : {}),
+        });
         ytForServer = "";
         sourceType = "upload";
       } else {
-        jobId = await createJob(user.uid, sourceType, filenames, ytForServer);
+        jobId = await createJob(user.uid, sourceType, filenames, ytForServer, ytTitle);
         if (files.length) {
           for (let i = 0; i < files.length; i++) {
             const path = `uploads/${user.uid}/${jobId}/${files[i].name}`;
@@ -267,7 +278,10 @@ export default function CapturePage() {
           }
           await updateJobStatus(jobId, { status: "queued", storage_paths: storagePaths });
         } else {
-          await updateJobStatus(jobId, { status: "queued" });
+          await updateJobStatus(jobId, {
+            status: "queued",
+            ...(ytTitle ? { title: ytTitle, filenames: [ytTitle] } : {}),
+          });
         }
       }
 

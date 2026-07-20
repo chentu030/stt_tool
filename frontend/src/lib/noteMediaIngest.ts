@@ -8,6 +8,7 @@ import {
   getResultText,
   getNote,
   updateNote,
+  fetchYoutubeTitle,
   type Job,
 } from "@/lib/firebase";
 import { askChoice } from "@/lib/dialogs";
@@ -85,8 +86,12 @@ export async function startTranscriptionJob(opts: {
   const language = opts.language || loadPrefs().captureLanguage || "auto";
 
   if (media.kind === "youtube") {
-    const jobId = await createJob(uid, "youtube", [media.label || "YouTube"], media.youtubeUrl);
-    await updateJobStatus(jobId, { status: "queued", language });
+    const ytTitle =
+      (await fetchYoutubeTitle(media.youtubeUrl)) ||
+      (media.label && !/^https?:\/\//i.test(media.label) ? media.label : "") ||
+      "YouTube";
+    const jobId = await createJob(uid, "youtube", [ytTitle], media.youtubeUrl, ytTitle);
+    await updateJobStatus(jobId, { status: "queued", language, title: ytTitle, filenames: [ytTitle] });
     onProgress?.("已排入轉錄佇列", 5);
     const token = await getIdToken();
     const fd = new FormData();

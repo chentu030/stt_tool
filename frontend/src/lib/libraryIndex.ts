@@ -26,8 +26,10 @@ export type LibraryJob = {
 
 export function libraryJobTitle(job: LibraryJob): string {
   const custom = (job.title || "").trim();
-  if (custom) return custom;
-  return job.filenames?.[0] || job.youtube_url || "轉錄";
+  if (custom && !/^https?:\/\//i.test(custom)) return custom;
+  const fn = (job.filenames?.[0] || "").trim();
+  if (fn && !/^https?:\/\//i.test(fn)) return fn;
+  return "轉錄";
 }
 
 export type SortKey = "updated" | "created" | "title" | "length" | "relevance";

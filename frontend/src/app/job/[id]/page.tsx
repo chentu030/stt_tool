@@ -102,9 +102,9 @@ export default function JobPage() {
   const commitTitle = async () => {
     if (!job || titleSaving) return;
     const next = titleDraft.trim();
-    const fallback = job.filenames?.[0] || job.youtube_url || "逐字稿";
+    const fallback = job.filenames?.[0] || "逐字稿";
     const stored = (job.title || "").trim();
-    const toStore = !next || next === fallback ? "" : next;
+    const toStore = !next || next === fallback || /^https?:\/\//i.test(next) ? "" : next;
     if (toStore === stored) {
       setTitleDraft(toStore || fallback);
       return;

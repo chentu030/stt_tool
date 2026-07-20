@@ -659,12 +659,24 @@ def _process_job_sync(job_id: str, job_data: dict):
                 yt_token_id = job_data.get("yt_token_id")
                 if yt_token_id and yt_token_id in _cookies:
                     cookie_content = _cookies[yt_token_id]
+            # Prefer a real video title ASAP (UI shows URL otherwise).
+            if not (job_data.get("title") or "").strip():
+                yt_title = _youtube_oembed_title(yt_url)
+                if yt_title:
+                    job_ref.update({"title": yt_title, "filenames": [yt_title]})
+                    job_data["title"] = yt_title
             # YouTube blocks datacenter IPs ("Sign in to confirm you're not a bot"),
             # so fall back to rotating free proxies. Cookies (if provided) are used
             # in every attempt so private / members-only videos still work.
             def _yt_status(msg: str):
                 job_ref.update({"position_label": msg})
             audio_files = _download_youtube(yt_url, temp_dir, cookie_content, _yt_status)
+            # yt-dlp filename embeds the real title — use it for display / transcripts.
+            if audio_files:
+                dl_title = (audio_files[0][0] or "").strip()
+                if dl_title and not dl_title.lower().startswith(("http://", "https://")):
+                    job_ref.update({"title": dl_title, "filenames": [t[0] for t in audio_files]})
+                    job_data["title"] = dl_title
 
         if not audio_files:
             job_ref.update({"status": "error", "error_message": "No audio files found"})
@@ -771,6 +783,20 @@ async def start_job(
     updates: dict = {}
     if youtube_url:
         updates["youtube_url"] = youtube_url
+        # Resolve video title early so library / job pages don't show the raw URL.
+        existing_title = (job_data.get("title") or "").strip()
+        looks_like_url = existing_title.lower().startswith(("http://", "https://")) or not existing_title
+        fn0 = ""
+        filenames = job_data.get("filenames") or []
+        if filenames:
+            fn0 = str(filenames[0] or "").strip()
+        if looks_like_url or fn0.lower().startswith(("http://", "https://")) or fn0 == youtube_url:
+            yt_title = await asyncio.get_event_loop().run_in_executor(
+                executor, _youtube_oembed_title, youtube_url
+            )
+            if yt_title:
+                updates["title"] = yt_title
+                updates["filenames"] = [yt_title]
     # Persist the cookie into the job doc so any Cloud Run instance (the one the
     # background task lands on) can read it — in-memory would not survive.
     if yt_token_id and yt_token_id in _cookies:
