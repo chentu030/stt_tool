@@ -3209,7 +3209,7 @@ button, input, textarea, select {
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  z-index: 60;
+  z-index: 140;
   position: relative;
   pointer-events: auto;
   isolation: isolate;
@@ -3422,16 +3422,19 @@ button, input, textarea, select {
 .doc-chrome {
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 140;
   background: var(--bg-primary);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+  pointer-events: auto;
+  isolation: isolate;
 }
 .doc-ribbon {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   min-height: 2.75rem;
+  pointer-events: auto;
 }
 .doc-ribbon-inner {
   display: flex;
@@ -4296,11 +4299,15 @@ button, input, textarea, select {
   z-index: 50;
 }
 
-/* Notion-style selection bubble */
+/* Notion-style selection bubble — root never steals hits when hidden */
 .sel-bubble {
   z-index: 60;
   max-width: min(520px, calc(100vw - 24px));
-  pointer-events: none;
+  pointer-events: none !important;
+}
+.sel-bubble[style*="visibility: visible"] .sel-bubble-inner,
+.sel-bubble[style*="visibility:visible"] .sel-bubble-inner {
+  pointer-events: auto;
 }
 .sel-bubble-inner {
   display: flex;
@@ -4311,7 +4318,7 @@ button, input, textarea, select {
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16);
   overflow: visible;
-  pointer-events: auto;
+  pointer-events: none;
 }
 .sel-bubble-row {
   display: flex;
@@ -9138,19 +9145,11 @@ body.is-sidebar-resizing iframe {
     padding-top: 0.15rem;
   }
 }
-.cadence-ai-rail-backdrop {
-  display: none;
-}
+/* Kept for backwards-compat if an old bundle still mounts the node */
+.cadence-ai-rail-backdrop,
 .cadence-ai-rail-backdrop.is-visible {
-  display: block;
-  position: fixed;
-  inset: 0;
-  z-index: 120;
-  border: none;
-  background: rgba(15, 23, 42, 0.18);
-  /* Visual dim only — must not steal clicks from sidebar / note chrome */
-  pointer-events: none;
-  cursor: default;
+  display: none !important;
+  pointer-events: none !important;
 }
 .cadence-ai-dock-head {
   display: flex;

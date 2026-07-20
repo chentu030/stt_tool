@@ -242,7 +242,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const onSidebarResizeEnd = useCallback((e: REPointerEvent<HTMLDivElement>) => {
-    if (!sidebarDrag.current) return;
+    if (!sidebarDrag.current) {
+      document.body.classList.remove("is-sidebar-resizing");
+      return;
+    }
     const dx = e.clientX - sidebarDrag.current.startX;
     const next = Math.min(
       SIDEBAR_MAX,
@@ -257,6 +260,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
+  }, []);
+
+  // If the window blurs mid-resize, never leave the page in a dead-click state
+  useEffect(() => {
+    const clear = () => {
+      if (!sidebarDrag.current) return;
+      sidebarDrag.current = null;
+      document.body.classList.remove("is-sidebar-resizing");
+    };
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("blur", clear);
+      document.body.classList.remove("is-sidebar-resizing");
+    };
   }, []);
 
   useEffect(() => {

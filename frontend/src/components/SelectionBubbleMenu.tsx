@@ -302,11 +302,12 @@ export default function SelectionBubbleMenu({
     <BubbleMenu
       editor={editor}
       className="sel-bubble"
+      appendTo={() => document.body}
       shouldShow={({ editor: ed, state }) => {
         const { from: a, to: b } = state.selection;
         return a !== b && !ed.isActive("codeBlock") && !ed.isActive("mathBlock");
       }}
-      options={{ placement: "top", offset: 8 }}
+      options={{ placement: "top", offset: 8, strategy: "fixed" }}
     >
       <div className="sel-bubble-inner" ref={wrapRef}>
         <div className="sel-bubble-row">

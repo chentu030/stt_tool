@@ -304,18 +304,19 @@ export default function GlobalAiDock() {
     return () => window.removeEventListener("cadence-ai-rail", onEvt);
   }, []);
 
-  // Float mode used to mount a full-screen button backdrop (z-index 120) that
-  // swallowed all clicks outside the panel — hover looked like buttons, but
-  // nothing responded except the AI rail itself. Close on outside click instead.
+  // Float mode: close on outside *click* (not mousedown). Using mousedown
+  // closes the panel before the target's click runs, so sidebar links / ribbon
+  // buttons look hoverable but never fire. No full-screen backdrop — it stole
+  // hits even when semi-transparent.
   useEffect(() => {
     if (!open || mode !== "float" || isMobile) return;
-    const onDown = (e: MouseEvent) => {
+    const onClick = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest?.(".cadence-ai-rail")) return;
       setOpen(false);
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
   }, [open, mode, isMobile]);
 
   useEffect(() => {
@@ -561,9 +562,6 @@ export default function GlobalAiDock() {
 
   return (
     <>
-      {open && !isMobile && mode === "float" && (
-        <div className="cadence-ai-rail-backdrop is-visible" aria-hidden />
-      )}
       <aside
         className={`cadence-ai-rail${open ? " is-open" : " is-collapsed"} is-${mode}`}
         aria-label={assistantName}
