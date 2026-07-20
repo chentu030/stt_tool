@@ -910,6 +910,37 @@ a.sidebar-user-name:hover {
   align-items: center;
   flex-shrink: 0;
 }
+.nav-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.05rem;
+  flex-shrink: 0;
+}
+.nav-history-btn svg {
+  display: block;
+}
+.nav-history--mobile .nav-history-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  min-width: 32px;
+}
+.nav-history--mobile .nav-history-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.nav-history--collapsed {
+  flex-direction: column;
+  width: 100%;
+  align-items: center;
+  gap: 0.15rem;
+  margin: 0 0 0.45rem;
+}
+@media (max-width: 380px) {
+  .nav-history--mobile {
+    display: none;
+  }
+}
 .mobile-menu-btn {
   display: inline-flex;
   align-items: center;

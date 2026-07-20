@@ -8,6 +8,7 @@ import { logout } from "@/lib/firebase";
 import AlbireusLogo from "@/components/AlbireusLogo";
 import PageLoading from "@/components/motion/PageLoading";
 import ThemeToggle from "@/components/ThemeToggle";
+import NavHistoryControls from "@/components/shell/NavHistoryControls";
 import LineRippleBackground from "@/components/motion/LineRippleBackground";
 import ScrambleText from "@/components/motion/ScrambleText";
 import TypeWriter from "@/components/motion/TypeWriter";
@@ -128,6 +129,7 @@ function AccessShell({ children }: { children: ReactNode }) {
       <header className="access-gate-top">
         <AlbireusLogo height={28} />
         <div className="access-gate-top-actions">
+          <NavHistoryControls variant="ghost" />
           <ThemeToggle />
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => logout()}>
             登出

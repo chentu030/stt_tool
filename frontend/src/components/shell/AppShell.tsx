@@ -11,6 +11,7 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
 import GlobalAiDock, { toggleGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import NavHistoryControls from "@/components/shell/NavHistoryControls";
 import {
   listenUserTeams,
   listenChannels,
@@ -589,6 +590,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <Link href={homeHref} className="mobile-top-logo" onClick={closeNav}>
               <AlbireusLogo height={24} />
             </Link>
+            <NavHistoryControls variant="ghost" className="nav-history--mobile" />
           </div>
           <div className="mobile-top-actions">
             <button
@@ -638,6 +640,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <AlbireusLogo height={24} />
             </Link>
             <div className="sidebar-brand-links">
+              <NavHistoryControls />
               <button
                 type="button"
                 className="sidebar-icon-btn"
@@ -764,6 +767,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </button>
           )}
           <div className="sidebar-brand-links">
+            {!sidebarCollapsed && <NavHistoryControls />}
             {!sidebarCollapsed && (
               <>
                 <button
@@ -802,6 +806,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </div>
+
+        {sidebarCollapsed && <NavHistoryControls className="nav-history--collapsed" />}
 
         {!sidebarCollapsed ? (
           <button
