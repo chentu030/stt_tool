@@ -142,10 +142,23 @@ export function listenAccessRequest(
       cb(requestFromData(uid, snap.data() as Record<string, unknown>));
     },
     (err) => {
+      // Permission / network errors must not leave the UI spinning forever.
       console.error("[listenAccessRequest]", err);
       cb(null);
     }
   );
+}
+
+/** One-shot fetch for faster first paint (optional; listener still used for updates). */
+export async function fetchAccessRequest(uid: string): Promise<AccessRequest | null> {
+  try {
+    const snap = await getDoc(doc(db, "access_requests", uid));
+    if (!snap.exists()) return null;
+    return requestFromData(uid, snap.data() as Record<string, unknown>);
+  } catch (err) {
+    console.error("[fetchAccessRequest]", err);
+    return null;
+  }
 }
 
 /** Whitelist users get an approved marker so later allowlist edits still work via Firestore. */

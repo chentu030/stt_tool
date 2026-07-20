@@ -15,7 +15,9 @@ import {
   WORKFLOW_OPTIONS,
   ensureAllowlistAccess,
   isAccessBypassPath,
+  isAllowlistedEmail,
   listenAccessRequest,
+  fetchAccessRequest,
   resolveAccess,
   submitAccessApplication,
   type AccessApplicationInput,
@@ -30,6 +32,7 @@ export default function AccessGate({ children }: { children: ReactNode }) {
   const [reqLoading, setReqLoading] = useState(false);
 
   const bypass = isAccessBypassPath(pathname);
+  const allowlisted = isAllowlistedEmail(user?.email);
 
   useEffect(() => {
     if (!user || bypass) {
@@ -37,16 +40,42 @@ export default function AccessGate({ children }: { children: ReactNode }) {
       setReqLoading(false);
       return;
     }
+
+    // Allowlist: never block the UI on Firestore; seed approved doc in background.
+    if (isAllowlistedEmail(user.email)) {
+      setReqLoading(false);
+      void ensureAllowlistAccess(user).catch((e) => console.warn("[ensureAllowlistAccess]", e));
+      return;
+    }
+
     let cancelled = false;
     setReqLoading(true);
-    void ensureAllowlistAccess(user).catch((e) => console.warn("[ensureAllowlistAccess]", e));
-    const unsub = listenAccessRequest(user.uid, (req) => {
+
+    // Hard timeout so a hung listener can't spin forever for new users.
+    const timeout = window.setTimeout(() => {
       if (cancelled) return;
+      console.warn("[AccessGate] access check timed out — showing apply form");
+      setReqLoading(false);
+    }, 4000);
+
+    // Prefer a quick getDoc so we don't depend solely on the first snapshot.
+    void fetchAccessRequest(user.uid).then((req) => {
+      if (cancelled) return;
+      window.clearTimeout(timeout);
       setRequest(req);
       setReqLoading(false);
     });
+
+    const unsub = listenAccessRequest(user.uid, (req) => {
+      if (cancelled) return;
+      window.clearTimeout(timeout);
+      setRequest(req);
+      setReqLoading(false);
+    });
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
       unsub();
     };
   }, [user, bypass]);
@@ -54,6 +83,8 @@ export default function AccessGate({ children }: { children: ReactNode }) {
   const status = useMemo(() => resolveAccess(user, request), [user, request]);
 
   if (bypass || !user) return <>{children}</>;
+  // Allowlisted users skip the waitlist UI entirely (don't wait on Firestore).
+  if (allowlisted) return <>{children}</>;
   if (loading || reqLoading) return <PageLoading label="確認使用權限…" />;
   if (status === "approved") return <>{children}</>;
   if (status === "pending") {
