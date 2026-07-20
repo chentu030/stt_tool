@@ -18,6 +18,8 @@ import type {
   ResolvedPackage,
 } from "@/lib/community/types";
 import { ALBIREUS_APP_VERSION } from "@/lib/community/types";
+import { isCommunitySafeMode } from "@/lib/community/libraryPrefs";
+import { effectivePermissions } from "@/lib/community/permissions";
 
 export async function resolveAnySource(source: string): Promise<ResolvedPackage> {
   const builtin = resolveBuiltinSource(source);
@@ -34,11 +36,20 @@ function assertMinAppVersion(pack: ResolvedPackage) {
   }
 }
 
+function assertSafeModeAllows(pack: ResolvedPackage) {
+  if (!isCommunitySafeMode()) return;
+  const perms = effectivePermissions(pack.manifest);
+  if (pack.manifest.kind === "extension" || perms.includes("notes_write") || perms.includes("network")) {
+    throw new Error("目前為安全模式：請先在社群商店關閉安全模式後再安裝");
+  }
+}
+
 export async function installResolvedPackage(
   uid: string,
   pack: ResolvedPackage
 ): Promise<{ kind: "extension" | "template"; id: string }> {
   assertMinAppVersion(pack);
+  assertSafeModeAllows(pack);
   const now = Date.now();
   if (pack.manifest.kind === "extension") {
     const settings: Record<string, string | boolean | number> = {};
@@ -161,6 +172,22 @@ export async function updateInstalledPackage(
   return { updated: true, version: remoteVer };
 }
 
+export async function updateInstalledPackageWithNotes(
+  uid: string,
+  kind: "extension" | "template",
+  id: string,
+  current: InstalledExtension | InstalledTemplate,
+  opts?: { force?: boolean }
+): Promise<{ updated: boolean; version: string; notes?: string }> {
+  const pack = await resolveAnySource(current.source);
+  const result = await updateInstalledPackage(uid, kind, id, current, opts);
+  if (!result.updated) return result;
+  return {
+    ...result,
+    notes: changelogNotesForVersion(pack, result.version),
+  };
+}
+
 /** Apply an installed template: create one note per page, return first note id */
 export async function applyInstalledTemplate(
   uid: string,
@@ -186,14 +213,54 @@ export async function applyInstalledTemplate(
   return { noteIds, firstId: noteIds[0] };
 }
 
-export function previewTemplatePages(tpl: InstalledTemplate): { title: string; body: string; icon?: string }[] {
+export function previewTemplatePages(tpl: InstalledTemplate | ResolvedPackage): {
+  title: string;
+  body: string;
+  icon?: string;
+  folder?: string;
+}[] {
+  if (tpl.manifest.kind !== "template") return [];
+  const files = "files" in tpl ? tpl.files : {};
   return tpl.manifest.pages.map((page) => {
     const key = page.file || `inline-${page.title}.md`;
     const body =
-      (page.file && tpl.files[page.file]) ||
-      tpl.files[key] ||
-      page.body ||
-      "";
-    return { title: page.title, body, icon: page.icon };
+      (page.file && files[page.file]) || files[key] || page.body || "";
+    return { title: page.title, body, icon: page.icon, folder: page.folder };
   });
 }
+
+/** Install every package in a curated collection (skips already-installed ids). */
+export async function installCollectionSources(
+  uid: string,
+  sources: string[],
+  installedIds: Set<string>
+): Promise<{ ok: number; skipped: number; failed: string[] }> {
+  let ok = 0;
+  let skipped = 0;
+  const failed: string[] = [];
+  for (const source of sources) {
+    try {
+      const pack = await resolveAnySource(source);
+      if (installedIds.has(pack.manifest.id)) {
+        skipped += 1;
+        continue;
+      }
+      await installResolvedPackage(uid, pack);
+      installedIds.add(pack.manifest.id);
+      ok += 1;
+    } catch (e) {
+      failed.push(e instanceof Error ? e.message : source);
+    }
+  }
+  return { ok, skipped, failed };
+}
+
+/** Notes for a newly updated version, if changelog lists it. */
+export function changelogNotesForVersion(
+  pack: ResolvedPackage,
+  version: string
+): string | undefined {
+  const hit = (pack.manifest.changelog || []).find((c) => c.version === version);
+  return hit?.notes;
+}
+

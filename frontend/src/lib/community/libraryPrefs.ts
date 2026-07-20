@@ -1,4 +1,4 @@
-/** Local store prefs: favorites, recently viewed, restricted-mode ack, reports */
+/** Local store prefs: favorites, recent, ack, safe mode, update checks, reports */
 
 import type { PackageReport } from "@/lib/community/types";
 
@@ -6,6 +6,19 @@ const FAV_KEY = "albireus_community_favorites_v1";
 const RECENT_KEY = "albireus_community_recent_v1";
 const ACK_KEY = "albireus_community_plugins_ack_v1";
 const REPORT_KEY = "albireus_community_reports_v1";
+const SAFE_KEY = "albireus_community_safe_mode_v1";
+const UPDATE_CHECK_KEY = "albireus_community_last_update_check_v1";
+
+export const REPORT_REASONS = [
+  { id: "malware", label: "疑似惡意／不安全" },
+  { id: "misleading", label: "誤導或描述不符" },
+  { id: "broken", label: "無法使用／連結失效" },
+  { id: "spam", label: "垃圾／低品質" },
+  { id: "ip", label: "侵權疑慮" },
+  { id: "other", label: "其他" },
+] as const;
+
+export type ReportReasonId = (typeof REPORT_REASONS)[number]["id"];
 
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -57,6 +70,29 @@ export function hasCommunityPluginsAck(): boolean {
 
 export function setCommunityPluginsAck() {
   writeJson(ACK_KEY, true);
+}
+
+/** When safe mode is on, community extensions are hidden from sidebar / not loaded in notes. */
+export function isCommunitySafeMode(): boolean {
+  return readJson<boolean>(SAFE_KEY, false) === true;
+}
+
+export function setCommunitySafeMode(on: boolean) {
+  writeJson(SAFE_KEY, on);
+}
+
+export function getLastUpdateCheckAt(): number {
+  return readJson<number>(UPDATE_CHECK_KEY, 0);
+}
+
+export function setLastUpdateCheckAt(ts = Date.now()) {
+  writeJson(UPDATE_CHECK_KEY, ts);
+}
+
+/** True if we should quietly re-check (default: every 24h). */
+export function shouldAutoCheckUpdates(maxAgeMs = 24 * 60 * 60 * 1000): boolean {
+  const last = getLastUpdateCheckAt();
+  return !last || Date.now() - last > maxAgeMs;
 }
 
 export function getLocalReports(): Record<string, PackageReport> {

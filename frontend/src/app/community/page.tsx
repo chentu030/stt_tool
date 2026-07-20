@@ -13,7 +13,8 @@ import {
   applyInstalledTemplate,
   installFromFile,
   installFromSource,
-  updateInstalledPackage,
+  resolveAnySource,
+  updateInstalledPackageWithNotes,
 } from "@/lib/community/actions";
 import {
   setExtensionEnabled,
@@ -39,7 +40,16 @@ import {
   setCommunityPluginsAck,
   getFavoriteIds,
   getRecentPackageIds,
+  setCommunitySafeMode,
+  shouldAutoCheckUpdates,
+  setLastUpdateCheckAt,
 } from "@/lib/community/libraryPrefs";
+import {
+  buildLibraryBackup,
+  downloadLibraryBackup,
+  parseLibraryBackup,
+  restoreLibraryBackup,
+} from "@/lib/community/libraryBackup";
 
 type Tab = "extensions" | "templates" | "installed";
 type SortKey = "featured" | "rating" | "name" | "downloads";
@@ -49,7 +59,8 @@ export default function CommunityStorePage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const prefsCtx = usePrefs();
-  const { extensions, templates, enabledExtensions, ready } = useCommunity();
+  const { extensions, templates, enabledExtensions, ready, safeMode, refreshSafeMode } =
+    useCommunity();
   const [tab, setTab] = useState<Tab>("extensions");
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
@@ -63,6 +74,8 @@ export default function CommunityStorePage() {
   const [ack, setAck] = useState(false);
   const [favTick, setFavTick] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
+  const libraryBackupRef = useRef<HTMLInputElement>(null);
+  const autoUpdateCheckedRef = useRef(false);
   const catalog = useMemo(() => getCatalog(), []);
   const collections = useMemo(() => getCollections(), []);
 
@@ -203,11 +216,12 @@ export default function CommunityStorePage() {
     }
   };
 
-  const checkUpdates = async (): Promise<Record<string, string>> => {
+  const checkUpdates = async (opts?: {
+    quiet?: boolean;
+  }): Promise<Record<string, string>> => {
     setCheckingUpdates(true);
     const next: Record<string, string> = {};
     try {
-      const { resolveAnySource } = await import("@/lib/community/actions");
       for (const ext of extensions) {
         try {
           const pack = resolveBuiltinSource(ext.source) ?? (await resolveAnySource(ext.source));
@@ -235,16 +249,27 @@ export default function CommunityStorePage() {
         }
       }
       setUpdateMap(next);
-      toast(
-        Object.keys(next).length
-          ? `發現 ${Object.keys(next).length} 個可更新項目`
-          : "已是最新版本"
-      );
+      const count = Object.keys(next).length;
+      if (opts?.quiet) {
+        if (count > 0) toast(`發現 ${count} 個可更新項目`);
+      } else {
+        toast(count ? `發現 ${count} 個可更新項目` : "已是最新版本");
+      }
       return next;
     } finally {
+      setLastUpdateCheckAt();
       setCheckingUpdates(false);
     }
   };
+
+  useEffect(() => {
+    if (!user || !ready || autoUpdateCheckedRef.current) return;
+    if (!shouldAutoCheckUpdates()) return;
+    autoUpdateCheckedRef.current = true;
+    void checkUpdates({ quiet: true });
+    // Intentionally run once when store is ready
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, ready, extensions, templates]);
 
   const doUpdate = async (kind: "extension" | "template", id: string) => {
     if (!user) return;
@@ -255,9 +280,9 @@ export default function CommunityStorePage() {
     if (!current) return;
     setBusy(true);
     try {
-      const r = await updateInstalledPackage(uidSafe(user.uid), kind, id, current);
+      const r = await updateInstalledPackageWithNotes(uidSafe(user.uid), kind, id, current);
       if (r.updated) {
-        toast(`已更新至 v${r.version}`);
+        toast(r.notes ? `已更新至 v${r.version}：${r.notes}` : `已更新至 v${r.version}`);
         setUpdateMap((m) => {
           const copy = { ...m };
           delete copy[`${kind === "extension" ? "ext" : "tpl"}:${id}`];
@@ -266,6 +291,34 @@ export default function CommunityStorePage() {
       } else toast("已是最新");
     } catch (e) {
       toast(e instanceof Error ? e.message : "更新失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportLibrary = () => {
+    const backup = buildLibraryBackup(extensions, templates);
+    downloadLibraryBackup(backup);
+    toast("已匯出函式庫備份");
+  };
+
+  const importLibrary = async (file: File) => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      const text = await file.text();
+      const backup = parseLibraryBackup(text);
+      const result = await restoreLibraryBackup(user.uid, backup, {
+        existingExtIds: installedExtIds,
+        existingTplIds: installedTplIds,
+      });
+      const parts = [`已安裝 ${result.installed}`];
+      if (result.skipped) parts.push(`略過 ${result.skipped}`);
+      if (result.failed.length) parts.push(`失敗 ${result.failed.length}`);
+      toast(parts.join(" · "));
+      setTab("installed");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "匯入函式庫失敗");
     } finally {
       setBusy(false);
     }
@@ -339,6 +392,18 @@ export default function CommunityStorePage() {
           </div>
         </div>
         <div className="community-hero-actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              const next = !safeMode;
+              setCommunitySafeMode(next);
+              refreshSafeMode();
+              toast(next ? "已開啟安全模式" : "已關閉安全模式");
+            }}
+          >
+            安全模式：{safeMode ? "開" : "關"}
+          </button>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void doGithub()}>
             從 GitHub 安裝
           </button>
@@ -358,6 +423,15 @@ export default function CommunityStorePage() {
           />
         </div>
       </div>
+
+      {safeMode && (
+        <div className="community-ack-banner doc-banner-ingest" role="status">
+          <div className="doc-banner-ingest-main">
+            <strong>安全模式已開啟</strong>
+            <p>擴充功能已從側欄隱藏，且不會載入到筆記頁面。</p>
+          </div>
+        </div>
+      )}
 
       {!ack && (
         <div className="community-ack-banner doc-banner-ingest">
@@ -446,6 +520,33 @@ export default function CommunityStorePage() {
               >
                 {checkingUpdates ? "檢查中…" : "檢查更新"}
               </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() => exportLibrary()}
+              >
+                匯出函式庫
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() => libraryBackupRef.current?.click()}
+              >
+                匯入函式庫
+              </button>
+              <input
+                ref={libraryBackupRef}
+                type="file"
+                accept=".json,application/json"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void importLibrary(f);
+                }}
+              />
               <input
                 className="community-search"
                 value={installedQ}
@@ -671,8 +772,13 @@ export default function CommunityStorePage() {
               if (packs.length === 0) return null;
               return (
                 <section key={col.id} className="community-featured">
-                  <h2>{col.name}</h2>
-                  <p className="page-sub">{col.description}</p>
+                  <h2>
+                    <Link href={`/community/collection/${col.id}`}>{col.name}</Link>
+                  </h2>
+                  <p className="page-sub">
+                    {col.description}{" "}
+                    <Link href={`/community/collection/${col.id}`}>查看合輯</Link>
+                  </p>
                   <div className="community-grid">
                     {packs.map((entry) => (
                       <CatalogCard

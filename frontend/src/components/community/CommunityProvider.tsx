@@ -14,6 +14,7 @@ import {
   listenInstalledTemplates,
 } from "@/lib/community/store";
 import type { InstalledExtension, InstalledTemplate } from "@/lib/community/types";
+import { isCommunitySafeMode } from "@/lib/community/libraryPrefs";
 
 type Ctx = {
   extensions: InstalledExtension[];
@@ -21,6 +22,8 @@ type Ctx = {
   enabledExtensions: InstalledExtension[];
   enabledTemplates: InstalledTemplate[];
   ready: boolean;
+  safeMode: boolean;
+  refreshSafeMode: () => void;
 };
 
 const CommunityCtx = createContext<Ctx | null>(null);
@@ -30,6 +33,13 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   const [extensions, setExtensions] = useState<InstalledExtension[]>([]);
   const [templates, setTemplates] = useState<InstalledTemplate[]>([]);
   const [ready, setReady] = useState(false);
+  const [safeMode, setSafeMode] = useState(false);
+
+  const refreshSafeMode = () => setSafeMode(isCommunitySafeMode());
+
+  useEffect(() => {
+    refreshSafeMode();
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -67,10 +77,20 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const value = useMemo<Ctx>(() => {
-    const enabledExtensions = extensions.filter((e) => e.enabled);
+    const enabledExtensions = safeMode
+      ? []
+      : extensions.filter((e) => e.enabled);
     const enabledTemplates = templates.filter((t) => t.enabled);
-    return { extensions, templates, enabledExtensions, enabledTemplates, ready };
-  }, [extensions, templates, ready]);
+    return {
+      extensions,
+      templates,
+      enabledExtensions,
+      enabledTemplates,
+      ready,
+      safeMode,
+      refreshSafeMode,
+    };
+  }, [extensions, templates, ready, safeMode]);
 
   return <CommunityCtx.Provider value={value}>{children}</CommunityCtx.Provider>;
 }
