@@ -568,7 +568,12 @@ export default function GraphDetailPage() {
   const rightPanRef = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
 
   const onPointerDownStage = (e: ReactPointerEvent) => {
-    if (e.button === 1 || spaceDown || e.button === 2) {
+    // Empty canvas: left-drag pans (no Space needed). Middle / right / Space still pan.
+    if (e.button === 0 || e.button === 1 || spaceDown || e.button === 2) {
+      if (e.button === 0) {
+        setSelAiOpen(false);
+        setSelectedId(null);
+      }
       if (e.button === 2) {
         e.preventDefault();
         rightPanRef.current = { sx: e.clientX, sy: e.clientY, moved: false };
@@ -966,7 +971,7 @@ ${orphanLines || "（無）"}`;
       <div className="gp-layout">
         <div
           ref={stageRef}
-          className={`gp-stage${spaceDown ? " is-pan" : ""}`}
+          className="gp-stage is-pan"
           onPointerDown={onPointerDownStage}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

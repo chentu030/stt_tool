@@ -54,6 +54,7 @@ export default function StageSelectionAi({
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -62,6 +63,26 @@ export default function StageSelectionAi({
     setResult("");
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [open, selectionText]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const el = panelRef.current;
+      if (!el) return;
+      if (el.contains(e.target as Node)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    // Capture so empty-canvas / aside clicks close without needing the 關閉 button
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -151,9 +172,11 @@ export default function StageSelectionAi({
 
   return (
     <div
+      ref={panelRef}
       className="sel-ai-panel"
       style={{ top, left }}
-      onMouseDown={(e) => e.preventDefault()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="sel-ai-head">
         <strong>詢問 AI</strong>
