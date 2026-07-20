@@ -3,23 +3,34 @@
     "id": "web-browser-pack",
     "kind": "extension",
     "name": "快速瀏覽頁",
-    "description": "示範擴充：以 iframe 開啟自訂首頁，安裝後會出現在側欄「頁面」。",
+    "description": "示範擴充：以沙箱 iframe 開啟自訂首頁，安裝後出現在側欄「頁面」。",
     "author": "Albireus",
     "icon": "language",
+    "cover": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=60",
+    "screenshots": [
+      "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=960&q=60"
+    ],
+    "category": "生產力",
     "source": "builtin:web-browser-pack",
-    "tags": ["示範", "瀏覽器"],
-    "featured": true
+    "tags": ["示範", "瀏覽器", "生產力"],
+    "featured": true,
+    "rating": 4.6,
+    "downloads": 1280
   },
   {
     "id": "meeting-os",
     "kind": "template",
     "name": "會議作業系統",
-    "description": "Notion 風格會議套件：議程、決議、待辦與追蹤頁。",
+    "description": "會議套件：議程、決議、待辦與追蹤頁，一鍵套用到知識庫。",
     "author": "Albireus",
     "icon": "groups",
+    "cover": "https://images.unsplash.com/photo-1556761175-b413da4baf72?w=800&q=60",
+    "category": "工作",
     "source": "builtin:meeting-os",
-    "tags": ["會議", "示範"],
-    "featured": true
+    "tags": ["會議", "工作", "示範"],
+    "featured": true,
+    "rating": 4.8,
+    "downloads": 2140
   },
   {
     "id": "research-lab",
@@ -28,9 +39,13 @@
     "description": "研究計畫模板：假設、實驗紀錄、文獻與結論。",
     "author": "Albireus",
     "icon": "science",
+    "cover": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&q=60",
+    "category": "學習",
     "source": "builtin:research-lab",
-    "tags": ["研究", "示範"],
-    "featured": true
+    "tags": ["研究", "學習", "示範"],
+    "featured": true,
+    "rating": 4.5,
+    "downloads": 890
   },
   {
     "id": "weekly-review",
@@ -39,8 +54,25 @@
     "description": "一週回顧模板：成就、挑戰、下週重點。",
     "author": "Albireus",
     "icon": "event_repeat",
+    "category": "生活",
     "source": "builtin:weekly-review",
-    "tags": ["日誌", "示範"],
-    "featured": false
+    "tags": ["日誌", "生活", "示範"],
+    "featured": false,
+    "rating": 4.2,
+    "downloads": 560
+  },
+  {
+    "id": "project-kickoff",
+    "kind": "template",
+    "name": "專案啟動包",
+    "description": "專案簡報、里程碑與風險清單，適合新專案開場。",
+    "author": "Albireus",
+    "icon": "rocket_launch",
+    "category": "工作",
+    "source": "builtin:project-kickoff",
+    "tags": ["專案", "工作"],
+    "featured": true,
+    "rating": 4.4,
+    "downloads": 720
   }
 ]

@@ -3,6 +3,7 @@
 import type {
   CommunityManifest,
   ExtensionManifest,
+  ExtensionSettingDef,
   TemplateManifest,
   TemplatePageDef,
 } from "@/lib/community/types";
@@ -39,6 +40,45 @@ function slugId(raw: string): string {
   if (!id || id.length > 64) throw new Error("套件 id 無效（需 1–64 字元的 a-z0-9_-）");
   if (id.includes("albireus")) throw new Error("套件 id 不可包含 albireus");
   return id;
+}
+
+function parseHttpsList(raw: unknown, field: string): string[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw
+    .filter((u): u is string => typeof u === "string")
+    .map((u) => requireHttps(u, field))
+    .slice(0, 8);
+}
+
+function parseSettings(raw: unknown): ExtensionSettingDef[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  return raw.slice(0, 20).map((item, i) => {
+    const o = asRecord(item);
+    if (!o) throw new Error(`settings[${i}] 格式錯誤`);
+    const key = str(o.key);
+    if (!/^[a-z][a-z0-9_]{0,31}$/i.test(key)) {
+      throw new Error(`settings[${i}].key 無效`);
+    }
+    const type = str(o.type);
+    if (type !== "string" && type !== "boolean" && type !== "number" && type !== "enum") {
+      throw new Error(`settings[${i}].type 必須是 string|boolean|number|enum`);
+    }
+    const options =
+      type === "enum" && Array.isArray(o.options)
+        ? o.options.filter((x): x is string => typeof x === "string")
+        : undefined;
+    if (type === "enum" && (!options || options.length === 0)) {
+      throw new Error(`settings[${i}] enum 需提供 options`);
+    }
+    return {
+      key,
+      label: str(o.label) || key,
+      type,
+      default: o.default as string | boolean | number | undefined,
+      options,
+      description: str(o.description) || undefined,
+    };
+  });
 }
 
 function parsePages(raw: unknown): TemplatePageDef[] {
@@ -82,6 +122,8 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
   const authorUrl = str(o.authorUrl) || undefined;
   const icon = str(o.icon) || undefined;
   const cover = str(o.cover) || undefined;
+  const category = str(o.category) || undefined;
+  const screenshots = parseHttpsList(o.screenshots, "screenshots");
   const minAppVersion = str(o.minAppVersion) || undefined;
 
   if (kind === "extension") {
@@ -91,6 +133,7 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
     if (type !== "iframe") throw new Error("目前僅支援 pageType.type = iframe");
     const entry = requireHttps(str(page.entry), "pageType.entry");
     const nav = asRecord(o.nav);
+    const settings = parseSettings(o.settings);
     const manifest: ExtensionManifest = {
       schema: 1,
       kind: "extension",
@@ -102,7 +145,10 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
       authorUrl,
       icon: icon || "extension",
       cover,
+      screenshots,
+      category,
       minAppVersion,
+      settings,
       nav: nav
         ? {
             label: str(nav.label) || undefined,
@@ -130,6 +176,8 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
       authorUrl,
       icon: icon || "description",
       cover,
+      screenshots,
+      category,
       minAppVersion,
       pages: parsePages(o.pages),
     };

@@ -29,6 +29,10 @@ export async function installResolvedPackage(
 ): Promise<{ kind: "extension" | "template"; id: string }> {
   const now = Date.now();
   if (pack.manifest.kind === "extension") {
+    const settings: Record<string, string | boolean | number> = {};
+    for (const def of pack.manifest.settings || []) {
+      if (def.default !== undefined) settings[def.key] = def.default;
+    }
     const item: InstalledExtension = {
       id: pack.manifest.id,
       manifest: pack.manifest,
@@ -38,6 +42,7 @@ export async function installResolvedPackage(
       installedAt: now,
       updatedAt: now,
       readme: pack.readme,
+      settings: Object.keys(settings).length ? settings : undefined,
     };
     await saveInstalledExtension(uid, item);
     return { kind: "extension", id: item.id };
@@ -85,6 +90,64 @@ export async function installFromFile(uid: string, file: File) {
   throw new Error("請匯入 .zip 或 albireus.json");
 }
 
+/** Re-fetch package from source and upgrade if newer (or force). */
+export async function updateInstalledPackage(
+  uid: string,
+  kind: "extension" | "template",
+  id: string,
+  current: InstalledExtension | InstalledTemplate,
+  opts?: { force?: boolean }
+): Promise<{ updated: boolean; version: string }> {
+  const pack = await resolveAnySource(current.source);
+  if (pack.manifest.id !== id && pack.manifest.kind !== kind) {
+    // allow id match on kind
+  }
+  if (pack.manifest.kind !== kind) {
+    throw new Error("來源套件類型與已安裝項目不符");
+  }
+  const { isNewerVersion } = await import("@/lib/community/semver");
+  const remoteVer = pack.manifest.version;
+  const localVer = current.manifest.version;
+  if (!opts?.force && !isNewerVersion(remoteVer, localVer)) {
+    return { updated: false, version: localVer };
+  }
+  const now = Date.now();
+  if (pack.manifest.kind === "extension") {
+    const prev = current as InstalledExtension;
+    await saveInstalledExtension(uid, {
+      id,
+      manifest: pack.manifest,
+      enabled: prev.enabled,
+      source: pack.source || prev.source,
+      sourceKind: pack.sourceKind,
+      installedAt: prev.installedAt,
+      updatedAt: now,
+      readme: pack.readme,
+      settings: prev.settings,
+    });
+  } else {
+    const prev = current as InstalledTemplate;
+    const files: Record<string, string> = { ...pack.files };
+    for (const p of pack.manifest.pages) {
+      if (p.body != null) {
+        files[p.file || `inline-${p.title}.md`] = p.body;
+      }
+    }
+    await saveInstalledTemplate(uid, {
+      id,
+      manifest: pack.manifest,
+      files,
+      enabled: prev.enabled,
+      source: pack.source || prev.source,
+      sourceKind: pack.sourceKind,
+      installedAt: prev.installedAt,
+      updatedAt: now,
+      readme: pack.readme,
+    });
+  }
+  return { updated: true, version: remoteVer };
+}
+
 /** Apply an installed template: create one note per page, return first note id */
 export async function applyInstalledTemplate(
   uid: string,
@@ -108,4 +171,16 @@ export async function applyInstalledTemplate(
   }
   if (!noteIds.length) throw new Error("模板沒有可建立的頁面");
   return { noteIds, firstId: noteIds[0] };
+}
+
+export function previewTemplatePages(tpl: InstalledTemplate): { title: string; body: string; icon?: string }[] {
+  return tpl.manifest.pages.map((page) => {
+    const key = page.file || `inline-${page.title}.md`;
+    const body =
+      (page.file && tpl.files[page.file]) ||
+      tpl.files[key] ||
+      page.body ||
+      "";
+    return { title: page.title, body, icon: page.icon };
+  });
 }

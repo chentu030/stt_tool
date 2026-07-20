@@ -11,6 +11,15 @@ export type ExtensionPageType = {
   createLabel?: string;
 };
 
+export type ExtensionSettingDef = {
+  key: string;
+  label: string;
+  type: "string" | "boolean" | "number" | "enum";
+  default?: string | boolean | number;
+  options?: string[];
+  description?: string;
+};
+
 export type ExtensionManifest = {
   schema: 1;
   kind: "extension";
@@ -22,9 +31,12 @@ export type ExtensionManifest = {
   authorUrl?: string;
   icon?: string;
   cover?: string;
+  screenshots?: string[];
+  category?: string;
   minAppVersion?: string;
   nav?: { label?: string; order?: number };
   pageType: ExtensionPageType;
+  settings?: ExtensionSettingDef[];
 };
 
 export type TemplatePageDef = {
@@ -47,6 +59,8 @@ export type TemplateManifest = {
   authorUrl?: string;
   icon?: string;
   cover?: string;
+  screenshots?: string[];
+  category?: string;
   minAppVersion?: string;
   pages: TemplatePageDef[];
 };
@@ -61,10 +75,15 @@ export type CatalogEntry = {
   author: string;
   icon?: string;
   cover?: string;
+  screenshots?: string[];
+  category?: string;
   /** GitHub owner/repo or https URL to albireus.json / zip */
   source: string;
   tags?: string[];
   featured?: boolean;
+  /** Static seed rating 1–5 for catalog display */
+  rating?: number;
+  downloads?: number;
 };
 
 export type InstalledExtension = {
@@ -75,14 +94,13 @@ export type InstalledExtension = {
   sourceKind: "github" | "file" | "catalog";
   installedAt: number;
   updatedAt: number;
-  /** Optional bundled readme */
   readme?: string;
+  settings?: Record<string, string | boolean | number>;
 };
 
 export type InstalledTemplate = {
   id: string;
   manifest: TemplateManifest;
-  /** Resolved page bodies keyed by index or file name */
   files: Record<string, string>;
   enabled: boolean;
   source: string;
@@ -98,4 +116,11 @@ export type ResolvedPackage = {
   readme?: string;
   source: string;
   sourceKind: "github" | "file" | "catalog";
+};
+
+export type PackageRating = {
+  packageId: string;
+  stars: number;
+  comment?: string;
+  updatedAt: number;
 };

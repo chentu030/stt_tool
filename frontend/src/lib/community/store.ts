@@ -27,6 +27,10 @@ function tplCol(uid: string) {
 function parseExt(id: string, data: Record<string, unknown>): InstalledExtension | null {
   const manifest = data.manifest as ExtensionManifest | undefined;
   if (!manifest || manifest.kind !== "extension") return null;
+  const settings =
+    data.settings && typeof data.settings === "object" && !Array.isArray(data.settings)
+      ? (data.settings as Record<string, string | boolean | number>)
+      : undefined;
   return {
     id,
     manifest,
@@ -39,6 +43,7 @@ function parseExt(id: string, data: Record<string, unknown>): InstalledExtension
     installedAt: typeof data.installedAt === "number" ? data.installedAt : Date.now(),
     updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
     readme: typeof data.readme === "string" ? data.readme : undefined,
+    settings,
   };
 }
 
@@ -114,6 +119,7 @@ export async function saveInstalledExtension(uid: string, item: InstalledExtensi
     installedAt: item.installedAt,
     updatedAt: item.updatedAt,
     readme: item.readme || "",
+    settings: item.settings || {},
   });
 }
 
@@ -144,4 +150,16 @@ export async function uninstallExtension(uid: string, id: string) {
 
 export async function uninstallTemplate(uid: string, id: string) {
   await deleteDoc(doc(tplCol(uid), id));
+}
+
+export async function saveExtensionSettings(
+  uid: string,
+  id: string,
+  settings: Record<string, string | boolean | number>
+) {
+  await setDoc(
+    doc(extCol(uid), id),
+    { settings, updatedAt: Date.now() },
+    { merge: true }
+  );
 }

@@ -14,6 +14,7 @@ import {
 } from "@/lib/workspacePages";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import ScrambleText from "@/components/motion/ScrambleText";
+import ExtensionSettingsPanel from "@/components/community/ExtensionSettingsPanel";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
@@ -102,6 +103,12 @@ export default function ExtensionHubPage() {
       {!ext.enabled && (
         <p className="cdb-empty">此擴充已停用。到<a href="/community">社群商店</a>重新啟用。</p>
       )}
+      <ExtensionSettingsPanel uid={user.uid} ext={ext} />
+      <div className="cdb-index-actions">
+        <Link className="btn btn-ghost" href={`/community/${ext.id}?kind=extension`}>
+          套件詳情
+        </Link>
+      </div>
       {pages.length === 0 ? (
         <div className="cdb-empty cdb-empty--cta">
           <p>尚未用此擴充建立頁面。</p>

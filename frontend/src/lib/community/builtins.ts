@@ -24,16 +24,37 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       kind: "extension",
       id: "web-browser-pack",
       name: "快速瀏覽頁",
-      version: "1.0.0",
+      version: "1.1.0",
       description: "示範 iframe 頁面類型，安裝後出現在側欄頁面格線。",
       author: "Albireus",
+      authorUrl: "https://github.com/chentu030/stt_tool",
       icon: "language",
+      category: "生產力",
+      cover: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=60",
+      screenshots: [
+        "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=960&q=60",
+      ],
       nav: { label: "瀏覽", order: 80 },
       pageType: {
         type: "iframe",
         entry: "https://zh.wikipedia.org/",
         createLabel: "新瀏覽頁",
       },
+      settings: [
+        {
+          key: "home_hint",
+          label: "首頁提示文字",
+          type: "string",
+          default: "在擴充頁面中瀏覽",
+          description: "會以 query 傳給 iframe（示範用）",
+        },
+        {
+          key: "compact",
+          label: "精簡模式",
+          type: "boolean",
+          default: false,
+        },
+      ],
     },
   }),
   "builtin:meeting-os": () => ({
@@ -163,6 +184,51 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       icon: "event_repeat",
       pages: [
         { title: "週回顧", file: "weekly.md", icon: "event_repeat", tags: ["日誌"], folder: "日誌" },
+      ],
+    },
+  }),
+  "builtin:project-kickoff": () => ({
+    source: "builtin:project-kickoff",
+    sourceKind: "catalog",
+    readme: `# 專案啟動包
+
+包含專案簡報、里程碑與風險三頁。
+`,
+    files: {
+      "brief.md": `## 專案目標
+
+
+## 成功定義
+- 
+
+## 利害關係人
+- 
+`,
+      "milestones.md": `## 里程碑
+| 階段 | 日期 | 產出 |
+| --- | --- | --- |
+|  |  |  |
+`,
+      "risks.md": `## 風險清單
+| 風險 | 影響 | 緩解 |
+| --- | --- | --- |
+|  |  |  |
+`,
+    },
+    manifest: {
+      schema: 1,
+      kind: "template",
+      id: "project-kickoff",
+      name: "專案啟動包",
+      version: "1.0.0",
+      description: "專案簡報、里程碑與風險清單。",
+      author: "Albireus",
+      icon: "rocket_launch",
+      category: "工作",
+      pages: [
+        { title: "專案簡報", file: "brief.md", icon: "flag", tags: ["專案"], folder: "專案" },
+        { title: "里程碑", file: "milestones.md", icon: "timeline", tags: ["專案"], folder: "專案" },
+        { title: "風險清單", file: "risks.md", icon: "warning", tags: ["專案"], folder: "專案" },
       ],
     },
   }),

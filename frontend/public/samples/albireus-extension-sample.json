@@ -7,10 +7,20 @@
   "description": "從本機 JSON 匯入的示範擴充：iframe 開啟 MDN。",
   "author": "Albireus",
   "icon": "menu_book",
+  "category": "生產力",
   "nav": { "label": "MDN", "order": 90 },
   "pageType": {
     "type": "iframe",
     "entry": "https://developer.mozilla.org/",
     "createLabel": "新 MDN 頁"
-  }
+  },
+  "settings": [
+    {
+      "key": "locale",
+      "label": "介面語言提示",
+      "type": "enum",
+      "options": ["zh-TW", "en-US"],
+      "default": "zh-TW"
+    }
+  ]
 }
