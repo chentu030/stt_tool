@@ -426,6 +426,7 @@ function NotePageInner() {
             uid: user.uid,
             getIdToken: () => user.getIdToken(),
             media,
+            language: prefsCtx?.prefs.captureLanguage,
             onProgress: (msg, pct) =>
               setIngestStatus(pct != null ? `${msg} ${pct}%` : msg),
           });

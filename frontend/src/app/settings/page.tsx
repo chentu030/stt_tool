@@ -744,6 +744,9 @@ export default function SettingsPage() {
                 onChange={(captureLanguage) => patch({ captureLanguage })}
               />
             </Row>
+            <p className="st-hint">
+              選「繁體中文」會強制用中文解碼語音；英文影片請改「English」或「自動偵測」，否則容易被轉成中文。
+            </p>
             <Row label={`單次最多檔案 ${prefs.captureMaxFiles}`}>
               <input
                 type="range"

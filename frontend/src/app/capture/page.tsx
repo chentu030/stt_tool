@@ -14,6 +14,8 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import Link from "next/link";
 import { libraryJobsUrl } from "@/lib/navApps";
 import { toast } from "@/lib/toast";
+import { usePrefsOptional } from "@/components/PrefsProvider";
+import { loadPrefs } from "@/lib/userPrefs";
 
 const YT_DRAFT_KEY = "cadence_capture_yt_draft";
 const YT_RECENT_KEY = "cadence_capture_yt_recent";
@@ -77,6 +79,7 @@ function formatRec(secs: number) {
 
 export default function CapturePage() {
   const { user, loading } = useAuth();
+  const prefsCtx = usePrefsOptional();
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -272,6 +275,9 @@ export default function CapturePage() {
       const fd = new FormData();
       fd.append("job_id", jobId);
       if (ytForServer) fd.append("youtube_url", ytForServer);
+      const lang =
+        prefsCtx?.prefs.captureLanguage || loadPrefs().captureLanguage || "auto";
+      fd.append("language", lang);
       fetch(`${API}/jobs/start`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },

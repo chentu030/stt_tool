@@ -55,6 +55,8 @@ export interface Job {
   source_type: "upload" | "youtube";
   filenames: string[];
   youtube_url: string;
+  /** Whisper language code or "None" for auto-detect */
+  language?: string;
   /** User-editable display name; falls back to filename / YouTube URL */
   title?: string;
   storage_paths: string[];

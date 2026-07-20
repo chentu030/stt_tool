@@ -228,7 +228,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   captureDefaultSource: "file",
   captureAutoOpenJob: true,
   captureMaxFiles: 8,
-  captureLanguage: "zh-TW",
+  captureLanguage: "auto",
   journalWeekStart: "monday",
   journalDefaultEnergy: 3,
   journalShowHeatmap: true,

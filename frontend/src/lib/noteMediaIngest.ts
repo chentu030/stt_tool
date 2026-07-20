@@ -13,6 +13,7 @@ import {
 import { askChoice } from "@/lib/dialogs";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import type { MediaIngestDefault } from "@/lib/userPrefs";
+import { loadPrefs } from "@/lib/userPrefs";
 
 const API = () => process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 const PENDING_KEY = "cadence_media_ingest_pending_v1";
@@ -78,17 +79,20 @@ export async function startTranscriptionJob(opts: {
   getIdToken: () => Promise<string>;
   media: TranscribableMedia;
   onProgress?: (label: string, pct?: number) => void;
+  language?: string;
 }): Promise<string> {
   const { uid, getIdToken, media, onProgress } = opts;
+  const language = opts.language || loadPrefs().captureLanguage || "auto";
 
   if (media.kind === "youtube") {
     const jobId = await createJob(uid, "youtube", [media.label || "YouTube"], media.youtubeUrl);
-    await updateJobStatus(jobId, { status: "queued" });
+    await updateJobStatus(jobId, { status: "queued", language });
     onProgress?.("已排入轉錄佇列", 5);
     const token = await getIdToken();
     const fd = new FormData();
     fd.append("job_id", jobId);
     fd.append("youtube_url", media.youtubeUrl);
+    fd.append("language", language);
     void fetch(`${API()}/jobs/start`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -106,11 +110,13 @@ export async function startTranscriptionJob(opts: {
     status: "queued",
     storage_paths: [path],
     total_files: 1,
+    language,
   });
   onProgress?.("已排入轉錄佇列", 40);
   const token = await getIdToken();
   const fd = new FormData();
   fd.append("job_id", jobId);
+  fd.append("language", language);
   void fetch(`${API()}/jobs/start`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

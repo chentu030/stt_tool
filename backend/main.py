@@ -71,7 +71,35 @@ WHISPER_MODEL = (
     "vaibhavs10/incredibly-fast-whisper:"
     "3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c"
 )
-DEFAULT_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "chinese")
+DEFAULT_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "None")
+
+
+def _normalize_whisper_language(raw: Optional[str]) -> str:
+    """Map UI / env language prefs to incredibly-fast-whisper language codes.
+
+    \"None\" means auto-detect (do not force a language).
+    """
+    v = (raw or "").strip()
+    if not v or v.lower() in ("none", "auto", "detect", "null"):
+        return "None"
+    key = v.lower().replace("_", "-")
+    mapping = {
+        "zh": "chinese",
+        "zh-tw": "chinese",
+        "zh-cn": "chinese",
+        "zh-hk": "chinese",
+        "chinese": "chinese",
+        "en": "english",
+        "english": "english",
+        "ja": "japanese",
+        "jp": "japanese",
+        "japanese": "japanese",
+        "ko": "korean",
+        "korean": "korean",
+        "yue": "cantonese",
+        "cantonese": "cantonese",
+    }
+    return mapping.get(key, v)
 
 # Split long audio into chunks so we can report real position progress
 # and keep each Replicate request small & stable.
@@ -179,13 +207,14 @@ def _replicate_run(audio_path: str, language: str) -> dict:
     connection) and then polls the prediction. This avoids read timeouts on
     long transcriptions, while the custom client's timeout covers the upload.
     """
+    lang = _normalize_whisper_language(language)
     with open(audio_path, "rb") as f:
         output = _replicate_client.run(
             WHISPER_MODEL,
             input={
                 "audio": f,
                 "task": "transcribe",
-                "language": language,
+                "language": lang,
                 "timestamp": "chunk",
                 "batch_size": 24,
             },
@@ -203,6 +232,10 @@ def _to_traditional(text: str) -> str:
     stored transcripts, history and downloaded .txt are all Traditional.
     """
     if not text:
+        return text
+    # Skip OpenCC when almost no CJK (English-only transcripts)
+    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    if cjk < 8:
         return text
     global _opencc_converter
     try:
@@ -639,6 +672,9 @@ def _process_job_sync(job_id: str, job_data: dict):
 
         total = len(audio_files)
         uid = job_data.get("user_id", "unknown")
+        language = _normalize_whisper_language(
+            job_data.get("language") or DEFAULT_LANGUAGE
+        )
 
         # Transcribe the job's files in parallel (bounded), reporting progress by
         # how many files are finished. Each file: transcribe -> store .txt.
@@ -648,7 +684,7 @@ def _process_job_sync(job_id: str, job_data: dict):
 
         def _work(idx: int, fname: str, local_path: str) -> None:
             try:
-                text = _transcribe_audio_file(local_path)
+                text = _transcribe_audio_file(local_path, language=language)
                 ok = True
             except Exception as fe:
                 text = f"[轉錄失敗 / transcription failed: {fe}]"
@@ -720,6 +756,7 @@ async def start_job(
     job_id: str = Form(...),
     youtube_url: Optional[str] = Form(None),
     yt_token_id: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
 ):
     uid = _verify_token(authorization)
@@ -738,6 +775,9 @@ async def start_job(
     # background task lands on) can read it — in-memory would not survive.
     if yt_token_id and yt_token_id in _cookies:
         updates["yt_cookie"] = _cookies[yt_token_id]
+    # Whisper language: "None"/auto = detect; zh-TW/en/… map to model codes.
+    lang = _normalize_whisper_language(language or job_data.get("language") or DEFAULT_LANGUAGE)
+    updates["language"] = lang
     if updates:
         job_ref.update(updates)
         job_data = {**job_data, **updates}
