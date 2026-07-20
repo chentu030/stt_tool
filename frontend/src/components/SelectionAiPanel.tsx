@@ -195,7 +195,7 @@ export default function SelectionAiPanel({
 
   return (
     <div
-      className={`sel-ai-panel${variant === "inline" ? " sel-ai-panel--inline" : ""}`}
+      className={`sel-ai-panel${variant === "inline" ? " sel-ai-panel--inline sel-ai-panel--dock" : ""}`}
       style={variant === "float" ? { top: pos.top, left: pos.left } : undefined}
       onMouseDown={(e) => e.preventDefault()}
     >

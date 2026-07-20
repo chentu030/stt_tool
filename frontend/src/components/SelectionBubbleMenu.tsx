@@ -269,6 +269,13 @@ export default function SelectionBubbleMenu({
   const turnItems = buildTurnItems({ onCreateSubpage });
 
   const aiOpen = aiOpenProp ?? aiOpenLocal;
+  const aiOpenRef = useRef(aiOpen);
+  aiOpenRef.current = aiOpen;
+  const [aiDock, setAiDock] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
   const setAiOpen = (open: boolean, opts?: { action?: SelectionAiAction }) => {
     if (onAiOpenChange) onAiOpenChange(open, opts);
     else setAiOpenLocal(open);
@@ -407,14 +414,54 @@ export default function SelectionBubbleMenu({
       from: number;
       to: number;
     }) => {
+      // Keep toolbar visible while Ask-AI column is open
+      if (aiOpenRef.current) return true;
       if (a === b) return false;
       if (ed.isActive("codeBlock") || ed.isActive("mathBlock")) return false;
       const menuEl = bubbleElRef.current;
       const isChildOfMenu = !!(menuEl && document.activeElement && menuEl.contains(document.activeElement));
-      return view.hasFocus() || isChildOfMenu;
+      const aiEl = document.querySelector(".sel-ai-panel--dock");
+      const inAi = !!(aiEl && document.activeElement && aiEl.contains(document.activeElement));
+      return view.hasFocus() || isChildOfMenu || inAi;
     },
     []
   );
+
+  // Position Ask-AI as its own column under the format bar, same width.
+  useEffect(() => {
+    if (!aiOpen) {
+      setAiDock(null);
+      return;
+    }
+    const place = () => {
+      const el = bubbleElRef.current;
+      const inner = wrapRef.current;
+      if (!el || !inner) return;
+      const r = inner.getBoundingClientRect();
+      const width = Math.max(r.width, Math.min(560, window.innerWidth - 24));
+      let left = r.left;
+      const sidebar = document.querySelector(".desktop-sidebar") as HTMLElement | null;
+      const minLeft = Math.max(8, (sidebar?.getBoundingClientRect().right ?? 0) + 8);
+      if (left < minLeft) left = minLeft;
+      if (left + width > window.innerWidth - 8) {
+        left = Math.max(minLeft, window.innerWidth - 8 - width);
+      }
+      setAiDock({
+        top: r.bottom + 8,
+        left,
+        width,
+      });
+    };
+    place();
+    const id = window.setInterval(place, 100);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [aiOpen, tick]);
 
   const floatingOptions = useMemo(
     () => ({
@@ -440,6 +487,7 @@ export default function SelectionBubbleMenu({
   const selText = editor.state.doc.textBetween(from, to, "\n");
 
   return (
+    <>
     <BubbleMenu
       editor={editor}
       className="sel-bubble"
@@ -671,26 +719,40 @@ export default function SelectionBubbleMenu({
             <span className="material-symbols-outlined sel-bub-ico">auto_awesome</span>
           </BubBtn>
         </div>
-
-        {aiOpen && (
-          <SelectionAiPanel
-            variant="inline"
-            open
-            editor={editor}
-            noteTitle={noteTitle}
-            noteBody={noteBody}
-            aiContext={aiContext}
-            selectionText={selText}
-            from={from}
-            to={to}
-            autoAction={aiAutoAction}
-            onClose={() => setAiOpen(false)}
-            onSendToAside={onSendToAside}
-            onDeepResearch={onDeepResearch}
-          />
-        )}
       </div>
       <span hidden data-hl={hlColor} />
     </BubbleMenu>
+      {aiOpen &&
+        aiDock &&
+        createPortal(
+          <div
+            className="sel-ai-dock"
+            style={{
+              position: "fixed",
+              top: aiDock.top,
+              left: aiDock.left,
+              width: aiDock.width,
+              zIndex: 1401,
+            }}
+          >
+            <SelectionAiPanel
+              variant="inline"
+              open
+              editor={editor}
+              noteTitle={noteTitle}
+              noteBody={noteBody}
+              aiContext={aiContext}
+              selectionText={selText}
+              from={from}
+              to={to}
+              autoAction={aiAutoAction}
+              onClose={() => setAiOpen(false)}
+              onSendToAside={onSendToAside}
+              onDeepResearch={onDeepResearch}
+            />
+          </div>,
+          document.body
+        )}
+    </>
   );
 }

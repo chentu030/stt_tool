@@ -4823,14 +4823,27 @@ a.sidebar-user-name:hover {
   top: auto !important;
   left: auto !important;
   width: 100%;
-  max-width: min(480px, calc(100vw - 32px));
+  max-width: none;
   margin: 0;
   border: none;
-  border-top: 1px solid var(--border);
-  border-radius: 0 0 12px 12px;
+  border-radius: 0;
   box-shadow: none;
   background: transparent;
-  padding: 0.55rem 0.7rem 0.65rem;
+  padding: 0.65rem 0.75rem 0.75rem;
+  max-height: min(70vh, 560px);
+  box-sizing: border-box;
+}
+.sel-ai-dock {
+  pointer-events: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.sel-ai-dock .sel-ai-panel {
+  width: 100%;
 }
 .sel-bub-panel-label {
   margin: 0;
