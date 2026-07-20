@@ -96,6 +96,173 @@ function Seg<T extends string>({
   );
 }
 
+function ProfileEditor() {
+  const {
+    user,
+    displayName,
+    username,
+    photoURL,
+    profileLoading,
+    saveProfile,
+    uploadAvatarFile,
+  } = useAuth();
+  const [name, setName] = useState(displayName);
+  const [handle, setHandle] = useState(username);
+  const [preview, setPreview] = useState(photoURL);
+  const [photoPath, setPhotoPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setName(displayName);
+    setHandle(username);
+    setPreview(photoURL);
+  }, [displayName, username, photoURL]);
+
+  if (!user) return null;
+
+  const dirty =
+    name.trim() !== displayName.trim() ||
+    handle.trim().toLowerCase() !== username.trim().toLowerCase() ||
+    preview !== photoURL;
+
+  const onPickAvatar = async (file: File | null) => {
+    if (!file) return;
+    setBusy(true);
+    setUploadPct(0);
+    try {
+      const { url, path } = await uploadAvatarFile(file, setUploadPct);
+      setPreview(url);
+      setPhotoPath(path);
+      toast("頭像已上傳，記得儲存");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "上傳失敗");
+    } finally {
+      setBusy(false);
+      setUploadPct(0);
+    }
+  };
+
+  const onSave = async () => {
+    setBusy(true);
+    try {
+      await saveProfile({
+        displayName: name,
+        username: handle,
+        photoURL: preview,
+        photoPath: photoPath || undefined,
+      });
+      toast("個人資料已儲存");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onResetGoogle = async () => {
+    setName(user.displayName || user.email?.split("@")[0] || "");
+    setPreview(user.photoURL || "");
+    setPhotoPath("");
+    toast("已還原為 Google 帳號預設（尚未儲存）");
+  };
+
+  return (
+    <div className="st-profile">
+      <div className="st-profile-avatar-row">
+        <div className="st-profile-avatar-wrap">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              className="st-profile-avatar"
+              src={preview}
+              alt=""
+              width={72}
+              height={72}
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <span className="st-profile-avatar-fallback" aria-hidden>
+              {(name || "?").slice(0, 1)}
+            </span>
+          )}
+        </div>
+        <div className="st-profile-avatar-actions">
+          <button
+            type="button"
+            className="btn btn-soft btn-sm"
+            disabled={busy || profileLoading}
+            onClick={() => fileRef.current?.click()}
+          >
+            {uploadPct > 0 && uploadPct < 100 ? `上傳中 ${uploadPct}%` : "更換頭像"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => void onResetGoogle()}
+          >
+            還原 Google 預設
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0] || null;
+              void onPickAvatar(f);
+              e.target.value = "";
+            }}
+          />
+          <p className="st-muted">PNG / JPG / WebP，最大 2MB</p>
+        </div>
+      </div>
+
+      <Row label="顯示名稱" hint="其他人在筆記、團隊中看到的名字">
+        <input
+          className="input"
+          value={name}
+          maxLength={40}
+          disabled={busy}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="顯示名稱"
+        />
+      </Row>
+      <Row label="用戶名稱" hint="唯一識別，小寫字母開頭，3–20 字（a-z、0-9、_）">
+        <div className="st-username-field">
+          <span className="st-username-at">@</span>
+          <input
+            className="input"
+            value={handle}
+            maxLength={20}
+            disabled={busy}
+            onChange={(e) => setHandle(e.target.value.toLowerCase())}
+            placeholder="your_name"
+            autoComplete="username"
+            spellCheck={false}
+          />
+        </div>
+      </Row>
+      <Row label="登入信箱" hint="由 Google 帳號提供，無法在此修改">
+        <span className="st-email-readonly">{user.email}</span>
+      </Row>
+
+      <div className="st-profile-save">
+        <button
+          type="button"
+          className="btn"
+          disabled={busy || profileLoading || !dirty}
+          onClick={() => void onSave()}
+        >
+          {busy ? "儲存中…" : "儲存個人資料"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { user, loading } = useAuth();
   const { prefs, setPrefs, replacePrefs } = usePrefs();
@@ -753,17 +920,14 @@ export default function SettingsPage() {
             {loading ? (
               <PageLoading fill={false} />
             ) : user ? (
-              <div className="st-account">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={user.photoURL || ""} alt="" width={48} height={48} />
-                <div>
-                  <strong>{user.displayName}</strong>
-                  <span>{user.email}</span>
+              <>
+                <ProfileEditor />
+                <div className="st-account-actions">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => logout()}>
+                    登出
+                  </button>
                 </div>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => logout()}>
-                  登出
-                </button>
-              </div>
+              </>
             ) : (
               <button type="button" className="btn" onClick={() => loginWithGoogle()}>
                 使用 Google 登入

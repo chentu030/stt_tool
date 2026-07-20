@@ -88,6 +88,32 @@ service cloud.firestore {
         && resource.data.user_id == request.auth.uid;
     }
 
+    // Public profile fields (display name / username / avatar) for signed-in users
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasAll(['display_name', 'username', 'photo_url'])
+        && request.resource.data.display_name is string
+        && request.resource.data.display_name.size() > 0
+        && request.resource.data.display_name.size() <= 40
+        && request.resource.data.username is string
+        && request.resource.data.username.size() <= 20
+        && request.resource.data.photo_url is string;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Unique username claims: usernames/{username} -> { uid }
+    match /usernames/{uname} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && uname.matches('^[a-z][a-z0-9_]{2,19}$');
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     match /users/{uid}/workspace/{docId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
@@ -163,7 +189,10 @@ service cloud.firestore {
               )
             )
           );
-        allow update: if isTeamAdmin(teamId);
+        allow update: if isTeamAdmin(teamId)
+          || (signedIn() && request.auth.uid == memberId
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['display_name', 'photo_url']));
         allow delete: if isTeamAdmin(teamId) || request.auth.uid == memberId;
       }
 

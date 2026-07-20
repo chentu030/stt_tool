@@ -11,7 +11,7 @@ type Props = {
 };
 
 export default function NotePresence({ noteId }: Props) {
-  const { user } = useAuth();
+  const { user, displayName } = useAuth();
   const [users, setUsers] = useState<PresenceUser[]>([]);
   const mouseRef = useRef({ x: 0, y: 0 });
 
@@ -29,13 +29,13 @@ export default function NotePresence({ noteId }: Props) {
     const stop = startPresenceHeartbeat(noteId, user.uid, () => ({
       x: mouseRef.current.x,
       y: mouseRef.current.y,
-      name: user.displayName || "訪客",
+      name: displayName || "訪客",
     }));
     return () => {
       window.removeEventListener("mousemove", onMove);
       stop();
     };
-  }, [noteId, user]);
+  }, [noteId, user, displayName]);
 
   const others = users.filter((u) => u.uid !== user?.uid);
   if (others.length === 0) return null;

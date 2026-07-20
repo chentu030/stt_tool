@@ -9,7 +9,7 @@ import { loginWithGoogle } from "@/lib/firebase";
 import { acceptInvite } from "@/lib/teamStore";
 
 function JoinInner() {
-  const { user, loading } = useAuth();
+  const { user, loading, displayName } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
@@ -19,7 +19,7 @@ function JoinInner() {
   useEffect(() => {
     if (!user || !token || status !== "idle") return;
     setStatus("joining");
-    void acceptInvite(token, user.uid, user.displayName || undefined).then((res) => {
+    void acceptInvite(token, user.uid, displayName || undefined).then((res) => {
       if (res.ok) {
         setStatus("done");
         setMessage(`已加入「${res.teamName}」`);
@@ -35,7 +35,7 @@ function JoinInner() {
         );
       }
     });
-  }, [user, token, status, router]);
+  }, [user, token, status, router, displayName]);
 
   if (loading) return <PageLoading />;
 

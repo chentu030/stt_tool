@@ -243,7 +243,7 @@ export default function RichNoteEditor({
   onOpenThread,
 }: Props) {
   const prefsCtx = usePrefsOptional();
-  const { user } = useAuth();
+  const { user, displayName } = useAuth();
   const wikiEnabled = prefsCtx?.prefs.wikiSuggest !== false;
   const slashEnabled = !readOnly && prefsCtx?.prefs.slashMenu !== false;
   const skip = useRef(false);
@@ -262,7 +262,7 @@ export default function RichNoteEditor({
   const wikiNotesRef = useRef(wikiNotes);
   wikiNotesRef.current = wikiNotes;
   const personNameRef = useRef("");
-  personNameRef.current = user?.displayName || user?.email?.split("@")[0] || "";
+  personNameRef.current = displayName || user?.email?.split("@")[0] || "";
   const personEmailRef = useRef("");
   personEmailRef.current = user?.email || "";
   const resolveWikiRef = useRef<(title: string) => string | null>(() => null);

@@ -175,7 +175,7 @@ function useIsMobile(breakpoint = 900) {
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, displayName, username, photoURL } = useAuth();
   const prefsCtx = usePrefsOptional();
   const homeHref = prefsCtx?.prefs.homePage || "/";
   const isMobile = useIsMobile();
@@ -523,17 +523,28 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="sidebar-footer">
         {loading ? null : user ? (
           <div className={`sidebar-user${collapsed ? " is-collapsed" : ""}`}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              className="sidebar-user-avatar"
-              src={user.photoURL || ""}
-              alt=""
-              referrerPolicy="no-referrer"
-              title={user.displayName || "使用者"}
-            />
+            {photoURL ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className="sidebar-user-avatar"
+                src={photoURL}
+                alt=""
+                referrerPolicy="no-referrer"
+                title={displayName || "使用者"}
+              />
+            ) : (
+              <span className="sidebar-user-avatar sidebar-user-avatar--fallback" title={displayName || "使用者"}>
+                {(displayName || "?").slice(0, 1)}
+              </span>
+            )}
             {!collapsed && (
               <div className="sidebar-user-meta">
-                <div className="sidebar-user-name">{user.displayName || "使用者"}</div>
+                <Link href="/settings#st-account" className="sidebar-user-name" title="編輯個人資料">
+                  {displayName || "使用者"}
+                </Link>
+                {username ? (
+                  <div className="sidebar-user-handle">@{username}</div>
+                ) : null}
                 <button type="button" className="sidebar-user-action" onClick={() => logout()}>
                   登出
                 </button>

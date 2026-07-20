@@ -126,7 +126,7 @@ function TeamRoomInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, loading } = useAuth();
+  const { user, loading, displayName } = useAuth();
 
   const [team, setTeam] = useState<Team | null>(null);
   const [member, setMember] = useState<Member | null>(null);
@@ -452,7 +452,7 @@ function TeamRoomInner() {
 
   useEffect(() => {
     if (!id || !activeChannel || !user) return;
-    const name = user.displayName || member?.display_name || "訪客";
+    const name = displayName || member?.display_name || "訪客";
     const color = colorForUid(user.uid);
     const beat = () => void setChannelPresence(id, activeChannel, user.uid, name, color);
     beat();
@@ -538,7 +538,7 @@ function TeamRoomInner() {
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
     if (value.trim()) {
       typingDebounceRef.current = setTimeout(() => {
-        void setTyping(id, activeChannel, user.uid, user.displayName || member?.display_name || "某人");
+        void setTyping(id, activeChannel, user.uid, displayName || member?.display_name || "某人");
       }, 250);
     } else {
       void clearTyping(id, activeChannel, user.uid);
@@ -551,14 +551,14 @@ function TeamRoomInner() {
     const spaceIdx = text.indexOf(" ");
     const cmd = (spaceIdx === -1 ? text : text.slice(0, spaceIdx)).toLowerCase();
     const rest = spaceIdx === -1 ? "" : text.slice(spaceIdx + 1).trim();
-    const name = user.displayName || member?.display_name || "某人";
+    const name = displayName || member?.display_name || "某人";
 
     switch (cmd) {
       case "/me": {
         if (!rest) return true;
         await sendMessage(id, activeChannel, {
           author_id: user.uid,
-          author_name: user.displayName || "",
+          author_name: displayName || "",
           text: `_${name} ${rest}_`,
           members,
         });
@@ -567,7 +567,7 @@ function TeamRoomInner() {
       case "/shrug": {
         await sendMessage(id, activeChannel, {
           author_id: user.uid,
-          author_name: user.displayName || "",
+          author_name: displayName || "",
           text: `${rest} ¯\\_(ツ)_/¯`.trim(),
           members,
         });
@@ -580,7 +580,7 @@ function TeamRoomInner() {
           await pinNote(id, noteId, title, user.uid);
           await sendMessage(id, activeChannel, {
             author_id: user.uid,
-            author_name: user.displayName || "",
+            author_name: displayName || "",
             text: `建立了筆記「${title}」`,
             kind: "note_share",
             note_id: noteId,
@@ -626,7 +626,7 @@ function TeamRoomInner() {
       }
       await sendMessage(id, activeChannel, {
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         text: text.trim(),
         thread_id: threadId,
         members,
@@ -820,7 +820,7 @@ function TeamRoomInner() {
       await pinNote(id, noteId, title, user.uid);
       await sendMessage(id, activeChannel, {
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         text: `分享了頻道摘要筆記「${title}」`,
         kind: "note_share",
         note_id: noteId,
@@ -845,7 +845,7 @@ function TeamRoomInner() {
       await pinNote(id, noteId, title, user.uid);
       await sendMessage(id, activeChannel, {
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         text: `將訊息轉為筆記「${title}」`,
         kind: "note_share",
         note_id: noteId,
@@ -884,7 +884,7 @@ function TeamRoomInner() {
       await pinNote(id, noteId, title, user.uid);
       await sendMessage(id, activeChannel, {
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         text: `將討論串轉為筆記「${title}」`,
         kind: "note_share",
         note_id: noteId,
@@ -1003,7 +1003,7 @@ function TeamRoomInner() {
       const uploaded = await uploadTeamFile(id, activeChannel, file);
       await sendMessage(id, activeChannel, {
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         text: uploaded.name,
         kind: "file",
         file_url: uploaded.url,

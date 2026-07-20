@@ -31,7 +31,7 @@ function pageLogCol(noteId: string) {
 }
 
 export default function NotePageLog({ noteId }: { noteId: string }) {
-  const { user } = useAuth();
+  const { user, displayName } = useAuth();
   const [entries, setEntries] = useState<LogEntry[]>([]);
 
   useEffect(() => {
@@ -75,11 +75,11 @@ export default function NotePageLog({ noteId }: { noteId: string }) {
     if (!noteId || !user || myRead) return;
     void setDoc(doc(pageLogCol(noteId), `read_${user.uid}`), {
       uid: user.uid,
-      name: user.displayName || "訪客",
+      name: displayName || "訪客",
       kind: "read",
       created_at: Timestamp.now(),
     }).catch(() => undefined);
-  }, [noteId, user, myRead]);
+  }, [noteId, user, myRead, displayName]);
 
   const toggleReaction = async (emoji: string) => {
     if (!user) return;
@@ -90,7 +90,7 @@ export default function NotePageLog({ noteId }: { noteId: string }) {
     }
     await setDoc(ref, {
       uid: user.uid,
-      name: user.displayName || "訪客",
+      name: displayName || "訪客",
       kind: "reaction",
       emoji,
       created_at: Timestamp.now(),

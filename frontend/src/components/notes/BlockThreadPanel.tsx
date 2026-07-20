@@ -21,7 +21,7 @@ type Props = {
 };
 
 export default function BlockThreadPanel({ noteId, selectionText, onClose }: Props) {
-  const { user } = useAuth();
+  const { user, displayName } = useAuth();
   const [threadId, setThreadId] = useState<string | null>(null);
   const [thread, setThread] = useState<Thread | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
@@ -56,7 +56,7 @@ export default function BlockThreadPanel({ noteId, selectionText, onClose }: Pro
     try {
       await sendThreadMessage(noteId, threadId, {
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         text: draft.trim(),
       });
       setDraft("");

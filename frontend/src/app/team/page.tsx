@@ -17,7 +17,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default function TeamListPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, displayName } = useAuth();
   const router = useRouter();
   const [teams, setTeams] = useState<TeamMembership[]>([]);
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,7 @@ export default function TeamListPage() {
     setBusy(true);
     setError("");
     try {
-      const id = await createTeam(user.uid, name, user.displayName || undefined);
+      const id = await createTeam(user.uid, name, displayName || undefined);
       router.push(`/team/${id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "建立團隊失敗");

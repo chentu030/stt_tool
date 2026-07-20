@@ -46,7 +46,7 @@ export default function ShareDialog({
   share,
   onUpdated,
 }: Props) {
-  const { user } = useAuth();
+  const { user, displayName } = useAuth();
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<ShareMode>(share?.mode || "view");
   const [copied, setCopied] = useState(false);
@@ -175,7 +175,7 @@ export default function ShareDialog({
         teamId,
         channelId,
         author_id: user.uid,
-        author_name: user.displayName || "",
+        author_name: displayName || "",
         note_id: noteId,
         note_title: noteTitle || "未命名筆記",
         pin: pinToo,

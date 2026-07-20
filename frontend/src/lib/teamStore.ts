@@ -36,6 +36,7 @@ export type Member = {
   role: TeamRole;
   joined_at: Date;
   display_name?: string;
+  photo_url?: string;
 };
 
 export type Channel = {
@@ -189,6 +190,7 @@ function memberFromDoc(uid: string, data: Record<string, unknown>): Member {
     role: (data.role as TeamRole) || "member",
     joined_at: (data.joined_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     display_name: data.display_name ? String(data.display_name) : undefined,
+    photo_url: data.photo_url ? String(data.photo_url) : undefined,
   };
 }
 
