@@ -156,6 +156,7 @@ export default function SidebarNotesTree() {
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
   const [hintDismissed, setHintDismissed] = useState(true);
+  const [recentCollapsed, setRecentCollapsed] = useState(false);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
 
@@ -190,6 +191,26 @@ export default function SidebarNotesTree() {
       setHintDismissed(true);
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      setRecentCollapsed(localStorage.getItem("cadence_sidebar_recent_collapsed") === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleRecentCollapsed = () => {
+    setRecentCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("cadence_sidebar_recent_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setExpanded(loadExpanded());
@@ -1424,9 +1445,23 @@ export default function SidebarNotesTree() {
       )}
 
       {!q && recentNotes.length > 0 && (
-        <div className="sb-section">
-          <p className="sb-section-label">最近</p>
-          {recentNotes.slice(0, 5).map((n) => renderNoteLink(n, 0, { flat: true }))}
+        <div className={`sb-section${recentCollapsed ? " is-collapsed" : ""}`}>
+          <button
+            type="button"
+            className="sb-section-toggle"
+            aria-expanded={!recentCollapsed}
+            onClick={toggleRecentCollapsed}
+          >
+            <span className={`sb-section-chevron${recentCollapsed ? "" : " is-open"}`} aria-hidden>
+              ▸
+            </span>
+            <span className="sb-section-label">最近</span>
+            {recentCollapsed ? (
+              <em className="sb-section-count">{Math.min(5, recentNotes.length)}</em>
+            ) : null}
+          </button>
+          {!recentCollapsed &&
+            recentNotes.slice(0, 5).map((n) => renderNoteLink(n, 0, { flat: true }))}
         </div>
       )}
 
