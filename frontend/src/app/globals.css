@@ -1585,10 +1585,183 @@ button, input, textarea, select {
 }
 .community-detail-cover {
   width: 100%;
-  max-height: 280px;
+  max-height: 320px;
   object-fit: cover;
   border-radius: 14px;
   background: var(--bg-muted);
+}
+.community-detail-hero {
+  margin: 0 -0.15rem;
+}
+.community-detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+}
+.community-detail-tabs button {
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.community-detail-tabs button.is-on {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-muted));
+  color: var(--text-main);
+}
+.community-detail-tabpanel {
+  min-height: 8rem;
+}
+.community-submit-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+}
+.community-submit-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem 0.35rem 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.community-submit-step span {
+  display: inline-flex;
+  width: 1.4rem;
+  height: 1.4rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+.community-submit-step.is-on {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--text-main);
+}
+.community-submit-step.is-on span {
+  background: var(--accent);
+  color: #fff;
+}
+.community-submit-panel {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.1rem 1.15rem 1.25rem;
+  background: var(--bg-card);
+  margin-bottom: 1rem;
+}
+.community-submit-panel h2 {
+  margin: 0 0 0.85rem;
+  font-size: 1.05rem;
+}
+.community-submit-kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+.community-submit-kinds button {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background: var(--bg-primary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.community-submit-kinds button.is-on {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.community-submit-kinds strong {
+  font-size: 0.95rem;
+}
+.community-submit-kinds span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.community-submit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.community-submit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.community-submit-full {
+  grid-column: 1 / -1;
+}
+.community-submit-file {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+.community-submit-cover-preview {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 0.85rem;
+  border: 1px solid var(--border);
+}
+.community-submit-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.35rem 0 0.65rem;
+}
+.community-submit-readme {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  min-height: 280px;
+  background: var(--bg-primary);
+}
+.community-submit-tpl-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+.community-submit-advanced {
+  margin: 1rem 0;
+  font-size: 0.85rem;
+}
+.community-submit-preview {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: var(--bg-muted);
+}
+.community-submit-preview h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
 }
 .community-shots {
   display: grid;

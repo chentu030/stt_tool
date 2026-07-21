@@ -126,7 +126,7 @@ export type InstalledExtension = {
   manifest: ExtensionManifest;
   enabled: boolean;
   source: string;
-  sourceKind: "github" | "file" | "catalog";
+  sourceKind: "github" | "file" | "catalog" | "hosted";
   installedAt: number;
   updatedAt: number;
   readme?: string;
@@ -139,7 +139,7 @@ export type InstalledTemplate = {
   files: Record<string, string>;
   enabled: boolean;
   source: string;
-  sourceKind: "github" | "file" | "catalog";
+  sourceKind: "github" | "file" | "catalog" | "hosted";
   installedAt: number;
   updatedAt: number;
   readme?: string;
@@ -150,7 +150,36 @@ export type ResolvedPackage = {
   files: Record<string, string>;
   readme?: string;
   source: string;
-  sourceKind: "github" | "file" | "catalog";
+  sourceKind: "github" | "file" | "catalog" | "hosted";
+};
+
+/** Public listing published by users (Firestore `community_packages`). */
+export type PublishedPackage = {
+  id: string;
+  kind: CommunityPackageKind;
+  name: string;
+  description: string;
+  author: string;
+  authorUid: string;
+  authorPhoto?: string;
+  icon?: string;
+  cover?: string;
+  screenshots?: string[];
+  category?: string;
+  tags?: string[];
+  version: string;
+  status: "published" | "removed";
+  source: string;
+  manifest: CommunityManifest;
+  readmeMd?: string;
+  /** Template page markdown keyed by file path */
+  files?: Record<string, string>;
+  /** Extension static assets: relative path → Firebase download URL */
+  assetUrls?: Record<string, string>;
+  rating?: number;
+  downloads?: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type PackageRating = {

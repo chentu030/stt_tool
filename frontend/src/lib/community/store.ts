@@ -54,7 +54,10 @@ function parseExt(id: string, data: Record<string, unknown>): InstalledExtension
     enabled: data.enabled !== false,
     source: typeof data.source === "string" ? data.source : "",
     sourceKind:
-      data.sourceKind === "github" || data.sourceKind === "file" || data.sourceKind === "catalog"
+      data.sourceKind === "github" ||
+      data.sourceKind === "file" ||
+      data.sourceKind === "catalog" ||
+      data.sourceKind === "hosted"
         ? data.sourceKind
         : "catalog",
     installedAt: typeof data.installedAt === "number" ? data.installedAt : Date.now(),
@@ -78,7 +81,10 @@ function parseTpl(id: string, data: Record<string, unknown>): InstalledTemplate 
     enabled: data.enabled !== false,
     source: typeof data.source === "string" ? data.source : "",
     sourceKind:
-      data.sourceKind === "github" || data.sourceKind === "file" || data.sourceKind === "catalog"
+      data.sourceKind === "github" ||
+      data.sourceKind === "file" ||
+      data.sourceKind === "catalog" ||
+      data.sourceKind === "hosted"
         ? data.sourceKind
         : "catalog",
     installedAt: typeof data.installedAt === "number" ? data.installedAt : Date.now(),

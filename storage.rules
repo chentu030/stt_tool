@@ -2,7 +2,10 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /uploads/{uid}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid;
+      // Community package assets need public read so others can open hosted iframes / covers.
+      allow read: if request.auth != null && request.auth.uid == uid
+        || allPaths[0] == 'community';
     }
     match /results/{uid}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;

@@ -341,14 +341,19 @@ export function PackageDetailBody({
   pack: ResolvedPackage;
   entry?: CatalogEntry | null;
 }) {
+  const [tab, setTab] = useState<"overview" | "readme" | "perms" | "changelog">("overview");
   const shots = pack.manifest.screenshots || entry?.screenshots || [];
   const cover = pack.manifest.cover || entry?.cover;
   const changelog = pack.manifest.changelog || [];
+  const readme = pack.readme || "";
+
   return (
     <div className="community-detail-body">
       {cover ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img className="community-detail-cover" src={cover} alt="" />
+        <div className="community-detail-hero">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="community-detail-cover" src={cover} alt="" />
+        </div>
       ) : null}
       {shots.length > 0 && (
         <div className="community-shots">
@@ -358,122 +363,159 @@ export function PackageDetailBody({
           ))}
         </div>
       )}
-      <p className="community-detail-desc">{pack.manifest.description}</p>
-      <TrustScorecard manifest={pack.manifest} />
-      <dl className="community-detail-dl">
-        <div>
-          <dt>版本</dt>
-          <dd>v{pack.manifest.version}</dd>
-        </div>
-        <div>
-          <dt>作者</dt>
-          <dd>
-            <Link href={`/community/author/${encodeURIComponent(pack.manifest.author)}`}>
-              {pack.manifest.author}
-            </Link>
-            {pack.manifest.authorUrl ? (
-              <>
-                {" · "}
-                <a href={pack.manifest.authorUrl} target="_blank" rel="noreferrer">
-                  網站
-                </a>
-              </>
-            ) : null}
-          </dd>
-        </div>
-        <div>
-          <dt>類型</dt>
-          <dd>{pack.manifest.kind === "extension" ? "擴充功能" : "模板"}</dd>
-        </div>
-        {(pack.manifest.category || entry?.category) && (
-          <div>
-            <dt>分類</dt>
-            <dd>{pack.manifest.category || entry?.category}</dd>
+
+      <nav className="community-detail-tabs" aria-label="套件詳情">
+        {(
+          [
+            { id: "overview" as const, label: "總覽" },
+            { id: "readme" as const, label: "說明" },
+            { id: "perms" as const, label: "權限" },
+            { id: "changelog" as const, label: "更新紀錄" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={tab === t.id ? "is-on" : ""}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "overview" && (
+        <div className="community-detail-tabpanel">
+          <p className="community-detail-desc">{pack.manifest.description}</p>
+          <dl className="community-detail-dl">
+            <div>
+              <dt>版本</dt>
+              <dd>v{pack.manifest.version}</dd>
+            </div>
+            <div>
+              <dt>作者</dt>
+              <dd>
+                <Link href={`/community/author/${encodeURIComponent(pack.manifest.author)}`}>
+                  {pack.manifest.author}
+                </Link>
+                {pack.manifest.authorUrl ? (
+                  <>
+                    {" · "}
+                    <a href={pack.manifest.authorUrl} target="_blank" rel="noreferrer">
+                      網站
+                    </a>
+                  </>
+                ) : null}
+              </dd>
+            </div>
+            <div>
+              <dt>類型</dt>
+              <dd>{pack.manifest.kind === "extension" ? "擴充功能" : "模板"}</dd>
+            </div>
+            {(pack.manifest.category || entry?.category) && (
+              <div>
+                <dt>分類</dt>
+                <dd>{pack.manifest.category || entry?.category}</dd>
+              </div>
+            )}
+            {pack.manifest.license && (
+              <div>
+                <dt>授權</dt>
+                <dd>{pack.manifest.license}</dd>
+              </div>
+            )}
+            {pack.manifest.minAppVersion && (
+              <div>
+                <dt>最低版本</dt>
+                <dd>≥ {pack.manifest.minAppVersion}</dd>
+              </div>
+            )}
+          </dl>
+          <div className="community-ext-links">
+            {pack.manifest.homepage && (
+              <a href={pack.manifest.homepage} target="_blank" rel="noreferrer">
+                首頁
+              </a>
+            )}
+            {pack.manifest.repository && (
+              <a href={pack.manifest.repository} target="_blank" rel="noreferrer">
+                原始碼
+              </a>
+            )}
+            {pack.manifest.changelogUrl && (
+              <a href={pack.manifest.changelogUrl} target="_blank" rel="noreferrer">
+                更新日誌網址
+              </a>
+            )}
           </div>
-        )}
-        {pack.manifest.license && (
-          <div>
-            <dt>授權</dt>
-            <dd>{pack.manifest.license}</dd>
-          </div>
-        )}
-        {pack.manifest.minAppVersion && (
-          <div>
-            <dt>最低版本</dt>
-            <dd>≥ {pack.manifest.minAppVersion}</dd>
-          </div>
-        )}
-      </dl>
-      <div className="community-ext-links">
-        {pack.manifest.homepage && (
-          <a href={pack.manifest.homepage} target="_blank" rel="noreferrer">
-            首頁
-          </a>
-        )}
-        {pack.manifest.repository && (
-          <a href={pack.manifest.repository} target="_blank" rel="noreferrer">
-            原始碼
-          </a>
-        )}
-        {pack.manifest.changelogUrl && (
-          <a href={pack.manifest.changelogUrl} target="_blank" rel="noreferrer">
-            更新日誌網址
-          </a>
-        )}
-      </div>
-      {pack.manifest.kind === "extension" && (pack.manifest.settings?.length || 0) > 0 && (
-        <div className="community-settings-preview">
-          <h3>可調設定</h3>
-          <ul>
-            {pack.manifest.settings!.map((s) => (
-              <li key={s.key}>
-                <strong>{s.label}</strong>
-                <span>
-                  {s.type}
-                  {s.default !== undefined ? ` · 預設 ${String(s.default)}` : ""}
-                </span>
-                {s.description ? <em>{s.description}</em> : null}
-              </li>
-            ))}
-          </ul>
-          <p className="community-detail-meta">安裝後可在擴充中心調整，並傳入 iframe。</p>
+          {pack.manifest.kind === "extension" && (pack.manifest.settings?.length || 0) > 0 && (
+            <div className="community-settings-preview">
+              <h3>可調設定</h3>
+              <ul>
+                {pack.manifest.settings!.map((s) => (
+                  <li key={s.key}>
+                    <strong>{s.label}</strong>
+                    <span>
+                      {s.type}
+                      {s.default !== undefined ? ` · 預設 ${String(s.default)}` : ""}
+                    </span>
+                    {s.description ? <em>{s.description}</em> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {pack.manifest.kind === "extension" && (
+            <p className="community-detail-meta">
+              入口：<code>{pack.manifest.pageType.entry}</code>
+              <br />
+              以沙箱 iframe 載入（不會執行套件腳本於主程式）。
+            </p>
+          )}
+          {pack.manifest.kind === "template" && (
+            <ul className="community-detail-pages">
+              {pack.manifest.pages.map((p) => (
+                <li key={p.title}>
+                  {p.title}
+                  {p.folder ? ` · ${p.folder}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
-      {pack.manifest.kind === "extension" && (
-        <p className="community-detail-meta">
-          入口：<code>{pack.manifest.pageType.entry}</code>
-          <br />
-          以沙箱 iframe 載入（不會執行套件內任意腳本於主程式）。
-        </p>
-      )}
-      {pack.manifest.kind === "template" && (
-        <ul className="community-detail-pages">
-          {pack.manifest.pages.map((p) => (
-            <li key={p.title}>
-              {p.title}
-              {p.folder ? ` · ${p.folder}` : ""}
-            </li>
-          ))}
-        </ul>
-      )}
-      {changelog.length > 0 && (
-        <div className="community-changelog">
-          <h3>更新日誌</h3>
-          <ol>
-            {changelog.map((c) => (
-              <li key={`${c.version}-${c.notes}`}>
-                <strong>v{c.version}</strong>
-                {c.date ? <span> · {c.date}</span> : null}
-                <p>{c.notes}</p>
-              </li>
-            ))}
-          </ol>
+
+      {tab === "readme" && (
+        <div className="community-detail-tabpanel community-readme-md">
+          {readme.trim() ? (
+            <AiMarkdown text={readme} />
+          ) : (
+            <p className="community-empty">作者尚未撰寫說明。</p>
+          )}
         </div>
       )}
-      {pack.readme && (
-        <div className="community-readme-md">
-          <h3>說明</h3>
-          <AiMarkdown text={pack.readme} />
+
+      {tab === "perms" && (
+        <div className="community-detail-tabpanel">
+          <TrustScorecard manifest={pack.manifest} />
+        </div>
+      )}
+
+      {tab === "changelog" && (
+        <div className="community-detail-tabpanel community-changelog">
+          {changelog.length > 0 ? (
+            <ol>
+              {changelog.map((c) => (
+                <li key={`${c.version}-${c.notes}`}>
+                  <strong>v{c.version}</strong>
+                  {c.date ? <span> · {c.date}</span> : null}
+                  <p>{c.notes}</p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="community-empty">尚無更新紀錄。</p>
+          )}
         </div>
       )}
     </div>

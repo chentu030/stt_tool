@@ -181,6 +181,25 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Public community store listings (user-published packages)
+    match /community_packages/{packageId} {
+      allow read: if resource.data.status == 'published'
+        || (signedIn() && resource.data.authorUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.status == 'published'
+        && request.resource.data.id == packageId
+        && request.resource.data.keys().hasAll([
+          'id', 'kind', 'name', 'description', 'author', 'authorUid',
+          'version', 'status', 'source', 'manifest', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if signedIn()
+        && resource.data.authorUid == request.auth.uid
+        && request.resource.data.authorUid == resource.data.authorUid
+        && request.resource.data.id == resource.data.id;
+      allow delete: if signedIn() && resource.data.authorUid == request.auth.uid;
+    }
+
     // ─── Team Space ─────────────────────────────────────────
     function isTeamMember(teamId) {
       return signedIn()

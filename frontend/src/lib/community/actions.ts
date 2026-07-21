@@ -24,6 +24,13 @@ import { effectivePermissions } from "@/lib/community/permissions";
 export async function resolveAnySource(source: string): Promise<ResolvedPackage> {
   const builtin = resolveBuiltinSource(source);
   if (builtin) return builtin;
+  if (source.startsWith("hosted:")) {
+    const id = source.slice("hosted:".length).trim();
+    const { getPublishedPackage, publishedToResolved } = await import("@/lib/community/publish");
+    const pub = await getPublishedPackage(id);
+    if (!pub || pub.status !== "published") throw new Error("找不到已上架的套件");
+    return publishedToResolved(pub);
+  }
   return resolvePackageFromSource(source, source.startsWith("builtin:") ? "catalog" : "github");
 }
 

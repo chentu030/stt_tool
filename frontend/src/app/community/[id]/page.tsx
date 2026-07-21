@@ -36,6 +36,7 @@ import { relatedByPackageId } from "@/lib/community/related";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
+import { askConfirm } from "@/lib/dialogs";
 
 function CommunityPackageDetailInner() {
   const { id } = useParams<{ id: string }>();
@@ -58,13 +59,41 @@ function CommunityPackageDetailInner() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState<ReportReasonId>("broken");
   const [reportDetail, setReportDetail] = useState("");
+  const [publishedExtra, setPublishedExtra] = useState<CatalogEntry[]>([]);
+  const [isAuthor, setIsAuthor] = useState(false);
 
-  const catalog = useMemo(() => getCatalog(), []);
+  const catalog = useMemo(() => {
+    const base = getCatalog();
+    const seen = new Set(base.map((c) => c.id));
+    const merged = [...base];
+    for (const e of publishedExtra) {
+      if (seen.has(e.id)) {
+        const i = merged.findIndex((x) => x.id === e.id);
+        if (i >= 0) merged[i] = { ...merged[i], ...e };
+      } else {
+        merged.push(e);
+        seen.add(e.id);
+      }
+    }
+    return merged;
+  }, [publishedExtra]);
   const related = useMemo(() => relatedByPackageId(id, kindHint || undefined), [id, kindHint]);
   const installedIds = useMemo(
     () => new Set([...extensions.map((e) => e.id), ...templates.map((t) => t.id)]),
     [extensions, templates]
   );
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    void import("@/lib/community/publish").then(({ listenPublishedPackages, publishedToCatalogEntry }) => {
+      unsub = listenPublishedPackages((items) => {
+        setPublishedExtra(items.map(publishedToCatalogEntry));
+        const mine = items.find((x) => x.id === id);
+        setIsAuthor(Boolean(user && mine && mine.authorUid === user.uid));
+      });
+    });
+    return () => unsub?.();
+  }, [id, user]);
 
   useEffect(() => {
     touchRecentPackage(id);
@@ -79,6 +108,7 @@ function CommunityPackageDetailInner() {
     setEntry(e);
     const source =
       e?.source ||
+      (id ? `hosted:${id}` : "") ||
       extensions.find((x) => x.id === id)?.source ||
       templates.find((t) => t.id === id)?.source;
     if (!source) {
@@ -87,11 +117,41 @@ function CommunityPackageDetailInner() {
     }
     let cancelled = false;
     setBusy(true);
+    setErr("");
     void resolveAnySource(source)
       .then((p) => {
-        if (!cancelled) setPack(p);
+        if (!cancelled) {
+          setPack(p);
+          if (!e) {
+            setEntry({
+              id: p.manifest.id,
+              kind: p.manifest.kind,
+              name: p.manifest.name,
+              description: p.manifest.description,
+              author: p.manifest.author,
+              icon: p.manifest.icon,
+              cover: p.manifest.cover,
+              screenshots: p.manifest.screenshots,
+              category: p.manifest.category,
+              source: p.source,
+            });
+          }
+        }
       })
-      .catch((ex) => {
+      .catch(async (ex) => {
+        // Fallback: try hosted:{id} if catalog miss
+        if (source !== `hosted:${id}`) {
+          try {
+            const p = await resolveAnySource(`hosted:${id}`);
+            if (!cancelled) {
+              setPack(p);
+              setErr("");
+              return;
+            }
+          } catch {
+            /* keep original */
+          }
+        }
         if (!cancelled) setErr(ex instanceof Error ? ex.message : "載入失敗");
       })
       .finally(() => {
@@ -256,6 +316,32 @@ function CommunityPackageDetailInner() {
               <button type="button" className="btn btn-ghost" onClick={() => setReportOpen(true)}>
                 回報
               </button>
+              {isAuthor ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    void (async () => {
+                      if (!user) return;
+                      if (!(await askConfirm({ title: "下架此套件？", message: "商店將不再顯示，已安裝者仍可使用本機副本。", danger: true, confirmLabel: "下架" }))) return;
+                      setBusy(true);
+                      try {
+                        const { unpublishCommunityPackage } = await import("@/lib/community/publish");
+                        await unpublishCommunityPackage(user.uid, id);
+                        toast("已下架");
+                        router.push("/community");
+                      } catch (e) {
+                        toast(e instanceof Error ? e.message : "下架失敗");
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  下架
+                </button>
+              ) : null}
               <Link className="btn btn-ghost" href="/community">
                 返回
               </Link>

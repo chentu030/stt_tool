@@ -73,14 +73,39 @@ export default function CommunityStorePage() {
   const [installedQ, setInstalledQ] = useState("");
   const [ack, setAck] = useState(false);
   const [favTick, setFavTick] = useState(0);
+  const [publishedExtra, setPublishedExtra] = useState<CatalogEntry[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const libraryBackupRef = useRef<HTMLInputElement>(null);
   const autoUpdateCheckedRef = useRef(false);
-  const catalog = useMemo(() => getCatalog(), []);
+  const catalog = useMemo(() => {
+    const base = getCatalog();
+    const seen = new Set(base.map((c) => c.id));
+    const merged = [...base];
+    for (const e of publishedExtra) {
+      if (seen.has(e.id)) {
+        const i = merged.findIndex((x) => x.id === e.id);
+        if (i >= 0) merged[i] = { ...merged[i], ...e, featured: merged[i].featured };
+      } else {
+        merged.push(e);
+        seen.add(e.id);
+      }
+    }
+    return merged;
+  }, [publishedExtra]);
   const collections = useMemo(() => getCollections(), []);
 
   useEffect(() => {
     setAck(hasCommunityPluginsAck());
+  }, []);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    void import("@/lib/community/publish").then(({ listenPublishedPackages, publishedToCatalogEntry }) => {
+      unsub = listenPublishedPackages((items) => {
+        setPublishedExtra(items.map(publishedToCatalogEntry));
+      });
+    });
+    return () => unsub?.();
   }, []);
 
   const installedExtIds = useMemo(() => new Set(extensions.map((e) => e.id)), [extensions]);
@@ -385,7 +410,7 @@ export default function CommunityStorePage() {
             <a href="/community/ai.md" target="_blank" rel="noreferrer">
               AI 開發指南
             </a>
-            <Link href="/community/submit">驗證並發佈</Link>
+            <Link href="/community/submit">上傳並分享</Link>
             <a href="/samples/albireus-extension-sample.json" download>
               擴充範例
             </a>
