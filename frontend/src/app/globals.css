@@ -10827,6 +10827,51 @@ body.is-sidebar-resizing iframe {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.sb-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.15rem 0.35rem 0.15rem 0.25rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-muted);
+  text-align: left;
+}
+.sb-section-toggle:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.sb-section-toggle .sb-section-label {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.sb-section-chevron {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+  opacity: 0.75;
+}
+.sb-section-chevron.is-open {
+  transform: rotate(90deg);
+}
+.sb-section-count {
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 600;
+  opacity: 0.7;
+  margin-right: 0.15rem;
+}
 .sb-note-main {
   display: flex;
   align-items: center;
