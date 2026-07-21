@@ -1,5 +1,5 @@
 import { InputRule, Node, mergeAttributes, nodeInputRule } from "@tiptap/core";
-import type { NodeViewRendererProps } from "@tiptap/core";
+import type { Editor, NodeViewRendererProps } from "@tiptap/core";
 import katex from "katex";
 import {
   decodeFormulaAttr,
@@ -23,6 +23,38 @@ const EMBED_KIND_UI: Record<string, { label: string; placeholder: string }> = {
 
 function embedKindUi(kind: string) {
   return EMBED_KIND_UI[kind] || EMBED_KIND_UI.web;
+}
+
+/** Prefer filling an existing empty embed shell instead of inserting a duplicate. */
+export function fillEmptyNoteEmbed(editor: Editor, emb: EmbedResolved): boolean {
+  const { doc, selection } = editor.state;
+  const cursor = selection.from;
+  type Hit = { pos: number; dist: number };
+  const hits: Hit[] = [];
+  doc.descendants((node, pos) => {
+    if (node.type.name !== "noteEmbed") return;
+    if (String(node.attrs.original || node.attrs.src || "").trim()) return;
+    const kind = String(node.attrs.kind || "web");
+    if (kind !== emb.kind) return;
+    hits.push({ pos, dist: Math.abs(pos - cursor) });
+  });
+  if (!hits.length) return false;
+  hits.sort((a, b) => a.dist - b.dist);
+  // Always fill the nearest empty shell of this kind (avoids /youtube + paste creating duplicates).
+  const pick = hits[0];
+  return editor
+    .chain()
+    .command(({ tr }) => {
+      tr.setNodeMarkup(pick.pos, undefined, {
+        src: emb.src,
+        kind: emb.kind,
+        title: emb.title,
+        original: emb.original,
+        frameable: emb.frameable,
+      });
+      return true;
+    })
+    .run();
 }
 
 declare module "@tiptap/core" {
@@ -730,6 +762,11 @@ export const NoteEmbed = Node.create({
           input.addEventListener("pointerdown", stop);
           input.addEventListener("mousedown", stop);
           input.addEventListener("click", stop);
+          // Paste into the URL field must not bubble to ProseMirror (which would insert a 2nd embed).
+          input.addEventListener("paste", (e) => {
+            e.stopPropagation();
+            queueMicrotask(() => commitFromInput());
+          });
           input.addEventListener("keydown", (e) => {
             e.stopPropagation();
             if (e.key === "Enter") {

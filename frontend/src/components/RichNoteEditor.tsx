@@ -28,7 +28,7 @@ import { markdownToHtml, htmlToMarkdown, formatFileSize, clipboardHasLatex } fro
 import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { NoteImage } from "@/lib/tiptapImage";
-import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
+import { MathInline, MathBlock, NoteEmbed, fillEmptyNoteEmbed } from "@/lib/tiptapEmbed";
 import { CadenceDatabase } from "@/lib/tiptapDatabase";
 import { WikiLink, wikiLinkHtml } from "@/lib/tiptapWiki";
 import {
@@ -562,13 +562,17 @@ export default function RichNoteEditor({
       setUploadError("無法辨識此連結");
       return false;
     }
-    editorRef.current?.chain().focus().setNoteEmbed({
-      src: emb.src,
-      kind: emb.kind,
-      title: emb.title,
-      original: emb.original,
-      frameable: emb.frameable,
-    }).run();
+    const ed = editorRef.current;
+    if (!ed) return false;
+    if (!fillEmptyNoteEmbed(ed, emb)) {
+      ed.chain().focus().setNoteEmbed({
+        src: emb.src,
+        kind: emb.kind,
+        title: emb.title,
+        original: emb.original,
+        frameable: emb.frameable,
+      }).run();
+    }
     if (emb.kind === "youtube") {
       onTranscribableMediaRef.current?.({
         kind: "youtube",
@@ -1264,13 +1268,16 @@ export default function RichNoteEditor({
           event.preventDefault();
           const emb = resolveEmbedUrl(text);
           if (emb) {
-            editorRef.current?.chain().focus().setNoteEmbed({
-              src: emb.src,
-              kind: emb.kind,
-              title: emb.title,
-              original: emb.original,
-              frameable: emb.frameable,
-            }).run();
+            const ed = editorRef.current;
+            if (ed && !fillEmptyNoteEmbed(ed, emb)) {
+              ed.chain().focus().setNoteEmbed({
+                src: emb.src,
+                kind: emb.kind,
+                title: emb.title,
+                original: emb.original,
+                frameable: emb.frameable,
+              }).run();
+            }
             if (emb.kind === "youtube") {
               onTranscribableMediaRef.current?.({
                 kind: "youtube",
