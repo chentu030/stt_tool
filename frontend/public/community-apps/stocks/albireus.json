@@ -25,21 +25,24 @@
       "label": "預設代號",
       "type": "string",
       "default": "2330.TW",
-      "description": "台股可填 2330 或 2330.TW；美股如 AAPL"
+      "description": "台股可填 2330 或 2330.TW；美股如 AAPL",
+      "group": "行情"
     },
     {
       "key": "refresh_seconds",
       "label": "報價刷新秒數",
       "type": "number",
       "default": 20,
-      "description": "頁面開啟時輪詢間隔（約 15–30 秒建議）"
+      "description": "頁面開啟時輪詢間隔（建議 15–30 秒）",
+      "group": "行情"
     },
     {
       "key": "theme",
       "label": "主題",
       "type": "enum",
       "options": ["auto", "light", "dark"],
-      "default": "auto"
+      "default": "auto",
+      "group": "外觀"
     }
   ],
   "permissions": ["iframe", "network", "settings", "storage"],

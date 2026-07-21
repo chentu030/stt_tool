@@ -13,7 +13,7 @@
   "screenshots": [
     "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=960&q=60"
   ],
-  "nav": { "label": "背單字", "order": 55 },
+  "nav": { "label": "背單字", "order": 52 },
   "pageType": {
     "type": "iframe",
     "entry": "/community-apps/vocab/index.html",
@@ -25,7 +25,10 @@
       "label": "Gemini / Vertex API 金鑰",
       "type": "string",
       "default": "",
-      "description": "每行或逗號分隔多組；請填 AQ. 開頭的 Vertex AI Express 金鑰。預設空白。"
+      "description": "每行或逗號分隔多組；請填 AQ. 開頭的 Vertex AI Express 金鑰。",
+      "group": "AI",
+      "secret": true,
+      "wide": true
     },
     {
       "key": "model",
@@ -38,35 +41,41 @@
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash"
       ],
-      "default": "gemini-3-flash-preview"
+      "default": "gemini-3-flash-preview",
+      "group": "AI"
     },
     {
       "key": "accent",
       "label": "發音口音",
       "type": "enum",
       "options": ["us", "uk"],
-      "default": "us"
+      "default": "us",
+      "group": "學習"
     },
     {
       "key": "daily_goal",
       "label": "每日複習目標",
       "type": "number",
       "default": 20,
-      "description": "達成後會簽到並累計連續天數"
+      "description": "達成後會簽到並累計連續天數",
+      "group": "學習"
     },
     {
       "key": "listen_backend",
       "label": "聽力後端網址",
       "type": "string",
       "default": "https://whisper-api-1016448029865.asia-east1.run.app/api",
-      "description": "Whisper／詞典抓取雲端後端（可留預設）"
+      "description": "Whisper／詞典抓取雲端後端（可留預設）",
+      "group": "進階",
+      "wide": true
     },
     {
       "key": "theme",
       "label": "主題",
       "type": "enum",
       "options": ["light", "dark", "auto"],
-      "default": "light"
+      "default": "light",
+      "group": "外觀"
     }
   ],
   "permissions": ["iframe", "network", "settings", "storage", "clipboard"],
