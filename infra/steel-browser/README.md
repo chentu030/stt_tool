@@ -1,120 +1,47 @@
-# Self-host Steel Browser on GCE (GCP credits)
+# 虛擬瀏覽器（簡單版）
 
-Project: **`project-b1f58e7a-b5d4-4f35-972`** (“My First Project”)  
-Account: **`chenyulin478@gmail.com`**  
-VM: **`albireus-steel`** (`e2-medium`, `asia-east1-b`)
+用 GCP 抵免額跑一台 Steel Chromium。**有人開虛擬瀏覽器就自動開機；約 20 分鐘沒人用就自動關機。**
 
-> If `gcloud config get-value project` still shows another id (e.g. `fluid-script-480101-v1`) without permission, run:
-> `gcloud config set project project-b1f58e7a-b5d4-4f35-972`
+## 你平常要做的事
 
-Albireus (Vercel) talks to this VM via **`STEEL_BASE_URL`** (HTTPS Cloudflare Tunnel). Port **3000/9223 stay on localhost** on the VM — not opened to the public internet.
+1. 在 **Vercel → Environment Variables** 設好下面變數（設一次即可）
+2. Redeploy
+3. 在 Albireus 開網頁筆記 → 虛擬瀏覽器
 
-## Prerequisites
+不用再管 Cloudflare Tunnel、不用每次改網址。
 
-- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`)
-- Logged in:
+## Vercel 環境變數
 
-```powershell
-gcloud auth login
-gcloud config set project project-b1f58e7a-b5d4-4f35-972
-gcloud auth list
-```
+| 變數 | 值 |
+|------|-----|
+| `STEEL_BASE_URL` | `https://104.199.186.106.sslip.io` |
+| `GCP_PROJECT_ID` | `project-b1f58e7a-b5d4-4f35-972` |
+| `GCP_ZONE` | `asia-east1-b` |
+| `GCP_STEEL_INSTANCE` | `albireus-steel` |
+| `GCP_SERVICE_ACCOUNT_JSON` | 整個 service account JSON（本機 `.secrets/gcp-steel-starter.json`，**勿 commit**） |
 
-You should see `chenyulin478@gmail.com` and project `project-b1f58e7a-b5d4-4f35-972`.
+可選：`STEEL_MAX_SESSIONS=4`（同時虛擬瀏覽器人數上限，避免當機）
 
-- Bash (Git Bash / WSL) to run `deploy-gce.sh`
+## 行為說明
 
-## 1. Deploy VM + Steel Docker
+- **順暢**：固定 HTTPS（靜態 IP + Caddy + sslip.io）；Steel `DOMAIN` 正確，避免「Session not connected」
+- **省錢**：VM 閒置自動 `poweroff`；下次有人用時 Albireus 會 `instances.start`（首次約 1–2 分鐘）
+- **多人**：同時最多約 4 個虛擬瀏覽器 session（可調）；一般網站頁面不受影響
+- 機型：`e2-standard-2`（8GB），吃 GCP 抵免額
 
-From repo root (Git Bash / WSL):
+## 重裝／維護（很少需要）
 
 ```bash
 cd infra/steel-browser
-chmod +x deploy-gce.sh startup.sh
-./deploy-gce.sh
+./simplify-gce.sh
 ```
 
-This will:
-
-1. Enable `compute.googleapis.com`
-2. Create (or start) `albireus-steel`
-3. Upload `docker-compose.yml` + `startup.sh`
-4. Install Docker, pull `ghcr.io/steel-dev/steel-browser:latest`, bind `127.0.0.1:3000`
-5. Install `cloudflared`
-
-Health check: `GET http://127.0.0.1:3000/` → `{"message":"Steel Browser API","ui":"/ui"}`.  
-Sessions API: `POST /v1/sessions` (Steel SDK `baseURL` = tunnel origin, no `/v1` suffix).
-
-## 2. Cloudflare Tunnel (free HTTPS, no domain)
+手動 SSH：
 
 ```powershell
 gcloud compute ssh albireus-steel --zone=asia-east1-b --project=project-b1f58e7a-b5d4-4f35-972
 ```
 
-On the VM:
+## 「Session not connected」是什麼？
 
-```bash
-sudo apt-get update -y && sudo apt-get install -y tmux
-tmux new -s tunnel 'cloudflared tunnel --url http://127.0.0.1:3000'
-```
-
-Copy the printed URL, e.g. `https://random-words.trycloudflare.com`.
-
-Detach tmux: `Ctrl-b` then `d`. Reattach: `tmux attach -t tunnel`.
-
-**Note:** Quick tunnels get a **new URL after restart**. After VM reboot / tunnel restart, update `STEEL_BASE_URL` again (or later switch to a named Cloudflare tunnel + fixed hostname).
-
-## 3. Point Albireus at the tunnel
-
-**Vercel** → Project → Settings → Environment Variables:
-
-| Name | Value |
-|------|--------|
-| `STEEL_BASE_URL` | `https://….trycloudflare.com` |
-
-Do **not** set `STEEL_API_KEY` for self-host (optional). Redeploy the frontend.
-
-**Local Next:**
-
-```powershell
-# frontend/.env.local
-STEEL_BASE_URL=https://….trycloudflare.com
-```
-
-Restart `npm run dev`.
-
-## 4. Verify
-
-1. `GET /api/web/browser/session` → `{ "configured": true }`
-2. In Albireus, open a web note → `https://gemini.google.com/` → virtual browser canvas loads
-3. On VM: `curl -fsS http://127.0.0.1:3000/` → Steel Browser API JSON
-4. Interactive viewer path: `/v1/sessions/debug?interactive=true&showControls=true` (after URL rewrite from `0.0.0.0`)
-
-## Cost tips (credits)
-
-```powershell
-# Stop when unused
-gcloud compute instances stop albireus-steel --zone=asia-east1-b --project=project-b1f58e7a-b5d4-4f35-972
-
-# Start again
-gcloud compute instances start albireus-steel --zone=asia-east1-b --project=project-b1f58e7a-b5d4-4f35-972
-# Then SSH and re-run the cloudflared tmux command; update STEEL_BASE_URL if URL changed
-```
-
-`e2-medium` is billed while **RUNNING**; stopped disk still costs a little.
-
-## Security
-
-- Firewall tag `albireus-steel`: SSH only (script creates `allow-ssh-albireus-steel`)
-- Treat the trycloudflare URL as a **secret** (anyone with it can hit Steel)
-- Albireus session create/nav/clip still require Firebase login
-- Never open `9223` publicly
-
-## Files
-
-| File | Role |
-|------|------|
-| `docker-compose.yml` | Steel single image on localhost:3000 |
-| `startup.sh` | Docker + compose + cloudflared on the VM |
-| `deploy-gce.sh` | gcloud create/upload/run |
-| [`../../frontend/VIRTUAL_BROWSER.md`](../../frontend/VIRTUAL_BROWSER.md) | App-side env overview |
+Steel 畫面連不到遠端 Chromium（以前是 `DOMAIN` 指到 `0.0.0.0`）。現已用公開 host 修正；若仍出現，多半是 VM 剛開機尚未就緒，等「正在啟動」結束後按 ↻。

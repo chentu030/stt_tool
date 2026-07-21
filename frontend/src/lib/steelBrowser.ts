@@ -9,6 +9,11 @@ const STEEL_BASE_URL = (process.env.STEEL_BASE_URL || "").trim().replace(/\/$/, 
 /** Default session lifetime 15m; idle release 10m (client-side). */
 export const BROWSER_SESSION_TIMEOUT_MS = 15 * 60 * 1000;
 export const BROWSER_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+/** Soft cap so one e2-standard-2 VM does not melt under concurrent Chromium. */
+export const MAX_CONCURRENT_BROWSER_SESSIONS = Math.max(
+  1,
+  Number(process.env.STEEL_MAX_SESSIONS || "4") || 4
+);
 
 type UserSession = {
   sessionId: string;
@@ -64,16 +69,18 @@ export function rewriteSteelPublicUrl(raw: string): string {
       host.startsWith("10.") ||
       host.startsWith("192.168.") ||
       /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
-    if (!isLocal && u.origin === pub.origin) return raw;
+
+    // Same public host but http from Steel DOMAIN — force https for Vercel iframe.
+    if (host === pub.hostname || host === pub.host) {
+      u.protocol = pub.protocol;
+      u.port = pub.port;
+      return u.toString();
+    }
 
     if (isLocal || u.port === "3000" || u.port === "9223") {
       u.protocol = pub.protocol;
       u.hostname = pub.hostname;
       u.port = pub.port;
-      // Debug / viewer traffic goes through Steel API HTTP(S), not raw CDP 9223.
-      if (u.pathname.includes("devtools") || u.search.includes("interactive")) {
-        /* keep path */
-      }
       return u.toString();
     }
     return raw;
@@ -160,6 +167,20 @@ export function clearUserSession(uid: string) {
   sessionMap().delete(uid);
 }
 
+export function countActiveBrowserSessions(): number {
+  return sessionMap().size;
+}
+
+export function assertBrowserCapacity(uid: string) {
+  const existing = getUserSession(uid);
+  const others = countActiveBrowserSessions() - (existing ? 1 : 0);
+  if (others >= MAX_CONCURRENT_BROWSER_SESSIONS) {
+    throw new Error(
+      `目前虛擬瀏覽器人數已滿（最多 ${MAX_CONCURRENT_BROWSER_SESSIONS} 人同時使用），請稍候再試。`
+    );
+  }
+}
+
 export function viewerUrlFromDebug(debugUrl: string): string {
   const publicUrl = rewriteSteelPublicUrl(debugUrl);
   try {
@@ -216,6 +237,8 @@ export async function createSteelSession(uid: string, startUrl?: string) {
     await releaseSteelSession(existing.sessionId);
     clearUserSession(uid);
   }
+
+  assertBrowserCapacity(uid);
 
   const session = await client.sessions.create({
     timeout: BROWSER_SESSION_TIMEOUT_MS,

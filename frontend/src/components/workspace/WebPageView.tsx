@@ -711,9 +711,6 @@ export default function WebPageView({
         ) : null}
       </div>
 
-      {showVirtualPane && virtual?.privacy ? (
-        <p className="web-page-proxy-banner web-page-virtual-banner">{virtual.privacy}</p>
-      ) : null}
       {browseMode === "proxy" ? (
         <p className="web-page-proxy-banner">頁內代理模式（部分網站功能可能受限）</p>
       ) : null}
@@ -739,7 +736,7 @@ export default function WebPageView({
           ) : (
             <div className="web-page-blocked">
               <p className="web-page-blocked-title">
-                {virtualBusy ? "正在啟動虛擬瀏覽器…" : "虛擬瀏覽器"}
+                {virtualBusy ? "正在啟動虛擬瀏覽器（首次可能需 1–2 分鐘）…" : "虛擬瀏覽器"}
               </p>
               {virtualError ? <p className="web-page-warn">{virtualError}</p> : null}
               {steelConfigured === false ? (

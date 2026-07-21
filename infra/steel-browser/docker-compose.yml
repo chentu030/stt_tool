@@ -1,5 +1,4 @@
-# Steel Browser — single image (API + UI on :3000)
-# Docs: https://docs.steel.dev/overview/self-hosting/docker
+# Steel Browser — single image behind local Caddy (HTTPS on host :443)
 services:
   steel:
     image: ghcr.io/steel-dev/steel-browser:latest
@@ -7,15 +6,18 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
-      # CDP — bind localhost only; never expose to the public internet
       - "127.0.0.1:9223:9223"
+    environment:
+      # Public host only (no scheme). Set via .env next to this file.
+      - DOMAIN=${STEEL_PUBLIC_HOST}
+      - CDP_DOMAIN=${STEEL_PUBLIC_HOST}
     volumes:
       - steel-cache:/app/.cache
-    shm_size: "1gb"
+    shm_size: "2gb"
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 6G
 
 volumes:
   steel-cache:

@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   checkCreateRateLimit,
   createSteelSession,
+  getSteelPublicOrigin,
   isSteelConfigured,
   verifyFirebaseIdToken,
 } from "@/lib/steelBrowser";
+import { ensureSteelVmReady, isGcpVmControlConfigured } from "@/lib/gcpSteelVm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+/** Cold-start GCE + Steel can take ~1–3 minutes. */
+export const maxDuration = 300;
 
 async function requireUid(req: NextRequest): Promise<string | NextResponse> {
   const auth = req.headers.get("authorization") || "";
@@ -27,8 +30,11 @@ async function requireUid(req: NextRequest): Promise<string | NextResponse> {
 export async function GET() {
   return NextResponse.json({
     configured: isSteelConfigured(),
+    autoStart: isGcpVmControlConfigured(),
     hint: isSteelConfigured()
-      ? "虛擬瀏覽器已啟用"
+      ? isGcpVmControlConfigured()
+        ? "虛擬瀏覽器已啟用（有人用會自動開機）"
+        : "虛擬瀏覽器已啟用"
       : "尚未設定 STEEL_BASE_URL（自架）或 STEEL_API_KEY（Steel Cloud）",
   });
 }
@@ -62,20 +68,26 @@ export async function POST(req: NextRequest) {
   }
 
   const startUrl = typeof body.url === "string" ? body.url.trim() : "";
+  const base = getSteelPublicOrigin();
+
   try {
+    if (base) {
+      const { started } = await ensureSteelVmReady(base);
+      if (started) {
+        // Extra beat after first boot — Steel container may still be starting
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
     const session = await createSteelSession(uid, startUrl || undefined);
     return NextResponse.json({
       configured: true,
       ...session,
-      privacy:
-        "虛擬瀏覽器在遠端 Chromium 執行（自架 GCE 或 Steel Cloud）；登入 Cookie 存在該工作階段，閒置約 10 分鐘會釋放。",
     });
   } catch (e) {
     console.error("[browser/session]", e);
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "無法建立虛擬瀏覽器" },
-      { status: 502 }
-    );
+    const msg = e instanceof Error ? e.message : "無法建立虛擬瀏覽器";
+    const status = msg.includes("人數已滿") ? 429 : 502;
+    return NextResponse.json({ error: msg }, { status });
   }
 }
 
