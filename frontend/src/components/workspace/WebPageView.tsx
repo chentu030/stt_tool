@@ -741,10 +741,6 @@ export default function WebPageView({
         ) : null}
       </div>
 
-      {browseMode === "proxy" ? (
-        <p className="web-page-proxy-banner">頁內代理模式（部分網站功能可能受限）</p>
-      ) : null}
-
       <div className="web-page-stage">
         {!active ? (
           <div className="web-page-empty">
