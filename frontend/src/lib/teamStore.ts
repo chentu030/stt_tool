@@ -722,12 +722,87 @@ export async function acceptInvite(
     { role: existing?.role || invite.role, name: team.name, slug: team.slug, joined_at: now },
     { merge: true }
   );
+  if (!existing) {
+    await pushActivity(invite.team_id, {
+      kind: "member_joined",
+      text: `${displayName || "新成員"} 加入了團隊`,
+      actor_id: uid,
+      actor_name: displayName,
+    }).catch(() => undefined);
+    if (invite.created_by && invite.created_by !== uid) {
+      await pushNotification(invite.created_by, {
+        type: "invite",
+        team_id: invite.team_id,
+        from_uid: uid,
+        from_name: displayName || "",
+        text: `${displayName || "有人"} 已透過邀請加入「${team.name}」`,
+      }).catch(() => undefined);
+    }
+  }
   return { ok: true, teamId: invite.team_id, teamName: team.name };
 }
 
 export async function leaveTeam(teamId: string, uid: string): Promise<void> {
   await deleteDoc(doc(membersCol(teamId), uid));
   await deleteDoc(doc(userTeamsCol(uid), teamId));
+}
+
+/** Admin/owner removes another member (not the sole owner). */
+export async function removeMember(
+  teamId: string,
+  actorUid: string,
+  targetUid: string,
+  actorName?: string
+): Promise<void> {
+  if (actorUid === targetUid) {
+    throw new Error("無法移除自己，請改用離開團隊");
+  }
+  const target = await getMember(teamId, targetUid);
+  if (!target) return;
+  if (target.role === "owner") {
+    throw new Error("無法直接移除擁有者，請先轉移擁有權");
+  }
+  await leaveTeam(teamId, targetUid);
+  await pushActivity(teamId, {
+    kind: "member_removed",
+    text: `移除了成員`,
+    actor_id: actorUid,
+    actor_name: actorName,
+  }).catch(() => undefined);
+  await pushNotification(targetUid, {
+    type: "activity",
+    team_id: teamId,
+    from_uid: actorUid,
+    from_name: actorName || "",
+    text: "你已被移出團隊",
+  }).catch(() => undefined);
+}
+
+/** Transfer owner role; previous owner becomes admin. */
+export async function transferOwnership(
+  teamId: string,
+  fromUid: string,
+  toUid: string
+): Promise<void> {
+  if (fromUid === toUid) return;
+  const from = await getMember(teamId, fromUid);
+  const to = await getMember(teamId, toUid);
+  if (!from || from.role !== "owner") throw new Error("只有擁有者可以轉移擁有權");
+  if (!to) throw new Error("找不到目標成員");
+  await setMemberRole(teamId, toUid, "owner");
+  await setMemberRole(teamId, fromUid, "admin");
+  await pushActivity(teamId, {
+    kind: "ownership_transfer",
+    text: `擁有權已轉移給 ${to.display_name || toUid.slice(0, 6)}`,
+    actor_id: fromUid,
+  }).catch(() => undefined);
+  await pushNotification(toUid, {
+    type: "activity",
+    team_id: teamId,
+    from_uid: fromUid,
+    from_name: from.display_name || "",
+    text: "你已成為此團隊的擁有者",
+  }).catch(() => undefined);
 }
 
 export async function setMemberRole(teamId: string, uid: string, role: TeamRole): Promise<void> {
@@ -823,6 +898,27 @@ export async function updateChannel(
   if (patch.name !== undefined) data.name = patch.name.trim();
   if (!Object.keys(data).length) return;
   await updateDoc(doc(channelsCol(teamId), channelId), data);
+}
+
+/** Delete channel metadata. Messages may linger (MVP). DMs blocked. */
+export async function deleteChannel(
+  teamId: string,
+  channelId: string,
+  actorUid: string,
+  actorName?: string
+): Promise<void> {
+  const snap = await getDoc(doc(channelsCol(teamId), channelId));
+  if (!snap.exists()) return;
+  const data = snap.data();
+  if (data.dm_key) throw new Error("私人訊息無法刪除");
+  const name = String(data.name || "頻道");
+  await deleteDoc(doc(channelsCol(teamId), channelId));
+  await pushActivity(teamId, {
+    kind: "channel_deleted",
+    text: `刪除了頻道 #${name}`,
+    actor_id: actorUid,
+    actor_name: actorName,
+  }).catch(() => undefined);
 }
 
 export async function setChannelMuted(

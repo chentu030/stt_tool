@@ -12913,6 +12913,31 @@ body.is-sidebar-resizing iframe {
   flex-direction: column;
   gap: 0.65rem;
 }
+.tm-hub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+.tm-hub-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.15rem;
+}
+.tm-hub-section-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.tm-hub-section-actions {
+  display: flex;
+  gap: 0.25rem;
+}
 .tm-hub-team {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

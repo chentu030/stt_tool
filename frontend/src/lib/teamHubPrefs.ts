@@ -99,3 +99,70 @@ export function getHubTab(): HubTab {
 export function setHubTab(tab: HubTab) {
   writeJson(TAB_KEY, tab);
 }
+
+/* ── Custom sections (Teams-style grouping) ── */
+
+const SECTIONS_KEY = "albireus.teamHub.sections.v1";
+
+export type HubSection = {
+  id: string;
+  name: string;
+  teamIds: string[];
+};
+
+export function getHubSections(): HubSection[] {
+  const v = readJson<HubSection[]>(SECTIONS_KEY, []);
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((s) => s && typeof s.id === "string" && typeof s.name === "string")
+    .map((s) => ({
+      id: s.id,
+      name: String(s.name).slice(0, 40) || "未命名",
+      teamIds: Array.isArray(s.teamIds) ? s.teamIds.filter((x) => typeof x === "string") : [],
+    }));
+}
+
+export function setHubSections(sections: HubSection[]) {
+  writeJson(SECTIONS_KEY, sections.slice(0, 30));
+}
+
+export function createHubSection(name: string): HubSection[] {
+  const list = getHubSections();
+  const id = `sec_${Date.now().toString(36)}`;
+  const next = [...list, { id, name: name.trim() || "新分區", teamIds: [] }];
+  setHubSections(next);
+  return next;
+}
+
+export function renameHubSection(id: string, name: string): HubSection[] {
+  const next = getHubSections().map((s) =>
+    s.id === id ? { ...s, name: name.trim() || s.name } : s
+  );
+  setHubSections(next);
+  return next;
+}
+
+export function deleteHubSection(id: string): HubSection[] {
+  const next = getHubSections().filter((s) => s.id !== id);
+  setHubSections(next);
+  return next;
+}
+
+/** Move team into a section (or null = ungrouped). Removes from other sections. */
+export function moveTeamToSection(teamId: string, sectionId: string | null): HubSection[] {
+  const next = getHubSections().map((s) => ({
+    ...s,
+    teamIds: s.teamIds.filter((id) => id !== teamId),
+  }));
+  if (sectionId) {
+    const idx = next.findIndex((s) => s.id === sectionId);
+    if (idx >= 0) next[idx] = { ...next[idx], teamIds: [...next[idx].teamIds, teamId] };
+  }
+  setHubSections(next);
+  return next;
+}
+
+export function sectionIdForTeam(teamId: string, sections = getHubSections()): string | null {
+  const hit = sections.find((s) => s.teamIds.includes(teamId));
+  return hit?.id || null;
+}

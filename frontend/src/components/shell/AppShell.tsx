@@ -377,7 +377,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     return listenNotifications(user.uid, (items) => {
-      setMentionUnread(items.filter((n) => n.type === "mention" && !n.read).length);
+      setMentionUnread(
+        items.filter((n) => (n.type === "mention" || n.type === "invite") && !n.read).length
+      );
       setNotifications(items);
     });
   }, [user]);

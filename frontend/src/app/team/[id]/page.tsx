@@ -14,7 +14,7 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { askPrompt, askConfirm } from "@/lib/dialogs";
+import { askPrompt, askConfirm, askChoice } from "@/lib/dialogs";
 import { createNote } from "@/lib/firebase";
 import { colorForUid } from "@/lib/presence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
@@ -34,6 +34,8 @@ import {
   revokeInvite,
   leaveTeam,
   setMemberRole,
+  removeMember,
+  transferOwnership,
   markChannelRead,
   markChannelUnread,
   openOrCreateDm,
@@ -51,6 +53,7 @@ import {
   uploadTeamFile,
   updateChannelMembers,
   updateChannel,
+  deleteChannel,
   setChannelMuted,
   listenMutedChannels,
   searchTeamMessages,
@@ -782,6 +785,96 @@ function TeamRoomInner() {
     }
   };
 
+  const doRemoveMember = async (target: Member) => {
+    if (!user || !id || !canAdmin) return;
+    if (target.uid === user.uid) return;
+    const ok = await askConfirm({
+      title: "移除成員",
+      message: `確定將「${target.display_name || target.uid.slice(0, 6)}」移出團隊？`,
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await removeMember(id, user.uid, target.uid, displayName || undefined);
+      setMemberPopover(null);
+      toast("已移除成員");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "移除失敗");
+    }
+  };
+
+  const doTransferOwnership = async () => {
+    if (!user || !id || member?.role !== "owner") return;
+    const candidates = members.filter((m) => m.uid !== user.uid);
+    if (!candidates.length) {
+      setError("沒有可轉移的成員，請先邀請夥伴加入。");
+      return;
+    }
+    const pick = await askChoice({
+      title: "轉移擁有權",
+      message: "選擇新的擁有者。你會變成管理員，之後即可離開團隊。",
+      options: candidates.map((m) => ({
+        id: m.uid,
+        label: m.display_name || m.uid.slice(0, 8),
+        description: ROLE_LABEL[m.role],
+      })),
+    });
+    if (!pick) return;
+    const ok = await askConfirm({
+      title: "確認轉移",
+      message: "轉移後你將不再是擁有者。確定？",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await transferOwnership(id, user.uid, pick.choice);
+      setSettingsOpen(false);
+      toast("擁有權已轉移");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "轉移失敗");
+    }
+  };
+
+  const renameChannel = async () => {
+    if (!id || !activeChannel || !activeChannelObj || activeChannelObj.dm_key) return;
+    if (!canAdmin) {
+      setError("只有管理員可以重新命名頻道");
+      return;
+    }
+    const name = await askPrompt({
+      title: "重新命名頻道",
+      defaultValue: activeChannelObj.name,
+    });
+    if (name == null) return;
+    try {
+      await updateChannel(id, activeChannel, { name });
+      toast("頻道已重新命名");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "重新命名失敗");
+    }
+  };
+
+  const doDeleteChannel = async () => {
+    if (!user || !id || !activeChannel || !activeChannelObj || activeChannelObj.dm_key) return;
+    if (!canAdmin) {
+      setError("只有管理員可以刪除頻道");
+      return;
+    }
+    const ok = await askConfirm({
+      title: "刪除頻道",
+      message: `確定刪除 #${activeChannelObj.name}？此操作無法復原。`,
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteChannel(id, activeChannel, user.uid, displayName || undefined);
+      setActiveChannel(null);
+      toast("頻道已刪除");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除頻道失敗");
+    }
+  };
+
   const runAiSummary = async () => {
     if (!id || !activeChannel) return;
     setAiOpen(true);
@@ -1287,6 +1380,27 @@ function TeamRoomInner() {
             >
               {activeChannelObj.topic || "新增主題…"}
             </button>
+          )}
+
+          {activeChannelObj && !activeChannelObj.dm_key && canAdmin && (
+            <>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                title="重新命名頻道"
+                onClick={() => void renameChannel()}
+              >
+                重新命名
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                title="刪除頻道"
+                onClick={() => void doDeleteChannel()}
+              >
+                刪除頻道
+              </button>
+            </>
           )}
 
           {activeChannel && (
@@ -1880,6 +1994,11 @@ function TeamRoomInner() {
                 重新命名
               </button>
               {member.role === "owner" && (
+                <button type="button" className="btn btn-sm btn-soft" onClick={() => void doTransferOwnership()}>
+                  轉移擁有權
+                </button>
+              )}
+              {member.role === "owner" && (
                 <button type="button" className="btn btn-sm btn-danger" onClick={() => void doDeleteTeam()}>
                   刪除團隊
                 </button>
@@ -1925,6 +2044,17 @@ function TeamRoomInner() {
                 傳訊息
               </button>
             )}
+            {canAdmin &&
+              memberPopover.member.uid !== user.uid &&
+              memberPopover.member.role !== "owner" && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger"
+                  onClick={() => void doRemoveMember(memberPopover.member)}
+                >
+                  移除成員
+                </button>
+              )}
           </div>
         </div>
       )}

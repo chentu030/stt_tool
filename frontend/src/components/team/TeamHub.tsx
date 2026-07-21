@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMous
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle } from "@/lib/firebase";
-import { askChoice, askPrompt } from "@/lib/dialogs";
+import { askChoice, askPrompt, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import {
   createTeam,
@@ -36,8 +36,14 @@ import {
   removeLaterItem,
   getHubTab,
   setHubTab,
+  getHubSections,
+  createHubSection,
+  deleteHubSection,
+  renameHubSection,
+  moveTeamToSection,
   type HubTab,
   type LaterItem,
+  type HubSection,
 } from "@/lib/teamHubPrefs";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -137,6 +143,7 @@ export default function TeamHub() {
   const [q, setQ] = useState("");
   const [starred, setStarred] = useState<string[]>([]);
   const [later, setLater] = useState<LaterItem[]>([]);
+  const [sections, setSections] = useState<HubSection[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -145,6 +152,7 @@ export default function TeamHub() {
   useEffect(() => {
     setStarred(getStarredTeamIds());
     setLater(getLaterItems());
+    setSections(getHubSections());
     setTab(getHubTab());
   }, []);
 
@@ -244,7 +252,10 @@ export default function TeamHub() {
   );
 
   const mentionUnread = useMemo(
-    () => notifications.filter((n) => n.type === "mention" && !n.read).length,
+    () =>
+      notifications.filter(
+        (n) => (n.type === "mention" || n.type === "invite") && !n.read
+      ).length,
     [notifications]
   );
 
@@ -381,6 +392,77 @@ export default function TeamHub() {
     e?.stopPropagation();
     setStarred(toggleStarredTeam(teamId));
   };
+
+  const addSection = async () => {
+    const name = await askPrompt({ title: "新增分區", defaultValue: "專案", message: "像 Teams 一樣把團隊分組。" });
+    if (name == null) return;
+    setSections(createHubSection(name));
+  };
+
+  const renameSection = async (sec: HubSection) => {
+    const name = await askPrompt({ title: "重新命名分區", defaultValue: sec.name });
+    if (name == null) return;
+    setSections(renameHubSection(sec.id, name));
+  };
+
+  const removeSection = async (sec: HubSection) => {
+    const ok = await askConfirm({
+      title: "刪除分區",
+      message: `刪除「${sec.name}」？團隊會回到未分組。`,
+    });
+    if (!ok) return;
+    setSections(deleteHubSection(sec.id));
+  };
+
+  const assignSection = async (teamId: string) => {
+    const opts = [
+      { id: "__none__", label: "未分組", primary: true as const },
+      ...sections.map((s) => ({ id: s.id, label: s.name })),
+      { id: "__new__", label: "＋ 新增分區…" },
+    ];
+    const pick = await askChoice({
+      title: "移到分區",
+      message: "選擇要放入的分區",
+      options: opts,
+    });
+    if (!pick) return;
+    if (pick.choice === "__new__") {
+      const name = await askPrompt({ title: "新增分區", defaultValue: "專案" });
+      if (name == null) return;
+      const next = createHubSection(name);
+      const created = next[next.length - 1];
+      setSections(moveTeamToSection(teamId, created?.id || null));
+      return;
+    }
+    setSections(moveTeamToSection(teamId, pick.choice === "__none__" ? null : pick.choice));
+  };
+
+  const homeGroups = useMemo(() => {
+    const byId = new Map(filteredTeams.map((t) => [t.id, t]));
+    const assigned = new Set<string>();
+    type Group = { key: string; title: string; section?: HubSection; teams: TeamMembership[] };
+    const groups: Group[] = [];
+
+    if (!sections.length) {
+      return [{ key: "__all__", title: "我的團隊", teams: filteredTeams }] satisfies Group[];
+    }
+
+    for (const sec of sections) {
+      const teamsIn = sec.teamIds
+        .map((id) => byId.get(id))
+        .filter((t): t is TeamMembership => !!t);
+      teamsIn.forEach((t) => assigned.add(t.id));
+      if (teamsIn.length > 0 || (homeFilter === "all" && !q.trim())) {
+        groups.push({ key: sec.id, title: sec.name, section: sec, teams: teamsIn });
+      }
+    }
+
+    const ungrouped = filteredTeams.filter((t) => !assigned.has(t.id));
+    if (ungrouped.length > 0) {
+      groups.push({ key: "__ungrouped__", title: "未分組", teams: ungrouped });
+    }
+    return groups;
+  }, [filteredTeams, sections, homeFilter, q]);
 
   const openTeam = (teamId: string, channelId?: string) => {
     const qs = channelId ? `?channel=${encodeURIComponent(channelId)}` : "";
@@ -565,6 +647,9 @@ export default function TeamHub() {
                   {label}
                 </button>
               ))}
+              <button type="button" className="tm-hub-chip" onClick={() => void addSection()}>
+                ＋ 分區
+              </button>
             </div>
           </div>
 
@@ -586,114 +671,155 @@ export default function TeamHub() {
             <p className="tm-hub-empty-hint">沒有符合篩選的團隊。</p>
           ) : (
             <div className="tm-hub-team-list">
-              {filteredTeams.map((t) => {
-                const b = bundles[t.id] || { channels: [], members: [], reads: {} };
-                const unread = unreadByTeam[t.id] || 0;
-                const isStar = starred.includes(t.id);
-                const isOpen = !!expanded[t.id];
-                const publicChs = b.channels.filter((c) => !c.dm_key);
-                const lastCh = [...publicChs]
-                  .filter((c) => c.last_message_at)
-                  .sort(
-                    (a, c) =>
-                      (c.last_message_at?.getTime() || 0) - (a.last_message_at?.getTime() || 0)
-                  )[0];
-                return (
-                  <article key={t.id} className={`tm-hub-team${unread ? " has-unread" : ""}`}>
-                    <div className="tm-hub-team-row">
-                      <button
-                        type="button"
-                        className="tm-hub-team-main"
-                        onClick={() => openTeam(t.id)}
-                      >
-                        <span className="tm-team-avatar" data-role={t.role}>
-                          {teamInitial(t.name)}
-                        </span>
-                        <span className="tm-hub-team-info">
-                          <span className="tm-hub-team-name">
-                            {t.name}
-                            {unread > 0 ? (
-                              <span className="tm-unread-badge">{unread > 99 ? "99+" : unread}</span>
-                            ) : null}
-                          </span>
-                          <span className="tm-hub-team-sub">
-                            <span className={`tm-role-chip is-${t.role}`}>
-                              {ROLE_LABEL[t.role] || t.role}
-                            </span>
-                            <span>{b.members.length || "…"} 位成員</span>
-                            <span>{publicChs.length} 個頻道</span>
-                            {lastCh?.last_message_preview ? (
-                              <span className="tm-hub-preview">
-                                #{lastCh.name} · {lastCh.last_message_preview}
-                              </span>
-                            ) : (
-                              <span>加入於 {formatJoined(t.joined_at)}</span>
-                            )}
-                          </span>
-                        </span>
-                      </button>
-                      <div className="tm-hub-team-actions">
+              {homeGroups.map((group) => (
+                <div key={group.key} className="tm-hub-section">
+                  <div className="tm-hub-section-head">
+                    <h3 className="tm-hub-section-title">{group.title}</h3>
+                    {group.section ? (
+                      <div className="tm-hub-section-actions">
                         <button
                           type="button"
-                          className={`tm-hub-icon-btn${isStar ? " is-on" : ""}`}
-                          title={isStar ? "取消收藏" : "收藏"}
-                          aria-label={isStar ? "取消收藏" : "收藏"}
-                          onClick={(e) => toggleStar(t.id, e)}
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => void renameSection(group.section!)}
                         >
-                          {isStar ? "★" : "☆"}
+                          重新命名
                         </button>
                         <button
                           type="button"
-                          className="tm-hub-icon-btn"
-                          title={isOpen ? "收合頻道" : "展開頻道"}
-                          aria-expanded={isOpen}
-                          onClick={() =>
-                            setExpanded((prev) => ({ ...prev, [t.id]: !prev[t.id] }))
-                          }
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => void removeSection(group.section!)}
                         >
-                          {isOpen ? "▴" : "▾"}
+                          刪除分區
                         </button>
                       </div>
-                    </div>
-                    {isOpen && (
-                      <ul className="tm-hub-channel-list">
-                        {publicChs.length === 0 ? (
-                          <li className="tm-hub-channel-empty">尚無頻道</li>
-                        ) : (
-                          publicChs.map((c) => {
-                            const u = channelIsUnread(c, b.reads[c.id]);
-                            return (
-                              <li key={c.id}>
-                                <button
-                                  type="button"
-                                  className={`tm-hub-channel${u ? " is-unread" : ""}`}
-                                  onClick={() => openTeam(t.id, c.id)}
-                                >
-                                  <span className="tm-hub-channel-hash">
-                                    {c.is_private ? "🔒" : "#"}
+                    ) : null}
+                  </div>
+                  {group.teams.length === 0 ? (
+                    <p className="tm-hub-channel-empty">此分區尚無團隊 — 在團隊上按「分區」移入。</p>
+                  ) : (
+                    group.teams.map((t) => {
+                      const b = bundles[t.id] || { channels: [], members: [], reads: {} };
+                      const unread = unreadByTeam[t.id] || 0;
+                      const isStar = starred.includes(t.id);
+                      const isOpen = !!expanded[t.id];
+                      const publicChs = b.channels.filter((c) => !c.dm_key);
+                      const lastCh = [...publicChs]
+                        .filter((c) => c.last_message_at)
+                        .sort(
+                          (a, c) =>
+                            (c.last_message_at?.getTime() || 0) -
+                            (a.last_message_at?.getTime() || 0)
+                        )[0];
+                      return (
+                        <article key={t.id} className={`tm-hub-team${unread ? " has-unread" : ""}`}>
+                          <div className="tm-hub-team-row">
+                            <button
+                              type="button"
+                              className="tm-hub-team-main"
+                              onClick={() => openTeam(t.id)}
+                            >
+                              <span className="tm-team-avatar" data-role={t.role}>
+                                {teamInitial(t.name)}
+                              </span>
+                              <span className="tm-hub-team-info">
+                                <span className="tm-hub-team-name">
+                                  {t.name}
+                                  {unread > 0 ? (
+                                    <span className="tm-unread-badge">
+                                      {unread > 99 ? "99+" : unread}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="tm-hub-team-sub">
+                                  <span className={`tm-role-chip is-${t.role}`}>
+                                    {ROLE_LABEL[t.role] || t.role}
                                   </span>
-                                  <span className="tm-hub-channel-name">{c.name}</span>
-                                  {c.last_message_preview ? (
-                                    <span className="tm-hub-channel-preview">
-                                      {c.last_message_preview}
+                                  <span>{b.members.length || "…"} 位成員</span>
+                                  <span>{publicChs.length} 個頻道</span>
+                                  {lastCh?.last_message_preview ? (
+                                    <span className="tm-hub-preview">
+                                      #{lastCh.name} · {lastCh.last_message_preview}
                                     </span>
-                                  ) : null}
-                                  {c.last_message_at ? (
-                                    <span className="tm-hub-channel-time">
-                                      {formatRelative(c.last_message_at)}
-                                    </span>
-                                  ) : null}
-                                  {u ? <span className="tm-unread-dot" /> : null}
-                                </button>
-                              </li>
-                            );
-                          })
-                        )}
-                      </ul>
-                    )}
-                  </article>
-                );
-              })}
+                                  ) : (
+                                    <span>加入於 {formatJoined(t.joined_at)}</span>
+                                  )}
+                                </span>
+                              </span>
+                            </button>
+                            <div className="tm-hub-team-actions">
+                              <button
+                                type="button"
+                                className="tm-hub-icon-btn"
+                                title="移到分區"
+                                aria-label="移到分區"
+                                onClick={() => void assignSection(t.id)}
+                              >
+                                ⊞
+                              </button>
+                              <button
+                                type="button"
+                                className={`tm-hub-icon-btn${isStar ? " is-on" : ""}`}
+                                title={isStar ? "取消收藏" : "收藏"}
+                                aria-label={isStar ? "取消收藏" : "收藏"}
+                                onClick={(e) => toggleStar(t.id, e)}
+                              >
+                                {isStar ? "★" : "☆"}
+                              </button>
+                              <button
+                                type="button"
+                                className="tm-hub-icon-btn"
+                                title={isOpen ? "收合頻道" : "展開頻道"}
+                                aria-expanded={isOpen}
+                                onClick={() =>
+                                  setExpanded((prev) => ({ ...prev, [t.id]: !prev[t.id] }))
+                                }
+                              >
+                                {isOpen ? "▴" : "▾"}
+                              </button>
+                            </div>
+                          </div>
+                          {isOpen && (
+                            <ul className="tm-hub-channel-list">
+                              {publicChs.length === 0 ? (
+                                <li className="tm-hub-channel-empty">尚無頻道</li>
+                              ) : (
+                                publicChs.map((c) => {
+                                  const u = channelIsUnread(c, b.reads[c.id]);
+                                  return (
+                                    <li key={c.id}>
+                                      <button
+                                        type="button"
+                                        className={`tm-hub-channel${u ? " is-unread" : ""}`}
+                                        onClick={() => openTeam(t.id, c.id)}
+                                      >
+                                        <span className="tm-hub-channel-hash">
+                                          {c.is_private ? "🔒" : "#"}
+                                        </span>
+                                        <span className="tm-hub-channel-name">{c.name}</span>
+                                        {c.last_message_preview ? (
+                                          <span className="tm-hub-channel-preview">
+                                            {c.last_message_preview}
+                                          </span>
+                                        ) : null}
+                                        {c.last_message_at ? (
+                                          <span className="tm-hub-channel-time">
+                                            {formatRelative(c.last_message_at)}
+                                          </span>
+                                        ) : null}
+                                        {u ? <span className="tm-unread-dot" /> : null}
+                                      </button>
+                                    </li>
+                                  );
+                                })
+                              )}
+                            </ul>
+                          )}
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </section>
@@ -740,7 +866,7 @@ export default function TeamHub() {
                         onClick={() => void openNotification(n)}
                       >
                         <span className="tm-hub-feed-kind">
-                          {n.type === "mention" ? "@ 提及" : "通知"}
+                          {n.type === "mention" ? "@ 提及" : n.type === "invite" ? "邀請" : "通知"}
                         </span>
                         <span className="tm-hub-feed-body">
                           <strong>{n.from_name || "有人"}</strong> · {teamName}
