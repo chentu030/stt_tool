@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { canEmbedProxy, embedProxySrc, isEmbedProxyDenied } from "@/lib/embedProxy";
+import { canEmbedProxy, embedProxySrc, isEmbedProxyDenied, isGoogleAppNeedsTopLevel } from "@/lib/embedProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,7 +95,9 @@ export async function GET(req: NextRequest) {
   if (!canEmbedProxy(raw)) {
     return NextResponse.json(
       {
-        error: "此網址無法代理（內網或登入／敏感站，請用獨立視窗）",
+        error: isGoogleAppNeedsTopLevel(raw)
+          ? "Google／Gemini 無法代理，請用獨立視窗或系統瀏覽器開啟"
+          : "此網址無法代理（內網或登入／敏感站，請用獨立視窗）",
         proxySrcHint: embedProxySrc(raw),
       },
       { status: 403 }

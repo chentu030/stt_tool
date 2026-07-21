@@ -7,6 +7,7 @@ import { resolveEmbedUrl, urlLikelyBlocksFraming } from "@/lib/embedUrls";
 import {
   canEmbedProxy,
   embedProxySrc,
+  isGoogleAppNeedsTopLevel,
   isGoogleAuthOrLoginUrl,
   shouldAutoDetach,
 } from "@/lib/embedProxy";
@@ -83,12 +84,23 @@ export default function WebPageView({
     }
   }, [saved, note.id]);
 
-  /** Top-level window — X-Frame-Options does not apply. Best path for Google / TPEx. */
+  /** Top-level window — X-Frame-Options does not apply. Required for Gemini / Google login. */
   const openDetached = useCallback(
     (urlOverride?: string): boolean => {
       const url = (urlOverride || active || draft.replace(/\s*（站內）\s*$/, "")).trim();
       if (!url || url === "https://") return false;
       const href = normalizeWebUrl(url) || url;
+      // Prefer a real tab (survives popup blockers better than named popup windows)
+      const tab = window.open(href, "_blank", "noopener,noreferrer");
+      if (tab) {
+        try {
+          tab.focus();
+        } catch {
+          /* ignore */
+        }
+        setDetachStatus("opened");
+        return true;
+      }
       try {
         if (popupRef.current && !popupRef.current.closed) {
           popupRef.current.location.href = href;
@@ -110,12 +122,6 @@ export default function WebPageView({
         setDetachStatus("opened");
         return true;
       }
-      // Popup blocker — last resort tab (may still be blocked without gesture)
-      const tab = window.open(href, "_blank", "noopener,noreferrer");
-      if (tab) {
-        setDetachStatus("opened");
-        return true;
-      }
       setDetachStatus("blocked");
       return false;
     },
@@ -126,13 +132,14 @@ export default function WebPageView({
     (url: string, reason: "denylist" | "probe" | "google") => {
       if (lastAutoDetachUrl.current === url) return;
       lastAutoDetachUrl.current = url;
+      // useEffect auto-open is often blocked — still try, then rely on big CTA
       openDetached(url);
       void reason;
     },
     [openDetached]
   );
 
-  // Prefer proxy for public sites that block framing; detach only for login/sensitive.
+  // Prefer proxy for public sites that block framing; detach Google apps / login.
   useEffect(() => {
     if (!active) {
       setProbeFrameable(null);
@@ -142,16 +149,20 @@ export default function WebPageView({
     }
 
     const proxyOk = canEmbedProxy(active);
+    const needsTop = isGoogleAppNeedsTopLevel(active) || shouldAutoDetach(active);
 
-    if (isGoogleAuthOrLoginUrl(active) || (!proxyOk && urlLikelyBlocksFraming(active))) {
+    if (needsTop || (!proxyOk && urlLikelyBlocksFraming(active))) {
       setProbeFrameable(false);
       setProbeReason(
-        isGoogleAuthOrLoginUrl(active)
-          ? "Google 登入禁止嵌入（請用獨立視窗／系統瀏覽器）"
+        isGoogleAppNeedsTopLevel(active)
+          ? "Google／Gemini 必須用獨立視窗（無法在筆記內嵌登入）"
           : "此網站無法在頁內預覽（請用獨立視窗）"
       );
       setProxyMode(false);
-      tryAutoDetach(active, isGoogleAuthOrLoginUrl(active) ? "google" : "denylist");
+      tryAutoDetach(
+        active,
+        isGoogleAuthOrLoginUrl(active) || isGoogleAppNeedsTopLevel(active) ? "google" : "denylist"
+      );
       return;
     }
 
@@ -482,20 +493,22 @@ export default function WebPageView({
         ) : showBlocked ? (
           <div className="web-page-blocked">
             <p className="web-page-blocked-title">
-              {hostLabel || "此網站"}無法嵌入預覽
+              {hostLabel || "此網站"}需在獨立視窗開啟
             </p>
             <p>
-              此為登入或敏感頁面，無法在頁內顯示。請用獨立視窗或系統瀏覽器開啟。
+              {isGoogleAppNeedsTopLevel(active)
+                ? "Gemini／Google 登入無法在筆記內嵌瀏覽器完成（瀏覽器安全限制）。請用下方按鈕開啟真實分頁後登入。"
+                : "此為登入或敏感頁面，無法在頁內顯示。請用獨立視窗或系統瀏覽器開啟。"}
             </p>
             {probeReason && probeReason !== "檢查中…" ? (
               <p className="web-page-hint">{probeReason}</p>
             ) : null}
             {detachStatus === "opened" ? (
-              <p className="web-page-hint web-page-ok">已自動開啟獨立視窗。</p>
+              <p className="web-page-hint web-page-ok">已嘗試開啟獨立視窗；若沒看到，請再按一次下方按鈕。</p>
             ) : null}
             {detachStatus === "blocked" ? (
               <p className="web-page-hint web-page-warn">
-                瀏覽器攔截了彈窗，請再按一次「以獨立視窗開啟」。
+                瀏覽器攔截了彈窗。請直接點「用系統瀏覽器開啟」（這不會被擋）。
               </p>
             ) : null}
             <div className="web-page-blocked-actions">

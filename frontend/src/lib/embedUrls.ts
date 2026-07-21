@@ -181,6 +181,10 @@ export function isKnownNonFrameable(hostname: string, pathname = ""): boolean {
     "ai.google.dev",
     "developers.google.com",
     "firebase.google.com",
+    "gemini.google.com",
+    "aistudio.google.com",
+    "notebooklm.google.com",
+    "labs.google.com",
     // TW market data / portals — CSP / X-Frame-Options deny
     "tpex.org.tw",
     "www.tpex.org.tw",

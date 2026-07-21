@@ -167,10 +167,10 @@ export const AI_SLASH_ALIASES: Record<string, string[]> = {
   summarize: ["ai-summarize"],
   draft: ["ai-draft-meeting", "ai-draft-email", "ai-draft-outline"],
   mermaid: ["ai-mermaid"],
-  table: ["ai-table"],
-  photo: ["create-photo"],
+  // Do not use key "table" — it collides with the real /table grid command
+  aitable: ["ai-table"],
+  "ai-table": ["ai-table"],
   "create-photo": ["create-photo"],
-  image: ["create-photo", "image", "imglink"],
 };
 
 export function findCadenceAiAction(id: string): CadenceAiAction | undefined {

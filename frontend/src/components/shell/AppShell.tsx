@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle, logout, listenToUserNotes, listenToUserJobs, type Note, type Job } from "@/lib/firebase";
+import { loginWithGoogle, logout, listenToUserNotes, listenToUserJobs, authErrorMessage, type Note, type Job } from "@/lib/firebase";
 import ThemeToggle from "@/components/ThemeToggle";
 import AlbireusLogo from "@/components/AlbireusLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
@@ -205,6 +205,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const prefsCtx = usePrefsOptional();
   const homeHref = prefsCtx?.prefs.homePage || "/";
   const isMobile = useIsMobile();
+  const handleGoogleLogin = useCallback(() => {
+    void loginWithGoogle().catch((err) => toast(authErrorMessage(err)));
+  }, []);
   const navApps = useMemo(() => {
     const extras: NavAppDef[] = (community?.enabledExtensions || []).map((ext) => ({
       id: `ext:${ext.id}`,
@@ -704,7 +707,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 type="button"
                 className="btn btn-sm"
                 style={{ flex: 1 }}
-                onClick={() => loginWithGoogle()}
+                onClick={handleGoogleLogin}
               >
                 登入
               </button>
@@ -755,7 +758,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </button>
             <ThemeToggle />
             {!loading && !user && (
-              <button className="btn btn-sm" onClick={() => loginWithGoogle()}>
+              <button className="btn btn-sm" onClick={handleGoogleLogin}>
                 登入
               </button>
             )}

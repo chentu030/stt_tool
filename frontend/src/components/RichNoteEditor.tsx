@@ -114,6 +114,7 @@ const SLASH_TAIL_RE = /(?:^|\n)\/([^\n]*)$/;
 const SLASH_LOOKBACK = 200;
 
 const SLASH_ALIASES: Record<string, string[]> = {
+  ...AI_SLASH_ALIASES,
   text: ["p"],
   paragraph: ["p"],
   h1: ["h1"],
@@ -128,20 +129,27 @@ const SLASH_ALIASES: Record<string, string[]> = {
   math: ["mathi", "math"],
   latex: ["mathi", "math"],
   inline: ["mathi"],
-  table: ["table"],
+  // Prefer real table over AI table (AI_SLASH_ALIASES.table would steal /table)
+  table: ["table", "ai-table"],
   grid: ["table"],
   divider: ["hr"],
   hr: ["hr"],
   sep: ["hr"],
-  bookmark: ["bookmark", "web"],
-  web: ["web", "bookmark"],
+  bookmark: ["bookmark", "web-embed"],
+  web: ["web-embed", "web", "bookmark"],
+  網頁: ["web-embed"],
   embed: ["web", "youtube", "drive"],
   database: ["database"],
   list: ["database"],
   gallery: ["database"],
   board: ["board-embed", "board"],
+  看板: ["board-embed"],
+  canvas: ["canvas-embed"],
+  白板: ["canvas-embed"],
+  graph: ["graph-embed", "graph"],
+  圖譜: ["graph-embed"],
   calendar: ["journal", "calendar"],
-  timeline: ["graph"],
+  timeline: ["graph-embed"],
   sync: ["sync"],
   toc: ["toc"],
   link: ["link"],
@@ -170,9 +178,10 @@ const SLASH_ALIASES: Record<string, string[]> = {
   upload: ["file", "image", "pdf", "video", "audio", "ppt"],
   youtube: ["youtube"],
   yt: ["youtube"],
-  image: ["image"],
+  // Prefer insert image over create-photo when typing /image
+  image: ["image", "imglink", "create-photo"],
   img: ["image"],
-  photo: ["image"],
+  photo: ["image", "create-photo"],
   pdf: ["pdf"],
   video: ["video"],
   audio: ["audio"],
@@ -181,7 +190,6 @@ const SLASH_ALIASES: Record<string, string[]> = {
   imglink: ["imglink"],
   turn: ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote", "turn-callout"],
   "turn into": ["turn-p", "turn-h1", "turn-h2", "turn-h3", "turn-bullet", "turn-todo", "turn-quote"],
-  ...AI_SLASH_ALIASES,
 };
 
 function parseSlashTail(raw: string): { query: string; arg: string } {
@@ -994,18 +1002,18 @@ export default function RichNoteEditor({
       },
       {
         id: "sync",
-        label: "同步區塊",
-        hint: "/sync 以連結同步內容",
+        label: "同步區塊（預覽）",
+        hint: "/sync · 目前僅插入 wiki 連結提示，尚未真同步",
         run: (e) => {
           void (async () => {
-            const title = await askPrompt("同步來源筆記標題（wiki）", "共享區塊");
+            const title = await askPrompt("來源筆記標題（之後會做成真同步）", "共享區塊");
             if (title == null) return;
             const t = title.trim() || "共享區塊";
             e.chain()
               .focus()
               .insertContent(
                 markdownToHtml(
-                  `> [!tip] 同步：請在來源筆記編輯內容，並在此用 [[${t}]] 連結。`,
+                  `> [!warning] 同步區塊尚在預覽：尚未與來源即時同步。請先用 [[${t}]] 連到來源筆記。`,
                   (title) => resolveWikiRef.current(title)
                 )
               )

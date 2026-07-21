@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut as fbSignOut,
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  signOut as fbSignOut,
   onAuthStateChanged, User
 } from "firebase/auth";
 import {
@@ -29,14 +30,64 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
+
+// Complete redirect-based Google sign-in when an intentional redirect was used.
+if (typeof window !== "undefined") {
+  void getRedirectResult(auth).catch((err) => {
+    console.warn("[auth] getRedirectResult", err);
+  });
+}
+
+function authErrorCode(err: unknown): string {
+  if (err && typeof err === "object" && "code" in err) {
+    return String((err as { code?: string }).code || "");
+  }
+  return "";
+}
+
+export function authErrorMessage(err: unknown): string {
+  const code = authErrorCode(err);
+  if (code === "auth/popup-blocked") {
+    return "瀏覽器擋下登入視窗，請允許彈出視窗後再試一次";
+  }
+  if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+    return "已取消登入";
+  }
+  if (code === "auth/unauthorized-domain") {
+    return "此網域尚未加入 Firebase 授權網域，請聯絡管理員";
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return "Google 登入失敗，請再試一次";
+}
 
 // ─── Auth ────────────────────────────────────────────────────
+/**
+ * Prefer popup. Do NOT blindly fall back to redirect on Vercel/custom domains —
+ * redirect needs same-origin `/__/auth` proxy (we don't have it), so it silently fails.
+ * Opt-in: NEXT_PUBLIC_AUTH_USE_REDIRECT=1
+ */
 export const loginWithGoogle = async () => {
   try {
     return await signInWithPopup(auth, googleProvider);
-  } catch {
-    // Popup failed (domain not authorized, popup blocked, etc.) — use redirect
-    return signInWithRedirect(auth, googleProvider);
+  } catch (err: unknown) {
+    const code = authErrorCode(err);
+    if (
+      code === "auth/popup-closed-by-user" ||
+      code === "auth/cancelled-popup-request" ||
+      code === "auth/user-cancelled"
+    ) {
+      return null;
+    }
+    if (code === "auth/unauthorized-domain") {
+      throw err;
+    }
+    const allowRedirect = process.env.NEXT_PUBLIC_AUTH_USE_REDIRECT === "1";
+    if (allowRedirect && code === "auth/popup-blocked") {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+    throw err;
   }
 };
 export const logout = () => fbSignOut(auth);

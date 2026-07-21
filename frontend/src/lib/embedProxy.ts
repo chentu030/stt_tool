@@ -3,14 +3,23 @@ import { urlLikelyBlocksFraming } from "@/lib/embedUrls";
 /**
  * Embed proxy helpers: public http(s) pages can be framed via /api/web/embed-proxy.
  * Denylist only blocks private networks (SSRF) and sensitive login hosts.
+ * Google consumer apps (Gemini etc.) must open top-level — proxy/iframe cannot login.
  */
 
-/** Hosts we refuse to proxy (auth / finance). */
+/** Hosts we refuse to proxy (auth / finance / Google apps that need real cookies). */
 export const EMBED_PROXY_DENY_HOSTS = [
   "accounts.google.com",
   "myaccount.google.com",
   "oauth2.googleapis.com",
   "apis.google.com",
+  "gemini.google.com",
+  "aistudio.google.com",
+  "notebooklm.google.com",
+  "labs.google.com",
+  "one.google.com",
+  "chat.google.com",
+  "mail.google.com",
+  "calendar.google.com",
   "appleid.apple.com",
   "login.microsoftonline.com",
   "login.live.com",
@@ -42,6 +51,7 @@ export function hostnameOf(raw: string): string | null {
   }
 }
 
+/** Google / Workspace login & OAuth — never iframe or MITM-proxy. */
 export function isGoogleAuthOrLoginUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
@@ -49,7 +59,7 @@ export function isGoogleAuthOrLoginUrl(raw: string): boolean {
     if (h === "accounts.google.com" || h === "myaccount.google.com") return true;
     if (
       h.endsWith(".google.com") &&
-      /\/(o\/oauth2|signin|ServiceLogin|AccountChooser)/i.test(u.pathname + u.search)
+      /\/(o\/oauth2|signin|ServiceLogin|AccountChooser|gsi\/)/i.test(u.pathname + u.search)
     ) {
       return true;
     }
@@ -59,31 +69,53 @@ export function isGoogleAuthOrLoginUrl(raw: string): boolean {
   }
 }
 
+/**
+ * Google apps that require first-party cookies / FedCM / no framing
+ * (Gemini, Gmail, …). Must open in a top-level window.
+ */
+export function isGoogleAppNeedsTopLevel(raw: string): boolean {
+  const host = hostnameOf(raw);
+  if (!host) return false;
+  if (isGoogleAuthOrLoginUrl(raw)) return true;
+  if (host === "google.com" || host === "www.google.com") return true;
+  if (
+    hostMatchesList(host, [
+      "gemini.google.com",
+      "aistudio.google.com",
+      "notebooklm.google.com",
+      "labs.google.com",
+      "one.google.com",
+      "chat.google.com",
+      "mail.google.com",
+      "calendar.google.com",
+    ])
+  ) {
+    return true;
+  }
+  // Catch-all: most *.google.com except Drive/Docs/Maps preview embeds
+  if (host.endsWith(".google.com") || host.endsWith(".google.com.tw")) {
+    if (host.includes("drive.") || host.includes("docs.") || host.includes("maps.")) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/** Exact host or subdomain of entry — never treat entry "a.b" as matching sibling "c.b". */
 function hostMatchesList(host: string, list: readonly string[]): boolean {
-  return list.some((entry) => host === entry || host.endsWith(`.${entry}`));
+  return list.some((entry) => {
+    const e = entry.toLowerCase();
+    return host === e || host.endsWith(`.${e}`);
+  });
 }
 
 export function isEmbedProxyDenied(raw: string): boolean {
   const host = hostnameOf(raw);
   if (!host) return true;
   if (PRIVATE_HOST.test(host)) return true;
-  if (isGoogleAuthOrLoginUrl(raw)) return true;
+  if (isGoogleAppNeedsTopLevel(raw)) return true;
   if (hostMatchesList(host, EMBED_PROXY_DENY_HOSTS)) return true;
-  if (
-    host.endsWith(".google.com") &&
-    !host.includes("docs.") &&
-    !host.includes("drive.") &&
-    !host.includes("maps.")
-  ) {
-    if (
-      host.startsWith("accounts.") ||
-      host.includes("oauth") ||
-      host === "google.com" ||
-      host === "www.google.com"
-    ) {
-      return true;
-    }
-  }
   return false;
 }
 
@@ -106,10 +138,10 @@ export function embedProxySrc(targetUrl: string): string {
   return `/api/web/embed-proxy?url=${encodeURIComponent(targetUrl)}`;
 }
 
-/** Prefer auto popup for Google login + known non-frameable hosts that also cannot proxy. */
+/** Prefer auto popup for Google apps + known non-frameable hosts that also cannot proxy. */
 export function shouldAutoDetach(raw: string): boolean {
   if (!raw || raw === "https://") return false;
-  if (isGoogleAuthOrLoginUrl(raw)) return true;
+  if (isGoogleAppNeedsTopLevel(raw)) return true;
   if (isEmbedProxyDenied(raw) && urlLikelyBlocksFraming(raw)) return true;
   return false;
 }

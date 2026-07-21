@@ -227,7 +227,8 @@ turndown.addRule("columns", {
     (node as HTMLElement).getAttribute("data-note-columns") === "1",
   replacement: (content, node) => {
     const count = (node as HTMLElement).getAttribute("data-count") || "2";
-    return `\n\n:::columns ${count}\n${content.trim()}\n:::\n\n`;
+    // Outer fence uses 4 colons so nested :::column closers are not ambiguous.
+    return `\n\n::::columns ${count}\n${content.trim()}\n::::\n\n`;
   },
 });
 
@@ -435,9 +436,34 @@ function escapeHtml(s: string) {
 
 export type WikiResolver = (title: string) => string | null;
 
+/** Heal tokens Turndown escaped when old htmlToMarkdown parked raw `[…](…)` as text. */
+function healEscapedEmbedTokens(md: string): string {
+  const unescapeMd = (s: string) => s.replace(/\\([\\`*_{}[\]()#+.!|-])/g, "$1");
+  let out = md;
+  out = out.replace(
+    /\\\[((?:database|board|canvas|graph|web|embed|file|bookmark|app|template)[^\]]*)\\\]\(([^)]*)\)/g,
+    (_m, label, href) => `[${unescapeMd(label)}](${unescapeMd(href)})`
+  );
+  out = out.replace(
+    /!\\\[((?:video|audio)[^\]]*)\\\]\(([^)]*)\)/g,
+    (_m, label, src) => `![${unescapeMd(label)}](${unescapeMd(src)})`
+  );
+  // Already re-saved as fake math: $$ file|name|size $$ (url)
+  out = out.replace(
+    /\$\$\s*((?:file|bookmark|embed|web|database)\|[^$]+?)\s*\$\$\s*\n*\((https?:[^)]+)\)/g,
+    (_m, label, href) => `[${String(label).trim().replace(/\n+/g, "")}](${href})`
+  );
+  return out;
+}
+
+function looksLikeEscapedEmbedFormula(formula: string): boolean {
+  const f = formula.trim();
+  return /^(?:database|board|canvas|graph|web|embed|file|bookmark|app)(?:\||$)/.test(f);
+}
+
 /** Convert Cadence shortcuts into HTML TipTap understands */
 function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
-  let s = md;
+  let s = healEscapedEmbedTokens(md);
 
   // Protect code fences / inline code from math transforms
   const fences: string[] = [];
@@ -451,12 +477,30 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `@@INLINE${inlines.length - 1}@@`;
   });
 
-  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, formula) => {
-    const f = normalizeLatexFormula(String(formula).trim());
+  // Park embed tokens so `\[…\]` / `$…$` math never swallows them (e.g. file names with _)
+  const embPark: string[] = [];
+  const parkEmb = (token: string) => {
+    embPark.push(token);
+    return `@@EMB${embPark.length - 1}@@`;
+  };
+  s = s.replace(
+    /\[(?:database|board|canvas|graph|web|embed|file|bookmark|app|template)[^\]]*\]\([^)]*\)/g,
+    (m) => parkEmb(m)
+  );
+  s = s.replace(/!\[(?:video|audio)[^\]]*\]\([^)]*\)/g, (m) => parkEmb(m));
+
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (full, formula) => {
+    const raw = String(formula).trim();
+    if (looksLikeEscapedEmbedFormula(raw) || /^(?:file|bookmark|embed|web|database)\|/.test(raw)) {
+      return full;
+    }
+    const f = normalizeLatexFormula(raw);
     return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(f)}"></div>`;
   });
-  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_m, formula) => {
-    const f = normalizeLatexFormula(String(formula).trim());
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (full, formula) => {
+    const raw = String(formula).trim();
+    if (looksLikeEscapedEmbedFormula(raw)) return full;
+    const f = normalizeLatexFormula(raw);
     return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(f)}"></div>`;
   });
 
@@ -470,6 +514,8 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     if (!f) return _m;
     return `<span class="rich-math-inline" data-math-inline="1" data-formula="${encodeFormulaAttr(f)}"></span>`;
   });
+
+  s = s.replace(/@@EMB(\d+)@@/g, (_m, i) => embPark[Number(i)] || "");
 
   s = s.replace(/!\[video(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, title, src) => {
     const t = title ? ` title="${escapeAttr(title)}"` : "";
@@ -557,9 +603,21 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}"><p>${escapeHtml(inner)}</p></div>`;
   });
 
-  // Columns: :::columns 2\n:::column\n...\n:::\n:::
-  s = s.replace(/:::columns\s+([2-5])\n([\s\S]*?):::/g, (_m, count, inner) => {
+  // Columns: ::::columns 2 … :::: (4-colon outer so :::column closers don't truncate)
+  s = s.replace(/::::columns\s+([2-5])\n([\s\S]*?)::::/g, (_m, count, inner) => {
     const cols = String(inner).match(/:::column\n([\s\S]*?):::/g) || [];
+    const htmlCols = cols
+      .map((c) => {
+        const body = c.replace(/^:::column\n/, "").replace(/:::$/, "").trim();
+        return `<div class="rich-column" data-note-column="1"><p>${escapeHtml(body)}</p></div>`;
+      })
+      .join("");
+    return `<div class="rich-columns rich-columns--${count}" data-note-columns="1" data-count="${count}">${htmlCols}</div>`;
+  });
+  // Legacy :::columns … ::: — recover all :::column chunks even if outer fence was truncated
+  s = s.replace(/:::columns\s+([2-5])\n([\s\S]*?)(?=\n::::|\n:::toggle|\n#|\n\[|\n```|$)/g, (_m, count, inner) => {
+    const cols = String(inner).match(/:::column\n([\s\S]*?):::/g) || [];
+    if (!cols.length) return _m;
     const htmlCols = cols
       .map((c) => {
         const body = c.replace(/^:::column\n/, "").replace(/:::$/, "").trim();
@@ -706,11 +764,20 @@ export function clipboardHasLatex(text: string): boolean {
   return false;
 }
 
+/**
+ * TipTap atom shells are often empty attribute-only tags. Turndown drops blank
+ * nodes, so we expand them before conversion. Injecting raw `[…](…)` as text
+ * gets escaped (`\[database|v\_table\](id)`), which then fails to rehydrate —
+ * use opaque placeholders through Turndown, then restore real tokens.
+ */
 export function htmlToMarkdown(html: string): string {
   if (!html || html === "<p></p>" || html === "<p><br></p>") return "";
-  // TipTap atom nodes (math / embeds / …) often serialize as empty attribute-only
-  // tags. Turndown's blank-node rule drops them — expand to markdown first.
   let input = html;
+  const atoms: string[] = [];
+  const park = (token: string) => {
+    atoms.push(token);
+    return `@@ATOM${atoms.length - 1}@@`;
+  };
   if (typeof DOMParser !== "undefined") {
     try {
       const doc = new DOMParser().parseFromString(html, "text/html");
@@ -722,7 +789,7 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`$${f}$`));
+        el.replaceWith(doc.createTextNode(park(`$${f}$`)));
       });
       doc.querySelectorAll("[data-math-block], .rich-math-block").forEach((el) => {
         const f = normalizeLatexFormula(
@@ -732,16 +799,41 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n$$\n${f}\n$$\n\n`));
+        // Recover file/embed mistaken for math (URL often left in the next node)
+        if (looksLikeEscapedEmbedFormula(f) || /^(?:file|bookmark|embed|web|database)\|/.test(f)) {
+          let href = "";
+          let n: ChildNode | null = el.nextSibling;
+          while (n && n.nodeType === 3 && !String(n.textContent || "").trim()) {
+            n = n.nextSibling;
+          }
+          const takeUrl = (text: string) => {
+            const m = text.match(/^\s*\((https?:[^)]+)\)\s*$/);
+            return m ? m[1] : "";
+          };
+          if (n && n.nodeType === 3) {
+            const t = String(n.textContent || "");
+            const m = t.match(/^\s*\((https?:[^)]+)\)/);
+            if (m) {
+              href = m[1];
+              n.textContent = t.replace(/^\s*\((https?:[^)]+)\)/, "");
+            }
+          } else if (n && (n as HTMLElement).nodeName === "P") {
+            href = takeUrl(String((n as HTMLElement).textContent || ""));
+            if (href) (n as HTMLElement).remove();
+          }
+          if (href) {
+            el.replaceWith(doc.createTextNode(park(`\n\n[${f.trim()}](${href})\n\n`)));
+            return;
+          }
+        }
+        el.replaceWith(doc.createTextNode(park(`\n\n$$\n${f}\n$$\n\n`)));
       });
       doc.querySelectorAll("[data-note-embed], .rich-embed").forEach((el) => {
         const kind = el.getAttribute("data-kind") || "web";
         const title = el.getAttribute("data-title") || "embed";
         const original =
           el.getAttribute("data-original") || el.getAttribute("data-src") || "";
-        el.replaceWith(
-          doc.createTextNode(`\n\n[embed|${kind}|${title}](${original})\n\n`)
-        );
+        el.replaceWith(doc.createTextNode(park(`\n\n[embed|${kind}|${title}](${original})\n\n`)));
       });
       doc.querySelectorAll("[data-cadence-database]").forEach((el) => {
         const id = el.getAttribute("data-database-id") || "";
@@ -750,7 +842,7 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n[database|${viewId}](${id})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n[database|${viewId}](${id})\n\n`)));
       });
       doc.querySelectorAll("[data-cadence-board]").forEach((el) => {
         const id = el.getAttribute("data-board-id") || "";
@@ -758,7 +850,7 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n[board](${id})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n[board](${id})\n\n`)));
       });
       doc.querySelectorAll("[data-cadence-canvas]").forEach((el) => {
         const id = el.getAttribute("data-canvas-id") || "";
@@ -766,7 +858,7 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n[canvas](${id})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n[canvas](${id})\n\n`)));
       });
       doc.querySelectorAll("[data-cadence-graph]").forEach((el) => {
         const id = el.getAttribute("data-graph-id") || "";
@@ -774,12 +866,12 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n[graph](${id})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n[graph](${id})\n\n`)));
       });
       doc.querySelectorAll("[data-cadence-web]").forEach((el) => {
         const url = el.getAttribute("data-url") || "";
         const title = el.getAttribute("data-title") || "";
-        el.replaceWith(doc.createTextNode(`\n\n[web|${title}](${url})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n[web|${title}](${url})\n\n`)));
       });
       doc.querySelectorAll("[data-note-video]").forEach((el) => {
         const src = el.getAttribute("src") || "";
@@ -788,7 +880,7 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n![video|${title}](${src})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n![video|${title}](${src})\n\n`)));
       });
       doc.querySelectorAll("[data-note-audio]").forEach((el) => {
         const src = el.getAttribute("src") || "";
@@ -797,7 +889,7 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(`\n\n![audio|${title}](${src})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n![audio|${title}](${src})\n\n`)));
       });
       doc.querySelectorAll("a[data-note-file]").forEach((el) => {
         const href = el.getAttribute("href") || "";
@@ -808,22 +900,36 @@ export function htmlToMarkdown(html: string): string {
           return;
         }
         el.replaceWith(
-          doc.createTextNode(
-            `\n\n[file|${name}${size ? `|${size}` : ""}](${href})\n\n`
-          )
+          doc.createTextNode(park(`\n\n[file|${name}${size ? `|${size}` : ""}](${href})\n\n`))
         );
       });
       doc.querySelectorAll("[data-note-bookmark]").forEach((el) => {
         const href = el.getAttribute("data-href") || el.getAttribute("href") || "";
         const title = el.getAttribute("data-title") || href || "書籤";
-        el.replaceWith(doc.createTextNode(`\n\n[bookmark|${title}](${href})\n\n`));
+        el.replaceWith(doc.createTextNode(park(`\n\n[bookmark|${title}](${href})\n\n`)));
+      });
+      doc.querySelectorAll("a[data-note-app]").forEach((el) => {
+        const href = el.getAttribute("href") || "/";
+        const kind = el.getAttribute("data-kind") || "app";
+        const title = el.getAttribute("data-title") || "應用";
+        const hint = el.getAttribute("data-hint") || "";
+        el.replaceWith(
+          doc.createTextNode(park(`\n\n[app|${kind}|${title}|${hint}](${href})\n\n`))
+        );
+      });
+      doc.querySelectorAll("button[data-note-template-btn]").forEach((el) => {
+        const id = el.getAttribute("data-template") || "meeting";
+        const label = (el.textContent || "插入範本").trim();
+        el.replaceWith(doc.createTextNode(park(`\n\n[template|${id}|${label}](#)\n\n`)));
       });
       input = doc.body.innerHTML;
     } catch {
       input = html;
     }
   }
-  return turndown.turndown(input).trim();
+  let md = turndown.turndown(input).trim();
+  md = md.replace(/@@ATOM(\d+)@@/g, (_m, i) => atoms[Number(i)] ?? "");
+  return md.trim();
 }
 
 export function formatFileSize(bytes: number): string {
