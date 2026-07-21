@@ -128,6 +128,11 @@ export function isFullScreenAppLink(
   );
 }
 
+/** Note shell is hosting a specialty surface (extension iframe, or embed fallback). */
+export function isNoteAppSurface(link: Note["app_link"] | null | undefined): boolean {
+  return Boolean(link?.type && link.id);
+}
+
 /** Deep-link path for embedding specialty UIs (iframe / legacy routes). */
 export function noteAppEmbedHref(
   link: NoteAppLink,

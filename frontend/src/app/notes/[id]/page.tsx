@@ -91,7 +91,7 @@ import ColorSwatchUtility from "@/components/ColorSwatchUtility";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { fireConfetti } from "@/lib/confetti";
 import { normalizePageColor, normalizePageIcon, pageColorMeta } from "@/lib/pageChrome";
-import { isFullScreenAppLink, noteOpenHref } from "@/lib/workspacePages";
+import { isFullScreenAppLink, isNoteAppSurface, noteOpenHref } from "@/lib/workspacePages";
 
 function countTaskCheckboxes(md: string): { total: number; checked: number } {
   const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
@@ -173,6 +173,8 @@ function NotePageInner() {
     return 300;
   });
   const [focusMode, setFocusMode] = useState(false);
+  /** App surfaces (extension / specialty): fill content area below chrome */
+  const [appFill, setAppFill] = useState(true);
   const [threadSelection, setThreadSelection] = useState<string | null>(null);
   const teamFocus = useFocusMode();
   const allCheckedRef = useRef(false);
@@ -294,6 +296,18 @@ function NotePageInner() {
   useEffect(() => {
     teamFocus.setFocusMode(focusMode);
   }, [focusMode, teamFocus]);
+
+  useEffect(() => {
+    if (!note?.id || !isNoteAppSurface(note.app_link)) return;
+    try {
+      const v = sessionStorage.getItem(`albireus_app_fill_${note.id}`);
+      if (v === "0") setAppFill(false);
+      else if (v === "1") setAppFill(true);
+      else setAppFill(true);
+    } catch {
+      setAppFill(true);
+    }
+  }, [note?.id, note?.app_link]);
 
   useEffect(() => {
     if (!moreOpen && !exportMenuOpen) return;
@@ -1071,14 +1085,26 @@ function NotePageInner() {
 
   const editorWidth = prefsCtx?.prefs.editorWidth || "medium";
   const widthExtended = editorWidth === "full" || editorWidth === "wide";
+  const isAppPage = isNoteAppSurface(note.app_link);
+  const toggleAppFill = () => {
+    setAppFill((prev) => {
+      const next = !prev;
+      try {
+        sessionStorage.setItem(`albireus_app_fill_${note.id}`, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   return (
     <div
-      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${splitId && splitId !== id ? " has-split" : ""}`}
+      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${splitId && splitId !== id ? " has-split" : ""}${isAppPage ? " is-app-page" : ""}${isAppPage && appFill ? " is-app-fill" : ""}`}
       style={{ ["--note-aside-w" as string]: `${asideWidth}px` }}
     >
       <div className="doc-chrome">
-      <div className={`doc-ribbon${viewMode === "slides" ? " is-hidden" : ""}`} ref={setRibbonHost} />
+      <div className={`doc-ribbon${viewMode === "slides" || isAppPage ? " is-hidden" : ""}`} ref={setRibbonHost} />
 
       <div className="doc-command">
         <nav className="doc-command-path" aria-label="筆記路徑">
@@ -1124,6 +1150,7 @@ function NotePageInner() {
           )}
         </nav>
         <div className="doc-command-bar">
+          {!isAppPage ? (
           <div className="doc-view-switch" role="tablist" aria-label="檢視模式">
             <button
               type="button"
@@ -1146,7 +1173,8 @@ function NotePageInner() {
               簡報
             </button>
           </div>
-          {viewMode === "write" && prefsCtx ? (
+          ) : null}
+          {viewMode === "write" && !isAppPage && prefsCtx ? (
             <div className="doc-view-switch doc-width-switch" role="tablist" aria-label="編輯區寬度">
               <button
                 type="button"
@@ -1173,6 +1201,16 @@ function NotePageInner() {
           <div className="doc-command-actions">
           <NotePresence noteId={note.id} />
           <NoteHuddle noteId={note.id} />
+          {isAppPage ? (
+            <button
+              type="button"
+              className={`doc-cmd doc-cmd--keep${appFill ? " is-on" : ""}`}
+              title={appFill ? "顯示標題與屬性" : "站滿內容區"}
+              onClick={toggleAppFill}
+            >
+              {appFill ? "還原頁首" : "站滿畫面"}
+            </button>
+          ) : null}
           {viewMode === "slides" && slideActions && (
             <>
               {slideActions.busy && <span className="slide-busy">{slideActions.busy}</span>}
@@ -1769,7 +1807,7 @@ function NotePageInner() {
         </div>
       )}
 
-      {viewMode === "write" && !focusMode && (
+      {viewMode === "write" && !focusMode && !isAppPage && (
         <ColorSwatchUtility
           onApply={(hex) => {
             setColor(normalizePageColor(hex));
