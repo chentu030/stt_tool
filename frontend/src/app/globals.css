@@ -5757,10 +5757,6 @@ a.sidebar-user-name:hover {
   align-items: center;
   padding-bottom: 0.35rem;
 }
-.note-tabs-split-wrap {
-  position: relative;
-  z-index: 150;
-}
 .note-tabs-action {
   border: 1px solid var(--border);
   background: var(--bg-primary);
