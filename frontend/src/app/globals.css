@@ -1428,17 +1428,6 @@ button, input, textarea, select {
 .web-page-pref input {
   margin: 0;
 }
-.web-page-proxy-banner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem;
-  padding: 0.4rem 0.65rem;
-  font-size: 0.75rem;
-  color: #ecfdf5;
-  background: color-mix(in srgb, #0f766e 92%, black);
-}
 .web-page-virtual-banner {
   background: color-mix(in srgb, #1e3a5f 88%, black);
   color: #e2e8f0;
