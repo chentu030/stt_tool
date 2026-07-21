@@ -846,20 +846,20 @@ export default function WebPageView({
           )
         ) : showBlocked ? (
           <div className="web-page-blocked">
-            <p className="web-page-blocked-title">{hostLabel || "此網站"}請用系統瀏覽器開啟</p>
+            <p className="web-page-blocked-title">{hostLabel || "此網站"}請用獨立視窗開啟</p>
             <p>
               {isVirtualBrowserEnabled()
-                ? "請啟用虛擬瀏覽器，或用系統瀏覽器開啟。"
-                : "虛擬瀏覽器已暫時關閉。Google／Gemini 等網站請用系統分頁開啟。"}
+                ? "此網站無法嵌在頁內，請用獨立視窗開啟（沿用你的瀏覽器登入）。"
+                : "此網站無法嵌在頁內（虛擬瀏覽器已暫時關閉）。請用獨立視窗開啟，可沿用 Edge／Chrome 登入狀態。"}
             </p>
             {detachStatus === "blocked" ? (
-              <p className="web-page-warn">彈窗被擋，請直接點系統瀏覽器連結。</p>
+              <p className="web-page-warn">彈窗被瀏覽器擋下，請允許本站彈窗後再試一次。</p>
             ) : null}
             <div className="web-page-blocked-actions">
               {isVirtualBrowserEnabled() ? (
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-soft"
                   onClick={() => {
                     setForceVirtual(true);
                     virtualTriedUrlRef.current = null;
@@ -868,14 +868,10 @@ export default function WebPageView({
                 >
                   改用虛擬瀏覽器
                 </button>
-              ) : (
-                <button type="button" className="btn" onClick={() => openDetached()}>
-                  用系統瀏覽器開啟
-                </button>
-              )}
-              <a className="btn btn-soft" href={active} target="_blank" rel="noopener noreferrer">
-                系統瀏覽器
-              </a>
+              ) : null}
+              <button type="button" className="btn" onClick={() => openCleanWindow()}>
+                用獨立視窗開啟
+              </button>
             </div>
           </div>
         ) : (
