@@ -1130,6 +1130,12 @@ button, input, textarea, select {
   gap: 0.35rem;
   flex-shrink: 0;
 }
+.web-page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
 .web-page-url-form {
   flex: 1;
   min-width: 0;
