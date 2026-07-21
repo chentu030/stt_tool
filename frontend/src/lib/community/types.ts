@@ -36,6 +36,12 @@ export type ExtensionSettingDef = {
   default?: string | boolean | number;
   options?: string[];
   description?: string;
+  /** Settings panel section heading */
+  group?: string;
+  /** Hint for password-like secrets */
+  secret?: boolean;
+  /** Wider field (API URL, keys) */
+  wide?: boolean;
 };
 
 type ListingFields = {

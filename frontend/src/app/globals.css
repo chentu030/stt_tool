@@ -1966,6 +1966,364 @@ html.is-note-app-embed .community-page > .page-chrome {
 .cdb-index-actions {
   margin: 0.5rem 0 1rem;
 }
+
+/* Extension hub overview (/ext/[id]) */
+.cdb-index.ext-hub {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0 1.25rem 3rem;
+  box-sizing: border-box;
+}
+.ext-hub-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.35rem;
+}
+.ext-hub-hero-main {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+}
+.ext-hub-badge {
+  flex-shrink: 0;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent-soft) 80%, transparent),
+      color-mix(in srgb, var(--bg-muted) 70%, var(--bg-card))
+    );
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  color: var(--accent);
+  font-size: 1.45rem;
+}
+.ext-hub-hero-copy {
+  min-width: 0;
+}
+.ext-hub-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+.ext-hub-kicker span {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+}
+.ext-hub-kicker .is-warn {
+  color: var(--danger, #c0392b);
+  border-color: color-mix(in srgb, var(--danger, #c0392b) 35%, var(--border));
+}
+.ext-hub-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+}
+.ext-hub-stats > span {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 4.5rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-muted) 55%, var(--bg-card));
+}
+.ext-hub-stats strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.ext-hub-stats em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.ext-hub-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.ext-hub-body {
+  display: grid;
+  gap: 1.25rem;
+}
+.ext-hub-body.has-settings {
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.85fr);
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .ext-hub-body.has-settings {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ext-settings {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-card) 92%, var(--accent-soft));
+  padding: 1.1rem 1.15rem 1.25rem;
+  min-width: 0;
+}
+.ext-settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+.ext-settings-head h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.ext-settings-head p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+  max-width: 36rem;
+}
+.ext-settings-groups {
+  display: grid;
+  gap: 1rem;
+}
+.ext-settings-group h3 {
+  margin: 0 0 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ext-settings-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 0.85rem;
+}
+.ext-setting-row.is-wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 720px) {
+  .ext-settings-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.ext-setting-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+.ext-setting-row--toggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.ext-setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.ext-setting-copy strong {
+  font-size: 0.84rem;
+  font-weight: 650;
+  color: var(--text-main);
+}
+.ext-setting-copy small {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.ext-setting-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.ext-setting-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 9px;
+  padding: 0.48rem 0.65rem;
+  font: inherit;
+  font-size: 0.86rem;
+}
+.ext-setting-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.ext-setting-reveal {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.ext-setting-reveal:hover {
+  color: var(--text-main);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.ext-setting-switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 28%, var(--bg-muted));
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+.ext-setting-switch.is-on {
+  background: var(--accent);
+}
+.ext-setting-switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  transition: transform 0.15s ease;
+}
+.ext-setting-switch.is-on .ext-setting-switch-knob {
+  transform: translateX(18px);
+}
+
+.ext-hub-pages {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-card);
+  padding: 1rem 1.05rem 1.15rem;
+  min-width: 0;
+}
+.ext-hub-pages-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.ext-hub-pages-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.ext-hub-pages-head span {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.ext-hub-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1.25rem 0.35rem 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.ext-hub-page-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.ext-hub-page-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.7rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  text-decoration: none;
+  color: var(--text-main);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.ext-hub-page-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 35%, var(--bg-primary));
+}
+.ext-hub-page-icon {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--bg-muted);
+  color: var(--accent);
+}
+.ext-hub-page-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+.ext-hub-page-meta strong {
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ext-hub-page-meta em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.ext-hub-page-go {
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+@media (max-width: 640px) {
+  .cdb-index.ext-hub {
+    padding: 0 0.85rem 2.5rem;
+  }
+  .ext-hub-hero-actions {
+    width: 100%;
+  }
+  .ext-hub-hero-actions .btn {
+    flex: 1;
+    text-align: center;
+  }
+}
 .community-trust {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2660,7 +3018,8 @@ html.is-note-app-embed main {
 
 /* Dense hub v2 — Miro/Notion-like density */
 .ws-hub--dense {
-  max-width: 1180px;
+  max-width: none;
+  width: 100%;
 }
 .ws-hub-hero {
   display: grid;
@@ -2849,7 +3208,7 @@ html.is-note-app-embed main {
 }
 @media (max-width: 640px) {
   .db-hub {
-    padding: 1rem 0.85rem 2.5rem;
+    padding: 0 0.85rem 2.5rem;
   }
   .db-hub-hero {
     flex-direction: column;

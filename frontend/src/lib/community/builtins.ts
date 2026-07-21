@@ -307,13 +307,15 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           type: "string",
           default: "2330.TW",
           description: "台股可填 2330 或 2330.TW；美股如 AAPL",
+          group: "行情",
         },
         {
           key: "refresh_seconds",
           label: "報價刷新秒數",
           type: "number",
           default: 20,
-          description: "頁面開啟時輪詢間隔（約 15–30 秒建議）",
+          description: "頁面開啟時輪詢間隔（建議 15–30 秒）",
+          group: "行情",
         },
         {
           key: "theme",
@@ -321,6 +323,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           type: "enum",
           options: ["auto", "light", "dark"],
           default: "auto",
+          group: "外觀",
         },
       ],
     },
@@ -379,7 +382,10 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           label: "Gemini / Vertex API 金鑰",
           type: "string",
           default: "",
-          description: "每行或逗號分隔多組；請填 AQ. 開頭的 Vertex AI Express 金鑰。預設空白。",
+          description: "每行或逗號分隔多組；請填 AQ. 開頭的 Vertex AI Express 金鑰。",
+          group: "AI",
+          secret: true,
+          wide: true,
         },
         {
           key: "model",
@@ -393,6 +399,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
             "gemini-2.0-flash",
           ],
           default: "gemini-3-flash-preview",
+          group: "AI",
         },
         {
           key: "accent",
@@ -400,6 +407,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           type: "enum",
           options: ["us", "uk"],
           default: "us",
+          group: "學習",
         },
         {
           key: "daily_goal",
@@ -407,6 +415,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           type: "number",
           default: 20,
           description: "達成後會簽到並累計連續天數",
+          group: "學習",
         },
         {
           key: "listen_backend",
@@ -414,6 +423,8 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           type: "string",
           default: "https://whisper-api-1016448029865.asia-east1.run.app/api",
           description: "Whisper／詞典抓取雲端後端（可留預設）",
+          group: "進階",
+          wide: true,
         },
         {
           key: "theme",
@@ -421,6 +432,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           type: "enum",
           options: ["light", "dark", "auto"],
           default: "light",
+          group: "外觀",
         },
       ],
     },
