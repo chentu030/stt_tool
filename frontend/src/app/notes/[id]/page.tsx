@@ -21,7 +21,7 @@ import {
   type PendingIngest,
 } from "@/lib/noteMediaIngest";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -45,6 +45,7 @@ import { parseNoteShare, type NoteShare } from "@/lib/share";
 import NoteAside from "@/components/notes/NoteAside";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NoteSplitPane from "@/components/notes/NoteSplitPane";
+import NoteSplitResizer, { useNoteSplitLayout } from "@/components/notes/NoteSplitResizer";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 import {
   downloadDocx,
@@ -113,6 +114,7 @@ function NotePageInner() {
   const searchParams = useSearchParams();
   const tabs = useNoteTabsOptional();
   const splitId = tabs?.splitId || searchParams.get("split") || null;
+  const [splitLayout, setSplitLayout] = useNoteSplitLayout();
   const { user, loading } = useAuth();
   const prefsCtx = usePrefsOptional();
   const community = useCommunityOptional();
@@ -1395,9 +1397,29 @@ function NotePageInner() {
       <div className="doc-body-row">
         <div
           ref={mainScrollRef}
-          className={`doc-main-stack${splitId && splitId !== id ? " is-split" : ""}`}
+          className={`doc-main-stack${splitId && splitId !== id ? " is-split" : ""}${
+            splitId && splitId !== id && splitLayout.collapse !== "none"
+              ? ` is-collapse-${splitLayout.collapse}`
+              : ""
+          }`}
+          style={
+            splitId && splitId !== id && splitLayout.collapse === "none"
+              ? ({ ["--split-left" as string]: `${splitLayout.leftPct}%` } as CSSProperties)
+              : undefined
+          }
         >
         <div className={`doc-page${viewMode === "slides" ? " doc-page--slides" : ""}`}>
+          {splitLayout.collapse === "left" && splitId && splitId !== id ? (
+            <button
+              type="button"
+              className="note-split-rail note-split-rail--left"
+              title="展開左側主頁"
+              aria-label="展開左側主頁"
+              onClick={() => setSplitLayout({ ...splitLayout, collapse: "none" })}
+            >
+              <span>主頁</span>
+            </button>
+          ) : null}
           {viewMode === "write" && <NotePageLog noteId={note.id} />}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
           {(ingestStatus || ingestError || ingestJobId) && viewMode === "write" && (
@@ -1751,10 +1773,16 @@ function NotePageInner() {
         </div>
 
         {splitId && splitId !== id && (
-          <NoteSplitPane
-            noteId={splitId}
-            onClose={() => tabs?.setSplit(null)}
-          />
+          <>
+            <NoteSplitResizer layout={splitLayout} onChange={setSplitLayout} />
+            <NoteSplitPane
+              noteId={splitId}
+              collapsed={splitLayout.collapse === "right"}
+              onExpand={() => setSplitLayout({ ...splitLayout, collapse: "none" })}
+              onCollapse={() => setSplitLayout({ ...splitLayout, collapse: "right" })}
+              onClose={() => tabs?.setSplit(null)}
+            />
+          </>
         )}
         </div>
 

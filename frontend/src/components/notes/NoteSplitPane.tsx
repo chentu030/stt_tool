@@ -11,10 +11,19 @@ import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 type Props = {
   noteId: string;
   onClose: () => void;
+  collapsed?: boolean;
+  onExpand?: () => void;
+  onCollapse?: () => void;
 };
 
 /** Compact secondary editor for side-by-side note view */
-export default function NoteSplitPane({ noteId, onClose }: Props) {
+export default function NoteSplitPane({
+  noteId,
+  onClose,
+  collapsed,
+  onExpand,
+  onCollapse,
+}: Props) {
   const tabs = useNoteTabsOptional();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -78,6 +87,22 @@ export default function NoteSplitPane({ noteId, onClose }: Props) {
     setStatus("dirty");
   };
 
+  if (collapsed) {
+    return (
+      <div className="note-split-pane is-collapsed">
+        <button
+          type="button"
+          className="note-split-rail note-split-rail--right"
+          title={`展開並排：${title || "未命名"}`}
+          aria-label="展開右側並排"
+          onClick={() => onExpand?.()}
+        >
+          <span>{title || "並排"}</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="note-split-pane">
       <div className="note-split-head">
@@ -95,6 +120,14 @@ export default function NoteSplitPane({ noteId, onClose }: Props) {
           onClick={() => tabs?.activate(noteId)}
         >
           ⇄
+        </button>
+        <button
+          type="button"
+          className="note-split-collapse"
+          title="暫時收合右側（仍保持並排）"
+          onClick={() => onCollapse?.()}
+        >
+          ›
         </button>
         <button type="button" className="note-split-close" onClick={onClose} title="關閉並排">
           ×

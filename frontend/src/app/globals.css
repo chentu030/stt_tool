@@ -5854,7 +5854,8 @@ a.sidebar-user-name:hover {
   color: var(--text-muted);
 }
 .note-split-swap,
-.note-split-close {
+.note-split-close,
+.note-split-collapse {
   border: none;
   background: transparent;
   width: 28px;
@@ -5864,8 +5865,10 @@ a.sidebar-user-name:hover {
   color: var(--text-muted);
 }
 .note-split-swap:hover,
-.note-split-close:hover {
+.note-split-close:hover,
+.note-split-collapse:hover {
   background: var(--bg-muted);
+  color: var(--text-main);
 }
 .note-split-title-input {
   border: none;
@@ -6107,15 +6110,132 @@ a.sidebar-user-name:hover {
 }
 .doc-main-stack.is-split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--split-left, 50%)) 6px minmax(0, 1fr);
   overflow: hidden;
+  align-items: stretch;
+}
+.doc-main-stack.is-split.is-collapse-left {
+  grid-template-columns: 2.5rem 6px minmax(0, 1fr);
+}
+.doc-main-stack.is-split.is-collapse-right {
+  grid-template-columns: minmax(0, 1fr) 6px 2.5rem;
 }
 .doc-main-stack.is-split > .doc-page {
   overflow: auto;
   max-width: none;
   margin: 0;
-  border-right: 1px solid var(--border);
+  border-right: none;
   padding: 1rem 1.25rem 4rem;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.doc-main-stack.is-split.is-collapse-left > .doc-page {
+  overflow: hidden;
+  padding: 0;
+}
+.doc-main-stack.is-split.is-collapse-left > .doc-page > :not(.note-split-rail) {
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.note-split-resizer {
+  position: relative;
+  width: 6px;
+  margin: 0 -1px;
+  cursor: col-resize;
+  z-index: 6;
+  touch-action: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.note-split-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--border);
+  transition: background 0.12s ease, width 0.12s ease, left 0.12s ease;
+}
+.note-split-resizer:hover::after,
+.note-split-resizer:active::after,
+body.is-split-resizing .note-split-resizer::after {
+  background: var(--accent, #0d9488);
+  width: 3px;
+  left: 1.5px;
+}
+body.is-split-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.is-split-resizing iframe {
+  pointer-events: none !important;
+}
+.note-split-rail {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border: none;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+}
+.note-split-rail:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.note-split-pane.is-collapsed {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+}
+.note-split-pane.is-collapsed .note-split-rail {
+  position: absolute;
+}
+.note-split-collapse {
+  border: none;
+  background: transparent;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+.note-split-collapse:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.note-split-rail-btn {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  z-index: 2;
 }
 .doc-page {
   max-width: min(var(--page-max), 100%);
