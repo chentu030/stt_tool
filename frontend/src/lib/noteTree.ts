@@ -52,8 +52,12 @@ function emptyFolder(name: string, path: string): FolderNode {
   return { id: path || "__root__", name, path, children: [], notes: [], noteCount: 0 };
 }
 
-/** Build a nested tree. Notes without folder go under 未分類. */
-export function buildNoteTree(notes: TreeNote[]): {
+/** Build a nested tree. Notes without folder go under 未分類.
+ *  `extraPaths` keeps empty folders visible (created via「新資料夾」). */
+export function buildNoteTree(
+  notes: TreeNote[],
+  extraPaths: string[] = []
+): {
   roots: FolderNode[];
   uncategorized: TreeNote[];
   total: number;
@@ -78,7 +82,6 @@ export function buildNoteTree(notes: TreeNote[]): {
       path = path ? `${path}/${seg}` : seg;
       let found = level.get(path);
       if (!found) {
-        // also allow lookup by name at this level for uniqueness of path keys
         found = emptyFolder(seg, path);
         level.set(path, found);
       }
@@ -98,6 +101,11 @@ export function buildNoteTree(notes: TreeNote[]): {
       continue;
     }
     ensure(segs).notes.push(note);
+  }
+
+  for (const raw of extraPaths) {
+    const segs = splitFolderPath(raw);
+    if (segs.length) ensure(segs);
   }
 
   const materialize = (n: FolderNode) => {

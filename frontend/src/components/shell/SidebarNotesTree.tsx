@@ -32,7 +32,7 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import IconColorPicker from "@/components/IconColorPicker";
 import PageChromeIcon from "@/components/PageChromeIcon";
-import { parseDefaultTags, toggleFavoriteId, touchRecentId } from "@/lib/userPrefs";
+import { parseDefaultTags, toggleFavoriteId, touchRecentId, addSidebarFolder, remapSidebarFolders } from "@/lib/userPrefs";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import {
   UNCATEGORIZED,
@@ -179,6 +179,7 @@ export default function SidebarNotesTree() {
     prefsCtx.setPrefs((prev) => ({
       ...prev,
       folderStyles: remapFolderStyles(prev.folderStyles || {}, oldPath, newPath),
+      sidebarFolders: remapSidebarFolders(prev.sidebarFolders || [], oldPath, newPath),
     }));
   };
 
@@ -220,7 +221,10 @@ export default function SidebarNotesTree() {
     return m;
   }, [notes]);
 
-  const tree = useMemo(() => buildNoteTree(topNotes), [topNotes]);
+  const tree = useMemo(
+    () => buildNoteTree(topNotes, prefs?.sidebarFolders || []),
+    [topNotes, prefs?.sidebarFolders]
+  );
   const rows = useMemo(
     () => flattenVisibleNotes(tree.roots, tree.uncategorized, expanded, q),
     [tree, expanded, q]
@@ -396,6 +400,50 @@ export default function SidebarNotesTree() {
 
   const newNote = async (folderPath?: string, parentId?: string) => {
     await createPage("note", folderPath, parentId);
+  };
+
+  const createFolder = async (parentPath?: string) => {
+    setCreateMenu(null);
+    if (!prefsCtx) {
+      toast("無法建立資料夾（偏好設定未就緒）");
+      return;
+    }
+    const parent =
+      parentPath && parentPath !== UNCATEGORIZED
+        ? normalizeFolderPath(parentPath)
+        : "";
+    const name = await askPrompt({
+      title: parent ? "新增子資料夾" : "新資料夾",
+      message: parent
+        ? `會建立在「${parent}/」底下`
+        : "可用 / 一次建立多層，例如：專案/客戶A",
+      defaultValue: "",
+      placeholder: "資料夾名稱",
+      confirmLabel: "建立",
+    });
+    if (name == null) return;
+    const leaf = normalizeFolderPath(name);
+    if (!leaf) {
+      toast("請輸入資料夾名稱");
+      return;
+    }
+    const path = parent ? `${parent}/${leaf}` : leaf;
+    prefsCtx.setPrefs((prev) => ({
+      ...prev,
+      sidebarFolders: addSidebarFolder(prev.sidebarFolders || [], path),
+    }));
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      const parts = path.split("/").filter(Boolean);
+      let acc = "";
+      for (const p of parts) {
+        acc = acc ? `${acc}/${p}` : p;
+        next.add(acc);
+      }
+      saveExpanded(next);
+      return next;
+    });
+    toast(`已建立資料夾「${path}」`);
   };
 
   const createPage = async (
@@ -939,8 +987,19 @@ export default function SidebarNotesTree() {
       if (!isVirtual) {
         items.push(
           { type: "item", label: "重新命名", action: () => renameFolder(target.path) },
-          { type: "item", label: "移動至…", action: () => moveFolder(target.path) }
+          { type: "item", label: "移動至…", action: () => moveFolder(target.path) },
+          {
+            type: "item",
+            label: "新增子資料夾",
+            action: () => void createFolder(target.path),
+          }
         );
+      } else {
+        items.push({
+          type: "item",
+          label: "新資料夾",
+          action: () => void createFolder(),
+        });
       }
       items.push(
         {
@@ -988,6 +1047,7 @@ export default function SidebarNotesTree() {
         action: clearSelection,
       },
       { type: "sep" },
+      { type: "item", label: "新資料夾", action: () => void createFolder() },
       { type: "item", label: "新增筆記", action: () => newNote() },
       {
         type: "item",
@@ -1544,6 +1604,15 @@ export default function SidebarNotesTree() {
               style={{ left: createMenu.x, top: createMenu.y }}
               onMouseDown={(e) => e.stopPropagation()}
             >
+              <button
+                type="button"
+                role="menuitem"
+                disabled={creating}
+                onClick={() => void createFolder(createMenu.folder)}
+              >
+                <PageChromeIcon icon="folder" fallback="folder" />
+                <span>新資料夾</span>
+              </button>
               {pageOptions.map((opt) => (
                 <button
                   key={opt.kind}

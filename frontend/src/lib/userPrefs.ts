@@ -103,6 +103,8 @@ export type UserPrefs = {
   recentNoteIds: string[];
   /** Per-folder icon/color (folders are path strings, not Firestore docs) */
   folderStyles: Record<string, FolderStyle>;
+  /** Empty folders kept visible in the sidebar tree */
+  sidebarFolders: string[];
 };
 
 export const ACCENTS: {
@@ -252,6 +254,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   favoriteNoteIds: [],
   recentNoteIds: [],
   folderStyles: {},
+  sidebarFolders: [],
 };
 
 const STORAGE_KEY = "cadence_prefs_v1";
@@ -338,7 +341,60 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     favoriteNoteIds: fav,
     recentNoteIds: recent,
     folderStyles: sanitizeFolderStyles(p.folderStyles),
+    sidebarFolders: sanitizeSidebarFolders(p.sidebarFolders),
   };
+}
+
+function sanitizeSidebarFolders(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const path = item
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/\/+/g, "/")
+      .replace(/^\/|\/$/g, "")
+      .slice(0, 200);
+    if (!path || path === "未分類" || seen.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+    if (out.length >= 80) break;
+  }
+  return out;
+}
+
+/** Remap pinned empty-folder paths when a folder is renamed/moved. */
+export function remapSidebarFolders(
+  folders: string[],
+  oldPath: string,
+  newPath: string
+): string[] {
+  if (!oldPath || oldPath === newPath) return folders;
+  const next: string[] = [];
+  const seen = new Set<string>();
+  for (const path of folders) {
+    let p = path;
+    if (path === oldPath) p = newPath;
+    else if (path.startsWith(`${oldPath}/`)) p = `${newPath}${path.slice(oldPath.length)}`;
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    next.push(p);
+  }
+  return next;
+}
+
+export function addSidebarFolder(folders: string[], path: string): string[] {
+  const p = path
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/|\/$/g, "")
+    .slice(0, 200);
+  if (!p || p === "未分類") return folders;
+  if (folders.includes(p)) return folders;
+  return [p, ...folders].slice(0, 80);
 }
 
 export function toggleFavoriteId(prefs: UserPrefs, noteId: string): UserPrefs {
