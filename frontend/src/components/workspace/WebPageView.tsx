@@ -155,6 +155,40 @@ export default function WebPageView({
     [active, draft]
   );
 
+  /** Dedicated popup window — cleaner than a full browser tab (no tab strip clutter). */
+  const openCleanWindow = useCallback(
+    (urlOverride?: string): boolean => {
+      const url = (urlOverride || active || draft.replace(/\s*（站內）\s*$/, "")).trim();
+      if (!url || url === "https://") return false;
+      const href = normalizeWebUrl(url) || url;
+      const w = Math.min(1280, Math.max(720, Math.floor(window.screen.availWidth * 0.82)));
+      const h = Math.min(900, Math.max(560, Math.floor(window.screen.availHeight * 0.86)));
+      const left = Math.max(0, Math.floor((window.screen.availWidth - w) / 2 + (window.screenLeft || 0)));
+      const top = Math.max(0, Math.floor((window.screen.availHeight - h) / 2 + (window.screenTop || 0)));
+      const features = [
+        "popup=yes",
+        `width=${w}`,
+        `height=${h}`,
+        `left=${left}`,
+        `top=${top}`,
+      ].join(",");
+      // Named window reuses the same clean pane on repeat clicks.
+      const win = window.open(href, "albireus_clean_browse", features);
+      if (win) {
+        try {
+          win.focus();
+        } catch {
+          /* ignore */
+        }
+        setDetachStatus("opened");
+        return true;
+      }
+      setDetachStatus("blocked");
+      return false;
+    },
+    [active, draft]
+  );
+
   const startVirtual = useCallback(async (url: string, opts?: { force?: boolean }) => {
     if (virtualStartingRef.current && !opts?.force) return;
     virtualStartingRef.current = true;
