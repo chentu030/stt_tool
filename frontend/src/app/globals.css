@@ -1350,6 +1350,20 @@ button, input, textarea, select {
   text-decoration: none;
   font-size: 0.85rem;
 }
+.web-page-open-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.web-page-btn--clean {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.35rem 0.6rem;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent-2, var(--accent));
+}
 .web-page-btn:hover {
   border-color: var(--accent);
 }

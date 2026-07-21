@@ -763,15 +763,26 @@ export default function WebPageView({
           </button>
         ) : null}
         {active ? (
-          <a
-            className="web-page-btn"
-            href={active}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="用系統瀏覽器開啟"
-          >
-            ↗
-          </a>
+          <div className="web-page-open-actions">
+            <button
+              type="button"
+              className="web-page-btn web-page-btn--clean"
+              title="用獨立視窗開啟（只有網頁，較乾淨；沿用瀏覽器登入）"
+              aria-label="用獨立視窗開啟"
+              onClick={() => openCleanWindow()}
+            >
+              視窗
+            </button>
+            <a
+              className="web-page-btn"
+              href={active}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="用系統瀏覽器分頁開啟"
+            >
+              ↗
+            </a>
+          </div>
         ) : null}
       </div>
 
