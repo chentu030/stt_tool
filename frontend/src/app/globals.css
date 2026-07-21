@@ -2238,11 +2238,14 @@ html.is-note-app-embed main {
   color: var(--text-muted);
 }
 
-/* Database hub */
+/* Database / workspace hubs (看板、白板、圖譜、資料庫) */
 .db-hub {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 1.25rem 1.25rem 3rem;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  /* Top flush via .page-chrome negative margin against app-main */
+  padding: 0 1.25rem 3rem;
+  box-sizing: border-box;
 }
 .db-hub-hero {
   display: flex;
