@@ -13,12 +13,41 @@ export function isGcpVmControlConfigured(): boolean {
   return Boolean(PROJECT && ZONE && INSTANCE && SA_JSON);
 }
 
+function parseServiceAccountJson(): Record<string, unknown> {
+  const raw = SA_JSON;
+  if (!raw) throw new Error("未設定 GCP_SERVICE_ACCOUNT_JSON");
+
+  // Common mistake: pasting a Windows/Unix file path instead of the JSON body.
+  if (
+    /^[a-zA-Z]:[\\/]/.test(raw) ||
+    raw.startsWith("\\\\") ||
+    (/^[\w./\\-]+\.json$/i.test(raw) && !raw.trimStart().startsWith("{"))
+  ) {
+    throw new Error(
+      "GCP_SERVICE_ACCOUNT_JSON 不能填檔案路徑。請用記事本打開 .secrets/gcp-steel-starter.json，全選複製整段 JSON（開頭是 { ）貼到 Vercel。"
+    );
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || parsed.type !== "service_account") {
+      throw new Error("JSON 格式不對");
+    }
+    return parsed;
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("不能填檔案路徑")) throw e;
+    throw new Error(
+      "GCP_SERVICE_ACCOUNT_JSON 不是有效 JSON。請貼上 service account 金鑰檔的完整內容（從 { 到 }），不要貼路徑。"
+    );
+  }
+}
+
 function computeUrl(path: string) {
   return `https://compute.googleapis.com/compute/v1/projects/${PROJECT}/zones/${ZONE}/instances/${INSTANCE}${path}`;
 }
 
 async function getAccessToken(): Promise<string> {
-  const credentials = JSON.parse(SA_JSON) as Record<string, unknown>;
+  const credentials = parseServiceAccountJson();
   const auth = new GoogleAuth({
     credentials,
     scopes: ["https://www.googleapis.com/auth/compute"],
