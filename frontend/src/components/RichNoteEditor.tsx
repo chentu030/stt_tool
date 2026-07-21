@@ -55,7 +55,7 @@ import { resolveEmbedUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
-import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
@@ -2342,6 +2342,115 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     return () => paintBlockSelection(editor, -1, 1, 0);
   }, [editor, blockSel, editor.state.doc]);
 
+  // Keep ProseMirror selection aligned with painted blocks (once per blockSel change).
+  useEffect(() => {
+    const range = selRange(blockSel);
+    if (!range || dragRef.current) return;
+    selectSiblingRange(editor, range.parentFrom, range.start, range.end);
+  }, [editor, blockSel]);
+
+  // Notion-like: Delete / Backspace / Ctrl+C / Ctrl+X on multi-block selection
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const sel = blockSelRef.current;
+      if (!sel) return;
+      const range = {
+        parentFrom: sel.parentFrom,
+        start: Math.min(sel.anchor, sel.focus),
+        end: Math.max(sel.anchor, sel.focus),
+      };
+
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.("input, textarea, select")) return;
+      if (t?.isContentEditable && t !== editor.view.dom && !editor.view.dom.contains(t)) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setBlockSel(null);
+        return;
+      }
+
+      if (e.shiftKey && !mod && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        e.preventDefault();
+        e.stopPropagation();
+        const n = siblingCount(editor, range.parentFrom);
+        const nextFocus =
+          e.key === "ArrowUp"
+            ? Math.max(0, sel.focus - 1)
+            : Math.min(n - 1, sel.focus + 1);
+        setBlockSel({ ...sel, focus: nextFocus });
+        return;
+      }
+
+      if ((e.key === "Backspace" || e.key === "Delete") && !mod && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        deleteSiblingRange(editor, range.parentFrom, range.start, range.end);
+        setBlockSel(null);
+        return;
+      }
+
+      if (mod && !e.altKey && key === "c") {
+        e.preventDefault();
+        e.stopPropagation();
+        copySiblingRange(editor, range.parentFrom, range.start, range.end, e);
+        return;
+      }
+
+      if (mod && !e.altKey && key === "x") {
+        e.preventDefault();
+        e.stopPropagation();
+        copySiblingRange(editor, range.parentFrom, range.start, range.end, e);
+        deleteSiblingRange(editor, range.parentFrom, range.start, range.end);
+        setBlockSel(null);
+        return;
+      }
+
+      if (mod && !e.altKey && key === "a") {
+        e.preventDefault();
+        e.stopPropagation();
+        const n = siblingCount(editor, range.parentFrom);
+        if (n > 0) setBlockSel({ parentFrom: range.parentFrom, anchor: 0, focus: n - 1 });
+        return;
+      }
+    };
+
+    const onCopy = (e: ClipboardEvent) => {
+      const sel = blockSelRef.current;
+      if (!sel) return;
+      const range = {
+        parentFrom: sel.parentFrom,
+        start: Math.min(sel.anchor, sel.focus),
+        end: Math.max(sel.anchor, sel.focus),
+      };
+      copySiblingRange(editor, range.parentFrom, range.start, range.end, e);
+    };
+    const onCut = (e: ClipboardEvent) => {
+      const sel = blockSelRef.current;
+      if (!sel) return;
+      const range = {
+        parentFrom: sel.parentFrom,
+        start: Math.min(sel.anchor, sel.focus),
+        end: Math.max(sel.anchor, sel.focus),
+      };
+      copySiblingRange(editor, range.parentFrom, range.start, range.end, e);
+      deleteSiblingRange(editor, range.parentFrom, range.start, range.end);
+      setBlockSel(null);
+    };
+
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("copy", onCopy, true);
+    document.addEventListener("cut", onCut, true);
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("copy", onCopy, true);
+      document.removeEventListener("cut", onCut, true);
+    };
+  }, [editor]);
+
   useEffect(() => {
     const root = editor.view.dom;
     const onDown = (e: MouseEvent) => {
@@ -2506,8 +2615,9 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (t?.closest?.(".ProseMirror")) return;
       const rootRect = root.getBoundingClientRect();
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
-      // Only the margin left of body text (not the first letters of a line)
-      if (e.clientX >= rootRect.left + contentPad) return;
+      // Wider left gutter for Notion-like click-drag multi-select (grip column + padding)
+      const gutterRight = rootRect.left + Math.max(contentPad, 40);
+      if (e.clientX >= gutterRight) return;
       const hit = gripFromPos(e.clientY, e.clientX);
       if (!hit) return;
       e.preventDefault();
@@ -2653,15 +2763,18 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (!d) return;
 
       if (!d.moved) {
-        setBlockSel({
+        const next = {
           parentFrom: d.parentFrom,
           anchor: shift && prev && prev.parentFrom === d.parentFrom ? prev.anchor : d.origin,
           focus: d.origin,
-        });
-        // Touch: don't focus (opens keyboard). Mouse: place caret in block.
+        };
+        setBlockSel(next);
+        // Keep multi-block ProseMirror selection so Delete / Ctrl+C work (don't collapse to caret).
         if (d.pointerType === "mouse") {
-          const pos = siblingBlockPos(editor, d.parentFrom, d.origin);
-          if (pos) editor.chain().focus().setTextSelection(pos.from + 1).run();
+          const a = Math.min(next.anchor, next.focus);
+          const b = Math.max(next.anchor, next.focus);
+          selectSiblingRange(editor, next.parentFrom, a, b);
+          editor.view.focus();
         }
         return;
       }

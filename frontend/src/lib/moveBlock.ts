@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import { Fragment } from "@tiptap/pm/model";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 
 const LIST_ITEM = new Set(["listItem", "taskItem"]);
 const LIST_PARENT = new Set(["bulletList", "orderedList", "taskList"]);
@@ -377,6 +377,117 @@ export function siblingBlockPos(
 export function siblingCount(editor: Editor, parentFrom: number): number {
   if (parentFrom < 0) return editor.state.doc.childCount;
   return editor.state.doc.nodeAt(parentFrom)?.childCount ?? 0;
+}
+
+/** Doc positions covering siblings [start, end] inclusive. */
+export function siblingRangeBounds(
+  editor: Editor,
+  parentFrom: number,
+  start: number,
+  end: number
+): { from: number; to: number } | null {
+  const a = Math.min(start, end);
+  const b = Math.max(start, end);
+  const first = siblingBlockPos(editor, parentFrom, a);
+  const last = siblingBlockPos(editor, parentFrom, b);
+  if (!first || !last) return null;
+  return { from: first.from, to: last.to };
+}
+
+/** Sync ProseMirror selection to the painted block range (enables native shortcuts). */
+export function selectSiblingRange(
+  editor: Editor,
+  parentFrom: number,
+  start: number,
+  end: number
+): boolean {
+  const bounds = siblingRangeBounds(editor, parentFrom, start, end);
+  if (!bounds) return false;
+  const { state } = editor;
+  try {
+    if (start === end) {
+      const node = state.doc.nodeAt(bounds.from);
+      if (node && (node.isAtom || node.type.isAtom || !node.inlineContent)) {
+        editor.view.dispatch(
+          state.tr.setSelection(NodeSelection.create(state.doc, bounds.from)).scrollIntoView()
+        );
+        return true;
+      }
+    }
+    editor.view.dispatch(
+      state.tr
+        .setSelection(TextSelection.create(state.doc, bounds.from, bounds.to))
+        .scrollIntoView()
+    );
+    return true;
+  } catch {
+    try {
+      editor.view.dispatch(
+        state.tr.setSelection(TextSelection.near(state.doc.resolve(bounds.from))).scrollIntoView()
+      );
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
+/** Delete sibling blocks [start, end] and place the caret nearby. */
+export function deleteSiblingRange(
+  editor: Editor,
+  parentFrom: number,
+  start: number,
+  end: number
+): boolean {
+  const bounds = siblingRangeBounds(editor, parentFrom, start, end);
+  if (!bounds) return false;
+  const { state } = editor;
+  let tr = state.tr.delete(bounds.from, bounds.to);
+  if (tr.doc.content.size === 0) {
+    const para = state.schema.nodes.paragraph?.create();
+    if (para) tr = tr.insert(0, para);
+  }
+  const selPos = Math.min(bounds.from, tr.doc.content.size);
+  try {
+    tr = tr.setSelection(TextSelection.near(tr.doc.resolve(selPos)));
+  } catch {
+    /* ignore */
+  }
+  editor.view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+/** Copy sibling range to the clipboard (HTML + plain text). */
+export function copySiblingRange(
+  editor: Editor,
+  parentFrom: number,
+  start: number,
+  end: number,
+  event?: ClipboardEvent
+): boolean {
+  const bounds = siblingRangeBounds(editor, parentFrom, start, end);
+  if (!bounds) return false;
+  const slice = editor.state.doc.slice(bounds.from, bounds.to);
+  const { dom, text } = editor.view.serializeForClipboard(slice);
+  const html = dom.innerHTML;
+  if (event?.clipboardData) {
+    event.clipboardData.clearData();
+    event.clipboardData.setData("text/html", html);
+    event.clipboardData.setData("text/plain", text);
+    event.preventDefault();
+    return true;
+  }
+  try {
+    void navigator.clipboard.write([
+      new ClipboardItem({
+        "text/plain": new Blob([text], { type: "text/plain" }),
+        "text/html": new Blob([html], { type: "text/html" }),
+      }),
+    ]);
+  } catch {
+    void navigator.clipboard.writeText(text);
+  }
+  return true;
 }
 
 /** Apply/remove `.is-block-selected` on sibling nodes in a parent. */
