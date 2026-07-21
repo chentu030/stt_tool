@@ -16,7 +16,11 @@ import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import type { MediaIngestDefault } from "@/lib/userPrefs";
 import { loadPrefs } from "@/lib/userPrefs";
 
-const API = () => process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+const API = () => {
+  const raw = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
+  if (raw) return raw.replace(/^http:\/\//i, "https://");
+  return "http://localhost:8000/api";
+};
 const PENDING_KEY = "cadence_media_ingest_pending_v1";
 
 export type MediaIngestChoice = "embed" | "transcribe" | "transcribe_summarize";

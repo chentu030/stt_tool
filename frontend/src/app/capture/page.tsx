@@ -96,7 +96,11 @@ export default function CapturePage() {
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
-  const API = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
+  const API = (() => {
+    const raw = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
+    if (raw) return raw.replace(/^http:\/\//i, "https://");
+    return "http://localhost:8000/api";
+  })();
 
   useEffect(() => {
     if (!user) {

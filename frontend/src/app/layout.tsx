@@ -8,6 +8,7 @@ import ToastProvider from "@/components/ToastProvider";
 import AppShell from "@/components/shell/AppShell";
 import AccessGate from "@/components/AccessGate";
 import { CommunityProvider } from "@/components/community/CommunityProvider";
+import HttpsUpgrade from "@/components/HttpsUpgrade";
 
 export const metadata: Metadata = {
   title: "Albireus — 把說話寫成知識",
@@ -46,6 +47,7 @@ export default function RootLayout({
   return (
     <html lang="zh-TW" data-theme="light" suppressHydrationWarning>
       <head>
+        <meta httpEquiv="Content-Security-Policy" content="upgrade-insecure-requests" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
@@ -63,6 +65,7 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <HttpsUpgrade />
         <AuthProvider>
           <PrefsProvider>
             <DialogProvider>
