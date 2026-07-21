@@ -16,6 +16,7 @@ import {
 } from "@/lib/community/publish";
 import { parseManifestJsonText } from "@/lib/community/parseManifest";
 import type { TemplatePageDef } from "@/lib/community/types";
+import { buildCoverPrompt } from "@/lib/community/coverPrompts";
 import { toast } from "@/lib/toast";
 
 type KindChoice = "extension" | "template";
@@ -339,7 +340,47 @@ export default function CommunitySubmitPage() {
           {coverPreview ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img className="community-submit-cover-preview" src={coverPreview} alt="" />
-          ) : null}
+          ) : (
+            <div className="community-submit-ai-cover">
+              <p className="community-submit-hint">
+                還沒有封面？用下方提示詞到 AI 繪圖工具生成（扁平海報風，內容對應你的擴充／模板）。
+              </p>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={async () => {
+                  const prompt = buildCoverPrompt({
+                    name: name.trim() || "未命名套件",
+                    description,
+                    kind,
+                    tags: tags
+                      .split(/[,，\s]+/)
+                      .map((t) => t.replace(/^#/, "").trim())
+                      .filter(Boolean),
+                  });
+                  try {
+                    await navigator.clipboard.writeText(prompt);
+                    toast("已複製 AI 封面提示詞");
+                  } catch {
+                    toast("無法複製，請手動選取下方文字");
+                  }
+                }}
+              >
+                複製 AI 封面提示詞
+              </button>
+              <pre className="community-submit-prompt">
+                {buildCoverPrompt({
+                  name: name.trim() || "未命名套件",
+                  description,
+                  kind,
+                  tags: tags
+                    .split(/[,，\s]+/)
+                    .map((t) => t.replace(/^#/, "").trim())
+                    .filter(Boolean),
+                })}
+              </pre>
+            </div>
+          )}
           <label className="community-submit-file">
             截圖（可多選）
             <input

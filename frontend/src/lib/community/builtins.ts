@@ -200,6 +200,7 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       description: "一週回顧單頁模板。",
       author: "Albireus",
       icon: "event_repeat",
+      cover: "/community-covers/weekly-review.png",
       permissions: ["notes_write"],
       pages: [
         { title: "週回顧", file: "weekly.md", icon: "event_repeat", tags: ["日誌"], folder: "日誌" },
@@ -243,6 +244,7 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       description: "專案簡報、里程碑與風險清單。",
       author: "Albireus",
       icon: "rocket_launch",
+      cover: "/community-covers/project-kickoff.png",
       category: "工作",
       permissions: ["notes_write"],
       changelog: [{ version: "1.0.0", notes: "初版啟動包。" }],

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -92,6 +93,23 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     saveNoteTabs(state);
   }, [state, hydrated]);
 
+  // Split is tied to the current primary note. Any navigation to a different note
+  // (sidebar link, browser back, specialty route) must drop a stale secondary —
+  // otherwise 「並排」sticks onto an unrelated tab.
+  const prevActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!pathname.startsWith("/notes/")) {
+      prevActiveRef.current = activeId;
+      setState((prev) => (prev.splitId ? { ...prev, splitId: null } : prev));
+      return;
+    }
+    const prevActive = prevActiveRef.current;
+    prevActiveRef.current = activeId;
+    if (!activeId || prevActive == null || prevActive === activeId) return;
+    setState((prev) => (prev.splitId ? { ...prev, splitId: null } : prev));
+  }, [activeId, pathname, hydrated]);
+
   // Sync split query param on note routes only (specialty apps use their own URLs).
   useEffect(() => {
     if (!hydrated || !activeId) return;
@@ -114,29 +132,55 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
   const activate = useCallback(
     (id: string, href?: string) => {
       if (!id) return;
+      const target = (href && href.trim()) || `/notes/${id}`;
+      const isNotesPath = target.startsWith("/notes/");
+
       setState((prev) => {
         let next = openNoteTab(prev, id);
-        if (next.splitId && next.splitId !== id) {
+        // Split only applies on /notes/* , and only for the current pair.
+        // Leaving the pair (or opening a specialty route) must clear — otherwise the
+        // 「並排」badge follows onto an unrelated tab via placeTabBeside.
+        if (!isNotesPath) {
+          return next.splitId ? { ...next, splitId: null } : next;
+        }
+        const secondary = next.splitId;
+        if (!secondary) return next;
+        // Clicked the secondary pane → focus it alone
+        if (id === secondary) {
+          return { ...next, splitId: null };
+        }
+        // Clicked a third tab → drop split (do not drag secondary along)
+        if (activeId && id !== activeId && id !== secondary) {
+          return { ...next, splitId: null };
+        }
+        // Re-activating primary (or first open): keep pair adjacent
+        if (secondary !== id) {
           next = {
             ...next,
-            openIds: placeTabBeside(next.openIds, id, next.splitId),
+            openIds: placeTabBeside(next.openIds, id, secondary),
           };
         }
         return next;
       });
-      const split = state.splitId;
-      const target = (href && href.trim()) || `/notes/${id}`;
-      const isNotesPath = target.startsWith("/notes/");
+
       if (!isNotesPath) {
         router.push(target, { scroll: false });
         return;
       }
-      const qs = split && split !== id ? `?split=${encodeURIComponent(split)}` : "";
+
+      // Only keep ?split when staying on the current primary of an existing pair.
+      const samePrimaryWithSplit = Boolean(
+        activeId && id === activeId && state.splitId && state.splitId !== id
+      );
+      const urlQs = samePrimaryWithSplit
+        ? `?split=${encodeURIComponent(state.splitId!)}`
+        : "";
+
       if (id === activeId) {
-        router.replace(`/notes/${id}${qs}`, { scroll: false });
+        router.replace(`/notes/${id}${urlQs}`, { scroll: false });
         return;
       }
-      router.push(`/notes/${id}${qs}`, { scroll: false });
+      router.push(`/notes/${id}${urlQs}`, { scroll: false });
     },
     [router, state.splitId, activeId]
   );
@@ -145,21 +189,17 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     (id: string) => {
       setState((prev) => {
         const next = closeNoteTab(prev, id);
+        // Closing the focused tab ends the split — don't carry secondary onto the next tab
+        const cleared =
+          activeId === id && next.splitId ? { ...next, splitId: null } : next;
         if (activeId === id) {
           const go = nextTabAfterClose(prev.openIds, id, activeId);
           queueMicrotask(() => {
-            if (go) {
-              const qs =
-                next.splitId && next.splitId !== go
-                  ? `?split=${encodeURIComponent(next.splitId)}`
-                  : "";
-              router.push(`/notes/${go}${qs}`);
-            } else {
-              router.push("/library");
-            }
+            if (go) router.push(`/notes/${go}`);
+            else router.push("/library");
           });
         }
-        return next;
+        return cleared;
       });
     },
     [activeId, router]

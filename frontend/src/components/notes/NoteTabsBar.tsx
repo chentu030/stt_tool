@@ -326,11 +326,12 @@ export default function NoteTabsBar() {
           const n = byId.get(id);
           const title = n ? n.title || "未命名" : "載入中…";
           const isActive = id === activeId;
-          const isSplit = id === splitId;
+          const splitLive = Boolean(splitId && activeId && splitId !== activeId);
+          const isSplit = splitLive && id === splitId;
           const prevId = index > 0 ? openIds[index - 1] : null;
           const nextId = index < openIds.length - 1 ? openIds[index + 1] : null;
           const inSplitPair =
-            Boolean(splitId && activeId && splitId !== activeId) &&
+            splitLive &&
             ((isActive && (prevId === splitId || nextId === splitId)) ||
               (isSplit && (prevId === activeId || nextId === activeId)));
           const pairRole =
@@ -404,10 +405,10 @@ export default function NoteTabsBar() {
                   />
                 ) : null}
                 <span className="note-tab-title">{title}</span>
-                {isActive && splitId && splitId !== id && (
+                {isActive && splitLive ? (
                   <span className="note-tab-badge">主頁</span>
-                )}
-                {isSplit && <span className="note-tab-badge">並排</span>}
+                ) : null}
+                {isSplit ? <span className="note-tab-badge">並排</span> : null}
               </button>
               <button
                 type="button"

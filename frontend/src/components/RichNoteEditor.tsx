@@ -4,7 +4,7 @@ import PageLoading from "@/components/motion/PageLoading";
 
 import { askPrompt } from "@/lib/dialogs";
 
-import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo, type ReactNode, type MutableRefObject, type MouseEvent as ReactMouseEvent, type RefObject } from "react";
+import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo, type ReactNode, type MutableRefObject, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { HexColorPicker } from "react-colorful";
 import ColorEyedropperTools from "@/components/ColorEyedropperTools";
@@ -2375,8 +2375,12 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     };
   }, [editor]);
 
-  const startDrag = (index: number, parentFrom: number, e: ReactMouseEvent) => {
-    const shift = e.shiftKey;
+  const startDrag = (
+    index: number,
+    parentFrom: number,
+    opts: { clientY: number; shiftKey?: boolean }
+  ) => {
+    const shift = Boolean(opts.shiftKey);
     const prev = blockSelRef.current;
     let start: number;
     let end: number;
@@ -2409,12 +2413,18 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       end,
       origin: index,
       moved: false,
-      startY: e.clientY,
+      startY: opts.clientY,
     };
     dropRef.current = start;
     setDropIndex(start);
 
-    const onMove = (ev: MouseEvent) => {
+    const canvasEl = editor.view.dom.closest(".rich-canvas") as HTMLElement | null;
+    canvasEl?.classList.add("is-block-dragging");
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerType !== "mouse") ev.preventDefault();
       const d = dragRef.current;
       if (!d) return;
       if (!d.moved && Math.abs(ev.clientY - d.startY) > 4) d.moved = true;
@@ -2451,8 +2461,11 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       dragRef.current = null;
       dropRef.current = null;
       setDropIndex(null);
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
+      canvasEl?.classList.remove("is-block-dragging");
+      document.body.style.userSelect = prevUserSelect;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
       if (!d) return;
 
       if (!d.moved) {
@@ -2484,9 +2497,133 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       setGrip(null);
     };
 
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    document.addEventListener("pointermove", onMove, { passive: false });
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
   };
+
+  const startDragRef = useRef(startDrag);
+  startDragRef.current = startDrag;
+
+  // Mobile / touch: long-press a block to drag (tiny left grip is nearly untappable).
+  useEffect(() => {
+    const root = editor.view.dom;
+    const canvas = root.closest(".rich-canvas") as HTMLElement | null;
+    if (!canvas) return;
+
+    const positionHost = () =>
+      (root.closest(".rich-page-sheet") as HTMLElement | null) ||
+      (root.closest(".rich-canvas-inner") as HTMLElement | null) ||
+      canvas;
+
+    const blockAtPoint = (clientY: number, clientX: number) => {
+      try {
+        const rootRect = root.getBoundingClientRect();
+        const probeX = Math.max(clientX, rootRect.left + 8);
+        const pos = editor.view.posAtCoords({ left: probeX, top: clientY });
+        let block = pos ? draggableBlockAt(editor, pos.pos) : null;
+        if (!block) block = draggableBlockAtClientY(editor, clientY);
+        if (!block) return null;
+        const dom = editor.view.nodeDOM(block.from);
+        if (!(dom instanceof HTMLElement)) return null;
+        const host = positionHost();
+        const hostRect = host.getBoundingClientRect();
+        const br = dom.getBoundingClientRect();
+        const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+        return {
+          top: br.top - hostRect.top + scrollTop + Math.min(4, br.height / 2 - 12),
+          left: Math.max(4, br.left - hostRect.left - 8),
+          from: block.from,
+          to: block.to,
+          index: block.index,
+          parentFrom: block.parentFrom,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    let timer: number | null = null;
+    let startX = 0;
+    let startY = 0;
+    let armed = false;
+
+    const clearTimer = () => {
+      if (timer != null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") return;
+      if (e.button !== 0) return;
+      if (dragRef.current) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.(".block-controls")) return;
+      if (t?.closest?.("a,button,input,textarea,select,label,[contenteditable=false]")) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      armed = false;
+      clearTimer();
+      timer = window.setTimeout(() => {
+        timer = null;
+        const hit = blockAtPoint(startY, startX);
+        if (!hit) return;
+        armed = true;
+        try {
+          navigator.vibrate?.(10);
+        } catch {
+          /* ignore */
+        }
+        try {
+          window.getSelection()?.removeAllRanges();
+        } catch {
+          /* ignore */
+        }
+        setGrip(hit);
+        startDragRef.current(hit.index, hit.parentFrom, { clientY: startY });
+      }, 420);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") return;
+      if (!timer && !armed) return;
+      if (
+        timer != null &&
+        (Math.abs(e.clientX - startX) > 12 || Math.abs(e.clientY - startY) > 12)
+      ) {
+        clearTimer();
+        return;
+      }
+      if (armed || dragRef.current) {
+        e.preventDefault();
+      }
+    };
+
+    const onPointerEnd = () => {
+      clearTimer();
+      armed = false;
+    };
+
+    root.addEventListener("pointerdown", onPointerDown);
+    root.addEventListener("pointermove", onPointerMove, { passive: false });
+    root.addEventListener("pointerup", onPointerEnd);
+    root.addEventListener("pointercancel", onPointerEnd);
+    // Suppress iOS callout / selection menu while long-pressing to drag
+    const onCtx = (e: Event) => {
+      if (dragRef.current || armed) e.preventDefault();
+    };
+    root.addEventListener("contextmenu", onCtx);
+    return () => {
+      clearTimer();
+      root.removeEventListener("pointerdown", onPointerDown);
+      root.removeEventListener("pointermove", onPointerMove);
+      root.removeEventListener("pointerup", onPointerEnd);
+      root.removeEventListener("pointercancel", onPointerEnd);
+      root.removeEventListener("contextmenu", onCtx);
+    };
+  }, [editor]);
 
   const addBlockBelow = () => {
     if (!grip) return;
@@ -2569,13 +2706,23 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
             title={
               multiCount > 1
                 ? `拖動 ${multiCount} 個區塊 · Shift+點選可加選`
-                : "拖動以移動 · 點一下選取 · Shift+點選加選範圍"
+                : "拖動以移動 · 點一下選取 · 手機請長按段落拖動"
             }
             aria-label="拖曳移動段落"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              startDrag(grip.index, grip.parentFrom, e);
+              startDrag(grip.index, grip.parentFrom, {
+                clientY: e.clientY,
+                shiftKey: e.shiftKey,
+              });
+            }}
+            onPointerDown={(e) => {
+              // Touch: allow the grip itself if somehow visible, but prefer long-press on block
+              if (e.pointerType === "mouse") return;
+              e.preventDefault();
+              e.stopPropagation();
+              startDrag(grip.index, grip.parentFrom, { clientY: e.clientY });
             }}
           >
             ⠿

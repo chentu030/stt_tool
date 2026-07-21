@@ -119,10 +119,26 @@ export function PackageCard({
           alt=""
           loading="lazy"
           onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
+            const el = e.currentTarget as HTMLImageElement;
+            el.style.display = "none";
+            const fallback = el.nextElementSibling as HTMLElement | null;
+            if (fallback?.classList.contains("community-card-cover-fallback")) {
+              fallback.hidden = false;
+            }
           }}
         />
       ) : null}
+      <div
+        className="community-card-cover community-card-cover-fallback"
+        hidden={Boolean(entry.cover)}
+        aria-hidden={Boolean(entry.cover)}
+      >
+        <PageChromeIcon
+          icon={entry.icon}
+          fallback={entry.kind === "extension" ? "extension" : "description"}
+        />
+        <span>{entry.name}</span>
+      </div>
       <div className="community-card-top">
         <PageChromeIcon
           icon={entry.icon}

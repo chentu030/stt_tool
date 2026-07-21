@@ -1228,6 +1228,45 @@ button, input, textarea, select {
   justify-content: center;
   margin-top: 0.35rem;
 }
+.web-page-prefs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.1rem;
+  padding: 0.35rem 0.65rem 0.55rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+.web-page-pref {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  user-select: none;
+}
+.web-page-pref input {
+  margin: 0;
+}
+.web-page-proxy-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.75rem;
+  color: #ecfdf5;
+  background: color-mix(in srgb, #0f766e 92%, black);
+}
+.web-page-ok {
+  color: color-mix(in srgb, var(--accent, #0f766e) 80%, var(--text));
+}
+.web-page-warn {
+  color: #b45309;
+}
+.web-page-view.is-compact .web-page-prefs {
+  display: none;
+}
 
 /* Community store */
 .community-page {
@@ -1491,6 +1530,28 @@ html.is-note-app-embed .community-page > .page-chrome {
   object-fit: cover;
   border-radius: 10px;
   background: var(--bg-muted);
+}
+.community-card-cover-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  color: var(--text-muted);
+  background:
+    radial-gradient(ellipse at 30% 20%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 55%),
+    linear-gradient(145deg, color-mix(in srgb, var(--bg-muted) 88%, var(--accent)), var(--bg-muted));
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.community-card-cover-fallback[hidden] {
+  display: none !important;
+}
+.community-card-cover-fallback span {
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .community-card-meta {
   display: flex;
@@ -1764,6 +1825,26 @@ html.is-note-app-embed .community-page > .page-chrome {
   border-radius: 12px;
   margin-bottom: 0.85rem;
   border: 1px solid var(--border);
+}
+.community-submit-ai-cover {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.85rem;
+}
+.community-submit-prompt {
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  max-height: 11rem;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: var(--bg-muted);
+  color: var(--text-muted);
 }
 .community-submit-hint {
   font-size: 0.8rem;
@@ -3528,6 +3609,10 @@ a.sidebar-user-name:hover {
   z-index: 40;
   padding-top: calc(0.85rem + env(safe-area-inset-top, 0px));
 }
+/* Menu / logo stay tappable above the dimmed sheet */
+.mobile-shell.is-nav-open .mobile-top {
+  z-index: 240;
+}
 .mobile-top-start {
   display: flex;
   align-items: center;
@@ -3651,7 +3736,8 @@ a.sidebar-user-name:hover {
 .mobile-nav-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  /* Above sticky note-tabs / doc-chrome (140) so the whole note dims */
+  z-index: 220;
   background: rgba(15, 23, 22, 0.42);
   opacity: 0;
   pointer-events: none;
@@ -3667,7 +3753,7 @@ a.sidebar-user-name:hover {
   right: 0;
   bottom: 0;
   top: auto;
-  z-index: 121;
+  z-index: 230;
   width: 100%;
   max-width: 100%;
   height: min(82dvh, 820px);
@@ -3730,6 +3816,13 @@ a.sidebar-user-name:hover {
 }
 .mobile-shell.is-nav-open {
   overflow: hidden;
+}
+/* Keep sticky note chrome under the nav sheet while open */
+.mobile-shell.is-nav-open .note-tabs,
+.mobile-shell.is-nav-open .note-tabs-split-wrap,
+.mobile-shell.is-nav-open .doc-chrome,
+.mobile-shell.is-nav-open .doc-ribbon {
+  z-index: 1;
 }
 .mobile-bottom {
   position: fixed;
@@ -5228,8 +5321,11 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  align-items: center;
+  align-items: flex-start;
   pointer-events: none;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
 }
 /* Keep toolbar over the stage only ? don't cover the notes aside */
 .cv-immersive:has(.cv-layout--immersive:not(.cv-layout--wide)) .cv-float-chrome {
@@ -5268,10 +5364,14 @@ a.sidebar-user-name:hover {
 .cv-float-chrome > * {
   pointer-events: auto;
 }
+.cv-float-chrome > .ws-switch {
+  flex: 0 0 auto;
+}
 .cv-float-actions {
   display: flex;
   gap: 0.3rem;
   margin-left: auto;
+  flex: 0 0 auto;
 }
 .cv-layout--immersive {
   flex: 1;
@@ -5643,7 +5743,15 @@ a.sidebar-user-name:hover {
   gap: 0.45rem;
   margin-bottom: 0;
   align-items: center;
-  flex-shrink: 0;
+  /* Own row under switcher/actions so groups wrap inside the stage width */
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
   background: color-mix(in srgb, var(--bg-card) 92%, transparent);
   backdrop-filter: blur(8px);
   border: 1px solid var(--border);
@@ -5659,6 +5767,9 @@ a.sidebar-user-name:hover {
   border: 1px solid var(--border);
   border-radius: 12px;
   align-items: center;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
 }
 .cv-tool {
   border: none;
@@ -7938,6 +8049,22 @@ body.is-split-resizing iframe {
 .block-drag-handle:active {
   cursor: grabbing;
   color: var(--accent);
+}
+/* Touch / phone: left grip sits off-screen — use long-press on the block instead */
+@media (pointer: coarse), (max-width: 720px) {
+  .block-controls:not(.is-dragging) {
+    display: none;
+  }
+  .rich-page-sheet .ProseMirror,
+  .rich-canvas-inner .ProseMirror {
+    --block-handle-space: 0px;
+    padding-left: 0.85rem;
+  }
+  .ProseMirror.is-block-dragging,
+  .rich-canvas.is-block-dragging .ProseMirror {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 .block-sel-count {
   min-width: 1.1rem;
@@ -15390,6 +15517,13 @@ body.is-sidebar-resizing iframe {
   overflow: hidden;
   padding: 0.65rem clamp(1rem, 2.2vw, 1.55rem) 0.7rem;
 }
+/* Mobile bottom nav covers the composer unless we reserve space */
+.mobile-shell > .app-main:has(.dr-chat-shell) {
+  padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 0.65rem);
+}
+.mobile-shell > .app-main.app-main--immersive:has(.dr-chat-shell) {
+  padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 0.5rem);
+}
 .dr-page {
   max-width: 1100px;
   margin: 0 auto;
@@ -16465,10 +16599,17 @@ body.is-sidebar-resizing iframe {
   .app-main:has(.dr-chat-shell) {
     padding: 0.45rem 0.7rem 0.55rem;
   }
+  .mobile-shell > .app-main:has(.dr-chat-shell),
+  .mobile-shell > .app-main.app-main--immersive:has(.dr-chat-shell) {
+    padding-bottom: calc(var(--bottom-h) + env(safe-area-inset-bottom, 0px) + 0.65rem);
+  }
   .dr-page.dr-chat-shell {
     height: auto;
     padding: 0.15rem 0 0;
     max-width: none;
+  }
+  .dr-chat-composer {
+    margin-bottom: 0.15rem;
   }
   .dr-chat-title {
     font-size: 1.15rem;
