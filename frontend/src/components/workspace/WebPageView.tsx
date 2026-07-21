@@ -7,6 +7,8 @@ import { resolveEmbedUrl, urlLikelyBlocksFraming } from "@/lib/embedUrls";
 import {
   canEmbedProxy,
   embedProxySrc,
+  isVirtualBrowserEnabled,
+  shouldAutoDetach,
   shouldUseVirtualBrowser,
 } from "@/lib/embedProxy";
 import { toast } from "@/lib/toast";
@@ -286,6 +288,13 @@ export default function WebPageView({
       return;
     }
 
+    if (!isVirtualBrowserEnabled() && shouldAutoDetach(active)) {
+      setProbeFrameable(false);
+      setProbeReason("此網站請用系統瀏覽器開啟（虛擬瀏覽器已暫時關閉）");
+      setProxyMode(false);
+      return;
+    }
+
     if (urlLikelyBlocksFraming(active)) {
       setProbeFrameable(false);
       if (canEmbedProxy(active)) {
@@ -339,6 +348,7 @@ export default function WebPageView({
 
   // Auto-start virtual once per URL (do not depend on virtualBusy — that caused a flash loop)
   useEffect(() => {
+    if (!isVirtualBrowserEnabled()) return;
     if (!active) return;
     const want =
       forceVirtual ||
@@ -362,6 +372,7 @@ export default function WebPageView({
 
   // Proxy 403 / hard failure → upgrade to virtual
   useEffect(() => {
+    if (!isVirtualBrowserEnabled()) return;
     if (!active || forceVirtual || shouldUseVirtualBrowser(active)) return;
     if (probeFrameable !== false || !proxyMode || !canEmbedProxy(active)) return;
     if (steelConfigured === false) return;
@@ -419,8 +430,13 @@ export default function WebPageView({
 
   const browseMode: BrowseMode = useMemo(() => {
     if (!active) return "direct";
-    if (forceVirtual || shouldUseVirtualBrowser(active)) return "virtual";
-    if (probeFrameable === false && !canEmbedProxy(active)) return "virtual";
+    if (isVirtualBrowserEnabled() && (forceVirtual || shouldUseVirtualBrowser(active))) {
+      return "virtual";
+    }
+    if (probeFrameable === false && !canEmbedProxy(active)) {
+      // Without virtual browser: open in system tab instead of Steel.
+      return isVirtualBrowserEnabled() ? "virtual" : "blocked";
+    }
     if (probeFrameable === false && proxyMode && canEmbedProxy(active)) return "proxy";
     if (probeFrameable === false && !proxyMode) return "blocked";
     return "direct";
@@ -463,7 +479,8 @@ export default function WebPageView({
       setFrameKey((k) => k + 1);
 
       const useVirt =
-        forceVirtual || shouldUseVirtualBrowser(next) || !canEmbedProxy(next);
+        isVirtualBrowserEnabled() &&
+        (forceVirtual || shouldUseVirtualBrowser(next) || !canEmbedProxy(next));
       if (useVirt && steelConfigured !== false) {
         void navigateVirtual(next);
       }
@@ -685,19 +702,21 @@ export default function WebPageView({
             spellCheck={false}
           />
         </form>
-        <button
-          type="button"
-          className={`web-page-btn${forceVirtual || showVirtualPane ? " is-on" : ""}`}
-          title="虛擬瀏覽器（可登入任意網站）"
-          aria-pressed={forceVirtual || showVirtualPane}
-          onClick={() => {
-            setForceVirtual(true);
-            virtualTriedUrlRef.current = null;
-            if (active) void startVirtual(active, { force: true });
-          }}
-        >
-          虛擬
-        </button>
+        {isVirtualBrowserEnabled() ? (
+          <button
+            type="button"
+            className={`web-page-btn${forceVirtual || showVirtualPane ? " is-on" : ""}`}
+            title="虛擬瀏覽器（可登入任意網站）"
+            aria-pressed={forceVirtual || showVirtualPane}
+            onClick={() => {
+              setForceVirtual(true);
+              virtualTriedUrlRef.current = null;
+              if (active) void startVirtual(active, { force: true });
+            }}
+          >
+            虛擬
+          </button>
+        ) : null}
         {showVirtualPane ? (
           <button
             type="button"
@@ -731,7 +750,7 @@ export default function WebPageView({
           <div className="web-page-empty">
             <p>輸入網址，在筆記旁瀏覽任意網頁。</p>
             <p className="web-page-hint">
-              Google／Gemini 會自動啟用雲端虛擬瀏覽器；一般公開站仍用快速嵌入。
+              Google／Gemini 請用系統瀏覽器開啟；一般公開站可頁內嵌入。
             </p>
           </div>
         ) : showVirtualPane ? (
@@ -786,23 +805,33 @@ export default function WebPageView({
           )
         ) : showBlocked ? (
           <div className="web-page-blocked">
-            <p className="web-page-blocked-title">{hostLabel || "此網站"}無法頁內顯示</p>
-            <p>請啟用虛擬瀏覽器，或用系統瀏覽器開啟。</p>
+            <p className="web-page-blocked-title">{hostLabel || "此網站"}請用系統瀏覽器開啟</p>
+            <p>
+              {isVirtualBrowserEnabled()
+                ? "請啟用虛擬瀏覽器，或用系統瀏覽器開啟。"
+                : "虛擬瀏覽器已暫時關閉。Google／Gemini 等網站請用系統分頁開啟。"}
+            </p>
             {detachStatus === "blocked" ? (
               <p className="web-page-warn">彈窗被擋，請直接點系統瀏覽器連結。</p>
             ) : null}
             <div className="web-page-blocked-actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setForceVirtual(true);
-                  virtualTriedUrlRef.current = null;
-                  void startVirtual(active, { force: true });
-                }}
-              >
-                改用虛擬瀏覽器
-              </button>
+              {isVirtualBrowserEnabled() ? (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setForceVirtual(true);
+                    virtualTriedUrlRef.current = null;
+                    void startVirtual(active, { force: true });
+                  }}
+                >
+                  改用虛擬瀏覽器
+                </button>
+              ) : (
+                <button type="button" className="btn" onClick={() => openDetached()}>
+                  用系統瀏覽器開啟
+                </button>
+              )}
               <a className="btn btn-soft" href={active} target="_blank" rel="noopener noreferrer">
                 系統瀏覽器
               </a>

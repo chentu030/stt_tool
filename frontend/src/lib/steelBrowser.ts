@@ -43,7 +43,16 @@ export function isSelfHostedSteel(): boolean {
 }
 
 export function isSteelConfigured(): boolean {
+  // Temporarily off unless explicitly enabled (avoids GCE cost / flaky UX).
+  if (!isVirtualBrowserFeatureOn()) return false;
   return Boolean(STEEL_BASE_URL || STEEL_API_KEY);
+}
+
+function isVirtualBrowserFeatureOn(): boolean {
+  const v = (process.env.VIRTUAL_BROWSER_ENABLED || process.env.NEXT_PUBLIC_VIRTUAL_BROWSER_ENABLED || "")
+    .trim()
+    .toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
 export function getSteelPublicOrigin(): string | null {

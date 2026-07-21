@@ -138,8 +138,17 @@ export function embedProxySrc(targetUrl: string): string {
   return `/api/web/embed-proxy?url=${encodeURIComponent(targetUrl)}`;
 }
 
+/** Feature flag — set VIRTUAL_BROWSER_ENABLED=true on Vercel to re-enable Steel/GCE. */
+export function isVirtualBrowserEnabled(): boolean {
+  const v = (process.env.VIRTUAL_BROWSER_ENABLED || process.env.NEXT_PUBLIC_VIRTUAL_BROWSER_ENABLED || "")
+    .trim()
+    .toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
 /** Prefer cloud virtual browser over iframe/proxy for these hosts. */
 export function shouldUseVirtualBrowser(raw: string): boolean {
+  if (!isVirtualBrowserEnabled()) return false;
   if (!raw || raw === "https://") return false;
   return isGoogleAppNeedsTopLevel(raw);
 }
