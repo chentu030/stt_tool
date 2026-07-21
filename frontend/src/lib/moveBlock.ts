@@ -278,6 +278,56 @@ export function draggableBlockAt(editor: Editor, pos: number): DragBlock | null 
   };
 }
 
+/** Top-level doc children as Windows-style selectable “rows”. */
+export type MarqueeBlock = {
+  index: number;
+  from: number;
+  to: number;
+  parentFrom: number;
+  rect: DOMRect;
+};
+
+function rectsOverlap(
+  a: { left: number; top: number; right: number; bottom: number },
+  b: { left: number; top: number; right: number; bottom: number }
+) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+}
+
+/** Collect top-level block DOM rects for marquee / lasso selection. */
+export function listTopLevelBlockRects(editor: Editor): MarqueeBlock[] {
+  const { doc } = editor.state;
+  const out: MarqueeBlock[] = [];
+  let pos = 0;
+  for (let i = 0; i < doc.childCount; i++) {
+    const node = doc.child(i);
+    const from = pos;
+    const to = pos + node.nodeSize;
+    const dom = editor.view.nodeDOM(from);
+    if (dom instanceof HTMLElement) {
+      out.push({
+        index: i,
+        from,
+        to,
+        parentFrom: -1,
+        rect: dom.getBoundingClientRect(),
+      });
+    }
+    pos = to;
+  }
+  return out;
+}
+
+/** Indices of top-level blocks intersecting a client-space marquee box. */
+export function topLevelIndicesInMarquee(
+  editor: Editor,
+  box: { left: number; top: number; right: number; bottom: number }
+): number[] {
+  return listTopLevelBlockRects(editor)
+    .filter((b) => rectsOverlap(b.rect, box))
+    .map((b) => b.index);
+}
+
 /** Find the top-level (or list-item) block whose DOM rect contains clientY. */
 export function draggableBlockAtClientY(editor: Editor, clientY: number): DragBlock | null {
   const { doc } = editor.state;

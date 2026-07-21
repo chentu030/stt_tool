@@ -8315,6 +8315,23 @@ body.is-split-resizing iframe {
   margin-left: 1px;
   pointer-events: none;
 }
+/* Windows Explorer-style rubber-band over note blocks */
+.block-marquee {
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px solid #0078d7;
+  background: rgba(0, 120, 215, 0.18);
+  border-radius: 1px;
+}
+.rich-canvas.is-block-marquee,
+.rich-canvas.is-block-marquee .ProseMirror {
+  cursor: crosshair;
+  user-select: none;
+  -webkit-user-select: none;
+  caret-color: transparent;
+}
 .ProseMirror > .is-block-selected {
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent-soft) 70%, transparent);

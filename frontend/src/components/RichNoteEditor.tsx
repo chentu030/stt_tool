@@ -55,7 +55,7 @@ import { resolveEmbedUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
-import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
@@ -2306,6 +2306,13 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
   } | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [dropParent, setDropParent] = useState<number>(-1);
+  /** Windows-style rubber-band selection rectangle (host-local coords). */
+  const [marquee, setMarquee] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
   /** Inclusive sibling-index selection within one parent. */
   const [blockSel, setBlockSel] = useState<{
     parentFrom: number;
@@ -2323,6 +2330,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
   } | null>(null);
   const dropRef = useRef<number | null>(null);
   const gripHideTimerRef = useRef<number | null>(null);
+  const marqueeActiveRef = useRef(false);
   const gripRef = useRef(grip);
   gripRef.current = grip;
   const blockSelRef = useRef(blockSel);
@@ -2456,13 +2464,12 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
 
   useEffect(() => {
     const root = editor.view.dom;
-    // Don't wipe multi-block selection when the click is in the left gutter
-    // (gutter handler will own that interaction).
+    // Don't wipe multi-block selection when starting a marquee / gutter drag.
     const onDown = (e: MouseEvent) => {
-      if (dragRef.current) return;
+      if (dragRef.current || marqueeActiveRef.current) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.(".block-controls")) return;
-      if (e.shiftKey) return;
+      if (e.shiftKey || e.altKey) return;
       if (!blockSelRef.current) return;
       const rootRect = root.getBoundingClientRect();
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
@@ -2618,61 +2625,155 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
-    /** Notion-style: drag in the left handle column to multi-select blocks. */
-    const onGutterDown = (e: MouseEvent) => {
+    /** Windows Explorer-style rubber-band: drag a box over blocks to multi-select. */
+    const onMarqueeDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      if ((e as MouseEvent & { _blockGutter?: boolean })._blockGutter) return;
+      if ((e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee) return;
+      if (dragRef.current || marqueeActiveRef.current) return;
       const t = e.target as HTMLElement | null;
-      if (t?.closest?.(".block-controls")) return;
+      if (t?.closest?.(".block-controls, .empty-templates")) return;
+      if (t?.closest?.("input, textarea, select, button")) return;
+      // Links: allow marquee unless it's a real navigation click without Alt
+      if (t?.closest?.("a[href]") && !e.altKey) return;
 
       const rootRect = root.getBoundingClientRect();
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
-      // Handle column lives in ProseMirror padding — clicks there still hit .ProseMirror.
-      const gutterLeft = rootRect.left - 12;
-      const gutterRight = rootRect.left + Math.max(contentPad, 44);
-      if (e.clientX < gutterLeft || e.clientX >= gutterRight) return;
+      const gutterLeft = rootRect.left - 16;
+      const gutterRight = rootRect.left + Math.max(contentPad, 48);
+      const inGutter = e.clientX >= gutterLeft && e.clientX < gutterRight;
+      const outsideEditor =
+        !t?.closest?.(".ProseMirror") ||
+        t === root ||
+        t?.classList?.contains("ProseMirror") === true;
+      const onAtomChrome = !!t?.closest?.(
+        "[data-note-embed], .rich-embed, .rich-embed-bar, .rich-embed-frame, hr, img, video, .ProseMirror-selectednode"
+      );
+      // Don't start from typing inside the URL field of an embed
+      if (t?.closest?.(".rich-embed-url-input") && !e.altKey && !inGutter) return;
 
-      // Ignore interactive widgets if the click landed on them (not empty padding).
-      if (
-        t &&
-        t !== root &&
-        !t.classList.contains("ProseMirror") &&
-        t.closest("a,button,input,textarea,select,iframe,video,.note-embed")
-      ) {
-        return;
-      }
+      const emptyPara = (() => {
+        const p = t?.closest?.("p");
+        return !!(p && p.closest(".ProseMirror") && !(p.textContent || "").trim());
+      })();
 
-      const hit = gripFromPos(e.clientY, e.clientX);
-      if (!hit) return;
-      (e as MouseEvent & { _blockGutter?: boolean })._blockGutter = true;
+      // Start marquee: left gutter, Alt+drag over content, empty/atom/margins.
+      // (Normal text drag still selects characters — hold Alt to box over text.)
+      const allow = e.altKey || inGutter || outsideEditor || onAtomChrome || emptyPara;
+      if (!allow) return;
+
+      (e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee = true;
       e.preventDefault();
       e.stopPropagation();
-      try {
-        window.getSelection()?.removeAllRanges();
-        editor.view.dom.blur();
-      } catch {
-        /* ignore */
-      }
 
-      const anchor = hit.index;
-      const parentFrom = hit.parentFrom;
-      const prev = blockSelRef.current;
-      if (e.shiftKey && prev && prev.parentFrom === parentFrom) {
-        setBlockSel({ parentFrom, anchor: prev.anchor, focus: anchor });
-      } else {
-        setBlockSel({ parentFrom, anchor, focus: anchor });
-      }
-      setGrip(hit);
+      const host = positionHost();
+      const originX = e.clientX;
+      const originY = e.clientY;
+      let armed = false;
+      const prevUserSelect = document.body.style.userSelect;
 
-      const onGutterMove = (ev: MouseEvent) => {
-        const h = gripFromPos(ev.clientY, rootRect.left + Math.max(contentPad, 8) / 2);
-        if (!h || h.parentFrom !== parentFrom) return;
-        setBlockSel({ parentFrom, anchor, focus: h.index });
-        setGrip(h);
+      const hostLocal = (cx: number, cy: number) => {
+        const hr = host.getBoundingClientRect();
+        const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+        const scrollLeft = host === canvas ? canvas.scrollLeft : (host as HTMLElement).scrollLeft || 0;
+        return {
+          x: cx - hr.left + scrollLeft,
+          y: cy - hr.top + scrollTop,
+        };
       };
-      const onGutterUp = () => {
-        document.removeEventListener("mousemove", onGutterMove);
-        document.removeEventListener("mouseup", onGutterUp);
+
+      const applyBox = (cx: number, cy: number) => {
+        const box = {
+          left: Math.min(originX, cx),
+          top: Math.min(originY, cy),
+          right: Math.max(originX, cx),
+          bottom: Math.max(originY, cy),
+        };
+        const a = hostLocal(originX, originY);
+        const b = hostLocal(cx, cy);
+        setMarquee({
+          left: Math.min(a.x, b.x),
+          top: Math.min(a.y, b.y),
+          width: Math.abs(b.x - a.x),
+          height: Math.abs(b.y - a.y),
+        });
+        const hits = topLevelIndicesInMarquee(editor, box);
+        if (!hits.length) {
+          setBlockSel(null);
+          return;
+        }
+        const start = Math.min(...hits);
+        const end = Math.max(...hits);
+        setBlockSel({ parentFrom: -1, anchor: start, focus: end });
+        const mid = hits[Math.floor(hits.length / 2)] ?? start;
+        const pos = siblingBlockPos(editor, -1, mid);
+        if (pos) {
+          const dom = editor.view.nodeDOM(pos.from);
+          if (dom instanceof HTMLElement) {
+            const br = dom.getBoundingClientRect();
+            const hr = host.getBoundingClientRect();
+            const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+            setGrip({
+              top: br.top - hr.top + scrollTop + Math.min(4, br.height / 2 - 12),
+              left: br.left - hr.left - 52,
+              from: pos.from,
+              to: pos.to,
+              index: mid,
+              parentFrom: -1,
+            });
+          }
+        }
+      };
+
+      const onMove = (ev: MouseEvent) => {
+        if (!armed) {
+          if (Math.hypot(ev.clientX - originX, ev.clientY - originY) < 5) return;
+          armed = true;
+          marqueeActiveRef.current = true;
+          canvas.classList.add("is-block-marquee");
+          document.body.style.userSelect = "none";
+          try {
+            window.getSelection()?.removeAllRanges();
+            editor.view.dom.blur();
+          } catch {
+            /* ignore */
+          }
+        }
+        applyBox(ev.clientX, ev.clientY);
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        marqueeActiveRef.current = false;
+        setMarquee(null);
+        canvas.classList.remove("is-block-marquee");
+        document.body.style.userSelect = prevUserSelect;
+        if (!armed) {
+          // Click without drag in gutter: select single block under cursor
+          if (inGutter || onAtomChrome) {
+            const hit = gripFromPos(originY, originX);
+            if (hit) {
+              const prev = blockSelRef.current;
+              if (e.shiftKey && prev && prev.parentFrom === hit.parentFrom) {
+                setBlockSel({
+                  parentFrom: hit.parentFrom,
+                  anchor: prev.anchor,
+                  focus: hit.index,
+                });
+              } else {
+                setBlockSel({
+                  parentFrom: hit.parentFrom,
+                  anchor: hit.index,
+                  focus: hit.index,
+                });
+              }
+              setGrip(hit);
+              selectSiblingRange(editor, hit.parentFrom, hit.index, hit.index);
+              editor.view.focus();
+            }
+          }
+          return;
+        }
         const sel = blockSelRef.current;
         if (!sel) return;
         const a = Math.min(sel.anchor, sel.focus);
@@ -2680,21 +2781,21 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         selectSiblingRange(editor, sel.parentFrom, a, b);
         editor.view.focus();
       };
-      document.addEventListener("mousemove", onGutterMove);
-      document.addEventListener("mouseup", onGutterUp);
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
     };
 
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mouseleave", onLeave);
-    // Capture on both: padding clicks hit ProseMirror; margin clicks hit canvas/sheet.
-    root.addEventListener("mousedown", onGutterDown, true);
-    canvas.addEventListener("mousedown", onGutterDown);
+    root.addEventListener("mousedown", onMarqueeDown, true);
+    canvas.addEventListener("mousedown", onMarqueeDown);
     return () => {
       cancelHideGrip();
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mouseleave", onLeave);
-      root.removeEventListener("mousedown", onGutterDown, true);
-      canvas.removeEventListener("mousedown", onGutterDown);
+      root.removeEventListener("mousedown", onMarqueeDown, true);
+      canvas.removeEventListener("mousedown", onMarqueeDown);
     };
   }, [editor]);
 
@@ -3024,10 +3125,22 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       ? range.end - range.start + 1
       : 0;
 
-  if (!grip && dropIndex === null) return null;
+  if (!grip && dropIndex === null && !marquee) return null;
 
   return (
     <>
+      {marquee && (
+        <div
+          className="block-marquee"
+          style={{
+            left: marquee.left,
+            top: marquee.top,
+            width: marquee.width,
+            height: marquee.height,
+          }}
+          aria-hidden
+        />
+      )}
       {grip && (
         <div
           className={`block-controls${dragRef.current ? " is-dragging" : ""}${
