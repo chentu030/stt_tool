@@ -188,9 +188,11 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [rows, setRows] = useState<Note[]>([]);
   const [activeViewId, setActiveViewId] = useState(viewId || "");
   const [addOpen, setAddOpen] = useState(false);
-  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const addPropBtnRef = useRef<HTMLButtonElement>(null);
-  const viewAddBtnRef = useRef<HTMLButtonElement>(null);
+  const settingsBtnRef = useRef<HTMLButtonElement>(null);
+  const layoutBtnRef = useRef<HTMLButtonElement>(null);
   const [panel, setPanel] = useState<"filter" | "sort" | "props" | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
@@ -304,10 +306,16 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
 
   const addView = async (type: DbViewType) => {
     if (!db) return;
-    setViewMenuOpen(false);
+    setLayoutOpen(false);
+    setSettingsOpen(false);
     const next = addDatabaseView(db.views, type);
     await updateDatabase(db.id, { views: next });
     setActiveViewId(next[next.length - 1].id);
+  };
+
+  const openPanel = (next: "filter" | "sort" | "props") => {
+    setSettingsOpen(false);
+    setPanel((p) => (p === next ? null : next));
   };
 
   if (!db) {
@@ -321,82 +329,102 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     <div className={`cdb${compact ? " cdb--compact" : ""}`}>
       <div className="cdb-toolbar">
         <div className="cdb-title-row">
-          <span className="cdb-icon">{db.icon || "▦"}</span>
+          <span className="cdb-icon" aria-hidden>
+            {db.icon || "▦"}
+          </span>
           <input
             className="cdb-name"
             value={db.name}
             onChange={(e) => setDb({ ...db, name: e.target.value })}
             onBlur={(e) => void updateDatabase(db.id, { name: e.target.value || "未命名資料庫" })}
+            aria-label="資料庫名稱"
           />
-          <Link href={`/db/${db.id}`} className="cdb-open-full" title="全頁開啟">
-            全頁
-          </Link>
-        </div>
-        <p className="cdb-hint">
-          每一列都是完整筆記頁。用篩選／排序切視圖；點標題或 ↗ 開啟後可放入任意內容。
-        </p>
-        <div className="cdb-toolbar-row">
-          <div className="cdb-views">
-            {db.views.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                className={`cdb-view-tab${view?.id === v.id ? " is-on" : ""}`}
-                onClick={() => {
-                  setActiveViewId(v.id);
-                  setPanel(null);
-                }}
-              >
-                {v.name}
-              </button>
-            ))}
-            <div className="cdb-view-add-wrap">
-              <button
-                ref={viewAddBtnRef}
-                type="button"
-                className="cdb-view-tab cdb-view-add"
-                onClick={() => setViewMenuOpen((v) => !v)}
-              >
-                + 視圖
-              </button>
-              <CdbPortalMenu
-                open={viewMenuOpen}
-                anchorRef={viewAddBtnRef}
-                onClose={() => setViewMenuOpen(false)}
-                className="cdb-view-menu"
-                align="left"
-              >
-                {VIEW_TYPES.map((v) => (
-                  <button key={v.type} type="button" onClick={() => void addView(v.type)}>
-                    {v.label}
-                  </button>
-                ))}
-              </CdbPortalMenu>
-            </div>
+          <div className="cdb-title-actions">
+            <Link href={`/db/${db.id}`} className="cdb-icon-btn" title="全頁開啟" aria-label="全頁開啟">
+              ↗
+            </Link>
+            <button
+              ref={settingsBtnRef}
+              type="button"
+              className={`cdb-icon-btn${settingsOpen || panel ? " is-on" : ""}`}
+              title="設定"
+              aria-label="資料庫設定"
+              aria-expanded={settingsOpen}
+              onClick={() => {
+                setSettingsOpen((v) => !v);
+                setLayoutOpen(false);
+              }}
+            >
+              ☰
+            </button>
+            <button type="button" className="btn btn-sm cdb-new-btn" onClick={() => void addRow()}>
+              新建
+            </button>
           </div>
-          <div className="cdb-ops">
+        </div>
+
+        <CdbPortalMenu
+          open={settingsOpen}
+          anchorRef={settingsBtnRef}
+          onClose={() => {
+            setSettingsOpen(false);
+            setLayoutOpen(false);
+          }}
+          className="cdb-settings-menu"
+          align="right"
+        >
+          <p className="cdb-settings-label">瀏覽</p>
+          {db.views.map((v) => (
             <button
+              key={v.id}
               type="button"
-              className={`cdb-op-btn${panel === "filter" ? " is-on" : ""}${filterCount ? " has-val" : ""}`}
-              onClick={() => setPanel((p) => (p === "filter" ? null : "filter"))}
+              className={view?.id === v.id ? "is-on" : ""}
+              onClick={() => {
+                setActiveViewId(v.id);
+                setPanel(null);
+                setSettingsOpen(false);
+              }}
             >
-              篩選{filterCount ? ` ${filterCount}` : ""}
+              {v.name}
+              <em>{VIEW_TYPES.find((t) => t.type === v.type)?.label || v.type}</em>
             </button>
+          ))}
+          <div className="cdb-settings-sub">
             <button
+              ref={layoutBtnRef}
               type="button"
-              className={`cdb-op-btn${panel === "sort" ? " is-on" : ""}${sortCount ? " has-val" : ""}`}
-              onClick={() => setPanel((p) => (p === "sort" ? null : "sort"))}
+              onClick={() => setLayoutOpen((v) => !v)}
             >
-              排序{sortCount ? ` ${sortCount}` : ""}
+              + 新增視圖
             </button>
-            <button
-              type="button"
-              className={`cdb-op-btn${panel === "props" ? " is-on" : ""}`}
-              onClick={() => setPanel((p) => (p === "props" ? null : "props"))}
+            <CdbPortalMenu
+              open={layoutOpen}
+              anchorRef={layoutBtnRef}
+              onClose={() => setLayoutOpen(false)}
+              className="cdb-view-menu"
+              align="left"
             >
-              屬性
-            </button>
-            {view?.type === "board" && (
+              {VIEW_TYPES.map((v) => (
+                <button key={v.type} type="button" onClick={() => void addView(v.type)}>
+                  {v.label}
+                </button>
+              ))}
+            </CdbPortalMenu>
+          </div>
+
+          <hr className="cdb-settings-sep" />
+          <button type="button" onClick={() => openPanel("filter")}>
+            篩選{filterCount ? ` · ${filterCount}` : ""}
+          </button>
+          <button type="button" onClick={() => openPanel("sort")}>
+            排序{sortCount ? ` · ${sortCount}` : ""}
+          </button>
+          <button type="button" onClick={() => openPanel("props")}>
+            屬性
+          </button>
+          {view?.type === "board" && (
+            <div className="cdb-settings-inline">
+              <span>分組</span>
               <MenuSelect
                 variant="toolbar"
                 size="sm"
@@ -404,11 +432,14 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 value={view.groupBy || "status"}
                 options={props
                   .filter((p) => p.type === "status" || p.type === "select")
-                  .map((p) => ({ value: p.id, label: `分組：${p.name}` }))}
+                  .map((p) => ({ value: p.id, label: p.name }))}
                 onChange={(groupBy) => void patchActiveView({ groupBy })}
               />
-            )}
-            {view?.type === "calendar" && (
+            </div>
+          )}
+          {view?.type === "calendar" && (
+            <div className="cdb-settings-inline">
+              <span>日期欄</span>
               <MenuSelect
                 variant="toolbar"
                 size="sm"
@@ -416,12 +447,15 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 value={view.dateProp || "due"}
                 options={props
                   .filter((p) => p.type === "date" || p.type === "datetime")
-                  .map((p) => ({ value: p.id, label: `日期：${p.name}` }))}
+                  .map((p) => ({ value: p.id, label: p.name }))}
                 onChange={(dateProp) => void patchActiveView({ dateProp })}
               />
-            )}
-            {view?.type === "gallery" && (
-              <>
+            </div>
+          )}
+          {view?.type === "gallery" && (
+            <>
+              <div className="cdb-settings-inline">
+                <span>顯示</span>
                 <MenuSelect
                   variant="toolbar"
                   size="sm"
@@ -438,33 +472,37 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                     })
                   }
                 />
+              </div>
+              <div className="cdb-settings-inline">
+                <span>封面</span>
                 <MenuSelect
                   variant="toolbar"
                   size="sm"
                   ariaLabel="封面欄"
                   value={view.coverPropId || ""}
                   options={[
-                    { value: "", label: "封面：自動" },
+                    { value: "", label: "自動" },
                     ...props
                       .filter((p) => p.type === "files" || p.type === "url" || p.type === "text")
-                      .map((p) => ({ value: p.id, label: `封面：${p.name}` })),
+                      .map((p) => ({ value: p.id, label: p.name })),
                   ]}
                   onChange={(coverPropId) => void patchActiveView({ coverPropId: coverPropId || undefined })}
                 />
-              </>
-            )}
-          </div>
-          <input
-            className="cdb-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="搜尋列…"
-            aria-label="搜尋"
-          />
-          <button type="button" className="btn" onClick={() => void addRow()}>
-            + 新增列
-          </button>
-        </div>
+              </div>
+            </>
+          )}
+
+          <hr className="cdb-settings-sep" />
+          <label className="cdb-settings-search">
+            <span>搜尋</span>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="搜尋列…"
+              aria-label="搜尋"
+            />
+          </label>
+        </CdbPortalMenu>
 
         {panel === "filter" && view && (
           <FilterPanel

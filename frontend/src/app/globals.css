@@ -415,7 +415,7 @@ button, input, textarea, select {
 }
 .cdb--compact { font-size: 0.92rem; }
 .cdb-toolbar {
-  padding: 0.55rem 0.75rem 0.35rem;
+  padding: 0.45rem 0.65rem 0.35rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
 }
@@ -423,9 +423,8 @@ button, input, textarea, select {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.35rem;
 }
-.cdb-icon { font-size: 1.1rem; }
+.cdb-icon { font-size: 1.05rem; line-height: 1; }
 .cdb-name {
   flex: 1;
   border: none;
@@ -435,6 +434,103 @@ button, input, textarea, select {
   color: var(--text-main);
   outline: none;
   min-width: 0;
+}
+.cdb-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.cdb-icon-btn {
+  width: 1.85rem;
+  height: 1.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.cdb-icon-btn:hover,
+.cdb-icon-btn.is-on {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.cdb-new-btn {
+  margin-left: 0.15rem;
+}
+.cdb-settings-menu {
+  min-width: 220px;
+  padding: 0.35rem;
+}
+.cdb-settings-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.4rem 0.55rem;
+  border-radius: 7px;
+  color: var(--text-main);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.cdb-settings-menu button:hover,
+.cdb-settings-menu button.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.cdb-settings-menu button em {
+  font-style: normal;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.cdb-settings-label {
+  margin: 0.2rem 0.55rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.cdb-settings-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.35rem 0.25rem;
+}
+.cdb-settings-sub { position: relative; }
+.cdb-settings-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.cdb-settings-search {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.35rem 0.55rem 0.45rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.cdb-settings-search input {
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-radius: 7px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.82rem;
 }
 .cdb-open-full {
   font-size: 0.75rem;
