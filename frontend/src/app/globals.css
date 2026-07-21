@@ -8184,8 +8184,8 @@ body.is-split-resizing iframe {
 .rich-canvas {
   position: relative;
   min-height: 40vh;
-  /* Handles sit in the left margin; body text aligns with title / props */
-  --block-handle-space: 0px;
+  /* Left strip for handles + Windows-style marquee start */
+  --block-handle-space: 2.75rem;
   overflow: visible;
 }
 .rich-canvas-inner {

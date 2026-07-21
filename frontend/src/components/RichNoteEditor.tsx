@@ -2492,6 +2492,13 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     const root = editor.view.dom;
     const canvas = root.closest(".rich-canvas") as HTMLElement | null;
     if (!canvas) return;
+    // Left page margin (where users start Windows-style box select) lives on .doc-page,
+    // outside .rich-canvas — must listen on the wider shell.
+    const shell =
+      (root.closest(".doc-page") as HTMLElement | null) ||
+      (root.closest(".doc-editor-shell") as HTMLElement | null) ||
+      (canvas.parentElement as HTMLElement | null) ||
+      canvas;
 
     const gutterWidth = () => {
       const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
@@ -2640,32 +2647,57 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const t = e.target as HTMLElement | null;
       if (t?.closest?.(".block-controls, .empty-templates")) return;
       if (t?.closest?.("input, textarea, select, button")) return;
+      // Don't steal drags from title / props / chrome above the editor
+      if (
+        t?.closest?.(
+          ".doc-title, .doc-title-row, .doc-props, .doc-command, .doc-cover, .doc-icon, .note-page-log, .doc-banner-ingest, .doc-banner-error, .rich-toolbar, .hl-panel"
+        )
+      ) {
+        return;
+      }
       // Links: allow marquee unless it's a real navigation click without Alt
       if (t?.closest?.("a[href]") && !e.altKey) return;
 
       const rootRect = root.getBoundingClientRect();
+      const shellRect = shell.getBoundingClientRect();
+      const canvasRect = canvas.getBoundingClientRect();
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
       const gutterLeft = rootRect.left - 16;
-      const gutterRight = rootRect.left + Math.max(contentPad, 48);
+      const gutterRight = rootRect.left + Math.max(contentPad, 52);
       const inGutter = e.clientX >= gutterLeft && e.clientX < gutterRight;
+      // Page left padding (the spot users mark) — between shell edge and text column
+      const inPageLeftMargin =
+        e.clientX >= shellRect.left - 4 &&
+        e.clientX < rootRect.left + Math.max(contentPad, 52) &&
+        e.clientY >= canvasRect.top - 12 &&
+        e.clientY <= canvasRect.bottom + 12;
       const outsideEditor =
         !t?.closest?.(".ProseMirror") ||
         t === root ||
-        t?.classList?.contains("ProseMirror") === true;
+        t?.classList?.contains("ProseMirror") === true ||
+        t === shell ||
+        t === canvas ||
+        !!t?.classList?.contains("rich-canvas") ||
+        !!t?.classList?.contains("rich-page-sheet") ||
+        !!t?.classList?.contains("rich-canvas-inner") ||
+        !!t?.classList?.contains("doc-page") ||
+        !!t?.classList?.contains("doc-editor-shell");
       const onAtomChrome = !!t?.closest?.(
         "[data-note-embed], .rich-embed, .rich-embed-bar, .rich-embed-frame, hr, img, video, .ProseMirror-selectednode"
       );
       // Don't start from typing inside the URL field of an embed
-      if (t?.closest?.(".rich-embed-url-input") && !e.altKey && !inGutter) return;
+      if (t?.closest?.(".rich-embed-url-input") && !e.altKey && !inGutter && !inPageLeftMargin) {
+        return;
+      }
 
       const emptyPara = (() => {
         const p = t?.closest?.("p");
         return !!(p && p.closest(".ProseMirror") && !(p.textContent || "").trim());
       })();
 
-      // Start marquee: left gutter, Alt+drag over content, empty/atom/margins.
-      // (Normal text drag still selects characters — hold Alt to box over text.)
-      const allow = e.altKey || inGutter || outsideEditor || onAtomChrome || emptyPara;
+      // Start marquee: page left margin, gutter, Alt+drag, empty/atom/chrome.
+      const allow =
+        e.altKey || inGutter || inPageLeftMargin || outsideEditor || onAtomChrome || emptyPara;
       if (!allow) return;
 
       (e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee = true;
@@ -2731,7 +2763,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         }
       };
 
-      const onMove = (ev: MouseEvent) => {
+      const onDragMove = (ev: MouseEvent) => {
         if (!armed) {
           if (Math.hypot(ev.clientX - originX, ev.clientY - originY) < 5) return;
           armed = true;
@@ -2749,16 +2781,16 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       };
 
       const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mousemove", onDragMove);
         document.removeEventListener("mouseup", onUp);
         marqueeActiveRef.current = false;
         setMarquee(null);
         canvas.classList.remove("is-block-marquee");
         document.body.style.userSelect = prevUserSelect;
         if (!armed) {
-          // Click without drag in gutter: select single block under cursor
-          if (inGutter || onAtomChrome) {
-            const hit = gripFromPos(originY, originX);
+          // Click without drag in gutter / page margin: select single block under cursor
+          if (inGutter || inPageLeftMargin || onAtomChrome) {
+            const hit = gripFromPos(originY, Math.max(originX, rootRect.left + 8));
             if (hit) {
               const prev = blockSelRef.current;
               if (e.shiftKey && prev && prev.parentFrom === hit.parentFrom) {
@@ -2789,7 +2821,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         editor.view.focus();
       };
 
-      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mousemove", onDragMove);
       document.addEventListener("mouseup", onUp);
     };
 
@@ -2797,12 +2829,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     canvas.addEventListener("mouseleave", onLeave);
     root.addEventListener("mousedown", onMarqueeDown, true);
     canvas.addEventListener("mousedown", onMarqueeDown);
+    shell.addEventListener("mousedown", onMarqueeDown);
     return () => {
       cancelHideGrip();
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mouseleave", onLeave);
       root.removeEventListener("mousedown", onMarqueeDown, true);
       canvas.removeEventListener("mousedown", onMarqueeDown);
+      shell.removeEventListener("mousedown", onMarqueeDown);
     };
   }, [editor]);
 
