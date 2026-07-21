@@ -44,7 +44,7 @@ export default function NoteTabsBar() {
   const { user } = useAuth();
   const prefsCtx = usePrefs();
   const prefs = prefsCtx?.prefs;
-  const { openIds, activeId, splitId, open, activate, close, setSplit, toggleSplitWith } =
+  const { openIds, activeId, splitId, open, activate, close, setSplit, toggleSplitWith, reorder } =
     useNoteTabs();
   const community = useCommunityOptional();
   const [notes, setNotes] = useState<Note[]>([]);
@@ -53,6 +53,8 @@ export default function NoteTabsBar() {
   const [creating, setCreating] = useState(false);
   const [createPos, setCreatePos] = useState<MenuPos | null>(null);
   const [splitPos, setSplitPos] = useState<MenuPos | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
 
   const createBtnRef = useRef<HTMLButtonElement>(null);
   const splitBtnRef = useRef<HTMLButtonElement>(null);
@@ -320,17 +322,58 @@ export default function NoteTabsBar() {
   return (
     <div className="note-tabs" role="tablist" aria-label="開啟的筆記">
       <div className="note-tabs-scroll">
-        {openIds.map((id) => {
+        {openIds.map((id, index) => {
           const n = byId.get(id);
           const title = n ? n.title || "未命名" : "載入中…";
           const isActive = id === activeId;
           const isSplit = id === splitId;
+          const prevId = index > 0 ? openIds[index - 1] : null;
+          const nextId = index < openIds.length - 1 ? openIds[index + 1] : null;
+          const inSplitPair =
+            Boolean(splitId && activeId && splitId !== activeId) &&
+            ((isActive && (prevId === splitId || nextId === splitId)) ||
+              (isSplit && (prevId === activeId || nextId === activeId)));
+          const pairRole =
+            inSplitPair && isActive ? "primary" : inSplitPair && isSplit ? "secondary" : "";
           return (
             <div
               key={id}
-              className={`note-tab${isActive ? " is-active" : ""}${isSplit ? " is-split" : ""}`}
+              className={`note-tab${isActive ? " is-active" : ""}${isSplit ? " is-split" : ""}${
+                inSplitPair ? " is-pair" : ""
+              }${pairRole ? ` is-pair-${pairRole}` : ""}${dragOverId === id ? " is-drag-over" : ""}`}
               role="tab"
               aria-selected={isActive}
+              draggable
+              title={`${title}（可拖曳排序）`}
+              onDragStart={(e) => {
+                if ((e.target as HTMLElement).closest(".note-tab-close")) {
+                  e.preventDefault();
+                  return;
+                }
+                dragIdRef.current = id;
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", id);
+                e.currentTarget.classList.add("is-dragging");
+              }}
+              onDragEnd={(e) => {
+                dragIdRef.current = null;
+                setDragOverId(null);
+                e.currentTarget.classList.remove("is-dragging");
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragOverId !== id) setDragOverId(id);
+              }}
+              onDragLeave={() => {
+                setDragOverId((cur) => (cur === id ? null : cur));
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const from = e.dataTransfer.getData("text/plain") || dragIdRef.current;
+                setDragOverId(null);
+                if (from && from !== id) reorder(from, id);
+              }}
               onClick={(e) => {
                 if ((e.target as HTMLElement).closest(".note-tab-close")) return;
                 activate(id, n ? noteOpenHref(n) : undefined);
@@ -361,6 +404,9 @@ export default function NoteTabsBar() {
                   />
                 ) : null}
                 <span className="note-tab-title">{title}</span>
+                {isActive && splitId && splitId !== id && (
+                  <span className="note-tab-badge">主頁</span>
+                )}
                 {isSplit && <span className="note-tab-badge">並排</span>}
               </button>
               <button
@@ -368,6 +414,7 @@ export default function NoteTabsBar() {
                 className="note-tab-close"
                 title="關閉"
                 aria-label={`關閉 ${title}`}
+                draggable={false}
                 onClick={(e) => {
                   e.stopPropagation();
                   close(id);
@@ -401,19 +448,50 @@ export default function NoteTabsBar() {
 
       <div className="note-tabs-actions">
         <div className="note-tabs-split-wrap">
-          <button
-            ref={splitBtnRef}
-            type="button"
-            className={`note-tabs-action${splitId ? " is-on" : ""}`}
-            title="雙頁並排（或雙擊另一個分頁）"
-            aria-expanded={menuOpen}
-            onClick={() => {
-              setCreateOpen(false);
-              setMenuOpen((v) => !v);
-            }}
-          >
-            {splitId ? "並排中" : "並排"}
-          </button>
+          {splitId ? (
+            <>
+              <button
+                type="button"
+                className="note-tabs-action is-on"
+                title="取消並排"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setMenuOpen(false);
+                  setSplit(null);
+                }}
+              >
+                取消並排
+              </button>
+              <button
+                ref={splitBtnRef}
+                type="button"
+                className="note-tabs-action note-tabs-action--menu"
+                title="選擇右側頁面"
+                aria-expanded={menuOpen}
+                aria-label="選擇並排頁面"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setMenuOpen((v) => !v);
+                }}
+              >
+                ▾
+              </button>
+            </>
+          ) : (
+            <button
+              ref={splitBtnRef}
+              type="button"
+              className="note-tabs-action"
+              title="雙頁並排（或雙擊另一個分頁）"
+              aria-expanded={menuOpen}
+              onClick={() => {
+                setCreateOpen(false);
+                setMenuOpen((v) => !v);
+              }}
+            >
+              並排
+            </button>
+          )}
         </div>
       </div>
 

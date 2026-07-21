@@ -57,7 +57,39 @@ export function closeNoteTab(state: NoteTabsState, id: string): NoteTabsState {
   return { openIds, splitId };
 }
 
-export function nextTabAfterClose(openIds: string[], closedId: string, activeId: string): string | null {
+/** Move `moveId` to sit immediately after `anchorId` (keeps split pair together). */
+export function placeTabBeside(openIds: string[], anchorId: string, moveId: string): string[] {
+  if (!anchorId || !moveId || anchorId === moveId) return openIds;
+  const base = openIds.includes(moveId) ? openIds : [...openIds, moveId];
+  const without = base.filter((id) => id !== moveId);
+  const i = without.indexOf(anchorId);
+  if (i < 0) return [...without, moveId].slice(0, MAX);
+  const next = [...without];
+  next.splice(i + 1, 0, moveId);
+  return next.slice(0, MAX);
+}
+
+/** Drag-reorder: place `fromId` where `toId` currently is. */
+export function reorderNoteTabs(
+  state: NoteTabsState,
+  fromId: string,
+  toId: string
+): NoteTabsState {
+  if (!fromId || !toId || fromId === toId) return state;
+  const from = state.openIds.indexOf(fromId);
+  const to = state.openIds.indexOf(toId);
+  if (from < 0 || to < 0) return state;
+  const openIds = [...state.openIds];
+  openIds.splice(from, 1);
+  openIds.splice(to, 0, fromId);
+  return { ...state, openIds };
+}
+
+export function nextTabAfterClose(
+  openIds: string[],
+  closedId: string,
+  activeId: string
+): string | null {
   if (closedId !== activeId) return activeId;
   const idx = openIds.indexOf(closedId);
   const remaining = openIds.filter((x) => x !== closedId);

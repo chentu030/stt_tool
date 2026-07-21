@@ -15,6 +15,8 @@ import {
   loadNoteTabs,
   nextTabAfterClose,
   openNoteTab,
+  placeTabBeside,
+  reorderNoteTabs,
   saveNoteTabs,
   type NoteTabsState,
 } from "@/lib/noteTabs";
@@ -29,6 +31,7 @@ type Ctx = {
   activate: (id: string, href?: string) => void;
   setSplit: (id: string | null) => void;
   toggleSplitWith: (id: string) => void;
+  reorder: (fromId: string, toId: string) => void;
 };
 
 const NoteTabsContext = createContext<Ctx | null>(null);
@@ -111,7 +114,16 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
   const activate = useCallback(
     (id: string, href?: string) => {
       if (!id) return;
-      setState((prev) => openNoteTab(prev, id));
+      setState((prev) => {
+        let next = openNoteTab(prev, id);
+        if (next.splitId && next.splitId !== id) {
+          next = {
+            ...next,
+            openIds: placeTabBeside(next.openIds, id, next.splitId),
+          };
+        }
+        return next;
+      });
       const split = state.splitId;
       const target = (href && href.trim()) || `/notes/${id}`;
       const isNotesPath = target.startsWith("/notes/");
@@ -153,26 +165,41 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     [activeId, router]
   );
 
-  const setSplit = useCallback((id: string | null) => {
-    setState((prev) => ({
-      ...prev,
-      splitId: id,
-      openIds: id ? openNoteTab(prev, id).openIds : prev.openIds,
-    }));
-  }, []);
+  const setSplit = useCallback(
+    (id: string | null) => {
+      setState((prev) => {
+        if (!id) return { ...prev, splitId: null };
+        const withOpen = openNoteTab(prev, id);
+        const anchor = activeId && activeId !== id ? activeId : withOpen.openIds[0] || id;
+        return {
+          ...withOpen,
+          splitId: id,
+          openIds: placeTabBeside(withOpen.openIds, anchor, id),
+        };
+      });
+    },
+    [activeId]
+  );
 
   const toggleSplitWith = useCallback(
     (id: string) => {
       setState((prev) => {
         if (prev.splitId === id) return { ...prev, splitId: null };
+        const withOpen = openNoteTab(prev, id);
+        const anchor = activeId && activeId !== id ? activeId : withOpen.openIds[0] || id;
         return {
-          ...openNoteTab(prev, id),
+          ...withOpen,
           splitId: id,
+          openIds: placeTabBeside(withOpen.openIds, anchor, id),
         };
       });
     },
-    []
+    [activeId]
   );
+
+  const reorder = useCallback((fromId: string, toId: string) => {
+    setState((prev) => reorderNoteTabs(prev, fromId, toId));
+  }, []);
 
   const value = useMemo<Ctx>(
     () => ({
@@ -184,8 +211,9 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
       activate,
       setSplit,
       toggleSplitWith,
+      reorder,
     }),
-    [state.openIds, state.splitId, activeId, open, close, activate, setSplit, toggleSplitWith]
+    [state.openIds, state.splitId, activeId, open, close, activate, setSplit, toggleSplitWith, reorder]
   );
 
   return <NoteTabsContext.Provider value={value}>{children}</NoteTabsContext.Provider>;
