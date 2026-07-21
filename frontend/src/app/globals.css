@@ -502,6 +502,14 @@ button, input, textarea, select {
   padding: 0.3rem;
   box-shadow: var(--shadow);
 }
+.cdb-add-menu--portal {
+  position: fixed;
+  right: auto;
+  top: auto;
+  z-index: 5200;
+  overflow: auto;
+  box-shadow: var(--shadow), 0 16px 40px rgba(15, 23, 42, 0.14);
+}
 .cdb-add-menu button {
   display: block;
   width: 100%;

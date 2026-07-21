@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Note } from "@/lib/firebase";
@@ -33,6 +34,93 @@ import {
 import MenuSelect from "@/components/MenuSelect";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+
+/** Fixed-position menu portaled to body so table overflow cannot clip it. */
+function CdbPortalMenu({
+  open,
+  anchorRef,
+  onClose,
+  className = "",
+  align = "right",
+  children,
+}: {
+  open: boolean;
+  anchorRef: RefObject<HTMLElement | null>;
+  onClose: () => void;
+  className?: string;
+  align?: "left" | "right";
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
+
+  const updatePos = () => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = 240;
+    const pad = 8;
+    let left = align === "right" ? r.right - width : r.left;
+    left = Math.max(pad, Math.min(left, window.innerWidth - width - pad));
+    const spaceBelow = window.innerHeight - r.bottom - pad;
+    const spaceAbove = r.top - pad;
+    const placeBelow = spaceBelow >= 180 || spaceBelow >= spaceAbove;
+    const maxHeight = Math.max(160, Math.min(360, placeBelow ? spaceBelow : spaceAbove));
+    const top = placeBelow ? r.bottom + 4 : Math.max(pad, r.top - maxHeight - 4);
+    setPos({ top, left, maxHeight });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    updatePos();
+  }, [open, align]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onReposition = () => updatePos();
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  }, [open, onClose, anchorRef]);
+
+  if (!open || !pos || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className={`cdb-add-menu cdb-add-menu--portal ${className}`.trim()}
+      style={{
+        position: "fixed",
+        top: pos.top,
+        left: pos.left,
+        maxHeight: pos.maxHeight,
+        zIndex: 5200,
+      }}
+      role="menu"
+    >
+      {children}
+    </div>,
+    document.body
+  );
+}
 
 type Props = {
   databaseId: string;
@@ -101,6 +189,8 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [activeViewId, setActiveViewId] = useState(viewId || "");
   const [addOpen, setAddOpen] = useState(false);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const addPropBtnRef = useRef<HTMLButtonElement>(null);
+  const viewAddBtnRef = useRef<HTMLButtonElement>(null);
   const [panel, setPanel] = useState<"filter" | "sort" | "props" | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
@@ -262,21 +352,26 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             ))}
             <div className="cdb-view-add-wrap">
               <button
+                ref={viewAddBtnRef}
                 type="button"
                 className="cdb-view-tab cdb-view-add"
                 onClick={() => setViewMenuOpen((v) => !v)}
               >
                 + 視圖
               </button>
-              {viewMenuOpen && (
-                <div className="cdb-add-menu cdb-view-menu">
-                  {VIEW_TYPES.map((v) => (
-                    <button key={v.type} type="button" onClick={() => void addView(v.type)}>
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <CdbPortalMenu
+                open={viewMenuOpen}
+                anchorRef={viewAddBtnRef}
+                onClose={() => setViewMenuOpen(false)}
+                className="cdb-view-menu"
+                align="left"
+              >
+                {VIEW_TYPES.map((v) => (
+                  <button key={v.type} type="button" onClick={() => void addView(v.type)}>
+                    {v.label}
+                  </button>
+                ))}
+              </CdbPortalMenu>
             </div>
           </div>
           <div className="cdb-ops">
@@ -455,23 +550,35 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                   </th>
                 ))}
                 <th className="cdb-th-add">
-                  <button type="button" className="cdb-add-prop" onClick={() => setAddOpen((v) => !v)}>
+                  <button
+                    ref={addPropBtnRef}
+                    type="button"
+                    className="cdb-add-prop"
+                    onClick={() => setAddOpen((v) => !v)}
+                    aria-expanded={addOpen}
+                    aria-haspopup="menu"
+                    title="新增屬性"
+                  >
                     +
                   </button>
-                  {addOpen && (
-                    <div className="cdb-add-menu cdb-add-menu--wide">
-                      {["基本", "選項", "聯絡", "進階", "系統"].map((g) => (
-                        <div key={g} className="cdb-add-group">
-                          <strong>{g}</strong>
-                          {ADDABLE.filter((a) => a.group === g).map((a) => (
-                            <button key={a.type} type="button" onClick={() => void addProp(a.type)}>
-                              {a.label}
-                            </button>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <CdbPortalMenu
+                    open={addOpen}
+                    anchorRef={addPropBtnRef}
+                    onClose={() => setAddOpen(false)}
+                    className="cdb-add-menu--wide"
+                    align="right"
+                  >
+                    {["基本", "選項", "聯絡", "進階", "系統"].map((g) => (
+                      <div key={g} className="cdb-add-group">
+                        <strong>{g}</strong>
+                        {ADDABLE.filter((a) => a.group === g).map((a) => (
+                          <button key={a.type} type="button" onClick={() => void addProp(a.type)}>
+                            {a.label}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </CdbPortalMenu>
                 </th>
               </tr>
             </thead>
