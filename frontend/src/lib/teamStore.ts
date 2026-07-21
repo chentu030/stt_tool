@@ -985,6 +985,10 @@ export type TeamCanvas = {
   body: string;
   updated_at: Date;
   updated_by?: string;
+  /** Linked Albireus whiteboard (`/canvas/[id]`) */
+  whiteboard_id?: string;
+  /** Companion note id for the whiteboard page */
+  note_id?: string;
 };
 
 export function listenTeamCanvas(
@@ -1003,6 +1007,8 @@ export function listenTeamCanvas(
       body: String(data.body || ""),
       updated_at: data.updated_at?.toDate?.() || new Date(),
       updated_by: data.updated_by ? String(data.updated_by) : undefined,
+      whiteboard_id: data.whiteboard_id ? String(data.whiteboard_id) : undefined,
+      note_id: data.note_id ? String(data.note_id) : undefined,
     });
   });
 }
@@ -1010,19 +1016,25 @@ export function listenTeamCanvas(
 export async function saveTeamCanvas(
   teamId: string,
   uid: string,
-  patch: { title?: string; body?: string }
+  patch: {
+    title?: string;
+    body?: string;
+    whiteboard_id?: string;
+    note_id?: string;
+  }
 ): Promise<void> {
   const ref = doc(collection(db, "teams", teamId, "meta"), "canvas");
-  await setDoc(
-    ref,
-    {
-      title: (patch.title ?? "團隊 Canvas").trim().slice(0, 80) || "團隊 Canvas",
-      body: patch.body ?? "",
-      updated_at: Timestamp.now(),
-      updated_by: uid,
-    },
-    { merge: true }
-  );
+  const data: Record<string, unknown> = {
+    updated_at: Timestamp.now(),
+    updated_by: uid,
+  };
+  if (patch.title !== undefined) {
+    data.title = patch.title.trim().slice(0, 80) || "團隊 Canvas";
+  }
+  if (patch.body !== undefined) data.body = patch.body;
+  if (patch.whiteboard_id !== undefined) data.whiteboard_id = patch.whiteboard_id;
+  if (patch.note_id !== undefined) data.note_id = patch.note_id;
+  await setDoc(ref, data, { merge: true });
 }
 
 /** Forward a message into another channel (quote-style text). */

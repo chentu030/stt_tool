@@ -11,6 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle } from "@/lib/firebase";
 import { askChoice, askPrompt, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import { createWorkspacePage } from "@/lib/workspacePages";
 import {
   createTeam,
   listenUserTeams,
@@ -29,6 +30,7 @@ import {
   listRecentTeamFiles,
   listenTeamCanvas,
   saveTeamCanvas,
+  shareNoteToChannel,
   type TeamMembership,
   type Channel,
   type Member,
@@ -421,6 +423,71 @@ export default function TeamHub() {
       setError(e instanceof Error ? e.message : "儲存 Canvas 失敗");
     } finally {
       setCanvasBusy(false);
+    }
+  };
+
+  const openOrCreateWhiteboard = async () => {
+    if (!user || !canvasTeamId) return;
+    setCanvasBusy(true);
+    try {
+      if (canvas?.whiteboard_id) {
+        router.push(`/canvas/${canvas.whiteboard_id}`);
+        return;
+      }
+      const teamName = teams.find((t) => t.id === canvasTeamId)?.name || "團隊";
+      const page = await createWorkspacePage(user.uid, "canvas", {
+        name: `${teamName} 白板`,
+        tags: ["team", "canvas"],
+      });
+      const wbId = page.href.match(/\/canvas\/([^/?]+)/)?.[1] || "";
+      await saveTeamCanvas(canvasTeamId, user.uid, {
+        title: canvasTitle || `${teamName} Canvas`,
+        body: canvasBody,
+        whiteboard_id: wbId,
+        note_id: page.noteId,
+      });
+      toast("已建立 Albireus 白板");
+      router.push(page.href);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "建立白板失敗");
+    } finally {
+      setCanvasBusy(false);
+    }
+  };
+
+  const shareWhiteboardToChannel = async () => {
+    if (!user || !canvasTeamId || !canvas?.whiteboard_id) {
+      setError("請先開啟／建立白板");
+      return;
+    }
+    const chs = (bundles[canvasTeamId]?.channels || []).filter((c) => !c.dm_key);
+    if (!chs.length) {
+      setError("此團隊尚無公開頻道");
+      return;
+    }
+    const pick = await askChoice({
+      title: "分享白板到頻道",
+      options: chs.map((c) => ({ id: c.id, label: `#${c.name}` })),
+    });
+    if (!pick) return;
+    try {
+      const noteId = canvas.note_id;
+      if (!noteId) {
+        setError("找不到白板筆記，請重新建立白板");
+        return;
+      }
+      await shareNoteToChannel({
+        teamId: canvasTeamId,
+        channelId: pick.choice,
+        author_id: user.uid,
+        author_name: displayName || undefined,
+        note_id: noteId,
+        note_title: canvasTitle || "團隊白板",
+        pin: true,
+      });
+      toast("已分享到頻道並釘到知識");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "分享失敗");
     }
   };
 
@@ -1568,15 +1635,38 @@ export default function TeamHub() {
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  disabled={canvasBusy || !canvasTeamId}
-                  onClick={() => void saveCanvas()}
-                >
-                  {canvasBusy ? "儲存中…" : "儲存 Canvas"}
-                </button>
+                <div className="tm-hub-filters">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-soft"
+                    disabled={canvasBusy || !canvasTeamId}
+                    onClick={() => void openOrCreateWhiteboard()}
+                  >
+                    {canvas?.whiteboard_id ? "開啟白板" : "建立白板"}
+                  </button>
+                  {canvas?.whiteboard_id ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      disabled={canvasBusy}
+                      onClick={() => void shareWhiteboardToChannel()}
+                    >
+                      分享到頻道
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={canvasBusy || !canvasTeamId}
+                    onClick={() => void saveCanvas()}
+                  >
+                    {canvasBusy ? "儲存中…" : "儲存文字稿"}
+                  </button>
+                </div>
               </div>
+              <p className="tm-hub-feed-meta" style={{ marginBottom: "0.65rem" }}>
+                文字稿像 Slack Canvas；「建立白板」會連到 Albireus 真・無限白板（對方沒有的圖形協作）。
+              </p>
               <input
                 className="tm-hub-search"
                 style={{ maxWidth: "100%", marginBottom: "0.65rem" }}

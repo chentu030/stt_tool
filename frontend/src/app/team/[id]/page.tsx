@@ -15,7 +15,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { askPrompt, askConfirm, askChoice } from "@/lib/dialogs";
-import { createNote } from "@/lib/firebase";
+import { createNote, updateNote } from "@/lib/firebase";
+import { createWorkspacePage } from "@/lib/workspacePages";
 import { colorForUid } from "@/lib/presence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
 import MenuSelect from "@/components/MenuSelect";
@@ -431,19 +432,37 @@ function TeamRoomInner() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, activeChannel]);
 
-  // Deep link: scroll to & flash a specific message once it's loaded (?msg=…).
+  // Reset deep-link lock when target message changes.
+  useEffect(() => {
+    deepLinkRef.current = false;
+  }, [searchParams.get("msg"), searchParams.get("channel")]);
+
+  // Deep link: scroll to & flash a specific message (?msg=…), with retries until DOM ready.
   useEffect(() => {
     const msgId = searchParams.get("msg");
-    if (!msgId || deepLinkRef.current || messages.length === 0) return;
-    const el = document.querySelector(`[data-msg-id="${msgId}"]`);
-    if (!el) return;
-    deepLinkRef.current = true;
-    window.requestAnimationFrame(() => {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("is-flash");
-      setTimeout(() => el.classList.remove("is-flash"), 2200);
-    });
-  }, [messages, searchParams]);
+    if (!msgId || messages.length === 0) return;
+    let attempts = 0;
+    let cancelled = false;
+    const tryJump = () => {
+      if (cancelled || deepLinkRef.current) return;
+      const root = scrollRef.current;
+      const el = (root || document).querySelector(`[data-msg-id="${msgId}"]`);
+      if (!el) {
+        if (attempts++ < 25) window.setTimeout(tryJump, 120);
+        return;
+      }
+      deepLinkRef.current = true;
+      window.requestAnimationFrame(() => {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("is-flash");
+        window.setTimeout(() => el.classList.remove("is-flash"), 2400);
+      });
+    };
+    tryJump();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, searchParams, activeChannel]);
 
   useEffect(() => {
     if (!id || !activeChannel) {
@@ -1125,6 +1144,48 @@ function TeamRoomInner() {
     }
   };
 
+  const openKnowledgeGraph = async () => {
+    if (!user || !team || pins.length === 0) {
+      setError("請先釘選至少一篇知識筆記");
+      return;
+    }
+    try {
+      const pinList = pins
+        .slice(0, 30)
+        .map((p) => `- ${p.title} → /notes/${p.note_id}`)
+        .join("\n");
+      const page = await createWorkspacePage(user.uid, "graph", {
+        name: `${team.name} 知識圖譜`,
+        tags: ["team", "knowledge"],
+      });
+      await updateNote(page.noteId, {
+        body_md: `團隊「${team.name}」知識釘選種子：\n\n${pinList}`,
+      });
+      toast("已建立知識圖譜（筆記清單已寫入）");
+      router.push(page.href);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "建立圖譜失敗");
+    }
+  };
+
+  const researchFromPins = () => {
+    if (!team || pins.length === 0) {
+      setError("請先釘選至少一篇知識筆記");
+      return;
+    }
+    const topic = `${team.name}：${pins
+      .slice(0, 8)
+      .map((p) => p.title)
+      .join("、")}`;
+    const notes = pins
+      .map((p) => p.note_id)
+      .slice(0, 40)
+      .join(",");
+    router.push(
+      `/research?topic=${encodeURIComponent(topic)}&notes=${encodeURIComponent(notes)}`
+    );
+  };
+
   const doEditMessage = async (m: Message) => {
     if (!id || !activeChannel) return;
     const next = await askPrompt({ title: "編輯訊息", defaultValue: m.text, multiline: true });
@@ -1510,6 +1571,16 @@ function TeamRoomInner() {
 
         <div className="tm-channel-list">
           <p className="tm-channel-label">知識</p>
+          {pins.length > 0 ? (
+            <div className="tm-hub-filters" style={{ marginBottom: "0.45rem", flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-sm btn-soft" onClick={() => void openKnowledgeGraph()}>
+                圖譜
+              </button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={researchFromPins}>
+                研究
+              </button>
+            </div>
+          ) : null}
           {pins.length === 0 ? (
             <p className="tm-sidebar-muted">從訊息釘選筆記，或從筆記「分享到團隊」</p>
           ) : (
