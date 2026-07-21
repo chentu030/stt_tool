@@ -8,10 +8,62 @@ import {
   normalizeLatexFormula,
 } from "@/lib/latexNormalize";
 
+/** Turndown skips "blank" nodes via blankReplacement — empty atom shells must be serialized here. */
+function serializeBlankAtom(node: HTMLElement): string | null {
+  if (node.nodeName === "DIV") {
+    if (
+      node.getAttribute("data-note-embed") != null ||
+      node.classList?.contains("rich-embed")
+    ) {
+      const kind = node.getAttribute("data-kind") || "web";
+      const title = node.getAttribute("data-title") || "embed";
+      const original =
+        node.getAttribute("data-original") || node.getAttribute("data-src") || "";
+      return `\n\n[embed|${kind}|${title}](${original})\n\n`;
+    }
+    if (node.getAttribute("data-cadence-web") === "1") {
+      const url = node.getAttribute("data-url") || "";
+      const title = node.getAttribute("data-title") || "";
+      return `\n\n[web|${title}](${url})\n\n`;
+    }
+    if (node.getAttribute("data-cadence-database") === "1") {
+      const id = node.getAttribute("data-database-id") || "";
+      const viewId = node.getAttribute("data-view-id") || "v_table";
+      return id ? `\n\n[database|${viewId}](${id})\n\n` : "";
+    }
+    if (node.getAttribute("data-cadence-board") === "1") {
+      const id = node.getAttribute("data-board-id") || "";
+      return id ? `\n\n[board](${id})\n\n` : "";
+    }
+    if (node.getAttribute("data-cadence-canvas") === "1") {
+      const id = node.getAttribute("data-canvas-id") || "";
+      return id ? `\n\n[canvas](${id})\n\n` : "";
+    }
+    if (node.getAttribute("data-cadence-graph") === "1") {
+      const id = node.getAttribute("data-graph-id") || "";
+      return id ? `\n\n[graph](${id})\n\n` : "";
+    }
+    if (node.getAttribute("data-note-bookmark") === "1") {
+      const href = node.getAttribute("data-href") || "";
+      const title = node.getAttribute("data-title") || href || "書籤";
+      return `\n\n[bookmark|${title}](${href})\n\n`;
+    }
+    if (node.getAttribute("data-note-toc") === "1") {
+      return "\n\n<!-- toc -->\n\n";
+    }
+  }
+  return null;
+}
+
 const turndown = new TurndownService({
   headingStyle: "atx",
   codeBlockStyle: "fenced",
   bulletListMarker: "-",
+  blankReplacement: (content, node) => {
+    const atom = serializeBlankAtom(node as HTMLElement);
+    if (atom != null) return atom;
+    return (node as { isBlock?: boolean }).isBlock ? "\n\n" : "";
+  },
 });
 
 turndown.addRule("strikethrough", {
@@ -557,7 +609,9 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     if (!raw) {
       const k = kind || "web";
       const t = title || k;
-      return `<div class="rich-embed rich-embed--${escapeAttr(k)} is-empty" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="" data-original="" data-frameable="1"></div>`;
+      const token = `[embed|${k}|${t}]()`;
+      // Keep text content so Turndown does not treat the shell as a blank node.
+      return `<div class="rich-embed rich-embed--${escapeAttr(k)} is-empty" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="" data-original="" data-frameable="1">${escapeHtml(token)}</div>`;
     }
     const emb = resolveEmbedUrl(raw, String(title || ""));
     const k = emb?.kind || kind || "web";
@@ -565,7 +619,8 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     const t = title || emb?.title || k;
     const frameable = emb ? emb.frameable : k !== "link" && k !== "web";
     const cardClass = frameable ? "" : " rich-embed--card";
-    return `<div class="rich-embed rich-embed--${escapeAttr(k)}${cardClass}" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(raw)}" data-frameable="${frameable ? "1" : "0"}"></div>`;
+    const token = `[embed|${k}|${t}](${raw})`;
+    return `<div class="rich-embed rich-embed--${escapeAttr(k)}${cardClass}" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(raw)}" data-frameable="${frameable ? "1" : "0"}">${escapeHtml(token)}</div>`;
   });
 
   s = s.replace(/\[bookmark\|([^\]]*)\]\(([^)]*)\)/g, (_m, title, href) => {
@@ -833,7 +888,10 @@ export function htmlToMarkdown(html: string): string {
         const title = el.getAttribute("data-title") || "embed";
         const original =
           el.getAttribute("data-original") || el.getAttribute("data-src") || "";
-        el.replaceWith(doc.createTextNode(park(`\n\n[embed|${kind}|${title}](${original})\n\n`)));
+        // Wrap in <p> so Turndown keeps the placeholder (orphan text nodes can be dropped).
+        const p = doc.createElement("p");
+        p.textContent = park(`\n\n[embed|${kind}|${title}](${original})\n\n`);
+        el.replaceWith(p);
       });
       doc.querySelectorAll("[data-cadence-database]").forEach((el) => {
         const id = el.getAttribute("data-database-id") || "";

@@ -1780,6 +1780,9 @@ function NotePageInner() {
               onChangeMd={(md) => {
                 // Ignore spurious empty updates that would wipe a loaded note via autosave.
                 if (!md.trim() && body.trim()) return;
+                // Keep latest in sync immediately so captureDraft / ingest write-back
+                // don't snapshot a stale body (e.g. YouTube URL not yet in React state).
+                latest.current = { ...latest.current, body: md };
                 setBody(md);
                 markDirty();
               }}

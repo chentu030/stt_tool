@@ -1683,7 +1683,9 @@ export default function RichNoteEditor({
     if (htmlToMarkdown(editor.getHTML()) !== (valueMd || "").trim()) {
       editor.commands.setContent(next, { emitUpdate: false });
     }
-  }, [valueMd, editor, wikiNotes]);
+    // Intentionally omit wikiNotes: resolveWikiRef is a ref; listing all notes must not
+    // re-setContent (that was wiping YouTube embeds after transcription finished).
+  }, [valueMd, editor]);
 
   // Re-resolve embed src from original URL when loading markdown (src may equal original)
   useEffect(() => {
