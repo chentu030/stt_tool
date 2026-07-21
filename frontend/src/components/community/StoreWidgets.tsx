@@ -29,20 +29,40 @@ export function StarRow({
   size?: "sm" | "md";
 }) {
   const cls = size === "sm" ? "community-stars is-sm" : "community-stars";
+  const interactive = Boolean(onChange);
+  const clamped = Math.max(0, Math.min(5, Number.isFinite(value) ? value : 0));
   return (
-    <div className={cls} role={onChange ? "radiogroup" : "img"} aria-label={`${value} 星`}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button
-          key={n}
-          type="button"
-          className={n <= Math.round(value) ? "is-on" : ""}
-          disabled={!onChange}
-          onClick={() => onChange?.(n)}
-          aria-label={`${n} 星`}
-        >
-          ★
-        </button>
-      ))}
+    <div
+      className={cls}
+      role={interactive ? "radiogroup" : "img"}
+      aria-label={`${clamped.toFixed(1)} 星`}
+    >
+      {[1, 2, 3, 4, 5].map((n) => {
+        const fill = interactive
+          ? n <= Math.round(clamped)
+            ? 1
+            : 0
+          : Math.max(0, Math.min(1, clamped - (n - 1)));
+        return (
+          <button
+            key={n}
+            type="button"
+            className={fill >= 0.999 ? "is-on" : fill > 0 ? "is-partial" : ""}
+            style={{ ["--star-fill" as string]: `${Math.round(fill * 100)}%` }}
+            disabled={!interactive}
+            onClick={() => onChange?.(n)}
+            aria-label={`${n} 星`}
+            aria-checked={interactive ? n === Math.round(clamped) : undefined}
+          >
+            <span className="community-star-base" aria-hidden>
+              ★
+            </span>
+            <span className="community-star-fill" aria-hidden>
+              ★
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -125,9 +145,14 @@ export function PackageCard({
       <div className="community-card-meta">
         <StarRow value={rating.value} size="sm" />
         <span>{rating.label}</span>
-        {typeof entry.downloads === "number" && (
-          <span>· {entry.downloads.toLocaleString()} 次</span>
-        )}
+        {typeof entry.downloads === "number" ? (
+          <span>
+            ·{" "}
+            {entry.downloads > 0
+              ? `${entry.downloads.toLocaleString()} 次下載`
+              : "尚無下載"}
+          </span>
+        ) : null}
       </div>
       {entry.tags && entry.tags.length > 0 && (
         <div className="community-tags">

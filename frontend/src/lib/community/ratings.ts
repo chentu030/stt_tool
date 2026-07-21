@@ -76,10 +76,12 @@ export function displayRating(seed: number | undefined, user: PackageRating | nu
   label: string;
 } {
   if (user?.stars) {
-    return { value: user.stars, label: `你的評分 ${user.stars}` };
+    const v = Math.max(1, Math.min(5, user.stars));
+    return { value: v, label: `你的評分 ${v}` };
   }
   if (typeof seed === "number" && seed > 0) {
-    return { value: seed, label: seed.toFixed(1) };
+    const v = Math.max(0, Math.min(5, seed));
+    return { value: v, label: v.toFixed(1) };
   }
   return { value: 0, label: "尚無評分" };
 }

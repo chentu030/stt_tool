@@ -1494,20 +1494,42 @@ html.is-note-app-embed .community-page > .page-chrome {
 .community-stars {
   display: inline-flex;
   gap: 0.05rem;
+  align-items: center;
 }
 .community-stars button {
+  position: relative;
   border: none;
   background: transparent;
-  color: var(--border);
+  color: transparent;
   cursor: default;
   font-size: 0.95rem;
   padding: 0;
   line-height: 1;
+  width: 1em;
+  height: 1em;
 }
 .community-stars button:not(:disabled) {
   cursor: pointer;
 }
-.community-stars button.is-on {
+.community-star-base,
+.community-star-fill {
+  display: block;
+  line-height: 1;
+}
+.community-star-base {
+  color: color-mix(in srgb, var(--text-muted) 45%, var(--border));
+}
+.community-star-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--star-fill, 0%);
+  overflow: hidden;
+  color: #e6a817;
+  pointer-events: none;
+}
+.community-stars button.is-on .community-star-fill,
+.community-stars button.is-partial .community-star-fill {
   color: #e6a817;
 }
 .community-stars.is-sm button {
