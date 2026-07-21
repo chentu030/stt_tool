@@ -1224,7 +1224,8 @@ button, input, textarea, select {
 .community-page {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 1.25rem 1.25rem 3rem;
+  /* No top pad — .page-chrome already pulls flush to app-main via negative margin */
+  padding: 0 1.25rem 3rem;
 }
 .community-hero {
   display: flex;
@@ -1233,6 +1234,10 @@ button, input, textarea, select {
   gap: 1rem;
   flex-wrap: wrap;
   margin-bottom: 1.25rem;
+}
+/* Inside note/web embeds, app-main pad is 0 — don't pull hero under the tab strip */
+html.is-note-app-embed .community-page > .page-chrome {
+  margin-top: 0;
 }
 .community-hero-actions {
   display: flex;
@@ -2135,7 +2140,7 @@ button, input, textarea, select {
 }
 @media (max-width: 640px) {
   .community-page {
-    padding: 1rem 0.85rem 2.5rem;
+    padding: 0 0.85rem 2.5rem;
   }
   .community-hero {
     flex-direction: column;
