@@ -585,7 +585,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 onClick={onNavigate}
               >
                 {iconNode}
-                {!iconsOnly && <span>{item.label}</span>}
+                {!iconsOnly && <span className="sidebar-app-label">{item.label}</span>}
               </Link>
               {!iconsOnly && teamUnread + mentionUnread > 0 && (
                 <span
@@ -653,7 +653,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               onClick={onNavigate}
             >
               {iconNode}
-              {!iconsOnly && <span>{item.label}</span>}
+              {!iconsOnly && <span className="sidebar-app-label">{item.label}</span>}
             </Link>
           );
         })}

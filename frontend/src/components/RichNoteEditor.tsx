@@ -13,7 +13,6 @@ import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Underline from "@tiptap/extension-underline";
@@ -28,8 +27,10 @@ import { common, createLowlight } from "lowlight";
 import { markdownToHtml, htmlToMarkdown, formatFileSize, clipboardHasLatex } from "@/lib/mdHtml";
 import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
+import { NoteImage } from "@/lib/tiptapImage";
 import { MathInline, MathBlock, NoteEmbed } from "@/lib/tiptapEmbed";
 import { CadenceDatabase } from "@/lib/tiptapDatabase";
+import { WikiLink, wikiLinkHtml } from "@/lib/tiptapWiki";
 import {
   CadenceBoard,
   CadenceCanvas,
@@ -50,7 +51,7 @@ import { NOTE_TEMPLATES } from "@/lib/templates";
 import { allNoteTemplates } from "@/lib/community/templateBridge";
 import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import { CADENCE_AI_ACTIONS, AI_SLASH_ALIASES } from "@/lib/cadenceAiActions";
-import { resolveEmbedUrl, promptInsertUrl, isYoutubeUrl } from "@/lib/embedUrls";
+import { resolveEmbedUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
@@ -135,12 +136,12 @@ const SLASH_ALIASES: Record<string, string[]> = {
   bookmark: ["bookmark", "web"],
   web: ["web", "bookmark"],
   embed: ["web", "youtube", "drive"],
-  database: ["database", "library"],
-  list: ["list", "library"],
-  gallery: ["gallery", "library"],
-  board: ["board"],
-  calendar: ["calendar", "journal"],
-  timeline: ["timeline", "graph"],
+  database: ["database"],
+  list: ["database"],
+  gallery: ["database"],
+  board: ["board-embed", "board"],
+  calendar: ["journal", "calendar"],
+  timeline: ["graph"],
   sync: ["sync"],
   toc: ["toc"],
   link: ["link"],
@@ -272,6 +273,9 @@ export default function RichNoteEditor({
   slashRef.current = slash;
   const wikiRef = useRef(wiki);
   wikiRef.current = wiki;
+  /** True while caret is inside an unfinished `[[…` so we can finalize on `]]`. */
+  const wikiWasOpenRef = useRef(false);
+  const finalizeWikiRef = useRef<(title: string) => void>(() => {});
   const atRef = useRef(atMenu);
   atRef.current = atMenu;
   const applySlashRef = useRef<(item: SlashItem, arg?: string) => void>(() => {});
@@ -567,12 +571,27 @@ export default function RichNoteEditor({
     return true;
   }, []);
 
-  const insertEmbedFromPrompt = useCallback((hint: string, presetUrl?: string) => {
-    void (async () => {
-      const url = (presetUrl || "").trim() || (await promptInsertUrl(hint));
-      if (!url?.trim()) return;
-      insertEmbedUrl(url.trim());
-    })();
+  const insertEmptyEmbed = useCallback((kind: string, presetUrl?: string) => {
+    const url = (presetUrl || "").trim();
+    if (url) {
+      insertEmbedUrl(url);
+      return;
+    }
+    editorRef.current
+      ?.chain()
+      .focus()
+      .setNoteEmbed({
+        kind,
+        title:
+          kind === "youtube"
+            ? "YouTube"
+            : kind === "drive"
+              ? "Google Drive"
+              : "嵌入網頁",
+        src: null,
+        original: null,
+      })
+      .run();
   }, [insertEmbedUrl]);
 
   const onCreateSubpageRef = useRef(onCreateSubpage);
@@ -612,7 +631,10 @@ export default function RichNoteEditor({
             const title = (arg || "").trim() || "未命名子頁";
             const created = await create(title);
             if (!created) return;
-            e.chain().focus().insertContent(`[[${created.title}]]\n`).run();
+            e.chain()
+              .focus()
+              .insertContent(`${wikiLinkHtml(created.title, created.id)}\n`)
+              .run();
           })();
         },
       });
@@ -716,10 +738,9 @@ export default function RichNoteEditor({
           })();
         },
       },
-      app("board", "看板", "/board", "/board Kanban"),
-      app("calendar", "行事曆／日誌", "/journal", "/calendar 日誌"),
-      app("list", "清單檢視", "/library", "/list 知識庫清單"),
-      app("gallery", "畫廊", "/library", "/gallery 知識庫"),
+      app("library", "知識庫", "/library", "開啟知識庫"),
+      app("journal", "日誌", "/journal", "開啟日誌頁"),
+      app("graph", "圖譜", "/graph", "開啟關聯圖譜"),
       {
         id: "board-embed",
         label: "嵌入看板",
@@ -789,24 +810,20 @@ export default function RichNoteEditor({
       },
       {
         id: "web-embed",
-        label: "嵌入網頁",
-        hint: "/網頁 網址 ⏎",
+        label: "嵌入網頁（瀏覽列）",
+        hint: "/網頁 · 筆記內輸入網址",
         run: (e, arg) => {
-          void (async () => {
-            const raw =
-              (arg || "").trim() ||
-              (await askPrompt("網頁網址", "https://")) ||
-              "";
-            const url = normalizeWebUrl(raw);
-            if (!url) return;
-            let title = url;
+          const raw = (arg || "").trim();
+          const url = raw ? normalizeWebUrl(raw) : "";
+          let title = "網頁";
+          if (url) {
             try {
               title = new URL(url).hostname.replace(/^www\./, "");
             } catch {
-              /* keep */
+              title = url;
             }
-            e.chain().focus().setCadenceWeb({ url, title }).run();
-          })();
+          }
+          e.chain().focus().setCadenceWeb({ url: url || "", title }).run();
         },
       },
       {
@@ -848,10 +865,6 @@ export default function RichNoteEditor({
           })();
         },
       },
-      app("library", "知識庫", "/library", "筆記庫"),
-      app("journal", "日誌", "/journal", "日記與行事曆"),
-      app("timeline", "時間軸／圖譜", "/graph", "關聯圖譜"),
-      app("graph", "圖譜總覽", "/graph", "關聯圖譜"),
       { id: "image", label: "圖片", hint: "/image ⏎ 上傳圖片", run: () => imageRef.current?.click() },
       {
         id: "create-photo",
@@ -865,25 +878,18 @@ export default function RichNoteEditor({
       {
         id: "bookmark",
         label: "網頁書籤",
-        hint: "/bookmark 網址 ⏎",
+        hint: "/bookmark · 筆記內輸入網址",
         run: (e, arg) => {
-          void (async () => {
-            const url = (arg || "").trim() || (await askPrompt("書籤網址", "https://"));
-            if (!url?.trim()) return;
-            let title = url.trim();
+          const url = (arg || "").trim();
+          let title = "書籤";
+          if (url) {
             try {
-              title = new URL(url.trim()).hostname;
+              title = new URL(url).hostname.replace(/^www\./, "");
             } catch {
-              /* keep */
+              title = url;
             }
-            const custom = arg?.trim()
-              ? title
-              : await askPrompt("書籤標題", title);
-            e.chain()
-              .focus()
-              .setBookmark({ href: url.trim(), title: (custom || title).trim() })
-              .run();
-          })();
+          }
+          e.chain().focus().setBookmark({ href: url, title }).run();
         },
       },
       { id: "video", label: "影片檔", hint: "/video ⏎ 上傳影片", run: () => videoRef.current?.click() },
@@ -892,32 +898,30 @@ export default function RichNoteEditor({
       { id: "file", label: "檔案", hint: "/file ⏎ 上傳任意檔案", run: () => fileRef.current?.click() },
       {
         id: "web",
-        label: "嵌入網頁",
-        hint: "/embed 網址 ⏎",
-        run: (_e, arg) => insertEmbedFromPrompt("網站網址（部分網站可能拒絕嵌入）", arg),
+        label: "嵌入網址",
+        hint: "/embed · 筆記內輸入網址",
+        run: (_e, arg) => insertEmptyEmbed("web", arg),
       },
       {
         id: "youtube",
         label: "YouTube",
-        hint: "/youtube 連結 ⏎",
-        run: (_e, arg) => insertEmbedFromPrompt("YouTube 連結", arg),
+        hint: "/youtube · 筆記內輸入連結",
+        run: (_e, arg) => insertEmptyEmbed("youtube", arg),
       },
       {
         id: "drive",
         label: "Google Drive",
-        hint: "/drive 分享連結 ⏎",
-        run: (_e, arg) => insertEmbedFromPrompt("Google Drive / Docs 分享連結", arg),
+        hint: "/drive · 筆記內輸入連結",
+        run: (_e, arg) => insertEmptyEmbed("drive", arg),
       },
       { id: "ppt", label: "PPT 預覽", hint: "/ppt ⏎ 上傳簡報", run: () => pptRef.current?.click() },
       {
         id: "imglink",
         label: "圖片網址",
-        hint: "/imglink 網址 ⏎",
+        hint: "/imglink · 筆記內輸入網址",
         run: (e, arg) => {
-          void (async () => {
-            const url = (arg || "").trim() || (await askPrompt("圖片網址", "https://"));
-            if (url) e.chain().focus().setImage({ src: url }).run();
-          })();
+          const url = (arg || "").trim();
+          e.chain().focus().setImage({ src: url || "" }).run();
         },
       },
       {
@@ -1093,7 +1097,7 @@ export default function RichNoteEditor({
       }
     );
     return items;
-  }, [insertEmbedFromPrompt, templateList, userId]);
+  }, [insertEmptyEmbed, templateList, userId]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -1127,7 +1131,8 @@ export default function RichNoteEditor({
         autolink: true,
         HTMLAttributes: { class: "rich-link" },
       }),
-      Image.configure({
+      WikiLink,
+      NoteImage.configure({
         allowBase64: false,
         HTMLAttributes: { class: "rich-image" },
       }),
@@ -1213,7 +1218,7 @@ export default function RichNoteEditor({
         // TipTap Link uses openOnClick: false so contenteditable won't follow <a> —
         // open URL / bookmark / file links ourselves.
         const link = target?.closest?.(
-          "a.rich-link, a[data-note-bookmark], a.rich-file, a.rich-bookmark"
+          "a.rich-link, a.rich-file, a.rich-bookmark-body, a[data-note-bookmark]"
         ) as HTMLAnchorElement | null;
         if (link) {
           const href = link.getAttribute("href");
@@ -1465,10 +1470,19 @@ export default function RichNoteEditor({
       );
       const wikiMatch = wikiEnabled ? text.match(/\[\[([^\]]*)$/) : null;
       if (wikiMatch) {
+        wikiWasOpenRef.current = true;
         setWiki({ query: wikiMatch[1], index: 0 });
         setSlash(null);
         setAtMenu(null);
       } else {
+        const closed = wikiEnabled ? text.match(/\[\[([^\]|\n]+)\]\]$/) : null;
+        if (wikiWasOpenRef.current && closed?.[1]?.trim()) {
+          wikiWasOpenRef.current = false;
+          const title = closed[1].trim();
+          queueMicrotask(() => finalizeWikiRef.current(title));
+        } else {
+          wikiWasOpenRef.current = false;
+        }
         setWiki(null);
         const atQ = wikiEnabled ? matchAtQuery(text) : null;
         if (atQ !== null) {
@@ -1581,23 +1595,51 @@ export default function RichNoteEditor({
   );
   applySlashRef.current = applySlash;
 
-  const applyWiki = useCallback(
+  const finalizeWikiAtCursor = useCallback(
     (title: string) => {
       if (!editor) return;
+      const t = title.trim();
+      if (!t) return;
       const { from } = editor.state.selection;
-      const text = editor.state.doc.textBetween(Math.max(0, from - 60), from, "\n");
-      const m = text.match(/\[\[[^\]]*$/);
-      if (m) {
+      const look = editor.state.doc.textBetween(Math.max(0, from - 120), from, "\n");
+      const closed = look.match(/\[\[([^\]|\n]+)\]\]$/);
+      const open = look.match(/\[\[[^\]]*$/);
+      const m = closed || open;
+      if (!m) return;
+      const rawLen = m[0].length;
+      const replaceFrom = from - rawLen;
+      const replaceTo = from;
+
+      void (async () => {
+        let noteId = resolveWikiRef.current(t);
+        let finalTitle = t;
+        if (!noteId && onCreateSubpageRef.current) {
+          const created = await onCreateSubpageRef.current(t);
+          if (created) {
+            noteId = created.id;
+            finalTitle = created.title;
+          }
+        }
+
+        const html = `${wikiLinkHtml(finalTitle, noteId)}\u00a0`;
         editor
           .chain()
           .focus()
-          .deleteRange({ from: from - m[0].length, to: from })
-          .insertContent(`[[${title}]]`)
+          .deleteRange({ from: replaceFrom, to: replaceTo })
+          .insertContent(html)
           .run();
-      }
-      setWiki(null);
+        setWiki(null);
+      })();
     },
     [editor]
+  );
+  finalizeWikiRef.current = finalizeWikiAtCursor;
+
+  const applyWiki = useCallback(
+    (title: string) => {
+      finalizeWikiAtCursor(title);
+    },
+    [finalizeWikiAtCursor]
   );
   applyWikiRef.current = applyWiki;
 
@@ -1641,6 +1683,7 @@ export default function RichNoteEditor({
     editor.state.doc.descendants((node, pos) => {
       if (node.type.name !== "noteEmbed") return;
       const original = node.attrs.original || node.attrs.src;
+      if (!String(original || "").trim()) return;
       const emb = resolveEmbedUrl(original || "", node.attrs.title || "");
       if (!emb) return;
       const nextFrameable = emb.frameable;
@@ -1665,6 +1708,23 @@ export default function RichNoteEditor({
     });
   }, [editor, valueMd]);
 
+  // When embed URL is filled in-note, offer YouTube transcription like paste/slash
+  useEffect(() => {
+    if (!editor) return;
+    const onResolved = (ev: Event) => {
+      const emb = (ev as CustomEvent<{ kind?: string; original?: string; title?: string }>).detail;
+      if (!emb || emb.kind !== "youtube" || !emb.original) return;
+      onTranscribableMediaRef.current?.({
+        kind: "youtube",
+        youtubeUrl: emb.original,
+        label: emb.title || "YouTube",
+      });
+    };
+    const root = editor.view.dom;
+    root.addEventListener("cadence-embed-resolved", onResolved);
+    return () => root.removeEventListener("cadence-embed-resolved", onResolved);
+  }, [editor]);
+
   useEffect(() => {
     const onTpl = (ev: Event) => {
       const detail = (ev as CustomEvent<{ templateId?: string }>).detail;
@@ -1677,15 +1737,23 @@ export default function RichNoteEditor({
     return () => window.removeEventListener("cadence-insert-template", onTpl as EventListener);
   }, []);
 
+  const [linkBar, setLinkBar] = useState<string | null>(null);
+
   const setLink = () => {
     if (!editor) return;
-    void (async () => {
-      const prev = editor.getAttributes("link").href as string | undefined;
-      const url = await askPrompt("連結網址", prev || "https://");
-      if (url === null) return;
-      if (url === "") editor.chain().focus().unsetLink().run();
-      else editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
-    })();
+    const prev = editor.getAttributes("link").href as string | undefined;
+    setLinkBar(prev || "https://");
+  };
+
+  const applyLinkBar = (raw: string | null) => {
+    if (!editor || raw === null) {
+      setLinkBar(null);
+      return;
+    }
+    const url = raw.trim();
+    if (!url) editor.chain().focus().unsetLink().run();
+    else editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    setLinkBar(null);
   };
 
   const replaceAll = () => {
@@ -1924,6 +1992,48 @@ export default function RichNoteEditor({
         </div>
       )}
       {uploadError && <p className="rich-upload-error">{uploadError}</p>}
+      {linkBar !== null && (
+        <div className="rich-link-inline-bar">
+          <span className="rich-bookmark-label">連結</span>
+          <input
+            className="rich-embed-url-input"
+            type="url"
+            inputMode="url"
+            spellCheck={false}
+            placeholder="https://"
+            value={linkBar}
+            autoFocus
+            onChange={(e) => setLinkBar(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                applyLinkBar(linkBar);
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setLinkBar(null);
+              }
+            }}
+            aria-label="連結網址"
+          />
+          <button type="button" className="btn btn-sm" onClick={() => applyLinkBar(linkBar)}>
+            套用
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-soft"
+            onClick={() => {
+              editor.chain().focus().unsetLink().run();
+              setLinkBar(null);
+            }}
+          >
+            移除
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLinkBar(null)}>
+            取消
+          </button>
+        </div>
+      )}
       {showFind && (
         <div className="rich-find rich-find--ribbon">
           <input className="input" placeholder="尋找…" value={findQ} onChange={(e) => setFindQ(e.target.value)} autoFocus />
@@ -1948,7 +2058,6 @@ export default function RichNoteEditor({
         aiContext={aiContext}
         onCreateSubpage={onCreateSubpage}
         onOpenThread={onOpenThread}
-        onSetLink={setLink}
         applyTextColor={applyTextColor}
         applyHighlight={applyHighlight}
         clearTextColor={clearTextColor}
@@ -2188,6 +2297,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     origin: number;
     moved: boolean;
     startY: number;
+    pointerType?: string;
   } | null>(null);
   const dropRef = useRef<number | null>(null);
   const gripRef = useRef(grip);
@@ -2378,9 +2488,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
   const startDrag = (
     index: number,
     parentFrom: number,
-    opts: { clientY: number; shiftKey?: boolean }
+    opts: { clientY: number; shiftKey?: boolean; pointerType?: string }
   ) => {
     const shift = Boolean(opts.shiftKey);
+    const isTouch = opts.pointerType === "touch" || opts.pointerType === "pen";
     const prev = blockSelRef.current;
     let start: number;
     let end: number;
@@ -2414,14 +2525,27 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       origin: index,
       moved: false,
       startY: opts.clientY,
+      pointerType: opts.pointerType || "mouse",
     };
     dropRef.current = start;
     setDropIndex(start);
 
     const canvasEl = editor.view.dom.closest(".rich-canvas") as HTMLElement | null;
     canvasEl?.classList.add("is-block-dragging");
+    canvasEl?.classList.remove("is-block-drag-arming");
     const prevUserSelect = document.body.style.userSelect;
     document.body.style.userSelect = "none";
+    const wasEditable = editor.isEditable;
+    if (isTouch && wasEditable) {
+      editor.setEditable(false);
+    }
+    try {
+      editor.view.dom.blur();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      window.getSelection()?.removeAllRanges();
+    } catch {
+      /* ignore */
+    }
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerType !== "mouse") ev.preventDefault();
@@ -2462,10 +2586,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       dropRef.current = null;
       setDropIndex(null);
       canvasEl?.classList.remove("is-block-dragging");
+      canvasEl?.classList.remove("is-block-drag-arming");
       document.body.style.userSelect = prevUserSelect;
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       document.removeEventListener("pointercancel", onUp);
+      if (isTouch && wasEditable) {
+        editor.setEditable(true);
+      }
       if (!d) return;
 
       if (!d.moved) {
@@ -2474,8 +2602,11 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           anchor: shift && prev && prev.parentFrom === d.parentFrom ? prev.anchor : d.origin,
           focus: d.origin,
         });
-        const pos = siblingBlockPos(editor, d.parentFrom, d.origin);
-        if (pos) editor.chain().focus().setTextSelection(pos.from + 1).run();
+        // Touch: don't focus (opens keyboard). Mouse: place caret in block.
+        if (d.pointerType === "mouse") {
+          const pos = siblingBlockPos(editor, d.parentFrom, d.origin);
+          if (pos) editor.chain().focus().setTextSelection(pos.from + 1).run();
+        }
         return;
       }
 
@@ -2564,12 +2695,17 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (t?.closest?.("a,button,input,textarea,select,label,[contenteditable=false]")) return;
       startX = e.clientX;
       startY = e.clientY;
+      const pointerType = e.pointerType;
       armed = false;
       clearTimer();
+      canvas.classList.add("is-block-drag-arming");
       timer = window.setTimeout(() => {
         timer = null;
         const hit = blockAtPoint(startY, startX);
-        if (!hit) return;
+        if (!hit) {
+          canvas.classList.remove("is-block-drag-arming");
+          return;
+        }
         armed = true;
         try {
           navigator.vibrate?.(10);
@@ -2578,11 +2714,16 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         }
         try {
           window.getSelection()?.removeAllRanges();
+          editor.view.dom.blur();
+          (document.activeElement as HTMLElement | null)?.blur?.();
         } catch {
           /* ignore */
         }
         setGrip(hit);
-        startDragRef.current(hit.index, hit.parentFrom, { clientY: startY });
+        startDragRef.current(hit.index, hit.parentFrom, {
+          clientY: startY,
+          pointerType,
+        });
       }, 420);
     };
 
@@ -2594,9 +2735,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         (Math.abs(e.clientX - startX) > 12 || Math.abs(e.clientY - startY) > 12)
       ) {
         clearTimer();
+        canvas.classList.remove("is-block-drag-arming");
         return;
       }
-      if (armed || dragRef.current) {
+      if (timer != null || armed || dragRef.current) {
         e.preventDefault();
       }
     };
@@ -2604,6 +2746,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     const onPointerEnd = () => {
       clearTimer();
       armed = false;
+      if (!dragRef.current) canvas.classList.remove("is-block-drag-arming");
     };
 
     root.addEventListener("pointerdown", onPointerDown);

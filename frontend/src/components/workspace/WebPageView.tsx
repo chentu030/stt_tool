@@ -5,8 +5,8 @@ import { updateNote, type Note } from "@/lib/firebase";
 import { normalizeWebUrl, webUrlFromNote } from "@/lib/workspacePages";
 import { resolveEmbedUrl, urlLikelyBlocksFraming } from "@/lib/embedUrls";
 import {
+  canEmbedProxy,
   embedProxySrc,
-  isEmbedProxyAllowlisted,
   isGoogleAuthOrLoginUrl,
   shouldAutoDetach,
 } from "@/lib/embedProxy";
@@ -20,36 +20,13 @@ type Props = {
   onUrlChange?: (url: string) => void;
 };
 
-const LS_AUTO_DETACH = "albireus.web.autoDetach";
-const LS_USE_PROXY = "albireus.web.useEmbedProxy";
-
-function readPref(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const v = localStorage.getItem(key);
-    if (v === null) return fallback;
-    return v === "1" || v === "true";
-  } catch {
-    return fallback;
-  }
-}
-
-function writePref(key: string, value: boolean) {
-  try {
-    localStorage.setItem(key, value ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * In-app browser chrome. Cross-origin iframes hide location/history from the parent,
  * so we track address-bar navigations in `stack`, and treat iframe-internal clicks as
  * `inPageDepth` — Back then reloads the last known URL (usually the site you entered).
  *
- * Sites that set X-Frame-Options / CSP frame-ancestors cannot be shown in the iframe
- * (Google login, TPEx, banks, etc.). Default path: auto-open a top-level popup.
- * Experimental: allowlisted public sites can use /api/web/embed-proxy (never Google/banks).
+ * Sites that block framing are loaded via /api/web/embed-proxy (public http(s) only).
+ * Google login / sensitive hosts open in a detached window automatically.
  */
 export default function WebPageView({
   note,
@@ -70,8 +47,6 @@ export default function WebPageView({
   /** Server/header probe: false = site blocks framing */
   const [probeFrameable, setProbeFrameable] = useState<boolean | null>(null);
   const [probeReason, setProbeReason] = useState("");
-  const [autoDetach, setAutoDetach] = useState(true);
-  const [useProxy, setUseProxy] = useState(true);
   const [proxyMode, setProxyMode] = useState(false);
   const [detachStatus, setDetachStatus] = useState<"idle" | "opened" | "blocked">("idle");
   const stackIdxRef = useRef(stackIdx);
@@ -84,14 +59,7 @@ export default function WebPageView({
   const settleUntilRef = useRef(0);
   const activeRef = useRef(active);
   activeRef.current = active;
-  const autoDetachRef = useRef(autoDetach);
-  autoDetachRef.current = autoDetach;
   const lastAutoDetachUrl = useRef("");
-
-  useEffect(() => {
-    setAutoDetach(readPref(LS_AUTO_DETACH, true));
-    setUseProxy(readPref(LS_USE_PROXY, true));
-  }, []);
 
   const markExpectLoad = (url: string | null) => {
     expectLoadRef.current = url;
@@ -156,7 +124,6 @@ export default function WebPageView({
 
   const tryAutoDetach = useCallback(
     (url: string, reason: "denylist" | "probe" | "google") => {
-      if (!autoDetachRef.current) return;
       if (lastAutoDetachUrl.current === url) return;
       lastAutoDetachUrl.current = url;
       openDetached(url);
@@ -165,7 +132,7 @@ export default function WebPageView({
     [openDetached]
   );
 
-  // Known denylist or live header probe — cannot bypass; only detect.
+  // Prefer proxy for public sites that block framing; detach only for login/sensitive.
   useEffect(() => {
     if (!active) {
       setProbeFrameable(null);
@@ -174,24 +141,24 @@ export default function WebPageView({
       return;
     }
 
-    const proxyOk = useProxy && isEmbedProxyAllowlisted(active) && !isGoogleAuthOrLoginUrl(active);
+    const proxyOk = canEmbedProxy(active);
 
-    if (urlLikelyBlocksFraming(active) || isGoogleAuthOrLoginUrl(active)) {
+    if (isGoogleAuthOrLoginUrl(active) || (!proxyOk && urlLikelyBlocksFraming(active))) {
       setProbeFrameable(false);
       setProbeReason(
         isGoogleAuthOrLoginUrl(active)
           ? "Google 登入禁止嵌入（請用獨立視窗／系統瀏覽器）"
-          : "此網站禁止被嵌入預覽（X-Frame-Options / CSP）"
+          : "此網站無法在頁內預覽（請用獨立視窗）"
       );
-      if (proxyOk) {
-        setProxyMode(true);
-      } else {
-        setProxyMode(false);
-        tryAutoDetach(
-          active,
-          isGoogleAuthOrLoginUrl(active) ? "google" : "denylist"
-        );
-      }
+      setProxyMode(false);
+      tryAutoDetach(active, isGoogleAuthOrLoginUrl(active) ? "google" : "denylist");
+      return;
+    }
+
+    if (urlLikelyBlocksFraming(active)) {
+      setProbeFrameable(false);
+      setProbeReason("此網站禁止被直接嵌入，改以頁內代理顯示");
+      setProxyMode(proxyOk);
       return;
     }
 
@@ -216,16 +183,11 @@ export default function WebPageView({
           if (data.frameable === false) {
             setProbeFrameable(false);
             setProbeReason(data.reason || "伺服器禁止嵌入");
-            const canProxy =
-              useProxy && isEmbedProxyAllowlisted(active) && !isGoogleAuthOrLoginUrl(active);
-            if (canProxy) {
+            if (canEmbedProxy(active)) {
               setProxyMode(true);
             } else {
               tryAutoDetach(active, "probe");
             }
-          } else if (data.frameable === true) {
-            setProbeFrameable(true);
-            setProbeReason("");
           } else {
             setProbeFrameable(true);
             setProbeReason("");
@@ -242,7 +204,7 @@ export default function WebPageView({
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [active, useProxy, tryAutoDetach]);
+  }, [active, tryAutoDetach]);
 
   const canBack = inPageDepth > 0 || stackIdx > 0;
   const canForward = inPageDepth === 0 && stackIdx >= 0 && stackIdx < stack.length - 1;
@@ -254,7 +216,7 @@ export default function WebPageView({
       return r;
     }
     const blocks = probeFrameable === false || urlLikelyBlocksFraming(active);
-    const usePx = blocks && proxyMode && isEmbedProxyAllowlisted(active);
+    const usePx = blocks && proxyMode && canEmbedProxy(active);
     return {
       kind: "web" as const,
       src: usePx ? embedProxySrc(active) : active,
@@ -281,12 +243,8 @@ export default function WebPageView({
       setDraft(next);
       setFrameKey((k) => k + 1);
 
-      // Same user-gesture tick: open popup for known blockers / Google (avoids popup blocker)
-      const preferProxy =
-        readPref(LS_USE_PROXY, true) &&
-        isEmbedProxyAllowlisted(next) &&
-        !isGoogleAuthOrLoginUrl(next);
-      if (readPref(LS_AUTO_DETACH, true) && shouldAutoDetach(next) && !preferProxy) {
+      // Same user-gesture tick: open popup for login/sensitive (avoids popup blocker)
+      if (shouldAutoDetach(next) && !canEmbedProxy(next)) {
         openDetached(next);
         lastAutoDetachUrl.current = next;
       }
@@ -438,9 +396,6 @@ export default function WebPageView({
   }, [active]);
 
   const showBlocked = Boolean(active && resolved && !resolved.frameable);
-  const showProxiedFrame = Boolean(
-    active && resolved?.frameable && "viaProxy" in resolved && resolved.viaProxy
-  );
 
   return (
     <div className={`web-page-view${compact ? " is-compact" : ""}`}>
@@ -518,43 +473,11 @@ export default function WebPageView({
           </a>
         ) : null}
       </div>
-      <div className="web-page-prefs" aria-label="嵌入偏好">
-        <label className="web-page-pref">
-          <input
-            type="checkbox"
-            checked={autoDetach}
-            onChange={(e) => {
-              const v = e.target.checked;
-              setAutoDetach(v);
-              writePref(LS_AUTO_DETACH, v);
-            }}
-          />
-          無法嵌入時自動開獨立視窗
-        </label>
-        <label className="web-page-pref">
-          <input
-            type="checkbox"
-            checked={useProxy}
-            onChange={(e) => {
-              const v = e.target.checked;
-              setUseProxy(v);
-              writePref(LS_USE_PROXY, v);
-              if (active && isEmbedProxyAllowlisted(active)) {
-                lastAutoDetachUrl.current = "";
-                setFrameKey((k) => k + 1);
-              }
-            }}
-          />
-          允許名單站用實驗性代理嵌入
-        </label>
-      </div>
       <div className="web-page-stage">
         {!active ? (
           <div className="web-page-empty">
             <p>輸入網址，把這個分頁當成瀏覽器使用。</p>
-            <p className="web-page-hint">
-              Google 登入會自動開獨立視窗；櫃買／證交所可走實驗性代理（公開頁，不含登入）。
-            </p>
+            <p className="web-page-hint">登入頁會自動開獨立視窗；一般公開站可直接在此瀏覽。</p>
           </div>
         ) : showBlocked ? (
           <div className="web-page-blocked">
@@ -562,8 +485,7 @@ export default function WebPageView({
               {hostLabel || "此網站"}無法嵌入預覽
             </p>
             <p>
-              對方用安全政策禁止被 iframe 顯示（例如 Google 登入、櫃買中心）。
-              瀏覽器不允許網頁應用程式繞過這層限制。
+              此為登入或敏感頁面，無法在頁內顯示。請用獨立視窗或系統瀏覽器開啟。
             </p>
             {probeReason && probeReason !== "檢查中…" ? (
               <p className="web-page-hint">{probeReason}</p>
@@ -583,43 +505,19 @@ export default function WebPageView({
               <a className="btn btn-soft" href={active} target="_blank" rel="noopener noreferrer">
                 用系統瀏覽器開啟
               </a>
-              {isEmbedProxyAllowlisted(active) ? (
-                <button
-                  type="button"
-                  className="btn btn-soft"
-                  onClick={() => {
-                    setUseProxy(true);
-                    writePref(LS_USE_PROXY, true);
-                    setProxyMode(true);
-                    setFrameKey((k) => k + 1);
-                  }}
-                >
-                  改用實驗性代理嵌入
-                </button>
-              ) : null}
             </div>
           </div>
         ) : (
-          <>
-            {showProxiedFrame ? (
-              <div className="web-page-proxy-banner">
-                實驗性代理中（{hostLabel}）· 登入／Google 請改獨立視窗
-                <button type="button" className="web-page-btn" onClick={() => openDetached()}>
-                  ▢ 獨立視窗
-                </button>
-              </div>
-            ) : null}
-            <iframe
-              ref={frameRef}
-              key={`${active}-${frameKey}-${proxyMode ? "p" : "d"}`}
-              className="web-page-frame"
-              src={resolved?.src || active}
-              title={resolved?.title || "網頁"}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
-              referrerPolicy="no-referrer-when-downgrade"
-              onLoad={onFrameLoad}
-            />
-          </>
+          <iframe
+            ref={frameRef}
+            key={`${active}-${frameKey}-${proxyMode ? "p" : "d"}`}
+            className="web-page-frame"
+            src={resolved?.src || active}
+            title={resolved?.title || "網頁"}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+            referrerPolicy="no-referrer-when-downgrade"
+            onLoad={onFrameLoad}
+          />
         )}
       </div>
     </div>

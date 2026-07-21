@@ -6,7 +6,9 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getNote, updateNote } from "@/lib/firebase";
 import RichNoteEditor from "@/components/RichNoteEditor";
+import PageChromeIcon from "@/components/PageChromeIcon";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
+import { normalizePageIcon } from "@/lib/pageChrome";
 
 type Props = {
   noteId: string;
@@ -107,8 +109,10 @@ export default function NoteSplitPane({
     <div className="note-split-pane">
       <div className="note-split-head">
         <Link href={`/notes/${noteId}`} className="note-split-title" title="設為主要分頁">
-          {icon ? `${icon} ` : ""}
-          {title || "未命名"}
+          {normalizePageIcon(icon) ? (
+            <PageChromeIcon icon={icon} fallback="description" className="note-split-title-icon" />
+          ) : null}
+          <span className="note-split-title-text">{title || "未命名"}</span>
         </Link>
         <span className="note-split-status">
           {status === "saving" ? "儲存中" : status === "saved" ? "已存" : status === "dirty" ? "未存" : ""}
@@ -129,7 +133,17 @@ export default function NoteSplitPane({
         >
           ›
         </button>
-        <button type="button" className="note-split-close" onClick={onClose} title="關閉並排">
+        <button
+          type="button"
+          className="note-split-close"
+          title="關閉並排"
+          aria-label="關閉並排"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          }}
+        >
           ×
         </button>
       </div>

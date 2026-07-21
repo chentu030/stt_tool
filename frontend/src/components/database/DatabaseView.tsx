@@ -420,6 +420,39 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 onChange={(dateProp) => void patchActiveView({ dateProp })}
               />
             )}
+            {view?.type === "gallery" && (
+              <>
+                <MenuSelect
+                  variant="toolbar"
+                  size="sm"
+                  ariaLabel="畫廊密度"
+                  value={view.cardDensity || "comfy"}
+                  options={[
+                    { value: "comfy", label: "舒適" },
+                    { value: "compact", label: "緊湊" },
+                  ]}
+                  onChange={(cardDensity) =>
+                    void patchActiveView({
+                      cardDensity: cardDensity as "comfy" | "compact",
+                      cardSize: cardDensity === "compact" ? "s" : "m",
+                    })
+                  }
+                />
+                <MenuSelect
+                  variant="toolbar"
+                  size="sm"
+                  ariaLabel="封面欄"
+                  value={view.coverPropId || ""}
+                  options={[
+                    { value: "", label: "封面：自動" },
+                    ...props
+                      .filter((p) => p.type === "files" || p.type === "url" || p.type === "text")
+                      .map((p) => ({ value: p.id, label: `封面：${p.name}` })),
+                  ]}
+                  onChange={(coverPropId) => void patchActiveView({ coverPropId: coverPropId || undefined })}
+                />
+              </>
+            )}
           </div>
           <input
             className="cdb-search"
@@ -501,7 +534,13 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           onAdd={() => void addRow()}
         />
       ) : view?.type === "gallery" ? (
-        <GalleryView rows={filteredRows} props={props} onOpen={openRow} onAdd={() => void addRow()} />
+        <GalleryView
+          rows={filteredRows}
+          props={props}
+          view={view}
+          onOpen={openRow}
+          onAdd={() => void addRow()}
+        />
       ) : view?.type === "calendar" ? (
         <CalendarView
           rows={filteredRows}
@@ -1317,33 +1356,156 @@ function firstBodyImage(body?: string): string | undefined {
   return html?.[1];
 }
 
+function looksLikeImageUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url) && /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i.test(url);
+}
+
+function resolveGalleryCover(
+  row: Note,
+  props: DbProperty[],
+  coverPropId?: string
+): string | undefined {
+  if (coverPropId) {
+    const prop = props.find((p) => p.id === coverPropId);
+    if (prop) {
+      if (prop.type === "files") {
+        const files = (getCellValue(row, prop) as DbFileValue[]) || [];
+        const hit = files.find((f) => looksLikeImageUrl(f.url) || /\.(png|jpe?g|gif|webp|svg)/i.test(f.name || ""));
+        if (hit?.url) return hit.url;
+      } else {
+        const raw = String(getCellValue(row, prop) || "").trim();
+        if (raw && looksLikeImageUrl(raw)) return raw;
+        if (raw && /^https?:\/\//i.test(raw)) return raw;
+      }
+    }
+  }
+  for (const prop of props) {
+    if (prop.type !== "files") continue;
+    const files = (getCellValue(row, prop) as DbFileValue[]) || [];
+    const hit = files.find((f) => looksLikeImageUrl(f.url) || /\.(png|jpe?g|gif|webp|svg)/i.test(f.name || ""));
+    if (hit?.url) return hit.url;
+  }
+  return firstBodyImage(row.body_md);
+}
+
+function defaultCardPropIds(props: DbProperty[], view?: DbView): string[] {
+  if (view?.cardPropIds?.length) return view.cardPropIds.slice(0, 3);
+  const prefer = new Set(["status", "select", "tags", "date", "datetime", "number"]);
+  const skip = new Set(["title", "files", "formula", "rollup", "relation"]);
+  const out: string[] = [];
+  for (const p of props) {
+    if (skip.has(p.type) || p.type === "title") continue;
+    if (prefer.has(p.type) || p.type === "text" || p.type === "url") {
+      out.push(p.id);
+      if (out.length >= 3) break;
+    }
+  }
+  return out;
+}
+
+function formatGalleryProp(row: Note, prop: DbProperty): string {
+  const v = getCellValue(row, prop);
+  if (v == null || v === "") return "";
+  if (prop.type === "status" || prop.type === "select") {
+    const opt = prop.options?.find((o) => o.id === v || o.label === v);
+    return opt?.label || String(v);
+  }
+  if (prop.type === "tags" && Array.isArray(v)) {
+    return v.map(String).slice(0, 3).join(" · ");
+  }
+  if (prop.type === "date" || prop.type === "datetime") {
+    const d = typeof v === "string" || typeof v === "number" ? new Date(v) : null;
+    if (d && !Number.isNaN(d.getTime())) return d.toLocaleDateString("zh-TW");
+  }
+  if (prop.type === "url") {
+    try {
+      return new URL(String(v)).hostname.replace(/^www\./, "");
+    } catch {
+      return "連結";
+    }
+  }
+  if (prop.type === "files") return "";
+  return String(v);
+}
+
 function GalleryView({
   rows,
   props,
+  view,
   onOpen,
   onAdd,
 }: {
   rows: Note[];
   props: DbProperty[];
+  view: DbView;
   onOpen: (id: string) => void;
   onAdd: () => void;
 }) {
-  const fileProp = props.find((p) => p.type === "files");
+  const density = view.cardDensity || "comfy";
+  const size = view.cardSize || (density === "compact" ? "s" : "m");
+  const cardPropIds = defaultCardPropIds(props, view);
+  const cardProps = cardPropIds
+    .map((id) => props.find((p) => p.id === id))
+    .filter(Boolean) as DbProperty[];
+
+  if (!rows.length) {
+    return (
+      <div className="cdb-gallery-empty">
+        <p>用畫廊瀏覽封面與狀態</p>
+        <button type="button" className="btn" onClick={onAdd}>
+          新增第一筆
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="cdb-gallery">
+    <div className={`cdb-gallery cdb-gallery--${size}`} data-density={density}>
       {rows.map((row) => {
-        const files = fileProp ? ((getCellValue(row, fileProp) as DbFileValue[]) || []) : [];
-        const cover =
-          files.find((f) => /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(f.url))?.url ||
-          firstBodyImage(row.body_md);
+        const cover = resolveGalleryCover(row, props, view.coverPropId);
+        const title = row.title || "未命名";
+        const initial = title.trim().charAt(0) || "·";
+        const textProps = cardProps.filter((p) => p.type === "text");
+        const subtitleProp = textProps[0];
+        const subtitle = subtitleProp ? formatGalleryProp(row, subtitleProp) : "";
+        const chipProps = cardProps.filter((p) => p.id !== subtitleProp?.id);
         return (
-          <button key={row.id} type="button" className="cdb-gallery-card" onClick={() => onOpen(row.id)}>
+          <button
+            key={row.id}
+            type="button"
+            className="cdb-gallery-card"
+            onClick={() => onOpen(row.id)}
+          >
             <div
-              className="cdb-gallery-cover"
+              className={`cdb-gallery-cover${cover ? "" : " is-empty"}`}
               style={cover ? { backgroundImage: `url(${cover})` } : undefined}
+              data-initial={cover ? undefined : initial}
             />
-            <strong>{row.title || "未命名"}</strong>
-            <span>{(row.body_md || "").replace(/[#>*`\[\]]/g, "").slice(0, 90) || "點擊開啟完整頁面"}</span>
+            <div className="cdb-gallery-meta">
+              <strong>{title}</strong>
+              {subtitle ? <span className="cdb-gallery-sub">{subtitle}</span> : null}
+              {chipProps.length > 0 ? (
+                <div className="cdb-gallery-chips">
+                  {chipProps.map((p) => {
+                    const label = formatGalleryProp(row, p);
+                    if (!label) return null;
+                    const opt =
+                      p.type === "status" || p.type === "select"
+                        ? p.options?.find((o) => o.id === getCellValue(row, p) || o.label === getCellValue(row, p))
+                        : null;
+                    return (
+                      <span
+                        key={p.id}
+                        className="cdb-gallery-chip"
+                        style={opt?.color ? { background: `${opt.color}22`, color: opt.color } : undefined}
+                      >
+                        {label}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           </button>
         );
       })}

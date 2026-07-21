@@ -161,7 +161,7 @@ turndown.addRule("cadenceWeb", {
     const el = node as HTMLElement;
     const url = el.getAttribute("data-url") || "";
     const title = el.getAttribute("data-title") || "";
-    return url ? `\n\n[web|${title}](${url})\n\n` : "";
+    return `\n\n[web|${title}](${url})\n\n`;
   },
 });
 
@@ -179,7 +179,6 @@ turndown.addRule("noteEmbed", {
     const kind = el.getAttribute("data-kind") || "web";
     const title = el.getAttribute("data-title") || "embed";
     const original = el.getAttribute("data-original") || el.getAttribute("data-src") || "";
-    if (!original) return "";
     return `\n\n[embed|${kind}|${title}](${original})\n\n`;
   },
 });
@@ -247,16 +246,18 @@ turndown.addRule("tocBlock", {
 });
 
 turndown.addRule("bookmark", {
-  filter: (node) =>
-    node.nodeName === "A" &&
-    (node as HTMLElement).getAttribute("data-note-bookmark") === "1",
+  filter: (node) => {
+    if (node.nodeName !== "A" && node.nodeName !== "DIV") return false;
+    return (node as HTMLElement).getAttribute("data-note-bookmark") === "1";
+  },
   replacement: (_c, node) => {
     const el = node as HTMLElement;
-    const href = el.getAttribute("href") || "";
+    const href = el.getAttribute("data-href") || el.getAttribute("href") || "";
     const title =
       el.getAttribute("data-title") ||
       el.querySelector(".rich-bookmark-title")?.textContent ||
-      href;
+      href ||
+      "書籤";
     return `\n\n[bookmark|${title}](${href})\n\n`;
   },
 });
@@ -501,23 +502,30 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<div class="ws-graph-embed-shell" data-cadence-graph="1" data-graph-id="${escapeAttr(graphId)}"></div>`;
   });
 
-  s = s.replace(/\[web\|([^\]]*)\]\(([^)]+)\)/g, (_m, title, url) => {
-    return `<div class="ws-web-embed-shell" data-cadence-web="1" data-url="${escapeAttr(url)}" data-title="${escapeAttr(title || "")}"></div>`;
+  s = s.replace(/\[web\|([^\]]*)\]\(([^)]*)\)/g, (_m, title, url) => {
+    return `<div class="ws-web-embed-shell" data-cadence-web="1" data-url="${escapeAttr(url || "")}" data-title="${escapeAttr(title || "")}"></div>`;
   });
 
-  s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, original) => {
-    const emb = resolveEmbedUrl(String(original), String(title || ""));
+  s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]*)\)/g, (_m, kind, title, original) => {
+    const raw = String(original || "").trim();
+    if (!raw) {
+      const k = kind || "web";
+      const t = title || k;
+      return `<div class="rich-embed rich-embed--${escapeAttr(k)} is-empty" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="" data-original="" data-frameable="1"></div>`;
+    }
+    const emb = resolveEmbedUrl(raw, String(title || ""));
     const k = emb?.kind || kind || "web";
-    const src = emb?.src || original;
+    const src = emb?.src || raw;
     const t = title || emb?.title || k;
     const frameable = emb ? emb.frameable : k !== "link" && k !== "web";
     const cardClass = frameable ? "" : " rich-embed--card";
-    return `<div class="rich-embed rich-embed--${escapeAttr(k)}${cardClass}" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(original)}" data-frameable="${frameable ? "1" : "0"}"></div>`;
+    return `<div class="rich-embed rich-embed--${escapeAttr(k)}${cardClass}" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(raw)}" data-frameable="${frameable ? "1" : "0"}"></div>`;
   });
 
-  s = s.replace(/\[bookmark\|([^\]]*)\]\(([^)]+)\)/g, (_m, title, href) => {
-    const t = String(title || href).trim() || href;
-    return `<a class="rich-bookmark" data-note-bookmark="1" data-title="${escapeAttr(t)}" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"><span class="rich-bookmark-label">書籤</span><span class="rich-bookmark-title">${escapeHtml(t)}</span><span class="rich-bookmark-url">${escapeHtml(href)}</span></a>`;
+  s = s.replace(/\[bookmark\|([^\]]*)\]\(([^)]*)\)/g, (_m, title, href) => {
+    const h = String(href || "").trim();
+    const t = String(title || h || "書籤").trim() || "書籤";
+    return `<div class="rich-bookmark${h ? "" : " is-empty"}" data-note-bookmark="1" data-title="${escapeAttr(t)}" data-href="${escapeAttr(h)}"><span class="rich-bookmark-label">書籤</span><span class="rich-bookmark-title">${escapeHtml(t)}</span><span class="rich-bookmark-url">${escapeHtml(h)}</span></div>`;
   });
 
   s = s.replace(/\[app\|([^\]|]+)\|([^\]|]*)\|([^\]]*)\]\(([^)]+)\)/g, (_m, kind, title, hint, href) => {
@@ -731,10 +739,6 @@ export function htmlToMarkdown(html: string): string {
         const title = el.getAttribute("data-title") || "embed";
         const original =
           el.getAttribute("data-original") || el.getAttribute("data-src") || "";
-        if (!original) {
-          el.remove();
-          return;
-        }
         el.replaceWith(
           doc.createTextNode(`\n\n[embed|${kind}|${title}](${original})\n\n`)
         );
@@ -775,10 +779,6 @@ export function htmlToMarkdown(html: string): string {
       doc.querySelectorAll("[data-cadence-web]").forEach((el) => {
         const url = el.getAttribute("data-url") || "";
         const title = el.getAttribute("data-title") || "";
-        if (!url) {
-          el.remove();
-          return;
-        }
         el.replaceWith(doc.createTextNode(`\n\n[web|${title}](${url})\n\n`));
       });
       doc.querySelectorAll("[data-note-video]").forEach((el) => {
@@ -813,13 +813,9 @@ export function htmlToMarkdown(html: string): string {
           )
         );
       });
-      doc.querySelectorAll("a[data-note-bookmark]").forEach((el) => {
-        const href = el.getAttribute("href") || "";
-        const title = el.getAttribute("data-title") || href;
-        if (!href) {
-          el.remove();
-          return;
-        }
+      doc.querySelectorAll("[data-note-bookmark]").forEach((el) => {
+        const href = el.getAttribute("data-href") || el.getAttribute("href") || "";
+        const title = el.getAttribute("data-title") || href || "書籤";
         el.replaceWith(doc.createTextNode(`\n\n[bookmark|${title}](${href})\n\n`));
       });
       input = doc.body.innerHTML;

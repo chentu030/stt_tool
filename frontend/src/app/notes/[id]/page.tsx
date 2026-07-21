@@ -113,7 +113,10 @@ function NotePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabs = useNoteTabsOptional();
-  const splitId = tabs?.splitId || searchParams.get("split") || null;
+  // When NoteTabsProvider is present, its splitId is source of truth (including null).
+  // Do not fall back to ?split= — history.replaceState sync won't update useSearchParams,
+  // so `|| searchParams` would revive a closed split and make the × button look dead.
+  const splitId = tabs ? tabs.splitId : searchParams.get("split") || null;
   const [splitLayout, setSplitLayout] = useNoteSplitLayout();
   const { user, loading } = useAuth();
   const prefsCtx = usePrefsOptional();
@@ -197,6 +200,19 @@ function NotePageInner() {
   const [shareOpen, setShareOpen] = useState(false);
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const knownBodyById = useRef<Map<string, string>>(new Map());
+  const draftRef = useRef<{
+    noteId: string;
+    title: string;
+    body: string;
+    tags: string[];
+    folder: string;
+    icon: string;
+    color: string;
+    cover: string;
+    parent_id: string;
+  } | null>(null);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRestored = useRef<string | null>(null);
   const insertMdRef = useRef<((md: string) => void) | null>(null);
@@ -234,6 +250,7 @@ function NotePageInner() {
       const fromCloud = normalizeDeck(n.deck);
       const fromLocal = loadDeckLocal(n.id);
       setDeck(fromCloud || fromLocal);
+      knownBodyById.current.set(id, bodyMd);
       latest.current = {
         title: n.title,
         body: bodyMd,
@@ -244,6 +261,10 @@ function NotePageInner() {
         cover: n.cover || "",
         parent_id: n.parent_id || "",
       };
+      dirtyRef.current = false;
+      draftRef.current = null;
+      setDirty(false);
+      setStatus("idle");
     });
   }, [id, router]);
 
@@ -392,50 +413,102 @@ function NotePageInner() {
     });
   };
 
-  const save = async (silent = false) => {
-    if (!note) return;
-    const nextBody = latest.current.body;
+  const captureDraft = (noteId: string) => {
+    draftRef.current = {
+      noteId,
+      title: latest.current.title,
+      body: latest.current.body,
+      tags: [...latest.current.tags],
+      folder: latest.current.folder,
+      icon: latest.current.icon,
+      color: latest.current.color,
+      cover: latest.current.cover,
+      parent_id: latest.current.parent_id,
+    };
+  };
+
+  const flushPendingSave = async (opts?: { silent?: boolean; onlyNoteId?: string }) => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const draft = draftRef.current;
+    if (!dirtyRef.current || !draft) return;
+    if (opts?.onlyNoteId && draft.noteId !== opts.onlyNoteId) return;
+
+    const nextBody = draft.body;
+    const known = knownBodyById.current.get(draft.noteId) || "";
     // Never autosave an empty body over a note that already has content (race after AI create).
-    if (!nextBody.trim() && (note.body_md || "").trim()) {
+    if (!nextBody.trim() && known.trim()) {
+      dirtyRef.current = false;
       setDirty(false);
       setStatus("idle");
       return;
     }
+
+    const silent = opts?.silent !== false;
+    const savingId = draft.noteId;
     setStatus("saving");
     try {
       const inlineTags = extractTagsFromText(nextBody);
-      const mergedTags = Array.from(new Set([...latest.current.tags, ...inlineTags]));
-      await updateNote(note.id, {
-        title: latest.current.title,
+      const mergedTags = Array.from(new Set([...draft.tags, ...inlineTags]));
+      await updateNote(savingId, {
+        title: draft.title,
         body_md: nextBody,
         tags: mergedTags,
-        folder: latest.current.folder,
-        icon: latest.current.icon,
-        color: latest.current.color || "",
-        cover: latest.current.cover,
-        parent_id: latest.current.parent_id,
+        folder: draft.folder,
+        icon: draft.icon,
+        color: draft.color || "",
+        cover: draft.cover,
+        parent_id: draft.parent_id,
       });
       try {
-        await pushNoteVersion(note.id, latest.current.title, nextBody);
-      } catch { /* best-effort */ }
-      setNote((n) => (n ? { ...n, body_md: nextBody } : n));
-      setTags(mergedTags);
-      setDirty(false);
-      setStatus("saved");
-      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1800 : 2200);
+        await pushNoteVersion(savingId, draft.title, nextBody);
+      } catch {
+        /* best-effort */
+      }
+      knownBodyById.current.set(savingId, nextBody);
+      if (draftRef.current?.noteId === savingId) {
+        dirtyRef.current = false;
+        draftRef.current = null;
+      }
+      setNote((n) => (n && n.id === savingId ? { ...n, body_md: nextBody, title: draft.title } : n));
+      if (id === savingId) {
+        setTags(mergedTags);
+        setDirty(false);
+        setStatus("saved");
+        setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1800 : 2200);
+      }
     } catch (e) {
-      setStatus("error");
-      setErrorMsg(e instanceof Error ? e.message : "儲存失敗");
+      if (id === savingId) {
+        setStatus("error");
+        setErrorMsg(e instanceof Error ? e.message : "儲存失敗");
+      }
     }
   };
 
+  const save = async (silent = false) => {
+    if (!note) return;
+    captureDraft(note.id);
+    dirtyRef.current = true;
+    await flushPendingSave({ silent, onlyNoteId: note.id });
+  };
+
   const markDirty = () => {
+    if (!note) return;
+    dirtyRef.current = true;
+    captureDraft(note.id);
     setDirty(true);
     setStatus("dirty");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const secs = Math.min(30, Math.max(1, prefsCtx?.prefs.autosaveSeconds ?? 2));
-    saveTimer.current = setTimeout(() => { void save(true); }, secs * 1000);
+    saveTimer.current = setTimeout(() => {
+      void flushPendingSave({ silent: true });
+    }, secs * 1000);
   };
+
+  const flushPendingSaveRef = useRef(flushPendingSave);
+  flushPendingSaveRef.current = flushPendingSave;
 
   const applyIngestBody = useCallback(
     (nextBody: string, jobId: string) => {
@@ -629,9 +702,32 @@ function NotePageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid, note?.id]);
 
-  useEffect(() => () => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    if (ingestAskTimer.current) clearTimeout(ingestAskTimer.current);
+  // Flush pending edits when leaving this note (tab switch / route change).
+  useEffect(() => {
+    const noteId = id;
+    return () => {
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      void flushPendingSaveRef.current({ silent: true, onlyNoteId: noteId });
+    };
+  }, [id]);
+
+  useEffect(() => {
+    const onHide = () => {
+      void flushPendingSaveRef.current({ silent: true });
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") onHide();
+    };
+    window.addEventListener("pagehide", onHide);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+      document.removeEventListener("visibilitychange", onVis);
+      if (ingestAskTimer.current) clearTimeout(ingestAskTimer.current);
+    };
   }, []);
 
   const runAi = async (action: NoteAiActionId | string, prompt?: string) => {
@@ -971,17 +1067,18 @@ function NotePageInner() {
       }
       const ok = await askConfirm({
         title: `尚未有「${t}」`,
-        message: "要建立這則筆記並開啟嗎？",
-        confirmLabel: "建立並開啟",
+        message: "要建立為目前筆記的子頁並開啟嗎？",
+        confirmLabel: "建立子頁並開啟",
       });
       if (!ok) return;
       if (dirty) await save(false);
       const id = await createNote(user.uid, t, "", undefined, [], {
         folder: folder || undefined,
+        parent_id: note?.id || "",
         status: "backlog",
       });
       setLinkPicker("");
-      toast(`已建立「${t}」`);
+      toast(`已建立子頁「${t}」`);
       router.push(`/notes/${id}`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

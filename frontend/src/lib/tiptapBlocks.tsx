@@ -1,7 +1,12 @@
 /** TipTap block nodes: callout, toggle, toc, bookmark, app cards */
 
 import { Node, mergeAttributes } from "@tiptap/core";
-import { ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from "@tiptap/react";
+import {
+  ReactNodeViewRenderer,
+  NodeViewWrapper,
+  NodeViewContent,
+  type ReactNodeViewProps,
+} from "@tiptap/react";
 import React, { useEffect, useState } from "react";
 import MenuSelect from "@/components/MenuSelect";
 
@@ -10,7 +15,7 @@ declare module "@tiptap/core" {
     callout: { setCallout: (tone?: string) => ReturnType };
     toggleBlock: { setToggleBlock: (title?: string) => ReturnType };
     tocBlock: { setTocBlock: () => ReturnType };
-    bookmark: { setBookmark: (attrs: { href: string; title?: string }) => ReturnType };
+    bookmark: { setBookmark: (attrs?: { href?: string; title?: string }) => ReturnType };
     appCard: {
       setAppCard: (attrs: { href: string; kind: string; title: string; hint?: string }) => ReturnType;
     };
@@ -267,52 +272,166 @@ export const TocBlock = Node.create({
   },
 });
 
+function BookmarkView({ node, updateAttributes }: ReactNodeViewProps) {
+  const href = String(node.attrs.href || "");
+  const title = String(node.attrs.title || "");
+  const [draft, setDraft] = useState(href);
+  const empty = !href.trim();
+
+  useEffect(() => {
+    setDraft(href);
+  }, [href]);
+
+  const commit = (raw: string) => {
+    const url = raw.trim();
+    if (!url) {
+      updateAttributes({ href: "", title: title || "書籤" });
+      return;
+    }
+    let nextTitle = title;
+    try {
+      nextTitle = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      nextTitle = url;
+    }
+    updateAttributes({ href: url, title: nextTitle || "書籤" });
+  };
+
+  return (
+    <NodeViewWrapper
+      className={`rich-bookmark${empty ? " is-empty" : ""}`}
+      data-note-bookmark="1"
+      data-title={title || "書籤"}
+      data-drag-handle
+    >
+      <div className="rich-bookmark-bar">
+        <span className="rich-bookmark-label">書籤</span>
+        <input
+          className="rich-embed-url-input"
+          type="url"
+          inputMode="url"
+          spellCheck={false}
+          placeholder="貼上網址…"
+          value={draft}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit(draft);
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setDraft(href);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          aria-label="書籤網址"
+        />
+        {!empty ? (
+          <button
+            type="button"
+            className="rich-embed-clear"
+            title="清除網址"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft("");
+              updateAttributes({ href: "", title: "書籤" });
+            }}
+          >
+            清除
+          </button>
+        ) : null}
+      </div>
+      {empty ? (
+        <p className="rich-embed-empty-hint">可貼上網址後按 Enter；也可先留空。</p>
+      ) : (
+        <a
+          className="rich-bookmark-body"
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span className="rich-bookmark-title">{title || href}</span>
+          <span className="rich-bookmark-url">{href}</span>
+        </a>
+      )}
+    </NodeViewWrapper>
+  );
+}
+
 export const Bookmark = Node.create({
   name: "bookmark",
   group: "block",
   atom: true,
   selectable: true,
+  draggable: true,
   addAttributes() {
     return {
       href: { default: "" },
-      title: { default: "" },
+      title: { default: "書籤" },
     };
   },
   parseHTML() {
     return [
       {
+        tag: "div[data-note-bookmark]",
+        getAttrs: (el) => {
+          const d = el as HTMLElement;
+          return {
+            href: d.getAttribute("data-href") || "",
+            title: d.getAttribute("data-title") || "書籤",
+          };
+        },
+      },
+      {
         tag: "a[data-note-bookmark]",
         getAttrs: (el) => ({
           href: (el as HTMLElement).getAttribute("href") || "",
-          title: (el as HTMLElement).getAttribute("data-title") || (el as HTMLElement).textContent || "",
+          title:
+            (el as HTMLElement).getAttribute("data-title") ||
+            (el as HTMLElement).textContent ||
+            "",
         }),
       },
     ];
   },
   renderHTML({ HTMLAttributes }) {
-    const href = HTMLAttributes.href || "#";
-    const title = HTMLAttributes.title || href;
+    const href = HTMLAttributes.href || "";
+    const title = HTMLAttributes.title || href || "書籤";
     return [
-      "a",
+      "div",
       mergeAttributes({
-        class: "rich-bookmark",
+        class: `rich-bookmark${href ? "" : " is-empty"}`,
         "data-note-bookmark": "1",
         "data-title": title,
-        href,
-        target: "_blank",
-        rel: "noopener noreferrer",
+        "data-href": href,
       }),
       ["span", { class: "rich-bookmark-label" }, "書籤"],
       ["span", { class: "rich-bookmark-title" }, title],
-      ["span", { class: "rich-bookmark-url" }, href],
+      ["span", { class: "rich-bookmark-url" }, href || ""],
     ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(BookmarkView as never);
   },
   addCommands() {
     return {
       setBookmark:
         (attrs) =>
         ({ commands }) =>
-          commands.insertContent({ type: this.name, attrs }),
+          commands.insertContent({
+            type: this.name,
+            attrs: {
+              href: attrs?.href || "",
+              title: attrs?.title || "書籤",
+            },
+          }),
     };
   },
 });

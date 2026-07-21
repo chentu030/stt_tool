@@ -1174,7 +1174,25 @@ export default function SidebarNotesTree() {
           onDragStart={(e) => {
             draggingId.current = note.id;
             e.dataTransfer.setData("text/note-id", note.id);
+            e.dataTransfer.setData("text/plain", note.title || "未命名");
             e.dataTransfer.effectAllowed = "move";
+            const row = e.currentTarget as HTMLElement;
+            try {
+              const ghost = row.cloneNode(true) as HTMLElement;
+              ghost.classList.add("sb-row-drag-ghost");
+              ghost.style.width = `${row.offsetWidth}px`;
+              ghost.style.position = "absolute";
+              ghost.style.top = "-9999px";
+              ghost.style.left = "0";
+              ghost.style.pointerEvents = "none";
+              document.body.appendChild(ghost);
+              e.dataTransfer.setDragImage(ghost, 24, Math.min(20, row.offsetHeight / 2));
+              requestAnimationFrame(() => {
+                ghost.remove();
+              });
+            } catch {
+              /* keep browser default */
+            }
           }}
           onDragEnd={clearDragState}
           onDragOver={(e) => {
@@ -1242,6 +1260,11 @@ export default function SidebarNotesTree() {
             href={noteOpenHref(note)}
             className="sb-note-main"
             title={note.title || "未命名"}
+            draggable={false}
+            onDragStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey || e.shiftKey) {
                 e.preventDefault();
@@ -1567,6 +1590,11 @@ export default function SidebarNotesTree() {
                       href={`/library?folder=${encodeURIComponent(folderParam)}`}
                       className="sb-folder-link"
                       title={row.folder.path}
+                      draggable={false}
+                      onDragStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
                       onDoubleClick={(e) => {
                         if (dropKey === UNCATEGORIZED) return;
                         e.preventDefault();

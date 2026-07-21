@@ -110,6 +110,14 @@ export type DbView = {
   dateProp?: string;
   /** Property ids visible in this view; undefined = all */
   visiblePropIds?: string[];
+  /** Gallery: files/url prop for cover; empty = auto */
+  coverPropId?: string;
+  /** Gallery card size */
+  cardSize?: "s" | "m" | "l";
+  /** Gallery: props shown on card (max 3) */
+  cardPropIds?: string[];
+  /** Gallery density */
+  cardDensity?: "comfy" | "compact";
 };
 
 export type CadenceDatabase = {
@@ -198,6 +206,7 @@ export function defaultReadingProperties(): DbProperty[] {
   ];
   return [
     { id: "title", name: "書名／文章", type: "title" },
+    { id: "cover", name: "封面", type: "files" },
     { id: "author", name: "作者", type: "text" },
     {
       id: "status",
@@ -233,7 +242,14 @@ export function defaultViews(): DbView[] {
     { id: "v_table", name: "表格", type: "table" },
     { id: "v_board", name: "看板", type: "board", groupBy: "status" },
     { id: "v_list", name: "列表", type: "list" },
-    { id: "v_gallery", name: "畫廊", type: "gallery" },
+    {
+      id: "v_gallery",
+      name: "畫廊",
+      type: "gallery",
+      cardDensity: "compact",
+      cardSize: "s",
+      cardPropIds: ["status", "priority"],
+    },
   ];
 }
 
@@ -248,7 +264,15 @@ export function projectViews(): DbView[] {
 export function readingViews(): DbView[] {
   return [
     { id: "v_table", name: "表格", type: "table" },
-    { id: "v_gallery", name: "畫廊", type: "gallery" },
+    {
+      id: "v_gallery",
+      name: "畫廊",
+      type: "gallery",
+      coverPropId: "cover",
+      cardDensity: "comfy",
+      cardSize: "m",
+      cardPropIds: ["author", "status"],
+    },
     { id: "v_board", name: "看板", type: "board", groupBy: "status" },
   ];
 }
@@ -915,6 +939,10 @@ export function addDatabaseView(
   };
   if (type === "board") view.groupBy = "status";
   if (type === "calendar") view.dateProp = "due";
+  if (type === "gallery") {
+    view.cardDensity = "comfy";
+    view.cardSize = "m";
+  }
   return [...views, view];
 }
 

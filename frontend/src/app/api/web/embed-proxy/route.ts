@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  embedProxySrc,
-  isEmbedProxyAllowlisted,
-  isEmbedProxyDenied,
-} from "@/lib/embedProxy";
+import { canEmbedProxy, embedProxySrc, isEmbedProxyDenied } from "@/lib/embedProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,8 +23,7 @@ function rewriteAttrUrl(value: string, base: URL, proxyPrefix: string): string {
   try {
     const abs = new URL(v, base);
     if (abs.protocol !== "http:" && abs.protocol !== "https:") return value;
-    if (isEmbedProxyDenied(abs.toString())) return abs.toString(); // leave auth links absolute (user opens top-level)
-    if (!isEmbedProxyAllowlisted(abs.toString())) return abs.toString();
+    if (isEmbedProxyDenied(abs.toString())) return abs.toString(); // leave auth links absolute
     return `${proxyPrefix}${encodeURIComponent(abs.toString())}`;
   } catch {
     return value;
@@ -39,13 +34,11 @@ function rewriteHtml(html: string, pageUrl: URL, reqOrigin: string): string {
   const proxyPrefix = `${reqOrigin}/api/web/embed-proxy?url=`;
   let out = html;
 
-  // Drop meta CSP that would block framing / scripts after rewrite
   out = out.replace(
     /<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi,
     ""
   );
 
-  // Relative assets resolve against the real origin; absolute allowlisted URLs are rewritten above
   if (!/<base\s/i.test(out)) {
     out = out.replace(/<head([^>]*)>/i, `<head$1><base href="${pageUrl.origin}/">`);
   }
@@ -59,7 +52,6 @@ function rewriteHtml(html: string, pageUrl: URL, reqOrigin: string): string {
     });
   }
 
-  // srcset: url size, url size
   out = out.replace(/\bsrcset\s*=\s*(["'])([^"']*)\1/gi, (_m, q: string, val: string) => {
     const parts = val.split(",").map((chunk) => {
       const trimmed = chunk.trim();
@@ -71,14 +63,6 @@ function rewriteHtml(html: string, pageUrl: URL, reqOrigin: string): string {
     });
     return `srcset=${q}${parts.join(", ")}${q}`;
   });
-
-  // Soft banner so users know this is experimental MITM
-  const banner = `<div style="position:sticky;top:0;z-index:2147483646;background:#0f766e;color:#fff;font:12px/1.4 system-ui,sans-serif;padding:6px 10px;">Albireus 實驗性嵌入代理 · 僅允許名單公開站 · 登入／Google 請用獨立視窗</div>`;
-  if (/<body[^>]*>/i.test(out)) {
-    out = out.replace(/<body([^>]*)>/i, `<body$1>${banner}`);
-  } else {
-    out = banner + out;
-  }
 
   return out;
 }
@@ -108,10 +92,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "僅支援 http(s)" }, { status: 400 });
   }
 
-  if (isEmbedProxyDenied(raw) || !isEmbedProxyAllowlisted(raw)) {
+  if (!canEmbedProxy(raw)) {
     return NextResponse.json(
       {
-        error: "此網址不在實驗性代理允許名單，或屬於登入／敏感站（請用獨立視窗）",
+        error: "此網址無法代理（內網或登入／敏感站，請用獨立視窗）",
         proxySrcHint: embedProxySrc(raw),
       },
       { status: 403 }
@@ -141,10 +125,9 @@ export async function GET(req: NextRequest) {
     }
 
     const finalUrl = new URL(upstream.url || target.toString());
-    // After redirects, re-check allowlist (prevent open redirect off allowlist)
-    if (isEmbedProxyDenied(finalUrl.toString()) || !isEmbedProxyAllowlisted(finalUrl.toString())) {
+    if (!canEmbedProxy(finalUrl.toString())) {
       return NextResponse.json(
-        { error: "重新導向離開允許名單，已中止代理" },
+        { error: "重新導向至無法代理的位址，已中止" },
         { status: 403 }
       );
     }
@@ -154,7 +137,7 @@ export async function GET(req: NextRequest) {
     upstream.headers.forEach((value, key) => {
       const k = key.toLowerCase();
       if (STRIP_HEADERS.includes(k)) return;
-      if (k === "set-cookie") return; // avoid leaking / breaking session cookies across MITM
+      if (k === "set-cookie") return;
       if (k === "content-encoding" || k === "content-length" || k === "transfer-encoding") return;
       headers.set(key, value);
     });
@@ -177,7 +160,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Pass-through binary / other (images, fonts) for allowlisted assets
     const buf = await upstream.arrayBuffer();
     if (!headers.has("Content-Type") && ctype) headers.set("Content-Type", ctype);
     return new NextResponse(buf, { status: upstream.status, headers });

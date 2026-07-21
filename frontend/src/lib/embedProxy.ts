@@ -1,11 +1,11 @@
 import { urlLikelyBlocksFraming } from "@/lib/embedUrls";
 
 /**
- * Experimental embed proxy: allowlist / denylist + URL helpers.
- * Never proxy Google OAuth, banks, or arbitrary hosts (SSRF).
+ * Embed proxy helpers: public http(s) pages can be framed via /api/web/embed-proxy.
+ * Denylist only blocks private networks (SSRF) and sensitive login hosts.
  */
 
-/** Hosts we refuse to proxy even if somehow listed (auth / finance). */
+/** Hosts we refuse to proxy (auth / finance). */
 export const EMBED_PROXY_DENY_HOSTS = [
   "accounts.google.com",
   "myaccount.google.com",
@@ -29,26 +29,6 @@ export const EMBED_PROXY_DENY_HOSTS = [
   "secure.sinopac.com",
   "paypal.com",
   "www.paypal.com",
-] as const;
-
-/**
- * Experimental allowlist — public content sites that often set XFO/CSP.
- * Expand carefully; each host is a SSRF surface.
- */
-export const EMBED_PROXY_ALLOW_HOSTS = [
-  "tpex.org.tw",
-  "www.tpex.org.tw",
-  "mis.tpex.org.tw",
-  "www.mis.tpex.org.tw",
-  "twse.com.tw",
-  "www.twse.com.tw",
-  "mis.twse.com.tw",
-  "mops.twse.com.tw",
-  "isin.twse.com.tw",
-  // Safe demo / docs
-  "example.com",
-  "www.example.com",
-  "info.cern.ch",
 ] as const;
 
 const PRIVATE_HOST =
@@ -107,11 +87,14 @@ export function isEmbedProxyDenied(raw: string): boolean {
   return false;
 }
 
+/** True when this public URL may be loaded through the embed proxy. */
+export function canEmbedProxy(raw: string): boolean {
+  return !isEmbedProxyDenied(raw);
+}
+
+/** @deprecated Use canEmbedProxy — allowlist removed. */
 export function isEmbedProxyAllowlisted(raw: string): boolean {
-  if (isEmbedProxyDenied(raw)) return false;
-  const host = hostnameOf(raw);
-  if (!host) return false;
-  return hostMatchesList(host, EMBED_PROXY_ALLOW_HOSTS);
+  return canEmbedProxy(raw);
 }
 
 /** Same-origin Next proxy path (or optional CF worker base) used as iframe src. */
@@ -123,9 +106,10 @@ export function embedProxySrc(targetUrl: string): string {
   return `/api/web/embed-proxy?url=${encodeURIComponent(targetUrl)}`;
 }
 
-/** Prefer auto popup for Google login + known non-frameable hosts. */
+/** Prefer auto popup for Google login + known non-frameable hosts that also cannot proxy. */
 export function shouldAutoDetach(raw: string): boolean {
   if (!raw || raw === "https://") return false;
   if (isGoogleAuthOrLoginUrl(raw)) return true;
-  return urlLikelyBlocksFraming(raw);
+  if (isEmbedProxyDenied(raw) && urlLikelyBlocksFraming(raw)) return true;
+  return false;
 }

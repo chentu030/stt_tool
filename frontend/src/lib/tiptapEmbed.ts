@@ -6,6 +6,24 @@ import {
   encodeFormulaAttr,
   normalizeLatexFormula,
 } from "@/lib/latexNormalize";
+import { resolveEmbedUrl, type EmbedResolved } from "@/lib/embedUrls";
+
+const EMBED_KIND_UI: Record<string, { label: string; placeholder: string }> = {
+  youtube: { label: "YouTube", placeholder: "貼上 YouTube 連結…" },
+  vimeo: { label: "Vimeo", placeholder: "貼上 Vimeo 連結…" },
+  loom: { label: "Loom", placeholder: "貼上 Loom 連結…" },
+  figma: { label: "Figma", placeholder: "貼上 Figma 連結…" },
+  drive: { label: "Google Drive", placeholder: "貼上 Drive／Docs 分享連結…" },
+  pdf: { label: "PDF", placeholder: "貼上 PDF 網址…" },
+  ppt: { label: "簡報", placeholder: "貼上簡報網址…" },
+  office: { label: "Office", placeholder: "貼上文件網址…" },
+  web: { label: "嵌入網頁", placeholder: "貼上網址…" },
+  link: { label: "連結預覽", placeholder: "貼上網址…" },
+};
+
+function embedKindUi(kind: string) {
+  return EMBED_KIND_UI[kind] || EMBED_KIND_UI.web;
+}
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -17,10 +35,10 @@ declare module "@tiptap/core" {
     };
     noteEmbed: {
       setNoteEmbed: (attrs: {
-        src: string;
-        kind: string;
+        src?: string | null;
+        kind?: string;
         title?: string;
-        original?: string;
+        original?: string | null;
         frameable?: boolean;
       }) => ReturnType;
     };
@@ -544,7 +562,7 @@ export const NoteEmbed = Node.create({
     return [
       "div",
       mergeAttributes({
-        class: `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}`,
+        class: `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}${!original ? " is-empty" : ""}`,
         "data-note-embed": "1",
         "data-src": src,
         "data-kind": kind,
@@ -554,26 +572,72 @@ export const NoteEmbed = Node.create({
         contenteditable: "false",
       }),
       // Text fallback so serializers that skip empty atoms still keep the embed
-      `[embed|${kind}|${title}](${original})`,
+      original ? `[embed|${kind}|${title}](${original})` : `[embed|${kind}|${title}]()`,
     ];
   },
   addNodeView() {
-    return ({ node }) => {
+    return ({ node, getPos, editor }: NodeViewRendererProps) => {
       const dom = document.createElement("div");
+
+      const applyResolved = (emb: EmbedResolved) => {
+        const pos = typeof getPos === "function" ? getPos() : null;
+        if (typeof pos !== "number") return;
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setNodeMarkup(pos, undefined, {
+              src: emb.src,
+              kind: emb.kind,
+              title: emb.title,
+              original: emb.original,
+              frameable: emb.frameable,
+            });
+            return true;
+          })
+          .run();
+        editor.view.dom.dispatchEvent(
+          new CustomEvent("cadence-embed-resolved", {
+            bubbles: true,
+            detail: emb,
+          })
+        );
+      };
+
+      const clearEmbed = (preferKind: string) => {
+        const ui = embedKindUi(preferKind);
+        const pos = typeof getPos === "function" ? getPos() : null;
+        if (typeof pos !== "number") return;
+        editor
+          .chain()
+          .command(({ tr }) => {
+            tr.setNodeMarkup(pos, undefined, {
+              src: null,
+              kind: preferKind || "web",
+              title: ui.label,
+              original: null,
+              frameable: true,
+            });
+            return true;
+          })
+          .run();
+      };
+
       const sync = (n: typeof node) => {
         const src = String(n.attrs.src || "");
         const kind = String(n.attrs.kind || "web");
-        const title = String(n.attrs.title || "嵌入");
-        const original = String(n.attrs.original || src);
+        const title = String(n.attrs.title || embedKindUi(kind).label);
+        const original = String(n.attrs.original || src || "");
         const frameable = n.attrs.frameable !== false && n.attrs.frameable !== "0";
+        const ui = embedKindUi(kind);
+        const empty = !original.trim();
         let host = title;
         try {
-          host = new URL(original).hostname;
+          if (original) host = new URL(original).hostname;
         } catch {
           /* keep */
         }
 
-        dom.className = `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}`;
+        dom.className = `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}${empty ? " is-empty" : ""}`;
         dom.setAttribute("data-note-embed", "1");
         dom.setAttribute("data-src", src);
         dom.setAttribute("data-kind", kind);
@@ -582,12 +646,40 @@ export const NoteEmbed = Node.create({
         dom.setAttribute("data-frameable", frameable ? "1" : "0");
         dom.contentEditable = "false";
 
-        if (!frameable || kind === "link") {
+        const bar = `
+          <div class="rich-embed-bar">
+            <span class="rich-embed-label">${escapeHtml(ui.label)}</span>
+            <input
+              class="rich-embed-url-input"
+              type="url"
+              inputmode="url"
+              spellcheck="false"
+              placeholder="${escapeAttr(ui.placeholder)}"
+              value="${escapeAttr(original)}"
+              aria-label="${escapeAttr(ui.label)} 網址"
+            />
+            ${
+              empty
+                ? ""
+                : `<button type="button" class="rich-embed-clear" title="清除網址">清除</button>`
+            }
+          </div>
+        `;
+
+        if (empty) {
+          dom.innerHTML = `
+            ${bar}
+            <div class="rich-embed-empty-body">
+              <p class="rich-embed-empty-hint">可貼上網址後按 Enter 嵌入；也可先留空。</p>
+            </div>
+          `;
+        } else if (!frameable || kind === "link") {
           const fav =
             typeof window !== "undefined"
               ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
               : "";
           dom.innerHTML = `
+            ${bar}
             <div class="rich-embed-card-body">
               ${fav ? `<img class="rich-embed-favicon" src="${fav}" alt="" width="28" height="28" />` : ""}
               <div class="rich-embed-card-text">
@@ -598,19 +690,67 @@ export const NoteEmbed = Node.create({
             </div>
             <a class="rich-embed-open" href="${escapeAttr(original)}" target="_blank" rel="noopener noreferrer">開啟原始連結</a>
           `;
-          return;
+        } else {
+          const isPdfDirect = kind === "pdf" && !/drive\.google|officeapps|docs\.google/i.test(src);
+          const allow = isPdfDirect
+            ? ""
+            : ` allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"`;
+          const referrer = isPdfDirect ? "" : ` referrerpolicy="no-referrer-when-downgrade"`;
+          dom.innerHTML = `
+            ${bar}
+            <iframe class="rich-embed-frame" src="${escapeAttr(src)}" title="${escapeAttr(title)}" loading="lazy"${allow}${referrer}${isPdfDirect ? "" : " allowfullscreen"}></iframe>
+            <a class="rich-embed-open" href="${escapeAttr(original)}" target="_blank" rel="noopener noreferrer">開啟原始連結</a>
+          `;
         }
 
-        const isPdfDirect = kind === "pdf" && !/drive\.google|officeapps|docs\.google/i.test(src);
-        const allow = isPdfDirect
-          ? ""
-          : ` allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"`;
-        const referrer = isPdfDirect ? "" : ` referrerpolicy="no-referrer-when-downgrade"`;
-        dom.innerHTML = `
-          <div class="rich-embed-label">${escapeHtml(title)}</div>
-          <iframe class="rich-embed-frame" src="${escapeAttr(src)}" title="${escapeAttr(title)}" loading="lazy"${allow}${referrer}${isPdfDirect ? "" : " allowfullscreen"}></iframe>
-          <a class="rich-embed-open" href="${escapeAttr(original)}" target="_blank" rel="noopener noreferrer">開啟原始連結</a>
-        `;
+        const input = dom.querySelector(".rich-embed-url-input") as HTMLInputElement | null;
+        const clearBtn = dom.querySelector(".rich-embed-clear") as HTMLButtonElement | null;
+
+        const commitFromInput = () => {
+          if (!input) return;
+          const raw = input.value.trim();
+          if (!raw) {
+            if (!empty) clearEmbed(kind);
+            return;
+          }
+          const emb = resolveEmbedUrl(raw);
+          if (!emb) {
+            input.classList.add("is-invalid");
+            input.setAttribute("aria-invalid", "true");
+            return;
+          }
+          input.classList.remove("is-invalid");
+          input.removeAttribute("aria-invalid");
+          if (emb.original === original && emb.src === src) return;
+          applyResolved(emb);
+        };
+
+        if (input) {
+          const stop = (e: Event) => e.stopPropagation();
+          input.addEventListener("pointerdown", stop);
+          input.addEventListener("mousedown", stop);
+          input.addEventListener("click", stop);
+          input.addEventListener("keydown", (e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitFromInput();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              input.value = original;
+              input.blur();
+            }
+          });
+        }
+        if (clearBtn) {
+          clearBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+          clearBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            clearEmbed(kind);
+          });
+        }
       };
 
       sync(node);
@@ -623,8 +763,30 @@ export const NoteEmbed = Node.create({
         update: (updated) => {
           if (updated.type.name !== "noteEmbed") return false;
           const wasInteractive = dom.classList.contains("is-interactive");
+          const active = document.activeElement;
+          const keepFocus =
+            active instanceof HTMLInputElement &&
+            active.classList.contains("rich-embed-url-input") &&
+            dom.contains(active);
+          const draft = keepFocus ? active.value : null;
+          const selStart = keepFocus ? active.selectionStart : null;
+          const selEnd = keepFocus ? active.selectionEnd : null;
           sync(updated);
           if (wasInteractive) dom.classList.add("is-interactive");
+          if (keepFocus && draft != null) {
+            const next = dom.querySelector(".rich-embed-url-input") as HTMLInputElement | null;
+            if (next) {
+              next.value = draft;
+              next.focus();
+              if (selStart != null && selEnd != null) {
+                try {
+                  next.setSelectionRange(selStart, selEnd);
+                } catch {
+                  /* ignore */
+                }
+              }
+            }
+          }
           return true;
         },
         destroy: () => {
@@ -638,7 +800,16 @@ export const NoteEmbed = Node.create({
       setNoteEmbed:
         (attrs) =>
         ({ commands }) =>
-          commands.insertContent({ type: this.name, attrs }),
+          commands.insertContent({
+            type: this.name,
+            attrs: {
+              src: attrs.src ?? null,
+              kind: attrs.kind || "web",
+              title: attrs.title || embedKindUi(attrs.kind || "web").label,
+              original: attrs.original ?? null,
+              frameable: attrs.frameable !== false,
+            },
+          }),
     };
   },
 });

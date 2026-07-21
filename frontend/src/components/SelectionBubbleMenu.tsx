@@ -193,7 +193,8 @@ type Props = {
   aiContext?: string;
   onOpenThread?: (selectionText: string) => void;
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
-  onSetLink: () => void;
+  /** Optional: parent can open its own link UI; default uses inline bubble field */
+  onSetLink?: () => void;
   applyTextColor: (color?: string) => void;
   applyHighlight: (color?: string) => void;
   clearTextColor: () => void;
@@ -255,6 +256,8 @@ export default function SelectionBubbleMenu({
   const [turnOpen, setTurnOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
   const [aiOpenLocal, setAiOpenLocal] = useState(false);
   const [tick, setTick] = useState(0);
   const [turnPos, setTurnPos] = useState<{
@@ -427,30 +430,43 @@ export default function SelectionBubbleMenu({
     []
   );
 
-  // Position Ask-AI as its own column under the format bar, same width.
+  // Position Ask-AI under the selection (format bar is hidden while AI is open).
   useEffect(() => {
     if (!aiOpen) {
       setAiDock(null);
       return;
     }
     const place = () => {
-      const el = bubbleElRef.current;
-      const inner = wrapRef.current;
-      if (!el || !inner) return;
-      const r = inner.getBoundingClientRect();
-      const width = Math.max(r.width, Math.min(560, window.innerWidth - 24));
-      let left = r.left;
+      let top = 0;
+      let left = 0;
+      try {
+        const start = editor.view.coordsAtPos(editor.state.selection.from);
+        const end = editor.view.coordsAtPos(editor.state.selection.to);
+        top = Math.max(start.bottom, end.bottom) + 8;
+        left = Math.min(start.left, end.left);
+      } catch {
+        const inner = wrapRef.current;
+        if (!inner) return;
+        const r = inner.getBoundingClientRect();
+        top = r.bottom + 8;
+        left = r.left;
+      }
+      const width = Math.min(560, window.innerWidth - 24);
       const sidebar = document.querySelector(".desktop-sidebar") as HTMLElement | null;
       const minLeft = Math.max(8, (sidebar?.getBoundingClientRect().right ?? 0) + 8);
       if (left < minLeft) left = minLeft;
       if (left + width > window.innerWidth - 8) {
         left = Math.max(minLeft, window.innerWidth - 8 - width);
       }
-      setAiDock({
-        top: r.bottom + 8,
-        left,
-        width,
-      });
+      if (top + 120 > window.innerHeight - 8) {
+        try {
+          const start = editor.view.coordsAtPos(editor.state.selection.from);
+          top = Math.max(8, start.top - 8 - 280);
+        } catch {
+          top = Math.max(8, top - 300);
+        }
+      }
+      setAiDock({ top, left, width });
     };
     place();
     const id = window.setInterval(place, 100);
@@ -461,7 +477,7 @@ export default function SelectionBubbleMenu({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [aiOpen, tick]);
+  }, [aiOpen, tick, editor]);
 
   const floatingOptions = useMemo(
     () => ({
@@ -490,7 +506,7 @@ export default function SelectionBubbleMenu({
     <>
     <BubbleMenu
       editor={editor}
-      className="sel-bubble"
+      className={`sel-bubble${aiOpen ? " is-ai-open" : ""}`}
       appendTo={appendTo}
       ref={(el) => {
         bubbleElRef.current = el;
@@ -499,7 +515,8 @@ export default function SelectionBubbleMenu({
       options={floatingOptions}
       updateDelay={100}
     >
-      <div className="sel-bubble-inner" ref={wrapRef}>
+      <div className={`sel-bubble-inner${aiOpen ? " is-ai-open" : ""}`} ref={wrapRef}>
+        {!aiOpen ? (
         <div className="sel-bubble-row">
           <div className="sel-bub-turn-wrap" ref={turnWrapRef}>
             <BubBtn
@@ -636,9 +653,79 @@ export default function SelectionBubbleMenu({
 
           <span className="sel-bub-sep" />
 
-          <BubBtn title="連結" active={editor.isActive("link")} onClick={onSetLink}>
-            <span className="material-symbols-outlined sel-bub-ico">link</span>
-          </BubBtn>
+          <div className="sel-bub-link-wrap">
+            <BubBtn
+              title="連結"
+              active={editor.isActive("link") || linkOpen}
+              onClick={() => {
+                if (onSetLink) {
+                  onSetLink();
+                  return;
+                }
+                const prev = (editor.getAttributes("link").href as string) || "";
+                setLinkDraft(prev || "https://");
+                setLinkOpen((v) => !v);
+                setTurnOpen(false);
+                setColorOpen(false);
+                setEmojiOpen(false);
+              }}
+            >
+              <span className="material-symbols-outlined sel-bub-ico">link</span>
+            </BubBtn>
+            {linkOpen && !onSetLink ? (
+              <div
+                className="sel-bub-panel sel-bub-link-panel"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <input
+                  className="rich-embed-url-input sel-bub-link-input"
+                  type="url"
+                  inputMode="url"
+                  spellCheck={false}
+                  placeholder="https://"
+                  value={linkDraft}
+                  autoFocus
+                  onChange={(e) => setLinkDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const url = linkDraft.trim();
+                      if (!url) editor.chain().focus().unsetLink().run();
+                      else editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+                      setLinkOpen(false);
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setLinkOpen(false);
+                    }
+                  }}
+                  aria-label="連結網址"
+                />
+                <button
+                  type="button"
+                  className="sel-bub-btn is-active"
+                  onClick={() => {
+                    const url = linkDraft.trim();
+                    if (!url) editor.chain().focus().unsetLink().run();
+                    else editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+                    setLinkOpen(false);
+                  }}
+                >
+                  套用
+                </button>
+                <button
+                  type="button"
+                  className="sel-bub-btn"
+                  onClick={() => {
+                    editor.chain().focus().unsetLink().run();
+                    setLinkOpen(false);
+                  }}
+                >
+                  移除
+                </button>
+              </div>
+            ) : null}
+          </div>
           <BubBtn title="刪除線" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>
             <s>S</s>
           </BubBtn>
@@ -713,12 +800,13 @@ export default function SelectionBubbleMenu({
               setTurnOpen(false);
               setColorOpen(false);
               setEmojiOpen(false);
-              setAiOpen(!aiOpen);
+              setAiOpen(true);
             }}
           >
             <span className="material-symbols-outlined sel-bub-ico">auto_awesome</span>
           </BubBtn>
         </div>
+        ) : null}
       </div>
       <span hidden data-hl={hlColor} />
     </BubbleMenu>
