@@ -2396,14 +2396,15 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (mod && !e.altKey && key === "c") {
         e.preventDefault();
         e.stopPropagation();
-        copySiblingRange(editor, range.parentFrom, range.start, range.end, e);
+        // ClipboardEvent fires separately; keydown uses async clipboard API.
+        copySiblingRange(editor, range.parentFrom, range.start, range.end);
         return;
       }
 
       if (mod && !e.altKey && key === "x") {
         e.preventDefault();
         e.stopPropagation();
-        copySiblingRange(editor, range.parentFrom, range.start, range.end, e);
+        copySiblingRange(editor, range.parentFrom, range.start, range.end);
         deleteSiblingRange(editor, range.parentFrom, range.start, range.end);
         setBlockSel(null);
         return;
@@ -2453,12 +2454,19 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
 
   useEffect(() => {
     const root = editor.view.dom;
+    // Don't wipe multi-block selection when the click is in the left gutter
+    // (gutter handler will own that interaction).
     const onDown = (e: MouseEvent) => {
       if (dragRef.current) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.(".block-controls")) return;
       if (e.shiftKey) return;
-      if (blockSelRef.current) setBlockSel(null);
+      if (!blockSelRef.current) return;
+      const rootRect = root.getBoundingClientRect();
+      const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
+      const gutterRight = rootRect.left + Math.max(contentPad, 44);
+      if (e.clientX < gutterRight) return;
+      setBlockSel(null);
     };
     root.addEventListener("mousedown", onDown);
     return () => root.removeEventListener("mousedown", onDown);
@@ -2608,26 +2616,54 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
+    /** Notion-style: drag in the left handle column to multi-select blocks. */
     const onGutterDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
+      if ((e as MouseEvent & { _blockGutter?: boolean })._blockGutter) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.(".block-controls")) return;
-      if (t?.closest?.(".ProseMirror")) return;
+
       const rootRect = root.getBoundingClientRect();
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
-      // Wider left gutter for Notion-like click-drag multi-select (grip column + padding)
-      const gutterRight = rootRect.left + Math.max(contentPad, 40);
-      if (e.clientX >= gutterRight) return;
+      // Handle column lives in ProseMirror padding — clicks there still hit .ProseMirror.
+      const gutterLeft = rootRect.left - 12;
+      const gutterRight = rootRect.left + Math.max(contentPad, 44);
+      if (e.clientX < gutterLeft || e.clientX >= gutterRight) return;
+
+      // Ignore interactive widgets if the click landed on them (not empty padding).
+      if (
+        t &&
+        t !== root &&
+        !t.classList.contains("ProseMirror") &&
+        t.closest("a,button,input,textarea,select,iframe,video,.note-embed")
+      ) {
+        return;
+      }
+
       const hit = gripFromPos(e.clientY, e.clientX);
       if (!hit) return;
+      (e as MouseEvent & { _blockGutter?: boolean })._blockGutter = true;
       e.preventDefault();
+      e.stopPropagation();
+      try {
+        window.getSelection()?.removeAllRanges();
+        editor.view.dom.blur();
+      } catch {
+        /* ignore */
+      }
+
       const anchor = hit.index;
       const parentFrom = hit.parentFrom;
-      setBlockSel({ parentFrom, anchor, focus: anchor });
+      const prev = blockSelRef.current;
+      if (e.shiftKey && prev && prev.parentFrom === parentFrom) {
+        setBlockSel({ parentFrom, anchor: prev.anchor, focus: anchor });
+      } else {
+        setBlockSel({ parentFrom, anchor, focus: anchor });
+      }
       setGrip(hit);
 
       const onGutterMove = (ev: MouseEvent) => {
-        const h = gripFromPos(ev.clientY, rootRect.left + contentPad + 6);
+        const h = gripFromPos(ev.clientY, rootRect.left + Math.max(contentPad, 8) / 2);
         if (!h || h.parentFrom !== parentFrom) return;
         setBlockSel({ parentFrom, anchor, focus: h.index });
         setGrip(h);
@@ -2635,6 +2671,12 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const onGutterUp = () => {
         document.removeEventListener("mousemove", onGutterMove);
         document.removeEventListener("mouseup", onGutterUp);
+        const sel = blockSelRef.current;
+        if (!sel) return;
+        const a = Math.min(sel.anchor, sel.focus);
+        const b = Math.max(sel.anchor, sel.focus);
+        selectSiblingRange(editor, sel.parentFrom, a, b);
+        editor.view.focus();
       };
       document.addEventListener("mousemove", onGutterMove);
       document.addEventListener("mouseup", onGutterUp);
@@ -2642,11 +2684,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
 
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mouseleave", onLeave);
+    // Capture on both: padding clicks hit ProseMirror; margin clicks hit canvas/sheet.
+    root.addEventListener("mousedown", onGutterDown, true);
     canvas.addEventListener("mousedown", onGutterDown);
     return () => {
       cancelHideGrip();
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mouseleave", onLeave);
+      root.removeEventListener("mousedown", onGutterDown, true);
       canvas.removeEventListener("mousedown", onGutterDown);
     };
   }, [editor]);
