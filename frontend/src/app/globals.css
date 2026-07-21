@@ -4258,33 +4258,57 @@ a.sidebar-user-name:hover {
 }
 .bd-scope-bar {
   display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.55rem 0.85rem;
   margin-bottom: 0.75rem;
-  padding: 0.65rem 0.75rem;
+  padding: 0.45rem 0.65rem;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-elevated);
   max-width: 100%;
   box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .bd-scope-label {
   font-size: 0.68rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 .bd-scope-group {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  padding-right: 0.65rem;
+  border-right: 1px solid var(--border);
+}
+.bd-scope-group:last-child {
+  border-right: none;
+  padding-right: 0;
 }
 .bd-scope-group > em {
   font-style: normal;
   font-size: 0.75rem;
   color: var(--text-muted);
-  min-width: 2.5rem;
+  min-width: auto;
+  flex-shrink: 0;
+}
+@media (max-width: 720px) {
+  .bd-scope-bar {
+    flex-wrap: wrap;
+  }
+  .bd-scope-group {
+    border-right: none;
+    padding-right: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
 }
 .bd-tag-chip,
 .bd-tag-add {
