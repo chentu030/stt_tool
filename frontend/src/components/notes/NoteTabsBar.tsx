@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { listenToUserNotes, type Note } from "@/lib/firebase";
@@ -27,6 +28,17 @@ function parseDefaultTags(raw: string): string[] {
     .filter(Boolean);
 }
 
+type MenuPos = { top: number; left: number; minWidth: number };
+
+function clampMenuPos(anchor: DOMRect, minWidth: number, preferRight = false): MenuPos {
+  const gap = 4;
+  const top = Math.min(anchor.bottom + gap, window.innerHeight - 12);
+  const width = Math.max(minWidth, preferRight ? 200 : 176);
+  let left = preferRight ? anchor.right - width : anchor.left;
+  left = Math.max(8, Math.min(left, window.innerWidth - width - 8));
+  return { top, left, minWidth: width };
+}
+
 export default function NoteTabsBar() {
   const router = useRouter();
   const { user } = useAuth();
@@ -39,6 +51,13 @@ export default function NoteTabsBar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [createPos, setCreatePos] = useState<MenuPos | null>(null);
+  const [splitPos, setSplitPos] = useState<MenuPos | null>(null);
+
+  const createBtnRef = useRef<HTMLButtonElement>(null);
+  const splitBtnRef = useRef<HTMLButtonElement>(null);
+  const createMenuRef = useRef<HTMLDivElement>(null);
+  const splitMenuRef = useRef<HTMLDivElement>(null);
 
   const pageOptions = useMemo(() => {
     const extras = (community?.enabledExtensions || []).map((ext) => ({
@@ -58,15 +77,52 @@ export default function NoteTabsBar() {
     return listenToUserNotes(user.uid, setNotes);
   }, [user]);
 
+  useLayoutEffect(() => {
+    if (!createOpen) {
+      setCreatePos(null);
+      return;
+    }
+    const place = () => {
+      const el = createBtnRef.current;
+      if (!el) return;
+      setCreatePos(clampMenuPos(el.getBoundingClientRect(), 176, false));
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [createOpen, pageOptions.length]);
+
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setSplitPos(null);
+      return;
+    }
+    const place = () => {
+      const el = splitBtnRef.current;
+      if (!el) return;
+      setSplitPos(clampMenuPos(el.getBoundingClientRect(), 200, true));
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [menuOpen, openIds.length, splitId]);
+
   useEffect(() => {
     if (!createOpen && !menuOpen) return;
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
-      const root = document.querySelector(".note-tabs");
-      if (root && !root.contains(t)) {
-        setCreateOpen(false);
-        setMenuOpen(false);
-      }
+      if (createBtnRef.current?.contains(t) || createMenuRef.current?.contains(t)) return;
+      if (splitBtnRef.current?.contains(t) || splitMenuRef.current?.contains(t)) return;
+      setCreateOpen(false);
+      setMenuOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -125,6 +181,141 @@ export default function NoteTabsBar() {
   };
 
   if (!openIds.length) return null;
+
+  const createMenu =
+    createOpen && createPos && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={createMenuRef}
+            className="note-tabs-menu note-tabs-create-menu note-tabs-menu--portal"
+            role="menu"
+            style={{
+              position: "fixed",
+              top: createPos.top,
+              left: createPos.left,
+              minWidth: createPos.minWidth,
+              zIndex: 6000,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {pageOptions.map((opt) => (
+              <button
+                key={opt.kind}
+                type="button"
+                role="menuitem"
+                disabled={creating}
+                onClick={() => void createPage(opt.kind, opt.extension)}
+              >
+                <span className="note-tabs-menu-row">
+                  <PageChromeIcon icon={opt.icon} fallback={opt.icon} className="note-tab-icon" />
+                  {opt.label}
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setCreateOpen(false);
+                router.push("/library");
+              }}
+            >
+              前往知識庫…
+            </button>
+          </div>,
+          document.body
+        )
+      : null;
+
+  const splitMenu =
+    menuOpen && splitPos && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={splitMenuRef}
+            className="note-tabs-menu note-tabs-menu--portal"
+            role="menu"
+            style={{
+              position: "fixed",
+              top: splitPos.top,
+              left: splitPos.left,
+              minWidth: splitPos.minWidth,
+              zIndex: 6000,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {splitId && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setSplit(null);
+                  setMenuOpen(false);
+                }}
+              >
+                關閉並排
+              </button>
+            )}
+            <p className="note-tabs-menu-label">右側開啟</p>
+            {openIds
+              .filter((id) => id !== activeId)
+              .map((id) => {
+                const n = byId.get(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="menuitem"
+                    className={id === splitId ? "is-on" : ""}
+                    onClick={() => {
+                      setSplit(id);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    {n ? (
+                      <span className="note-tabs-menu-row">
+                        <PageChromeIcon
+                          icon={n.icon}
+                          color={n.color}
+                          hideWhenEmpty
+                          className="note-tab-icon"
+                        />
+                        {n.title || "未命名"}
+                      </span>
+                    ) : (
+                      id.slice(0, 8)
+                    )}
+                  </button>
+                );
+              })}
+            {openIds.filter((id) => id !== activeId).length === 0 && (
+              <p className="note-tabs-menu-empty">先再開一個筆記分頁</p>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                void (async () => {
+                  const raw = await askPrompt({
+                    title: "並排筆記",
+                    message: "貼上筆記 ID，或從已開啟分頁選擇",
+                    placeholder: "note id",
+                  });
+                  const id = raw?.trim();
+                  if (id) {
+                    setSplit(id);
+                    setMenuOpen(false);
+                  }
+                })();
+              }}
+            >
+              用 ID 開啟…
+            </button>
+          </div>,
+          document.body
+        )
+      : null;
 
   return (
     <div className="note-tabs" role="tablist" aria-label="開啟的筆記">
@@ -191,6 +382,7 @@ export default function NoteTabsBar() {
 
       <div className="note-tab-new-wrap">
         <button
+          ref={createBtnRef}
           type="button"
           className="note-tab-new"
           title="新增頁面"
@@ -205,46 +397,16 @@ export default function NoteTabsBar() {
         >
           +
         </button>
-        {createOpen && (
-          <div
-            className="note-tabs-menu note-tabs-create-menu"
-            role="menu"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {pageOptions.map((opt) => (
-              <button
-                key={opt.kind}
-                type="button"
-                role="menuitem"
-                disabled={creating}
-                onClick={() => void createPage(opt.kind, opt.extension)}
-              >
-                <span className="note-tabs-menu-row">
-                  <PageChromeIcon icon={opt.icon} fallback={opt.icon} className="note-tab-icon" />
-                  {opt.label}
-                </span>
-              </button>
-            ))}
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setCreateOpen(false);
-                router.push("/library");
-              }}
-            >
-              前往知識庫…
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="note-tabs-actions">
         <div className="note-tabs-split-wrap">
           <button
+            ref={splitBtnRef}
             type="button"
             className={`note-tabs-action${splitId ? " is-on" : ""}`}
             title="雙頁並排（或雙擊另一個分頁）"
+            aria-expanded={menuOpen}
             onClick={() => {
               setCreateOpen(false);
               setMenuOpen((v) => !v);
@@ -252,76 +414,11 @@ export default function NoteTabsBar() {
           >
             {splitId ? "並排中" : "並排"}
           </button>
-          {menuOpen && (
-            <div className="note-tabs-menu">
-              {splitId && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSplit(null);
-                    setMenuOpen(false);
-                  }}
-                >
-                  關閉並排
-                </button>
-              )}
-              <p className="note-tabs-menu-label">右側開啟</p>
-              {openIds
-                .filter((id) => id !== activeId)
-                .map((id) => {
-                  const n = byId.get(id);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className={id === splitId ? "is-on" : ""}
-                      onClick={() => {
-                        setSplit(id);
-                        setMenuOpen(false);
-                      }}
-                    >
-                      {n ? (
-                        <span className="note-tabs-menu-row">
-                          <PageChromeIcon
-                            icon={n.icon}
-                            color={n.color}
-                            hideWhenEmpty
-                            className="note-tab-icon"
-                          />
-                          {n.title || "未命名"}
-                        </span>
-                      ) : (
-                        id.slice(0, 8)
-                      )}
-                    </button>
-                  );
-                })}
-              {openIds.filter((id) => id !== activeId).length === 0 && (
-                <p className="note-tabs-menu-empty">先再開一個筆記分頁</p>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  void (async () => {
-                    const raw = await askPrompt({
-                      title: "並排筆記",
-                      message: "貼上筆記 ID，或從已開啟分頁選擇",
-                      placeholder: "note id",
-                    });
-                    const id = raw?.trim();
-                    if (id) {
-                      setSplit(id);
-                      setMenuOpen(false);
-                    }
-                  })();
-                }}
-              >
-                用 ID 開啟…
-              </button>
-            </div>
-          )}
         </div>
       </div>
+
+      {createMenu}
+      {splitMenu}
     </div>
   );
 }

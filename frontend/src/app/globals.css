@@ -5674,10 +5674,7 @@ a.sidebar-user-name:hover {
   z-index: 150;
 }
 .note-tabs-create-menu {
-  left: 0;
-  right: auto;
   min-width: 11rem;
-  z-index: 200;
 }
 .note-tabs-actions {
   flex-shrink: 0;
@@ -5719,6 +5716,13 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+/* Portaled to body so note-tabs-main overflow / doc chrome cannot clip */
+.note-tabs-menu--portal {
+  position: fixed;
+  right: auto;
+  top: auto;
+  max-height: min(360px, calc(100vh - 24px));
 }
 .note-tabs-menu button {
   border: none;
