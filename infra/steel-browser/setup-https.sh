@@ -40,7 +40,11 @@ fi
 cat > /etc/caddy/Caddyfile <<EOF
 ${STEEL_PUBLIC_HOST} {
   encode gzip
-  reverse_proxy 127.0.0.1:3000
+  reverse_proxy 127.0.0.1:3000 {
+    header_up X-Forwarded-Proto https
+    header_up X-Forwarded-Host {host}
+    header_up Host {host}
+  }
 }
 EOF
 systemctl enable --now caddy

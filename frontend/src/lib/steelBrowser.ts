@@ -182,7 +182,11 @@ export function assertBrowserCapacity(uid: string) {
 }
 
 export function viewerUrlFromDebug(debugUrl: string): string {
-  const publicUrl = rewriteSteelPublicUrl(debugUrl);
+  let publicUrl = rewriteSteelPublicUrl(debugUrl);
+  // Steel DOMAIN often emits http:// even behind Caddy — never embed http in HTTPS Albireus.
+  if (STEEL_BASE_URL.startsWith("https:") && publicUrl.startsWith("http:")) {
+    publicUrl = `https:${publicUrl.slice("http:".length)}`;
+  }
   try {
     const u = new URL(publicUrl);
     u.searchParams.set("interactive", "true");
