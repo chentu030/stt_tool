@@ -429,6 +429,26 @@ export function siblingCount(editor: Editor, parentFrom: number): number {
   return editor.state.doc.nodeAt(parentFrom)?.childCount ?? 0;
 }
 
+/** Drop-slot index 0..count: insert before sibling `index` (or after last when index===count). */
+export function dropIndexAtClientY(
+  editor: Editor,
+  parentFrom: number,
+  clientY: number
+): number {
+  const count = siblingCount(editor, parentFrom);
+  if (count <= 0) return 0;
+  for (let i = 0; i < count; i++) {
+    const at = siblingBlockPos(editor, parentFrom, i);
+    if (!at) continue;
+    const dom = editor.view.nodeDOM(at.from);
+    if (!(dom instanceof HTMLElement)) continue;
+    const br = dom.getBoundingClientRect();
+    // Geometric midpoint so tall embeds (YouTube) don't skew the gap toward the top.
+    if (clientY < br.top + br.height / 2) return i;
+  }
+  return count;
+}
+
 /** Doc positions covering siblings [start, end] inclusive. */
 export function siblingRangeBounds(
   editor: Editor,

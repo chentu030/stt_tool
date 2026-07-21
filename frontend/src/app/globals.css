@@ -8362,6 +8362,11 @@ body.is-split-resizing iframe {
   z-index: 6;
   pointer-events: none;
   transform: translateY(-1px);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.rich-page-sheet .block-drop-line {
+  left: var(--block-handle-space, 3.25rem);
+  right: 0;
 }
 .rich-lh {
   display: inline-flex;

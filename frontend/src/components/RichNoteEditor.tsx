@@ -55,7 +55,7 @@ import { resolveEmbedUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
-import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee, dropIndexAtClientY } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
@@ -2867,20 +2867,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       if (!d) return;
       if (!d.moved && Math.abs(ev.clientY - d.startY) > 4) d.moved = true;
       try {
-        const root = editor.view.dom;
-        const rootRect = root.getBoundingClientRect();
-        const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 44;
-        const probeX = Math.max(ev.clientX, rootRect.left + pad + 4);
-        const pos = editor.view.posAtCoords({ left: probeX, top: ev.clientY });
-        if (!pos) return;
-        const block = draggableBlockAt(editor, pos.pos);
-        if (!block || block.parentFrom !== d.parentFrom) return;
-        let idx = block.index;
-        const dom = editor.view.nodeDOM(block.from);
-        if (dom instanceof HTMLElement) {
-          const br = dom.getBoundingClientRect();
-          if (ev.clientY > br.top + br.height / 2) idx = block.index + 1;
-        }
+        // Use sibling DOM midpoints (not posAtCoords) so YouTube/embeds hit the real gap.
+        let idx = dropIndexAtClientY(editor, d.parentFrom, ev.clientY);
         if (idx > d.start && idx <= d.end + 1) {
           dropRef.current = d.start;
           setDropIndex(d.start);
@@ -3230,9 +3218,16 @@ function BlockDropLine({
   index: number;
   parentFrom: number;
 }) {
-  const canvas = editor.view.dom.closest(".rich-canvas") as HTMLElement | null;
+  const root = editor.view.dom;
+  const canvas = root.closest(".rich-canvas") as HTMLElement | null;
   if (!canvas) return null;
-  const rect = canvas.getBoundingClientRect();
+  // Must match block-controls host — page sheet padding would otherwise push the line mid-block.
+  const host =
+    (root.closest(".rich-page-sheet") as HTMLElement | null) ||
+    (root.closest(".rich-canvas-inner") as HTMLElement | null) ||
+    canvas;
+  const hostRect = host.getBoundingClientRect();
+  const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
   const count = siblingCount(editor, parentFrom);
   if (count === 0) return null;
 
@@ -3243,14 +3238,14 @@ function BlockDropLine({
     const dom = editor.view.nodeDOM(last.from);
     if (!(dom instanceof HTMLElement)) return null;
     const br = dom.getBoundingClientRect();
-    top = br.bottom - rect.top + canvas.scrollTop;
+    top = br.bottom - hostRect.top + scrollTop;
   } else {
     const at = siblingBlockPos(editor, parentFrom, index);
     if (!at) return null;
     const dom = editor.view.nodeDOM(at.from);
     if (!(dom instanceof HTMLElement)) return null;
     const br = dom.getBoundingClientRect();
-    top = br.top - rect.top + canvas.scrollTop;
+    top = br.top - hostRect.top + scrollTop;
   }
   return <div className="block-drop-line" style={{ top }} />;
 }
