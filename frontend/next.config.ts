@@ -11,6 +11,11 @@ const nextConfig: NextConfig = {
             key: "Cross-Origin-Opener-Policy",
             value: "same-origin-allow-popups",
           },
+          // Albireus is HTTPS-only; upgrade any accidental http:// (covers, embeds, API) so Chrome stops "不安全".
+          {
+            key: "Content-Security-Policy",
+            value: "upgrade-insecure-requests",
+          },
         ],
       },
     ];
