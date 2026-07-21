@@ -3180,12 +3180,18 @@ a.sidebar-user-name:hover {
   width: 15px;
   height: 15px;
 }
-.nav-history--collapsed {
+.nav-history--rail {
+  display: flex;
   flex-direction: column;
   width: 100%;
   align-items: center;
-  gap: 0.15rem;
+  justify-content: center;
+  gap: 0.1rem;
   margin: 0 0 0.45rem;
+}
+.nav-history--rail .nav-history-btn {
+  width: 28px;
+  height: 28px;
 }
 .sidebar-nav-history {
   display: flex;
