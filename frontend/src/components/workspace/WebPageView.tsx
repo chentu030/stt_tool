@@ -73,6 +73,9 @@ export default function WebPageView({
   const activeRef = useRef(active);
   activeRef.current = active;
   const virtualSessionRef = useRef<string | null>(null);
+  /** Prevent start/fail/busy loop that made the loading pane flash. */
+  const virtualStartingRef = useRef(false);
+  const virtualTriedUrlRef = useRef<string | null>(null);
 
   const markExpectLoad = (url: string | null) => {
     expectLoadRef.current = url;
@@ -94,6 +97,11 @@ export default function WebPageView({
     setForceVirtual(false);
     setDetachStatus("idle");
     setVirtualError("");
+    setVirtual(null);
+    virtualSessionRef.current = null;
+    virtualTriedUrlRef.current = null;
+    virtualStartingRef.current = false;
+    setVirtualBusy(false);
     markExpectLoad(saved || null);
     if (saved) {
       setStack([saved]);
@@ -108,6 +116,7 @@ export default function WebPageView({
     const sid = virtualSessionRef.current;
     virtualSessionRef.current = null;
     setVirtual(null);
+    virtualTriedUrlRef.current = null;
     if (!sid || !auth.currentUser) return;
     try {
       const headers = await authHeader();
@@ -144,48 +153,48 @@ export default function WebPageView({
     [active, draft]
   );
 
-  const startVirtual = useCallback(
-    async (url: string) => {
-      setVirtualBusy(true);
-      setVirtualError("");
-      try {
-        if (!auth.currentUser) {
-          setVirtualError("請先登入 Albireus 才能使用虛擬瀏覽器");
-          return;
-        }
-        const headers = await authHeader();
-        const res = await fetch("/api/web/browser/session", {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ url }),
-        });
-        const data = (await res.json()) as {
-          error?: string;
-          sessionId?: string;
-          viewerUrl?: string;
-          privacy?: string;
-          configured?: boolean;
-        };
-        if (!res.ok || !data.sessionId || !data.viewerUrl) {
-          setVirtualError(data.error || "無法啟動虛擬瀏覽器");
-          if (res.status === 503) setSteelConfigured(false);
-          return;
-        }
-        virtualSessionRef.current = data.sessionId;
-        setVirtual({
-          sessionId: data.sessionId,
-          viewerUrl: data.viewerUrl,
-          privacy: data.privacy,
-        });
-        setSteelConfigured(true);
-      } catch (e) {
-        setVirtualError(e instanceof Error ? e.message : "無法啟動虛擬瀏覽器");
-      } finally {
-        setVirtualBusy(false);
+  const startVirtual = useCallback(async (url: string, opts?: { force?: boolean }) => {
+    if (virtualStartingRef.current && !opts?.force) return;
+    virtualStartingRef.current = true;
+    setVirtualBusy(true);
+    setVirtualError("");
+    try {
+      if (!auth.currentUser) {
+        setVirtualError("請先登入 Albireus 才能使用虛擬瀏覽器");
+        return;
       }
-    },
-    []
-  );
+      const headers = await authHeader();
+      const res = await fetch("/api/web/browser/session", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ url }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        sessionId?: string;
+        viewerUrl?: string;
+        privacy?: string;
+        configured?: boolean;
+      };
+      if (!res.ok || !data.sessionId || !data.viewerUrl) {
+        setVirtualError(data.error || "無法啟動虛擬瀏覽器");
+        if (res.status === 503) setSteelConfigured(false);
+        return;
+      }
+      virtualSessionRef.current = data.sessionId;
+      setVirtual({
+        sessionId: data.sessionId,
+        viewerUrl: data.viewerUrl,
+        privacy: data.privacy,
+      });
+      setSteelConfigured(true);
+    } catch (e) {
+      setVirtualError(e instanceof Error ? e.message : "無法啟動虛擬瀏覽器");
+    } finally {
+      setVirtualBusy(false);
+      virtualStartingRef.current = false;
+    }
+  }, []);
 
   const navigateVirtual = useCallback(
     async (url: string) => {
@@ -328,7 +337,7 @@ export default function WebPageView({
     };
   }, [active, forceVirtual]);
 
-  // Auto-start virtual when needed
+  // Auto-start virtual once per URL (do not depend on virtualBusy — that caused a flash loop)
   useEffect(() => {
     if (!active) return;
     const want =
@@ -338,7 +347,9 @@ export default function WebPageView({
     if (!want) return;
     if (steelConfigured === false) return;
     if (virtual?.sessionId) return;
-    if (virtualBusy) return;
+    if (virtualStartingRef.current) return;
+    if (virtualTriedUrlRef.current === active) return;
+    virtualTriedUrlRef.current = active;
     void startVirtual(active);
   }, [
     active,
@@ -346,7 +357,6 @@ export default function WebPageView({
     probeFrameable,
     steelConfigured,
     virtual?.sessionId,
-    virtualBusy,
     startVirtual,
   ]);
 
@@ -682,7 +692,8 @@ export default function WebPageView({
           aria-pressed={forceVirtual || showVirtualPane}
           onClick={() => {
             setForceVirtual(true);
-            if (active) void startVirtual(active);
+            virtualTriedUrlRef.current = null;
+            if (active) void startVirtual(active, { force: true });
           }}
         >
           虛擬
@@ -758,7 +769,10 @@ export default function WebPageView({
                     type="button"
                     className="btn"
                     disabled={virtualBusy}
-                    onClick={() => void startVirtual(active)}
+                    onClick={() => {
+                      virtualTriedUrlRef.current = null;
+                      void startVirtual(active, { force: true });
+                    }}
                   >
                     重試啟動
                   </button>
@@ -767,7 +781,7 @@ export default function WebPageView({
                   </button>
                 </div>
               )}
-              {probeReason ? <p className="web-page-hint">{probeReason}</p> : null}
+              {probeReason && !virtualBusy ? <p className="web-page-hint">{probeReason}</p> : null}
             </div>
           )
         ) : showBlocked ? (
