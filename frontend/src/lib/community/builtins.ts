@@ -354,7 +354,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
       license: "MIT",
       icon: "menu_book",
       category: "學習",
-      cover: "https://images.unsplash.com/photo-1456513080880-7d93fd81bda1?w=800&q=60",
+      cover: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=800&q=60",
       screenshots: [
         "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=960&q=60",
       ],

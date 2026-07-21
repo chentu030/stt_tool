@@ -93,7 +93,15 @@ export function PackageCard({
     <article className="community-card">
       {entry.cover ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img className="community-card-cover" src={entry.cover} alt="" loading="lazy" />
+        <img
+          className="community-card-cover"
+          src={entry.cover}
+          alt=""
+          loading="lazy"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
       ) : null}
       <div className="community-card-top">
         <PageChromeIcon
