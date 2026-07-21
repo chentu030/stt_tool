@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { updateNote, type Note } from "@/lib/firebase";
 import { normalizeWebUrl, webUrlFromNote } from "@/lib/workspacePages";
-import { resolveEmbedUrl } from "@/lib/embedUrls";
+import { resolveEmbedUrl, urlLikelyBlocksFraming } from "@/lib/embedUrls";
 
 type Props = {
   note: Pick<Note, "id" | "title" | "props" | "app_link">;
@@ -18,6 +18,9 @@ type Props = {
  * In-app browser chrome. Cross-origin iframes hide location/history from the parent,
  * so we track address-bar navigations in `stack`, and treat iframe-internal clicks as
  * `inPageDepth` — Back then reloads the last known URL (usually the site you entered).
+ *
+ * Sites that set X-Frame-Options / CSP frame-ancestors cannot be shown in the iframe
+ * (Google login, TPEx, banks, etc.). The best workaround is a top-level popup window.
  */
 export default function WebPageView({
   note,
@@ -35,9 +38,13 @@ export default function WebPageView({
   const [stackIdx, setStackIdx] = useState(() => (saved ? 0 : -1));
   /** Navigations inside the iframe we cannot read (e.g. Home → Login click). */
   const [inPageDepth, setInPageDepth] = useState(0);
+  /** Server/header probe: false = site blocks framing */
+  const [probeFrameable, setProbeFrameable] = useState<boolean | null>(null);
+  const [probeReason, setProbeReason] = useState("");
   const stackIdxRef = useRef(stackIdx);
   stackIdxRef.current = stackIdx;
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const popupRef = useRef<Window | null>(null);
   /** URL we just assigned via `src` — its load must not count as in-page navigation. */
   const expectLoadRef = useRef<string | null>(saved || null);
   /** Ignore iframe loads briefly after we set `src` (redirects often fire a 2nd load). */
@@ -64,26 +71,78 @@ export default function WebPageView({
     }
   }, [saved, note.id]);
 
+  // Known denylist or live header probe — cannot bypass; only detect.
+  useEffect(() => {
+    if (!active) {
+      setProbeFrameable(null);
+      setProbeReason("");
+      return;
+    }
+    if (urlLikelyBlocksFraming(active)) {
+      setProbeFrameable(false);
+      setProbeReason("此網站禁止被嵌入預覽（X-Frame-Options / CSP）");
+      return;
+    }
+    // Dedicated embeds (YouTube etc.) — skip probe
+    const emb = resolveEmbedUrl(active);
+    if (emb && emb.frameable && emb.kind !== "link" && emb.kind !== "web") {
+      setProbeFrameable(true);
+      setProbeReason("");
+      return;
+    }
+
+    setProbeFrameable(null);
+    setProbeReason("檢查中…");
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      void fetch(`/api/web/frame-check?url=${encodeURIComponent(active)}`)
+        .then((r) => r.json())
+        .then((data: { frameable?: boolean | null; reason?: string }) => {
+          if (cancelled) return;
+          if (data.frameable === false) {
+            setProbeFrameable(false);
+            setProbeReason(data.reason || "伺服器禁止嵌入");
+          } else if (data.frameable === true) {
+            setProbeFrameable(true);
+            setProbeReason("");
+          } else {
+            // Probe failed — still try iframe; user can open popup if it fails
+            setProbeFrameable(true);
+            setProbeReason("");
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setProbeFrameable(true);
+            setProbeReason("");
+          }
+        });
+    }, 80);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [active]);
+
   const canBack = inPageDepth > 0 || stackIdx > 0;
   const canForward = inPageDepth === 0 && stackIdx >= 0 && stackIdx < stack.length - 1;
 
   const resolved = useMemo(() => {
     if (!active) return null;
     const r = resolveEmbedUrl(active);
-    if (!r) {
-      return {
-        kind: "web" as const,
-        src: active,
-        title: active,
-        original: active,
-        frameable: true,
-      };
+    if (r && r.frameable && r.kind !== "link") {
+      return r;
     }
-    if (r.kind === "link" || r.kind === "web") {
-      return { ...r, kind: "web" as const, frameable: true, src: r.original || r.src };
-    }
-    return r;
-  }, [active]);
+    const blocks =
+      probeFrameable === false || urlLikelyBlocksFraming(active);
+    return {
+      kind: "web" as const,
+      src: active,
+      title: active,
+      original: active,
+      frameable: !blocks,
+    };
+  }, [active, probeFrameable]);
 
   const showUrl = useCallback(
     async (
@@ -112,7 +171,6 @@ export default function WebPageView({
           return out;
         });
       } else if (opts?.fromBackForward) {
-        // Resetting iframe src wipes the iframe's own history — drop forward entries.
         setStack((prev) => prev.slice(0, stackIdxRef.current + 1));
       }
 
@@ -169,7 +227,6 @@ export default function WebPageView({
     const frame = frameRef.current;
     if (!frame) return;
 
-    // Same-origin (rare): read real URL and push onto stack.
     try {
       const href = frame.contentWindow?.location?.href;
       if (href) {
@@ -181,16 +238,14 @@ export default function WebPageView({
         return;
       }
     } catch {
-      /* cross-origin — fall through */
+      /* cross-origin */
     }
 
     const expected = expectLoadRef.current;
     if (expected || Date.now() < settleUntilRef.current) {
-      // Load from our address bar / back / forward / refresh, or a same-nav redirect.
       expectLoadRef.current = null;
       return;
     }
-    // Link click (or form) inside the iframe — parent cannot see the new URL.
     setInPageDepth((d) => d + 1);
     setDraft((prev) => {
       const base = activeRef.current || prev;
@@ -232,13 +287,49 @@ export default function WebPageView({
   const reload = () => {
     if (!active) return;
     if (inPageDepth > 0) {
-      // Remounting would reload the last known URL, not the in-page view — jump back instead.
       void showUrl(active, { record: "none", persistCloud: false });
       return;
     }
     markExpectLoad(active);
     setFrameKey((k) => k + 1);
   };
+
+  /** Top-level window — X-Frame-Options does not apply. Best path for Google / TPEx. */
+  const openDetached = useCallback(() => {
+    const url = (active || draft.replace(/\s*（站內）\s*$/, "")).trim();
+    if (!url || url === "https://") return;
+    const href = normalizeWebUrl(url) || url;
+    try {
+      if (popupRef.current && !popupRef.current.closed) {
+        popupRef.current.location.href = href;
+        popupRef.current.focus();
+        return;
+      }
+    } catch {
+      /* cross-origin popup — open a new one */
+    }
+    const w = window.open(
+      href,
+      `albireus_web_${note.id}`,
+      "popup=yes,width=1280,height=840,scrollbars=yes,resizable=yes"
+    );
+    if (w) {
+      popupRef.current = w;
+      w.focus();
+    } else {
+      window.open(href, "_blank", "noopener,noreferrer");
+    }
+  }, [active, draft, note.id]);
+
+  const hostLabel = useMemo(() => {
+    try {
+      return active ? new URL(active).hostname.replace(/^www\./, "") : "";
+    } catch {
+      return "";
+    }
+  }, [active]);
+
+  const showBlocked = Boolean(active && resolved && !resolved.frameable);
 
   return (
     <div className={`web-page-view${compact ? " is-compact" : ""}`}>
@@ -294,6 +385,16 @@ export default function WebPageView({
         <button type="button" className="web-page-btn" disabled={busy} onClick={go}>
           前往
         </button>
+        <button
+          type="button"
+          className="web-page-btn"
+          disabled={busy || !(active || draft)}
+          title="以獨立視窗開啟（可開 Google 登入、櫃買等擋嵌網站）"
+          aria-label="獨立視窗"
+          onClick={openDetached}
+        >
+          ▢
+        </button>
         {active ? (
           <a
             className="web-page-btn web-page-external"
@@ -310,13 +411,30 @@ export default function WebPageView({
         {!active ? (
           <div className="web-page-empty">
             <p>輸入網址，把這個分頁當成瀏覽器使用。</p>
+            <p className="web-page-hint">
+              Google 登入、櫃買中心等網站禁止嵌入時，請按工具列「▢ 獨立視窗」。
+            </p>
           </div>
-        ) : resolved && !resolved.frameable ? (
+        ) : showBlocked ? (
           <div className="web-page-blocked">
-            <p>此網站不允許嵌入預覽（常見於 Google、社群網站等）。</p>
-            <a className="btn" href={resolved.original} target="_blank" rel="noopener noreferrer">
-              用外部瀏覽器開啟
-            </a>
+            <p className="web-page-blocked-title">
+              {hostLabel || "此網站"}無法嵌入預覽
+            </p>
+            <p>
+              對方用安全政策禁止被 iframe 顯示（例如 Google 登入、櫃買中心）。
+              瀏覽器不允許網頁應用程式繞過這層限制。
+            </p>
+            {probeReason && probeReason !== "檢查中…" ? (
+              <p className="web-page-hint">{probeReason}</p>
+            ) : null}
+            <div className="web-page-blocked-actions">
+              <button type="button" className="btn" onClick={openDetached}>
+                以獨立視窗開啟
+              </button>
+              <a className="btn btn-soft" href={active} target="_blank" rel="noopener noreferrer">
+                用系統瀏覽器開啟
+              </a>
+            </div>
           </div>
         ) : (
           <iframe

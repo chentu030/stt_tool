@@ -140,13 +140,18 @@ function googleWorkspaceEmbed(original: string, fileId: string): EmbedResolved |
 }
 
 /** Hosts / paths that almost always refuse iframe embedding */
-function isKnownNonFrameable(hostname: string, pathname = ""): boolean {
+export function isKnownNonFrameable(hostname: string, pathname = ""): boolean {
   const h = hostname.toLowerCase();
   const p = pathname.toLowerCase();
   const blockedExact = [
     "docs.cloud.google.com",
     "cloud.google.com",
     "console.cloud.google.com",
+    "accounts.google.com",
+    "myaccount.google.com",
+    "mail.google.com",
+    "google.com",
+    "www.google.com",
     "github.com",
     "gitlab.com",
     "notion.so",
@@ -176,23 +181,42 @@ function isKnownNonFrameable(hostname: string, pathname = ""): boolean {
     "ai.google.dev",
     "developers.google.com",
     "firebase.google.com",
+    // TW market data / portals — CSP / X-Frame-Options deny
+    "tpex.org.tw",
+    "www.tpex.org.tw",
+    "twse.com.tw",
+    "www.twse.com.tw",
+    "mis.twse.com.tw",
+    "mops.twse.com.tw",
+    "isin.twse.com.tw",
+    "ctee.com.tw",
+    "www.ctee.com.tw",
+    "cnyes.com",
+    "www.cnyes.com",
+    "moneydj.com",
+    "www.moneydj.com",
   ];
   if (blockedExact.includes(h)) return true;
   if (h.endsWith(".notion.site")) return true;
-  if (h === "www.google.com" && p.startsWith("/search")) return true;
-  // Generic Google product docs / console (not Drive / Docs workspace embeds)
-  if (h.endsWith(".google.com") && !h.includes("drive.") && !h.includes("docs.") && !h.includes("maps.")) {
-    if (
-      h.startsWith("docs.") ||
-      h.includes("cloud") ||
-      h.includes("developers") ||
-      h.includes("support") ||
-      h.includes("workspace")
-    ) {
-      return true;
-    }
+  if (h.endsWith(".google.com") || h.endsWith(".google.com.tw")) {
+    // Drive / Docs / Maps have dedicated embed URLs handled elsewhere
+    if (h.includes("drive.") || h.includes("docs.") || h.includes("maps.")) return false;
+    return true;
   }
+  if (h.endsWith(".tpex.org.tw") || h.endsWith(".twse.com.tw")) return true;
+  if (h === "www.google.com" && p.startsWith("/search")) return true;
   return false;
+}
+
+/** True when this URL is very likely to refuse being framed (iframe). */
+export function urlLikelyBlocksFraming(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return true;
+    return isKnownNonFrameable(u.hostname, u.pathname);
+  } catch {
+    return false;
+  }
 }
 
 function linkCard(original: string, title?: string): EmbedResolved {
