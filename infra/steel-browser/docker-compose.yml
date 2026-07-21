@@ -1,0 +1,21 @@
+# Steel Browser — single image (API + UI on :3000)
+# Docs: https://docs.steel.dev/overview/self-hosting/docker
+services:
+  steel:
+    image: ghcr.io/steel-dev/steel-browser:latest
+    container_name: albireus-steel
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+      # CDP — bind localhost only; never expose to the public internet
+      - "127.0.0.1:9223:9223"
+    volumes:
+      - steel-cache:/app/.cache
+    shm_size: "1gb"
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+
+volumes:
+  steel-cache:

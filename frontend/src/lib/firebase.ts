@@ -14,15 +14,7 @@ import {
   UploadTaskSnapshot, uploadBytes
 } from "firebase/storage";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyCPbw1q2LBbbEsYq1rvvRP7k7Rhwf064kk",
-  authDomain: "stt-tool-f6e6d.firebaseapp.com",
-  projectId: "stt-tool-f6e6d",
-  storageBucket: "stt-tool-f6e6d.firebasestorage.app",
-  messagingSenderId: "709725695008",
-  appId: "1:709725695008:web:4ffb404811019b00846045",
-  measurementId: "G-5B2WVTE54M",
-};
+import { firebaseConfig } from "@/lib/firebasePublic";
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);

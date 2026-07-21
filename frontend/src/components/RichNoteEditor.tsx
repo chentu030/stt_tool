@@ -1745,6 +1745,18 @@ export default function RichNoteEditor({
     return () => window.removeEventListener("cadence-insert-template", onTpl as EventListener);
   }, []);
 
+  useEffect(() => {
+    const onMd = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ markdown?: string }>).detail;
+      const md = detail?.markdown?.trim();
+      if (!md || !editorRef.current) return;
+      const html = markdownToHtml(md, (title) => resolveWikiRef.current(title));
+      editorRef.current.chain().focus().insertContent(html).run();
+    };
+    window.addEventListener("cadence-insert-md", onMd as EventListener);
+    return () => window.removeEventListener("cadence-insert-md", onMd as EventListener);
+  }, []);
+
   const [linkBar, setLinkBar] = useState<string | null>(null);
 
   const setLink = () => {

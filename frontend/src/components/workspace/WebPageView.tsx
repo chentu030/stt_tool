@@ -1,33 +1,44 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { updateNote, type Note } from "@/lib/firebase";
+import { auth, updateNote, type Note } from "@/lib/firebase";
 import { normalizeWebUrl, webUrlFromNote } from "@/lib/workspacePages";
 import { resolveEmbedUrl, urlLikelyBlocksFraming } from "@/lib/embedUrls";
 import {
   canEmbedProxy,
   embedProxySrc,
-  isGoogleAppNeedsTopLevel,
-  isGoogleAuthOrLoginUrl,
-  shouldAutoDetach,
+  shouldUseVirtualBrowser,
 } from "@/lib/embedProxy";
+import { toast } from "@/lib/toast";
+
+const BROWSER_IDLE_MS = 10 * 60 * 1000;
 
 type Props = {
   note: Pick<Note, "id" | "title" | "props" | "app_link">;
   compact?: boolean;
-  /** When true, URL changes stay local (TipTap embed) */
   ephemeral?: boolean;
   onTitleHint?: (title: string) => void;
   onUrlChange?: (url: string) => void;
 };
 
+type BrowseMode = "direct" | "proxy" | "virtual" | "blocked";
+
+type VirtualState = {
+  sessionId: string;
+  viewerUrl: string;
+  privacy?: string;
+};
+
+async function authHeader(): Promise<HeadersInit> {
+  const user = auth.currentUser;
+  if (!user) throw new Error("請先登入");
+  const token = await user.getIdToken();
+  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+}
+
 /**
- * In-app browser chrome. Cross-origin iframes hide location/history from the parent,
- * so we track address-bar navigations in `stack`, and treat iframe-internal clicks as
- * `inPageDepth` — Back then reloads the last known URL (usually the site you entered).
- *
- * Sites that block framing are loaded via /api/web/embed-proxy (public http(s) only).
- * Google login / sensitive hosts open in a detached window automatically.
+ * In-app browser: direct iframe → HTML proxy → Steel virtual Chromium.
+ * Google / Gemini prefer virtual browser so login works inside Albireus.
  */
 export default function WebPageView({
   note,
@@ -43,24 +54,25 @@ export default function WebPageView({
   const [busy, setBusy] = useState(false);
   const [stack, setStack] = useState<string[]>(() => (saved ? [saved] : []));
   const [stackIdx, setStackIdx] = useState(() => (saved ? 0 : -1));
-  /** Navigations inside the iframe we cannot read (e.g. Home → Login click). */
   const [inPageDepth, setInPageDepth] = useState(0);
-  /** Server/header probe: false = site blocks framing */
   const [probeFrameable, setProbeFrameable] = useState<boolean | null>(null);
   const [probeReason, setProbeReason] = useState("");
   const [proxyMode, setProxyMode] = useState(false);
+  const [forceVirtual, setForceVirtual] = useState(false);
+  const [steelConfigured, setSteelConfigured] = useState<boolean | null>(null);
+  const [virtual, setVirtual] = useState<VirtualState | null>(null);
+  const [virtualError, setVirtualError] = useState("");
+  const [virtualBusy, setVirtualBusy] = useState(false);
   const [detachStatus, setDetachStatus] = useState<"idle" | "opened" | "blocked">("idle");
+
   const stackIdxRef = useRef(stackIdx);
   stackIdxRef.current = stackIdx;
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const popupRef = useRef<Window | null>(null);
-  /** URL we just assigned via `src` — its load must not count as in-page navigation. */
   const expectLoadRef = useRef<string | null>(saved || null);
-  /** Ignore iframe loads briefly after we set `src` (redirects often fire a 2nd load). */
   const settleUntilRef = useRef(0);
   const activeRef = useRef(active);
   activeRef.current = active;
-  const lastAutoDetachUrl = useRef("");
+  const virtualSessionRef = useRef<string | null>(null);
 
   const markExpectLoad = (url: string | null) => {
     expectLoadRef.current = url;
@@ -68,12 +80,20 @@ export default function WebPageView({
   };
 
   useEffect(() => {
+    void fetch("/api/web/browser/session")
+      .then((r) => r.json())
+      .then((d: { configured?: boolean }) => setSteelConfigured(Boolean(d.configured)))
+      .catch(() => setSteelConfigured(false));
+  }, []);
+
+  useEffect(() => {
     setDraft(saved || "https://");
     setActive(saved || "");
     setInPageDepth(0);
     setProxyMode(false);
+    setForceVirtual(false);
     setDetachStatus("idle");
-    lastAutoDetachUrl.current = "";
+    setVirtualError("");
     markExpectLoad(saved || null);
     if (saved) {
       setStack([saved]);
@@ -84,13 +104,30 @@ export default function WebPageView({
     }
   }, [saved, note.id]);
 
-  /** Top-level window — X-Frame-Options does not apply. Required for Gemini / Google login. */
+  const releaseVirtual = useCallback(async () => {
+    const sid = virtualSessionRef.current;
+    virtualSessionRef.current = null;
+    setVirtual(null);
+    if (!sid || !auth.currentUser) return;
+    try {
+      const headers = await authHeader();
+      await fetch("/api/web/browser/session", { method: "DELETE", headers });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      void releaseVirtual();
+    };
+  }, [releaseVirtual]);
+
   const openDetached = useCallback(
     (urlOverride?: string): boolean => {
       const url = (urlOverride || active || draft.replace(/\s*（站內）\s*$/, "")).trim();
       if (!url || url === "https://") return false;
       const href = normalizeWebUrl(url) || url;
-      // Prefer a real tab (survives popup blockers better than named popup windows)
       const tab = window.open(href, "_blank", "noopener,noreferrer");
       if (tab) {
         try {
@@ -101,45 +138,131 @@ export default function WebPageView({
         setDetachStatus("opened");
         return true;
       }
-      try {
-        if (popupRef.current && !popupRef.current.closed) {
-          popupRef.current.location.href = href;
-          popupRef.current.focus();
-          setDetachStatus("opened");
-          return true;
-        }
-      } catch {
-        /* cross-origin popup — open a new one */
-      }
-      const w = window.open(
-        href,
-        `albireus_web_${note.id}`,
-        "popup=yes,width=1280,height=840,scrollbars=yes,resizable=yes"
-      );
-      if (w) {
-        popupRef.current = w;
-        w.focus();
-        setDetachStatus("opened");
-        return true;
-      }
       setDetachStatus("blocked");
       return false;
     },
-    [active, draft, note.id]
+    [active, draft]
   );
 
-  const tryAutoDetach = useCallback(
-    (url: string, reason: "denylist" | "probe" | "google") => {
-      if (lastAutoDetachUrl.current === url) return;
-      lastAutoDetachUrl.current = url;
-      // useEffect auto-open is often blocked — still try, then rely on big CTA
-      openDetached(url);
-      void reason;
+  const startVirtual = useCallback(
+    async (url: string) => {
+      setVirtualBusy(true);
+      setVirtualError("");
+      try {
+        if (!auth.currentUser) {
+          setVirtualError("請先登入 Albireus 才能使用虛擬瀏覽器");
+          return;
+        }
+        const headers = await authHeader();
+        const res = await fetch("/api/web/browser/session", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ url }),
+        });
+        const data = (await res.json()) as {
+          error?: string;
+          sessionId?: string;
+          viewerUrl?: string;
+          privacy?: string;
+          configured?: boolean;
+        };
+        if (!res.ok || !data.sessionId || !data.viewerUrl) {
+          setVirtualError(data.error || "無法啟動虛擬瀏覽器");
+          if (res.status === 503) setSteelConfigured(false);
+          return;
+        }
+        virtualSessionRef.current = data.sessionId;
+        setVirtual({
+          sessionId: data.sessionId,
+          viewerUrl: data.viewerUrl,
+          privacy: data.privacy,
+        });
+        setSteelConfigured(true);
+      } catch (e) {
+        setVirtualError(e instanceof Error ? e.message : "無法啟動虛擬瀏覽器");
+      } finally {
+        setVirtualBusy(false);
+      }
     },
-    [openDetached]
+    []
   );
 
-  // Prefer proxy for public sites that block framing; detach Google apps / login.
+  const navigateVirtual = useCallback(
+    async (url: string) => {
+      if (!virtual?.sessionId) {
+        await startVirtual(url);
+        return;
+      }
+      setVirtualBusy(true);
+      try {
+        const headers = await authHeader();
+        const res = await fetch("/api/web/browser/navigate", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ url, sessionId: virtual.sessionId }),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          toast(data.error || "導向失敗");
+          if (res.status === 404) {
+            await startVirtual(url);
+          }
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "導向失敗");
+      } finally {
+        setVirtualBusy(false);
+      }
+    },
+    [virtual?.sessionId, startVirtual]
+  );
+
+  const clipVirtual = useCallback(async () => {
+    if (!virtual?.sessionId) {
+      toast("尚未啟動虛擬瀏覽器");
+      return;
+    }
+    setVirtualBusy(true);
+    try {
+      const headers = await authHeader();
+      const res = await fetch("/api/web/browser/clip", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ sessionId: virtual.sessionId }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        markdown?: string;
+        title?: string;
+        url?: string;
+      };
+      if (!res.ok || !data.markdown) {
+        toast(data.error || "擷取失敗");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(data.markdown);
+      } catch {
+        /* ignore */
+      }
+      window.dispatchEvent(
+        new CustomEvent("cadence-insert-md", { detail: { markdown: data.markdown } })
+      );
+      toast("已擷取到筆記／剪貼簿");
+      if (data.url) {
+        setActive(data.url);
+        setDraft(data.url);
+        onUrlChange?.(data.url);
+      }
+      if (data.title) onTitleHint?.(data.title);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "擷取失敗");
+    } finally {
+      setVirtualBusy(false);
+    }
+  }, [virtual?.sessionId, onUrlChange, onTitleHint]);
+
+  // Probe / mode selection for non-virtual paths
   useEffect(() => {
     if (!active) {
       setProbeFrameable(null);
@@ -147,33 +270,25 @@ export default function WebPageView({
       setProxyMode(false);
       return;
     }
-
-    const proxyOk = canEmbedProxy(active);
-    const needsTop = isGoogleAppNeedsTopLevel(active) || shouldAutoDetach(active);
-
-    if (needsTop || (!proxyOk && urlLikelyBlocksFraming(active))) {
+    if (forceVirtual || shouldUseVirtualBrowser(active)) {
       setProbeFrameable(false);
-      setProbeReason(
-        isGoogleAppNeedsTopLevel(active)
-          ? "Google／Gemini 必須用獨立視窗（無法在筆記內嵌登入）"
-          : "此網站無法在頁內預覽（請用獨立視窗）"
-      );
+      setProbeReason("使用雲端虛擬瀏覽器（可登入 Google／Gemini）");
       setProxyMode(false);
-      tryAutoDetach(
-        active,
-        isGoogleAuthOrLoginUrl(active) || isGoogleAppNeedsTopLevel(active) ? "google" : "denylist"
-      );
       return;
     }
 
     if (urlLikelyBlocksFraming(active)) {
       setProbeFrameable(false);
-      setProbeReason("此網站禁止被直接嵌入，改以頁內代理顯示");
-      setProxyMode(proxyOk);
+      if (canEmbedProxy(active)) {
+        setProbeReason("此網站禁止直接嵌入，改以頁內代理顯示");
+        setProxyMode(true);
+      } else {
+        setProbeReason("此網站無法代理；請用虛擬瀏覽器或系統分頁");
+        setProxyMode(false);
+      }
       return;
     }
 
-    // Dedicated embeds (YouTube etc.) — skip probe
     const emb = resolveEmbedUrl(active);
     if (emb && emb.frameable && emb.kind !== "link" && emb.kind !== "web") {
       setProbeFrameable(true);
@@ -194,11 +309,7 @@ export default function WebPageView({
           if (data.frameable === false) {
             setProbeFrameable(false);
             setProbeReason(data.reason || "伺服器禁止嵌入");
-            if (canEmbedProxy(active)) {
-              setProxyMode(true);
-            } else {
-              tryAutoDetach(active, "probe");
-            }
+            setProxyMode(canEmbedProxy(active));
           } else {
             setProbeFrameable(true);
             setProbeReason("");
@@ -215,7 +326,95 @@ export default function WebPageView({
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [active, tryAutoDetach]);
+  }, [active, forceVirtual]);
+
+  // Auto-start virtual when needed
+  useEffect(() => {
+    if (!active) return;
+    const want =
+      forceVirtual ||
+      shouldUseVirtualBrowser(active) ||
+      (probeFrameable === false && !canEmbedProxy(active));
+    if (!want) return;
+    if (steelConfigured === false) return;
+    if (virtual?.sessionId) return;
+    if (virtualBusy) return;
+    void startVirtual(active);
+  }, [
+    active,
+    forceVirtual,
+    probeFrameable,
+    steelConfigured,
+    virtual?.sessionId,
+    virtualBusy,
+    startVirtual,
+  ]);
+
+  // Proxy 403 / hard failure → upgrade to virtual
+  useEffect(() => {
+    if (!active || forceVirtual || shouldUseVirtualBrowser(active)) return;
+    if (probeFrameable !== false || !proxyMode || !canEmbedProxy(active)) return;
+    if (steelConfigured === false) return;
+    let cancelled = false;
+    const ctrl = new AbortController();
+    void fetch(embedProxySrc(active), { method: "GET", signal: ctrl.signal })
+      .then(async (r) => {
+        try {
+          void r.body?.cancel();
+        } catch {
+          /* ignore */
+        }
+        if (cancelled) return;
+        if (r.status === 403 || r.status === 502 || r.status === 400) {
+          setForceVirtual(true);
+          setProxyMode(false);
+          setProbeReason("代理失敗，已改用虛擬瀏覽器");
+        }
+      })
+      .catch(() => {
+        /* keep proxy; iframe may still work */
+      });
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [active, forceVirtual, probeFrameable, proxyMode, steelConfigured]);
+
+  // Idle release after ~10 minutes with no chrome interaction
+  useEffect(() => {
+    if (!virtual?.sessionId) return;
+    let last = Date.now();
+    const bump = () => {
+      last = Date.now();
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") bump();
+    };
+    window.addEventListener("pointerdown", bump);
+    window.addEventListener("keydown", bump);
+    document.addEventListener("visibilitychange", onVis);
+    const timer = window.setInterval(() => {
+      if (Date.now() - last >= BROWSER_IDLE_MS) {
+        void releaseVirtual();
+        toast("虛擬瀏覽器已因閒置釋放");
+      }
+    }, 30_000);
+    return () => {
+      window.removeEventListener("pointerdown", bump);
+      window.removeEventListener("keydown", bump);
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(timer);
+    };
+  }, [virtual?.sessionId, releaseVirtual]);
+
+  const browseMode: BrowseMode = useMemo(() => {
+    if (!active) return "direct";
+    if (forceVirtual || shouldUseVirtualBrowser(active)) return "virtual";
+    if (probeFrameable === false && !canEmbedProxy(active)) return "virtual";
+    if (probeFrameable === false && proxyMode && canEmbedProxy(active)) return "proxy";
+    if (probeFrameable === false && !proxyMode) return "blocked";
+    return "direct";
+  }, [active, forceVirtual, probeFrameable, proxyMode]);
 
   const canBack = inPageDepth > 0 || stackIdx > 0;
   const canForward = inPageDepth === 0 && stackIdx >= 0 && stackIdx < stack.length - 1;
@@ -223,20 +422,20 @@ export default function WebPageView({
   const resolved = useMemo(() => {
     if (!active) return null;
     const r = resolveEmbedUrl(active);
-    if (r && r.frameable && r.kind !== "link") {
+    if (r && r.frameable && r.kind !== "link" && r.kind !== "web") {
       return r;
     }
     const blocks = probeFrameable === false || urlLikelyBlocksFraming(active);
-    const usePx = blocks && proxyMode && canEmbedProxy(active);
+    const usePx = browseMode === "proxy";
     return {
       kind: "web" as const,
       src: usePx ? embedProxySrc(active) : active,
       title: active,
       original: active,
-      frameable: !blocks || usePx,
+      frameable: browseMode === "direct" || usePx,
       viaProxy: usePx,
     };
-  }, [active, probeFrameable, proxyMode]);
+  }, [active, probeFrameable, browseMode]);
 
   const showUrl = useCallback(
     async (
@@ -248,16 +447,15 @@ export default function WebPageView({
       setBusy(true);
       setInPageDepth(0);
       setDetachStatus("idle");
-      lastAutoDetachUrl.current = "";
       markExpectLoad(next);
       setActive(next);
       setDraft(next);
       setFrameKey((k) => k + 1);
 
-      // Same user-gesture tick: open popup for login/sensitive (avoids popup blocker)
-      if (shouldAutoDetach(next) && !canEmbedProxy(next)) {
-        openDetached(next);
-        lastAutoDetachUrl.current = next;
+      const useVirt =
+        forceVirtual || shouldUseVirtualBrowser(next) || !canEmbedProxy(next);
+      if (useVirt && steelConfigured !== false) {
+        void navigateVirtual(next);
       }
 
       if (opts?.record !== "none") {
@@ -272,8 +470,6 @@ export default function WebPageView({
           setStackIdx(out.length - 1);
           return out;
         });
-      } else if (opts?.fromBackForward) {
-        setStack((prev) => prev.slice(0, stackIdxRef.current + 1));
       }
 
       onUrlChange?.(next);
@@ -290,14 +486,28 @@ export default function WebPageView({
         }
         if (ephemeral || opts?.persistCloud === false) return;
         await updateNote(note.id, {
-          props: { ...(note.props || {}), web_url: next },
+          props: {
+            ...(note.props || {}),
+            web_url: next,
+            browser_mode: useVirt ? "virtual" : "auto",
+          },
           ...(title && title !== note.title ? { title } : {}),
         });
       } finally {
         setBusy(false);
       }
     },
-    [note.id, note.props, note.title, onTitleHint, onUrlChange, ephemeral, openDetached]
+    [
+      note.id,
+      note.props,
+      note.title,
+      onTitleHint,
+      onUrlChange,
+      ephemeral,
+      forceVirtual,
+      steelConfigured,
+      navigateVirtual,
+    ]
   );
 
   const syncReadableLocation = useCallback(
@@ -328,7 +538,6 @@ export default function WebPageView({
   const onFrameLoad = () => {
     const frame = frameRef.current;
     if (!frame) return;
-
     try {
       const href = frame.contentWindow?.location?.href;
       if (href) {
@@ -336,7 +545,6 @@ export default function WebPageView({
         expectLoadRef.current = null;
         if (expected && normalizeWebUrl(href) === normalizeWebUrl(expected)) return;
         if (normalizeWebUrl(href) === normalizeWebUrl(activeRef.current) && !expected) return;
-        // Proxied same-origin iframe — location may be our API URL
         if (href.includes("/api/web/embed-proxy")) return;
         syncReadableLocation(href);
         return;
@@ -344,7 +552,6 @@ export default function WebPageView({
     } catch {
       /* cross-origin */
     }
-
     const expected = expectLoadRef.current;
     if (expected || Date.now() < settleUntilRef.current) {
       expectLoadRef.current = null;
@@ -390,6 +597,10 @@ export default function WebPageView({
 
   const reload = () => {
     if (!active) return;
+    if (browseMode === "virtual") {
+      void navigateVirtual(active);
+      return;
+    }
     if (inPageDepth > 0) {
       void showUrl(active, { record: "none", persistCloud: false });
       return;
@@ -406,7 +617,12 @@ export default function WebPageView({
     }
   }, [active]);
 
-  const showBlocked = Boolean(active && resolved && !resolved.frameable);
+  const showVirtualPane = browseMode === "virtual";
+  const showBlocked =
+    Boolean(active) &&
+    !showVirtualPane &&
+    browseMode === "blocked" &&
+    steelConfigured === false;
 
   return (
     <div className={`web-page-view${compact ? " is-compact" : ""}`}>
@@ -415,7 +631,7 @@ export default function WebPageView({
           <button
             type="button"
             className="web-page-btn"
-            title={inPageDepth > 0 ? "回到上一已知網址" : "上一頁"}
+            title="上一頁"
             aria-label="上一頁"
             disabled={!canBack || busy}
             onClick={goBack}
@@ -437,7 +653,7 @@ export default function WebPageView({
             className="web-page-btn"
             title="重新整理"
             aria-label="重新整理"
-            disabled={!active || busy}
+            disabled={!active || busy || virtualBusy}
             onClick={reload}
           >
             ↻
@@ -455,26 +671,36 @@ export default function WebPageView({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="https://"
-            spellCheck={false}
             aria-label="網址"
+            spellCheck={false}
           />
         </form>
-        <button type="button" className="web-page-btn" disabled={busy} onClick={go}>
-          前往
-        </button>
         <button
           type="button"
-          className="web-page-btn"
-          disabled={busy || !(active || draft)}
-          title="以獨立視窗開啟（可開 Google 登入、櫃買等擋嵌網站）"
-          aria-label="獨立視窗"
-          onClick={() => openDetached()}
+          className={`web-page-btn${forceVirtual || showVirtualPane ? " is-on" : ""}`}
+          title="虛擬瀏覽器（可登入任意網站）"
+          aria-pressed={forceVirtual || showVirtualPane}
+          onClick={() => {
+            setForceVirtual(true);
+            if (active) void startVirtual(active);
+          }}
         >
-          ▢
+          虛擬
         </button>
+        {showVirtualPane ? (
+          <button
+            type="button"
+            className="web-page-btn"
+            title="擷取目前頁面到筆記"
+            disabled={virtualBusy || !virtual}
+            onClick={() => void clipVirtual()}
+          >
+            擷取
+          </button>
+        ) : null}
         {active ? (
           <a
-            className="web-page-btn web-page-external"
+            className="web-page-btn"
             href={active}
             target="_blank"
             rel="noopener noreferrer"
@@ -484,46 +710,96 @@ export default function WebPageView({
           </a>
         ) : null}
       </div>
+
+      {showVirtualPane && virtual?.privacy ? (
+        <p className="web-page-proxy-banner web-page-virtual-banner">{virtual.privacy}</p>
+      ) : null}
+      {browseMode === "proxy" ? (
+        <p className="web-page-proxy-banner">頁內代理模式（部分網站功能可能受限）</p>
+      ) : null}
+
       <div className="web-page-stage">
         {!active ? (
           <div className="web-page-empty">
-            <p>輸入網址，把這個分頁當成瀏覽器使用。</p>
-            <p className="web-page-hint">登入頁會自動開獨立視窗；一般公開站可直接在此瀏覽。</p>
+            <p>輸入網址，在筆記旁瀏覽任意網頁。</p>
+            <p className="web-page-hint">
+              Google／Gemini 會自動啟用雲端虛擬瀏覽器；一般公開站仍用快速嵌入。
+            </p>
           </div>
+        ) : showVirtualPane ? (
+          virtual?.viewerUrl ? (
+            <iframe
+              key={virtual.sessionId}
+              className="web-page-frame web-page-frame--virtual"
+              src={virtual.viewerUrl}
+              title="虛擬瀏覽器"
+              allow="clipboard-read; clipboard-write; fullscreen"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          ) : (
+            <div className="web-page-blocked">
+              <p className="web-page-blocked-title">
+                {virtualBusy ? "正在啟動虛擬瀏覽器…" : "虛擬瀏覽器"}
+              </p>
+              {virtualError ? <p className="web-page-warn">{virtualError}</p> : null}
+              {steelConfigured === false ? (
+                <>
+                  <p>
+                    伺服器尚未設定 <code>STEEL_BASE_URL</code>（自架）或{" "}
+                    <code>STEEL_API_KEY</code>
+                    。可先用系統瀏覽器開啟，或依文件部署 GCE Steel。
+                  </p>
+                  <div className="web-page-blocked-actions">
+                    <button type="button" className="btn" onClick={() => openDetached()}>
+                      用系統瀏覽器開啟
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="web-page-blocked-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={virtualBusy}
+                    onClick={() => void startVirtual(active)}
+                  >
+                    重試啟動
+                  </button>
+                  <button type="button" className="btn btn-soft" onClick={() => openDetached()}>
+                    系統瀏覽器備援
+                  </button>
+                </div>
+              )}
+              {probeReason ? <p className="web-page-hint">{probeReason}</p> : null}
+            </div>
+          )
         ) : showBlocked ? (
           <div className="web-page-blocked">
-            <p className="web-page-blocked-title">
-              {hostLabel || "此網站"}需在獨立視窗開啟
-            </p>
-            <p>
-              {isGoogleAppNeedsTopLevel(active)
-                ? "Gemini／Google 登入無法在筆記內嵌瀏覽器完成（瀏覽器安全限制）。請用下方按鈕開啟真實分頁後登入。"
-                : "此為登入或敏感頁面，無法在頁內顯示。請用獨立視窗或系統瀏覽器開啟。"}
-            </p>
-            {probeReason && probeReason !== "檢查中…" ? (
-              <p className="web-page-hint">{probeReason}</p>
-            ) : null}
-            {detachStatus === "opened" ? (
-              <p className="web-page-hint web-page-ok">已嘗試開啟獨立視窗；若沒看到，請再按一次下方按鈕。</p>
-            ) : null}
+            <p className="web-page-blocked-title">{hostLabel || "此網站"}無法頁內顯示</p>
+            <p>請啟用虛擬瀏覽器，或用系統瀏覽器開啟。</p>
             {detachStatus === "blocked" ? (
-              <p className="web-page-hint web-page-warn">
-                瀏覽器攔截了彈窗。請直接點「用系統瀏覽器開啟」（這不會被擋）。
-              </p>
+              <p className="web-page-warn">彈窗被擋，請直接點系統瀏覽器連結。</p>
             ) : null}
             <div className="web-page-blocked-actions">
-              <button type="button" className="btn" onClick={() => openDetached()}>
-                以獨立視窗開啟
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setForceVirtual(true);
+                  void startVirtual(active);
+                }}
+              >
+                改用虛擬瀏覽器
               </button>
               <a className="btn btn-soft" href={active} target="_blank" rel="noopener noreferrer">
-                用系統瀏覽器開啟
+                系統瀏覽器
               </a>
             </div>
           </div>
         ) : (
           <iframe
             ref={frameRef}
-            key={`${active}-${frameKey}-${proxyMode ? "p" : "d"}`}
+            key={`${active}-${frameKey}-${browseMode}`}
             className="web-page-frame"
             src={resolved?.src || active}
             title={resolved?.title || "網頁"}

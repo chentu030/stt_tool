@@ -96,8 +96,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         error: isGoogleAppNeedsTopLevel(raw)
-          ? "Google／Gemini 無法代理，請用獨立視窗或系統瀏覽器開啟"
-          : "此網址無法代理（內網或登入／敏感站，請用獨立視窗）",
+          ? "Google／Gemini 無法代理，請用虛擬瀏覽器或系統分頁開啟"
+          : "此網址無法代理（內網或登入／敏感站，請用虛擬瀏覽器）",
         proxySrcHint: embedProxySrc(raw),
       },
       { status: 403 }

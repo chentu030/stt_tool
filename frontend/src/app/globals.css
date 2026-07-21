@@ -1439,6 +1439,18 @@ button, input, textarea, select {
   color: #ecfdf5;
   background: color-mix(in srgb, #0f766e 92%, black);
 }
+.web-page-virtual-banner {
+  background: color-mix(in srgb, #1e3a5f 88%, black);
+  color: #e2e8f0;
+}
+.web-page-btn.is-on {
+  background: color-mix(in srgb, var(--accent, #0f766e) 18%, var(--bg-card));
+  color: var(--accent, #0f766e);
+  border-color: color-mix(in srgb, var(--accent, #0f766e) 45%, var(--border));
+}
+.web-page-frame--virtual {
+  background: #0b1220;
+}
 .web-page-ok {
   color: color-mix(in srgb, var(--accent, #0f766e) 80%, var(--text));
 }

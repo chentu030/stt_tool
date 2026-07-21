@@ -138,7 +138,13 @@ export function embedProxySrc(targetUrl: string): string {
   return `/api/web/embed-proxy?url=${encodeURIComponent(targetUrl)}`;
 }
 
-/** Prefer auto popup for Google apps + known non-frameable hosts that also cannot proxy. */
+/** Prefer cloud virtual browser over iframe/proxy for these hosts. */
+export function shouldUseVirtualBrowser(raw: string): boolean {
+  if (!raw || raw === "https://") return false;
+  return isGoogleAppNeedsTopLevel(raw);
+}
+
+/** System-tab fallback when virtual browser is unavailable. */
 export function shouldAutoDetach(raw: string): boolean {
   if (!raw || raw === "https://") return false;
   if (isGoogleAppNeedsTopLevel(raw)) return true;
