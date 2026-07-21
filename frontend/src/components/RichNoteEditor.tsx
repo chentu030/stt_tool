@@ -2300,6 +2300,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     pointerType?: string;
   } | null>(null);
   const dropRef = useRef<number | null>(null);
+  const gripHideTimerRef = useRef<number | null>(null);
   const gripRef = useRef(grip);
   gripRef.current = grip;
   const blockSelRef = useRef(blockSel);
@@ -2391,15 +2392,43 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       };
     };
 
+    let hideTimer: number | null = null;
+
+    const cancelHideGrip = () => {
+      if (hideTimer != null) {
+        window.clearTimeout(hideTimer);
+        hideTimer = null;
+      }
+      if (gripHideTimerRef.current != null) {
+        window.clearTimeout(gripHideTimerRef.current);
+        gripHideTimerRef.current = null;
+      }
+    };
+
+    const scheduleHideGrip = () => {
+      cancelHideGrip();
+      hideTimer = window.setTimeout(() => {
+        hideTimer = null;
+        gripHideTimerRef.current = null;
+        if (dragRef.current) return;
+        setGrip(null);
+      }, 450);
+      gripHideTimerRef.current = hideTimer;
+    };
+
     const onMove = (e: MouseEvent) => {
       if (dragRef.current) return;
       const t = e.target as HTMLElement | null;
       // Keep handle visible while the pointer is on it (or its hover bridge)
-      if (t?.closest?.(".block-controls")) return;
+      if (t?.closest?.(".block-controls")) {
+        cancelHideGrip();
+        return;
+      }
 
       try {
         const next = gripFromPos(e.clientY, e.clientX);
         if (next) {
+          cancelHideGrip();
           setGrip((prev) => {
             if (
               prev &&
@@ -2422,26 +2451,32 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           const dom = editor.view.nodeDOM(prev.from);
           if (dom instanceof HTMLElement) {
             const br = dom.getBoundingClientRect();
-            const corridorLeft = br.left - 56;
+            const corridorLeft = br.left - 64;
             const inCorridor =
               e.clientX >= corridorLeft - 4 &&
-              e.clientX <= br.left + 12 &&
-              e.clientY >= br.top - 10 &&
-              e.clientY <= br.bottom + 10;
-            if (inCorridor) return;
+              e.clientX <= br.left + 16 &&
+              e.clientY >= br.top - 14 &&
+              e.clientY <= br.bottom + 14;
+            if (inCorridor) {
+              cancelHideGrip();
+              return;
+            }
           }
         }
-        setGrip(null);
+        scheduleHideGrip();
       } catch {
-        setGrip(null);
+        scheduleHideGrip();
       }
     };
 
     const onLeave = (e: MouseEvent) => {
       if (dragRef.current) return;
       const related = e.relatedTarget as HTMLElement | null;
-      if (related?.closest?.(".block-controls")) return;
-      setGrip(null);
+      if (related?.closest?.(".block-controls")) {
+        cancelHideGrip();
+        return;
+      }
+      scheduleHideGrip();
     };
 
     const onGutterDown = (e: MouseEvent) => {
@@ -2479,6 +2514,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     canvas.addEventListener("mouseleave", onLeave);
     canvas.addEventListener("mousedown", onGutterDown);
     return () => {
+      cancelHideGrip();
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mouseleave", onLeave);
       canvas.removeEventListener("mousedown", onGutterDown);
@@ -2825,7 +2861,11 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           style={{ top: grip.top, left: grip.left }}
           onMouseDown={(e) => e.stopPropagation()}
           onMouseEnter={() => {
-            // Re-assert grip so crossing the bridge never clears it
+            // Keep grip while mouse travels onto the buttons
+            if (gripHideTimerRef.current != null) {
+              window.clearTimeout(gripHideTimerRef.current);
+              gripHideTimerRef.current = null;
+            }
             setGrip((prev) => prev ?? grip);
           }}
         >
