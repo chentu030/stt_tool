@@ -1,24 +1,8 @@
 "use client";
 
-import { Suspense, type ReactNode } from "react";
-import NoteTabsProvider from "@/components/notes/NoteTabsProvider";
-import NoteTabsBar from "@/components/notes/NoteTabsBar";
+import type { ReactNode } from "react";
 
-function NoteTabsShell({ children }: { children: ReactNode }) {
-  return (
-    <NoteTabsProvider>
-      <div className="note-tabs-shell">
-        <NoteTabsBar />
-        <div className="note-tabs-main">{children}</div>
-      </div>
-    </NoteTabsProvider>
-  );
-}
-
+/** Tabs shell lives in AppShell so /web|/board|… keep the same bar as /notes. */
 export default function NotesLayout({ children }: { children: ReactNode }) {
-  return (
-    <Suspense fallback={<div className="note-tabs-main">{children}</div>}>
-      <NoteTabsShell>{children}</NoteTabsShell>
-    </Suspense>
-  );
+  return children;
 }

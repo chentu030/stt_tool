@@ -1070,6 +1070,15 @@ button, input, textarea, select {
   overflow: hidden;
   padding: 0;
 }
+.note-tabs-main:has(.web-full-page) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.note-tabs-main > .web-full-page {
+  flex: 1;
+  min-height: 0;
+}
 .web-full-page {
   flex: 1;
   min-height: 0;
@@ -2209,6 +2218,9 @@ html.is-note-app-embed .app-shell,
 html.is-note-app-embed .shell-sidebar,
 html.is-note-app-embed .shell-top,
 html.is-note-app-embed .workspace-switcher {
+  display: none !important;
+}
+html.is-note-app-embed .note-tabs {
   display: none !important;
 }
 html.is-note-app-embed .shell-main,

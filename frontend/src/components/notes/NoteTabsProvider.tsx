@@ -44,16 +44,16 @@ export function useNoteTabsOptional() {
 }
 
 function noteIdFromPath(pathname: string, noteQuery: string | null): string | null {
-  const m = pathname.match(/^\/notes\/([^/?#]+)/);
-  if (m) return decodeURIComponent(m[1]);
+  const notes = pathname.match(/^\/notes\/([^/?#]+)/);
+  if (notes) return decodeURIComponent(notes[1]);
+  const web = pathname.match(/^\/web\/([^/?#]+)/);
+  if (web) return decodeURIComponent(web[1]);
   if (
     noteQuery &&
     /^\/(canvas|graph|board|db|web)\/[^/]+/.test(pathname)
   ) {
     return noteQuery;
   }
-  const webOnly = pathname.match(/^\/web\/([^/?#]+)/);
-  if (webOnly) return decodeURIComponent(webOnly[1]);
   return null;
 }
 
@@ -89,9 +89,10 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     saveNoteTabs(state);
   }, [state, hydrated]);
 
-  // Sync split query param without App Router soft-nav (avoids wedging Link/router.push).
+  // Sync split query param on note routes only (specialty apps use their own URLs).
   useEffect(() => {
     if (!hydrated || !activeId) return;
+    if (!pathname.startsWith("/notes/")) return;
     const cur = searchParams.get("split");
     const want = state.splitId;
     if ((cur || null) === (want || null)) return;
@@ -101,7 +102,7 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     const qs = params.toString();
     const next = qs ? `/notes/${activeId}?${qs}` : `/notes/${activeId}`;
     window.history.replaceState(window.history.state, "", next);
-  }, [state.splitId, activeId, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.splitId, activeId, hydrated, pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = useCallback((id: string) => {
     setState((prev) => openNoteTab(prev, id));

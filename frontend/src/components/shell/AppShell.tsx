@@ -12,6 +12,7 @@ import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import CommandPalette from "@/components/CommandPalette";
 import GlobalAiDock, { toggleGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NavHistoryControls from "@/components/shell/NavHistoryControls";
+import NoteTabsShell, { isNoteTabsPath } from "@/components/notes/NoteTabsShell";
 import {
   listenUserTeams,
   listenChannels,
@@ -226,6 +227,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
     pathname.startsWith("/web/") ||
     pathname.startsWith("/team");
   const isDoc = isImmersive;
+  const showNoteTabs = isNoteTabsPath(pathname);
+  const mainContent = showNoteTabs ? <NoteTabsShell>{children}</NoteTabsShell> : children;
   const [cmdOpen, setCmdOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -852,7 +855,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {renderSidebarFooter({})}
         </aside>
 
-        <main className={`app-main${isDoc ? " app-main--doc" : ""}${isImmersive ? " app-main--immersive" : ""}`}>{children}</main>
+        <main className={`app-main${isDoc ? " app-main--doc" : ""}${isImmersive ? " app-main--immersive" : ""}`}>{mainContent}</main>
         {!isImmersive && (
         <nav className="mobile-bottom">
           {MOBILE_BOTTOM.map((item) => {
@@ -1010,7 +1013,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           />
         )}
       </aside>
-      <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{children}</main>
+      <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{mainContent}</main>
       {palette}
       <GlobalAiDock />
     </div>
