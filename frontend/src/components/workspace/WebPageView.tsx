@@ -797,7 +797,8 @@ export default function WebPageView({
                 className="btn"
                 onClick={() => {
                   setForceVirtual(true);
-                  void startVirtual(active);
+                  virtualTriedUrlRef.current = null;
+                  void startVirtual(active, { force: true });
                 }}
               >
                 改用虛擬瀏覽器
