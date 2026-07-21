@@ -17,23 +17,30 @@ import {
   listenChannels,
   listenChannelReads,
   listenMembers,
+  listenMutedChannels,
   listenNotifications,
   listenActivity,
   markAllNotificationsRead,
   markNotificationRead,
+  markAllTeamChannelsRead,
   channelIsUnread,
   openOrCreateDm,
+  openOrCreateGroupDm,
+  listRecentTeamFiles,
   type TeamMembership,
   type Channel,
   type Member,
   type TeamNotification,
   type TeamActivity,
+  type TeamFileHit,
 } from "@/lib/teamStore";
 import {
   getStarredTeamIds,
   toggleStarredTeam,
   getLaterItems,
   removeLaterItem,
+  snoozeLaterItem,
+  completeLaterItem,
   getHubTab,
   setHubTab,
   getHubSections,
@@ -45,6 +52,17 @@ import {
   type LaterItem,
   type HubSection,
 } from "@/lib/teamHubPrefs";
+import {
+  listLocalDrafts,
+  clearLocalDraft,
+  getStarredChannelKeys,
+  toggleStarredChannel,
+  getNotifPrefs,
+  setNotifPrefs,
+  ensureDesktopNotifPermission,
+  type DraftItem,
+  type NotifPrefs,
+} from "@/lib/teamExtras";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "擁有者",
@@ -55,8 +73,11 @@ const ROLE_LABEL: Record<string, string> = {
 
 const TABS: { id: HubTab; label: string }[] = [
   { id: "home", label: "首頁" },
+  { id: "unreads", label: "未讀" },
   { id: "activity", label: "活動" },
   { id: "dms", label: "私訊" },
+  { id: "drafts", label: "草稿" },
+  { id: "files", label: "檔案" },
   { id: "later", label: "稍後" },
   { id: "people", label: "成員" },
 ];
@@ -136,24 +157,36 @@ export default function TeamHub() {
   const router = useRouter();
   const [teams, setTeams] = useState<TeamMembership[]>([]);
   const [bundles, setBundles] = useState<Record<string, TeamBundle>>({});
+  const [mutedByTeam, setMutedByTeam] = useState<Record<string, Record<string, boolean>>>({});
   const [notifications, setNotifications] = useState<TeamNotification[]>([]);
   const [activities, setActivities] = useState<Array<TeamActivity & { teamId: string; teamName: string }>>([]);
   const [tab, setTab] = useState<HubTab>("home");
   const [homeFilter, setHomeFilter] = useState<HomeFilter>("all");
   const [q, setQ] = useState("");
   const [starred, setStarred] = useState<string[]>([]);
+  const [starredChannels, setStarredChannels] = useState<string[]>([]);
   const [later, setLater] = useState<LaterItem[]>([]);
   const [sections, setSections] = useState<HubSection[]>([]);
+  const [drafts, setDrafts] = useState<DraftItem[]>([]);
+  const [files, setFiles] = useState<TeamFileHit[]>([]);
+  const [filesBusy, setFilesBusy] = useState(false);
+  const [notifPrefs, setNotifPrefsState] = useState<NotifPrefs>(() =>
+    typeof window !== "undefined" ? getNotifPrefs() : { desktop: true, sound: true, mode: "mentions" }
+  );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [activityFilter, setActivityFilter] = useState<"all" | "mentions" | "feed">("all");
+  const [peopleQ, setPeopleQ] = useState("");
 
   useEffect(() => {
     setStarred(getStarredTeamIds());
+    setStarredChannels(getStarredChannelKeys());
     setLater(getLaterItems());
     setSections(getHubSections());
     setTab(getHubTab());
+    setDrafts(listLocalDrafts());
+    setNotifPrefsState(getNotifPrefs());
   }, []);
 
   useEffect(() => {
@@ -192,9 +225,49 @@ export default function TeamHub() {
         listenChannelReads(user.uid, t.id, (reads) => touch(t.id, { reads }))
       );
       unsubs.push(listenMembers(t.id, (members) => touch(t.id, { members })));
+      unsubs.push(
+        listenMutedChannels(user.uid, t.id, (muted) => {
+          setMutedByTeam((prev) => ({ ...prev, [t.id]: muted }));
+        })
+      );
     });
     return () => unsubs.forEach((u) => u());
   }, [user, teams]);
+
+  useEffect(() => {
+    if (tab === "drafts") setDrafts(listLocalDrafts());
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "files" || !user || teams.length === 0) return;
+    let cancelled = false;
+    setFilesBusy(true);
+    void (async () => {
+      const all: TeamFileHit[] = [];
+      for (const t of teams.slice(0, 8)) {
+        const chs = bundles[t.id]?.channels || [];
+        const hits = await listRecentTeamFiles(
+          t.id,
+          t.name,
+          chs.map((c) => c.id),
+          20
+        );
+        hits.forEach((h) => {
+          const name = chs.find((c) => c.id === h.channelId)?.name || h.channelName;
+          all.push({ ...h, channelName: name });
+        });
+      }
+      if (!cancelled) {
+        all.sort((a, b) => b.message.created_at.getTime() - a.message.created_at.getTime());
+        setFiles(all.slice(0, 50));
+        setFilesBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when switching to files or team list changes
+  }, [tab, user, teams]);
 
   useEffect(() => {
     if (!user) {
@@ -237,14 +310,48 @@ export default function TeamHub() {
     const out: Record<string, number> = {};
     for (const t of teams) {
       const b = bundles[t.id];
+      const muted = mutedByTeam[t.id] || {};
       if (!b) {
         out[t.id] = 0;
         continue;
       }
-      out[t.id] = b.channels.filter((c) => channelIsUnread(c, b.reads[c.id])).length;
+      out[t.id] = b.channels.filter(
+        (c) => !muted[c.id] && channelIsUnread(c, b.reads[c.id])
+      ).length;
     }
     return out;
-  }, [teams, bundles]);
+  }, [teams, bundles, mutedByTeam]);
+
+  const unreadRows = useMemo(() => {
+    if (!user) return [];
+    const rows: Array<{
+      teamId: string;
+      teamName: string;
+      channel: Channel;
+      label: string;
+    }> = [];
+    for (const t of teams) {
+      const b = bundles[t.id];
+      const muted = mutedByTeam[t.id] || {};
+      if (!b) continue;
+      for (const c of b.channels) {
+        if (muted[c.id]) continue;
+        if (!channelIsUnread(c, b.reads[c.id])) continue;
+        rows.push({
+          teamId: t.id,
+          teamName: t.name,
+          channel: c,
+          label: c.dm_key ? dmPeerLabel(c, user.uid, b.members) : `#${c.name}`,
+        });
+      }
+    }
+    rows.sort((a, b) => {
+      const ta = a.channel.last_message_at?.getTime() || 0;
+      const tb = b.channel.last_message_at?.getTime() || 0;
+      return tb - ta;
+    });
+    return rows;
+  }, [teams, bundles, mutedByTeam, user]);
 
   const unreadTotal = useMemo(
     () => Object.values(unreadByTeam).reduce((a, b) => a + b, 0),
@@ -485,6 +592,48 @@ export default function TeamHub() {
     toast("已全部標為已讀");
   };
 
+  const markAllChannelsRead = async () => {
+    if (!user) return;
+    let n = 0;
+    for (const t of teams) {
+      const b = bundles[t.id];
+      if (!b) continue;
+      n += await markAllTeamChannelsRead(
+        user.uid,
+        t.id,
+        b.channels,
+        b.reads,
+        mutedByTeam[t.id]
+      );
+    }
+    toast(n ? `已標示 ${n} 個頻道為已讀` : "沒有未讀頻道");
+  };
+
+  const configureNotifs = async () => {
+    const pick = await askChoice({
+      title: "通知設定",
+      message: "桌面通知與提醒音效（瀏覽器需允許通知權限）",
+      options: [
+        { id: "mentions", label: "僅提及／邀請（建議）", primary: true },
+        { id: "all", label: "提及（較積極）" },
+        { id: "off", label: "關閉桌面通知" },
+        { id: "perm", label: "請求瀏覽器通知權限" },
+      ],
+    });
+    if (!pick) return;
+    if (pick.choice === "perm") {
+      const ok = await ensureDesktopNotifPermission();
+      toast(ok ? "已允許桌面通知" : "瀏覽器未允許通知");
+      return;
+    }
+    const next = setNotifPrefs({
+      mode: pick.choice as NotifPrefs["mode"],
+      desktop: pick.choice !== "off",
+    });
+    setNotifPrefsState(next);
+    toast("通知設定已更新");
+  };
+
   const startDm = useCallback(
     async (teamId: string, peerUid: string) => {
       if (!user) return;
@@ -510,6 +659,54 @@ export default function TeamHub() {
     },
     [user, bundles, displayName]
   );
+
+  const startGroupDm = async (teamId: string) => {
+    if (!user) return;
+    const members = (bundles[teamId]?.members || []).filter((m) => m.uid !== user.uid);
+    if (members.length < 2) {
+      setError("群組私訊需要至少兩位其他成員");
+      return;
+    }
+    const pick = await askChoice({
+      title: "選擇群組成員（第一位）",
+      message: "稍後可再選第二位。至少選兩人。",
+      options: members.map((m) => ({
+        id: m.uid,
+        label: m.display_name || m.uid.slice(0, 8),
+      })),
+    });
+    if (!pick) return;
+    const rest = members.filter((m) => m.uid !== pick.choice);
+    const pick2 = await askChoice({
+      title: "再選一位成員",
+      options: rest.map((m) => ({
+        id: m.uid,
+        label: m.display_name || m.uid.slice(0, 8),
+        primary: true,
+      })),
+    });
+    if (!pick2) return;
+    const me =
+      members.find((m) => m.uid === user.uid) ||
+      bundles[teamId]?.members.find((m) => m.uid === user.uid) || {
+        uid: user.uid,
+        role: "member" as const,
+        joined_at: new Date(),
+        display_name: displayName || undefined,
+      };
+    // me might not be in filtered members - get from full list
+    const all = bundles[teamId]?.members || [];
+    const meFull = all.find((m) => m.uid === user.uid) || me;
+    const others = [pick.choice, pick2.choice]
+      .map((uid) => all.find((m) => m.uid === uid))
+      .filter(Boolean) as Member[];
+    try {
+      const chId = await openOrCreateGroupDm(teamId, meFull, others);
+      openTeam(teamId, chId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "無法建立群組私訊");
+    }
+  };
 
   if (loading) {
     return null;
@@ -574,6 +771,9 @@ export default function TeamHub() {
           <p className="page-sub">頻道、私訊、提及與稍後再看 — 一個總覽搞定。</p>
         </div>
         <div className="tm-page-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => void configureNotifs()}>
+            通知
+          </button>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void join()}>
             加入
           </button>
@@ -602,8 +802,9 @@ export default function TeamHub() {
           let badge = 0;
           if (t.id === "activity") badge = mentionUnread;
           if (t.id === "dms") badge = dmRows.filter((r) => r.unread).length;
-          if (t.id === "later") badge = later.length;
-          if (t.id === "home") badge = unreadTotal;
+          if (t.id === "later") badge = later.filter((x) => !x.done).length;
+          if (t.id === "home" || t.id === "unreads") badge = unreadTotal;
+          if (t.id === "drafts") badge = drafts.length || (tab === "drafts" ? 0 : listLocalDrafts().length);
           return (
             <button
               key={t.id}
@@ -619,6 +820,48 @@ export default function TeamHub() {
       </nav>
 
       {error && <p className="note-aside-error">{error}</p>}
+
+      {tab === "unreads" && (
+        <section className="tm-hub-panel">
+          <div className="tm-hub-toolbar">
+            <p className="tm-hub-empty-hint" style={{ padding: 0, margin: 0, textAlign: "left" }}>
+              跨團隊未讀頻道（已排除靜音）
+            </p>
+            <button type="button" className="btn btn-sm btn-soft" onClick={() => void markAllChannelsRead()}>
+              全部標為已讀
+            </button>
+          </div>
+          {unreadRows.length === 0 ? (
+            <p className="tm-hub-empty-hint">太棒了，目前沒有未讀。</p>
+          ) : (
+            <ul className="tm-hub-feed">
+              {unreadRows.map((r) => (
+                <li key={`${r.teamId}-${r.channel.id}`}>
+                  <button
+                    type="button"
+                    className="tm-hub-feed-item is-unread"
+                    onClick={() => openTeam(r.teamId, r.channel.id)}
+                  >
+                    <span className="tm-hub-feed-kind">未讀</span>
+                    <span className="tm-hub-feed-body">
+                      <strong>{r.label}</strong>
+                      <span className="tm-hub-feed-meta">{r.teamName}</span>
+                      <span className="tm-hub-feed-text">
+                        {r.channel.last_message_preview || "有新訊息"}
+                      </span>
+                    </span>
+                    <span className="tm-hub-feed-time">
+                      {r.channel.last_message_at
+                        ? formatRelative(r.channel.last_message_at)
+                        : ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {tab === "home" && (
         <section className="tm-hub-panel">
@@ -911,7 +1154,7 @@ export default function TeamHub() {
           {dmRows.length === 0 ? (
             <div className="tm-empty">
               <h2 className="tm-empty-title">尚無私人訊息</h2>
-              <p>在「成員」分頁點選夥伴，或進入團隊後從側欄開始 1:1 對話。</p>
+              <p>在「成員」分頁點選夥伴，或進入團隊後建立群組私訊。</p>
               <button type="button" className="btn btn-ghost" onClick={() => switchTab("people")}>
                 查看成員
               </button>
@@ -930,7 +1173,10 @@ export default function TeamHub() {
                     </span>
                     <span className="tm-hub-feed-body">
                       <strong>{r.label}</strong>
-                      <span className="tm-hub-feed-meta">{r.teamName}</span>
+                      <span className="tm-hub-feed-meta">
+                        {r.teamName}
+                        {r.channel.dm_key?.startsWith("dm:group:") ? " · 群組" : ""}
+                      </span>
                       <span className="tm-hub-feed-text">
                         {r.channel.last_message_preview || "尚無訊息"}
                       </span>
@@ -939,6 +1185,98 @@ export default function TeamHub() {
                       {r.channel.last_message_at
                         ? formatRelative(r.channel.last_message_at)
                         : ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {tab === "drafts" && (
+        <section className="tm-hub-panel">
+          <div className="tm-hub-toolbar">
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => setDrafts(listLocalDrafts())}
+            >
+              重新整理
+            </button>
+          </div>
+          {drafts.length === 0 ? (
+            <p className="tm-hub-empty-hint">沒有未送出的草稿。在頻道輸入框打字會自動暫存。</p>
+          ) : (
+            <ul className="tm-hub-feed">
+              {drafts.map((d) => {
+                const teamName = teams.find((t) => t.id === d.teamId)?.name || "團隊";
+                const chName =
+                  bundles[d.teamId]?.channels.find((c) => c.id === d.channelId)?.name || "頻道";
+                return (
+                  <li key={d.key}>
+                    <div className="tm-hub-feed-item tm-hub-later-item">
+                      <button
+                        type="button"
+                        className="tm-hub-later-main"
+                        onClick={() => openTeam(d.teamId, d.channelId)}
+                      >
+                        <span className="tm-hub-feed-body">
+                          <strong>
+                            {teamName} · #{chName}
+                          </strong>
+                          <span className="tm-hub-feed-text">{d.text}</span>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => {
+                          clearLocalDraft(d.teamId, d.channelId);
+                          setDrafts(listLocalDrafts());
+                        }}
+                      >
+                        刪除
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {tab === "files" && (
+        <section className="tm-hub-panel">
+          {filesBusy ? (
+            <p className="tm-hub-empty-hint">載入檔案中…</p>
+          ) : files.length === 0 ? (
+            <p className="tm-hub-empty-hint">尚無近期分享的檔案。在頻道中上傳檔案後會出現在這裡。</p>
+          ) : (
+            <ul className="tm-hub-feed">
+              {files.map((f) => (
+                <li key={`${f.teamId}-${f.channelId}-${f.message.id}`}>
+                  <button
+                    type="button"
+                    className="tm-hub-feed-item"
+                    onClick={() => {
+                      const params = new URLSearchParams({
+                        channel: f.channelId,
+                        msg: f.message.id,
+                      });
+                      router.push(`/team/${f.teamId}?${params}`);
+                    }}
+                  >
+                    <span className="tm-hub-feed-kind">檔案</span>
+                    <span className="tm-hub-feed-body">
+                      <strong>{f.message.file_name || f.message.text || "檔案"}</strong>
+                      <span className="tm-hub-feed-meta">
+                        {f.teamName} · #{f.channelName} · {f.message.author_name || ""}
+                      </span>
+                    </span>
+                    <span className="tm-hub-feed-time">
+                      {formatRelative(f.message.created_at)}
                     </span>
                   </button>
                 </li>
@@ -959,7 +1297,7 @@ export default function TeamHub() {
             <ul className="tm-hub-feed">
               {later.map((item) => (
                 <li key={item.id}>
-                  <div className="tm-hub-feed-item tm-hub-later-item">
+                  <div className={`tm-hub-feed-item tm-hub-later-item${item.done ? " is-done" : ""}`}>
                     <button
                       type="button"
                       className="tm-hub-later-main"
@@ -973,22 +1311,47 @@ export default function TeamHub() {
                     >
                       <span className="tm-hub-feed-body">
                         <strong>
+                          {item.done ? "✓ " : ""}
                           {item.teamName} · #{item.channelName}
                         </strong>
-                        <span className="tm-hub-feed-meta">{item.authorName || "訊息"}</span>
+                        <span className="tm-hub-feed-meta">
+                          {item.authorName || "訊息"}
+                          {item.remindAt
+                            ? ` · 提醒 ${formatRelative(new Date(item.remindAt))}`
+                            : ""}
+                        </span>
                         <span className="tm-hub-feed-text">{item.text}</span>
                       </span>
                       <span className="tm-hub-feed-time">
                         {formatRelative(new Date(item.savedAt))}
                       </span>
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => setLater(removeLaterItem(item.id))}
-                    >
-                      移除
-                    </button>
+                    <div className="tm-hub-later-actions">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => setLater(completeLaterItem(item.id, !item.done))}
+                      >
+                        {item.done ? "復原" : "完成"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => {
+                          setLater(snoozeLaterItem(item.id, 60 * 60 * 1000));
+                          toast("一小時後提醒");
+                        }}
+                      >
+                        稍後 1h
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => setLater(removeLaterItem(item.id))}
+                      >
+                        移除
+                      </button>
+                    </div>
                   </div>
                 </li>
               ))}
@@ -999,33 +1362,64 @@ export default function TeamHub() {
 
       {tab === "people" && (
         <section className="tm-hub-panel">
-          {peopleRows.length === 0 ? (
+          <div className="tm-hub-toolbar">
+            <input
+              className="tm-hub-search"
+              value={peopleQ}
+              onChange={(e) => setPeopleQ(e.target.value)}
+              placeholder="搜尋成員…"
+              aria-label="搜尋成員"
+            />
+            {teams[0] && (
+              <button
+                type="button"
+                className="btn btn-sm btn-soft"
+                onClick={() => void startGroupDm(teams[0].id)}
+              >
+                群組私訊
+              </button>
+            )}
+          </div>
+          {peopleRows.filter((p) =>
+            !peopleQ.trim() ||
+            p.name.toLowerCase().includes(peopleQ.trim().toLowerCase()) ||
+            p.teams.some((t) => t.name.toLowerCase().includes(peopleQ.trim().toLowerCase()))
+          ).length === 0 ? (
             <p className="tm-hub-empty-hint">尚無可顯示的成員。邀請夥伴加入團隊後會出現在這裡。</p>
           ) : (
             <ul className="tm-hub-people">
-              {peopleRows.map((p) => (
-                <li key={p.uid} className="tm-hub-person">
-                  <span className="tm-team-avatar">{teamInitial(p.name)}</span>
-                  <span className="tm-hub-person-info">
-                    <strong>{p.name}</strong>
-                    <span className="tm-hub-feed-meta">
-                      {p.teams.map((t) => t.name).join(" · ")}
+              {peopleRows
+                .filter(
+                  (p) =>
+                    !peopleQ.trim() ||
+                    p.name.toLowerCase().includes(peopleQ.trim().toLowerCase()) ||
+                    p.teams.some((t) =>
+                      t.name.toLowerCase().includes(peopleQ.trim().toLowerCase())
+                    )
+                )
+                .map((p) => (
+                  <li key={p.uid} className="tm-hub-person">
+                    <span className="tm-team-avatar">{teamInitial(p.name)}</span>
+                    <span className="tm-hub-person-info">
+                      <strong>{p.name}</strong>
+                      <span className="tm-hub-feed-meta">
+                        {p.teams.map((t) => t.name).join(" · ")}
+                      </span>
                     </span>
-                  </span>
-                  <div className="tm-hub-person-actions">
-                    {p.teams.slice(0, 2).map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        className="btn btn-sm btn-ghost"
-                        onClick={() => void startDm(t.id, p.uid)}
-                      >
-                        私訊 · {t.name}
-                      </button>
-                    ))}
-                  </div>
-                </li>
-              ))}
+                    <div className="tm-hub-person-actions">
+                      {p.teams.slice(0, 2).map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => void startDm(t.id, p.uid)}
+                        >
+                          私訊 · {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </li>
+                ))}
             </ul>
           )}
         </section>

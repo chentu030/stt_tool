@@ -13117,12 +13117,37 @@ body.is-sidebar-resizing iframe {
 .tm-hub-feed-meta { font-size: 0.72rem; color: var(--text-muted); }
 .tm-hub-feed-time { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
 .tm-hub-dm-avatar { width: 2.2rem; height: 2.2rem; font-size: 0.9rem; }
-.tm-hub-later-item {
+.tm-hub-later-actions {
   display: flex;
-  align-items: stretch;
-  gap: 0.5rem;
-  grid-template-columns: unset;
-  cursor: default;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.tm-hub-later-item.is-done {
+  opacity: 0.55;
+}
+.tm-hub-later-item.is-done .tm-hub-feed-text {
+  text-decoration: line-through;
+}
+.tm-unread-sep {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.85rem 0 0.65rem;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+.tm-unread-sep::before,
+.tm-unread-sep::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.tm-unread-sep span {
+  white-space: nowrap;
 }
 .tm-hub-later-main {
   flex: 1;

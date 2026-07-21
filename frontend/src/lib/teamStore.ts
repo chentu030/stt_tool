@@ -506,6 +506,7 @@ export async function sendMessage(
     if (uid === msg.author_id) continue;
     const muted = await isChannelMutedForUser(uid, teamId, channelId).catch(() => false);
     if (muted) continue;
+    const isBroadcast = /@(channel|everyone|here)\b/i.test(msg.text);
     await pushNotification(uid, {
       type: "mention",
       team_id: teamId,
@@ -513,7 +514,7 @@ export async function sendMessage(
       message_id: ref.id,
       from_uid: msg.author_id,
       from_name: msg.author_name || "",
-      text: msg.text.slice(0, 120),
+      text: (isBroadcast ? "[頻道廣播] " : "") + msg.text.slice(0, 120),
     }).catch(() => undefined);
   }
   if (!msg.thread_id && kind === "note_share") {
@@ -540,7 +541,7 @@ async function isChannelMutedForUser(
   return !!(muted && typeof muted === "object" && (muted as Record<string, boolean>)[channelId]);
 }
 
-/** Match @DisplayName against members; also accept raw @uid. */
+/** Match @DisplayName against members; also accept raw @uid, @channel, @here, @everyone. */
 export function extractMentionUids(text: string, members?: Member[]): string[] {
   if (!text) return [];
   const found = new Set<string>();
@@ -548,6 +549,13 @@ export function extractMentionUids(text: string, members?: Member[]): string[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const token = m[1];
+    const lower = token.toLowerCase();
+    if (lower === "channel" || lower === "everyone" || lower === "here") {
+      if (members?.length) {
+        members.forEach((x) => found.add(x.uid));
+      }
+      continue;
+    }
     if (members?.length) {
       const hit = members.find(
         (x) =>
@@ -630,6 +638,103 @@ export async function openOrCreateDm(
     created_at: Timestamp.now(),
   });
   return ref.id;
+}
+
+/** Group DM (3+ people). Uses dm:group:sortedUids key. */
+export async function openOrCreateGroupDm(
+  teamId: string,
+  me: Member,
+  others: Member[]
+): Promise<string> {
+  const unique = Array.from(new Map([[me.uid, me], ...others.map((o) => [o.uid, o] as const)]).values());
+  if (unique.length < 3) {
+    if (unique.length === 2) {
+      const other = unique.find((m) => m.uid !== me.uid)!;
+      return openOrCreateDm(teamId, me, other);
+    }
+    throw new Error("群組私訊至少需要兩位其他成員");
+  }
+  const ids = unique.map((m) => m.uid).sort();
+  const dmKey = `dm:group:${ids.join("_")}`;
+  const snap = await getDocs(channelsCol(teamId));
+  for (const d of snap.docs) {
+    if (d.data().dm_key === dmKey) return d.id;
+  }
+  const label = unique
+    .filter((m) => m.uid !== me.uid)
+    .map((m) => m.display_name || m.uid.slice(0, 6))
+    .slice(0, 3)
+    .join("、");
+  const ref = doc(channelsCol(teamId));
+  await setDoc(ref, {
+    name: label || "群組私訊",
+    topic: "群組私人訊息",
+    is_private: true,
+    member_ids: ids,
+    created_by: me.uid,
+    dm_key: dmKey,
+    created_at: Timestamp.now(),
+  });
+  return ref.id;
+}
+
+/** Mark every unread channel in a team as read. */
+export async function markAllTeamChannelsRead(
+  uid: string,
+  teamId: string,
+  channels: Channel[],
+  reads: Record<string, Date>,
+  muted?: Record<string, boolean>
+): Promise<number> {
+  let n = 0;
+  await Promise.all(
+    channels.map(async (c) => {
+      if (muted?.[c.id]) return;
+      if (!channelIsUnread(c, reads[c.id])) return;
+      await markChannelRead(uid, teamId, c.id);
+      n += 1;
+    })
+  );
+  return n;
+}
+
+export type TeamFileHit = {
+  teamId: string;
+  teamName: string;
+  channelId: string;
+  channelName: string;
+  message: Message;
+};
+
+/** Recent file messages across a team's channels (client scan, capped). */
+export async function listRecentTeamFiles(
+  teamId: string,
+  teamName: string,
+  channelIds: string[],
+  perChannel = 25
+): Promise<TeamFileHit[]> {
+  const hits: TeamFileHit[] = [];
+  await Promise.all(
+    channelIds.slice(0, 10).map(async (channelId) => {
+      const snap = await getDocs(
+        query(messagesCol(teamId, channelId), orderBy("created_at", "desc"), fsLimit(perChannel))
+      );
+      snap.docs.forEach((d) => {
+        const message = messageFromDoc(d.id, d.data());
+        if (message.deleted) return;
+        if (message.kind !== "file" && !message.file_url) return;
+        hits.push({
+          teamId,
+          teamName,
+          channelId,
+          channelName: channelId,
+          message,
+        });
+      });
+    })
+  );
+  hits.sort((a, b) => b.message.created_at.getTime() - a.message.created_at.getTime());
+  return hits.slice(0, 40);
 }
 
 

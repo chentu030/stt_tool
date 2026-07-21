@@ -28,6 +28,14 @@ import { NAV_APPS, MOBILE_BOTTOM, type NavAppDef } from "@/lib/navApps";
 import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import {
+  getNotifPrefs,
+  ensureDesktopNotifPermission,
+  showDesktopNotification,
+  playNotifSound,
+} from "@/lib/teamExtras";
+import { dueLaterReminders, updateLaterItem } from "@/lib/teamHubPrefs";
+import { toast } from "@/lib/toast";
+import {
   SIDEBAR_COLLAPSED_W,
   SIDEBAR_MAX,
   SIDEBAR_MIN,
@@ -383,6 +391,69 @@ export default function AppShell({ children }: { children: ReactNode }) {
       setNotifications(items);
     });
   }, [user]);
+
+  const seenNotifRef = useRef<Set<string>>(new Set());
+  const notifBootRef = useRef(true);
+
+  useEffect(() => {
+    if (!user || notifications.length === 0) return;
+    const prefs = getNotifPrefs();
+    if (prefs.mode === "off" || !prefs.desktop) return;
+
+    if (notifBootRef.current) {
+      notifications.forEach((n) => seenNotifRef.current.add(n.id));
+      notifBootRef.current = false;
+      void ensureDesktopNotifPermission();
+      return;
+    }
+
+    const fresh = notifications.filter(
+      (n) =>
+        !n.read &&
+        !seenNotifRef.current.has(n.id) &&
+        (n.type === "mention" || n.type === "invite")
+    );
+    fresh.forEach((n) => seenNotifRef.current.add(n.id));
+    if (!fresh.length) return;
+    if (typeof document !== "undefined" && !document.hidden && prefs.mode === "mentions") {
+      // still allow desktop when tab visible for mentions? Slack does. Show toast-like desktop only if hidden OR always.
+    }
+    void ensureDesktopNotifPermission().then((ok) => {
+      if (!ok) return;
+      const n = fresh[0];
+      showDesktopNotification(
+        n.type === "invite" ? "團隊邀請動態" : `${n.from_name || "有人"} 提及了你`,
+        n.text || "打開團隊查看",
+        () => {
+          const params = new URLSearchParams();
+          if (n.channel_id) params.set("channel", n.channel_id);
+          if (n.message_id) params.set("msg", n.message_id);
+          const qs = params.toString();
+          router.push(`/team/${n.team_id}${qs ? `?${qs}` : ""}`);
+        }
+      );
+      if (prefs.sound) playNotifSound();
+    });
+  }, [notifications, user, router]);
+
+  useEffect(() => {
+    const tick = () => {
+      const due = dueLaterReminders();
+      if (!due.length) return;
+      due.forEach((item) => {
+        updateLaterItem(item.id, { remindAt: undefined });
+        toast(`稍後提醒：${item.text.slice(0, 60)}`);
+        showDesktopNotification("稍後再看", item.text, () => {
+          router.push(
+            `/team/${item.teamId}?channel=${encodeURIComponent(item.channelId)}&msg=${encodeURIComponent(item.messageId)}`
+          );
+        });
+      });
+    };
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [router]);
 
   useEffect(() => {
     if (!notifOpen) return;

@@ -7,7 +7,7 @@ const STARRED_KEY = "albireus.teamHub.starred.v1";
 const LATER_KEY = "albireus.teamHub.later.v1";
 const TAB_KEY = "albireus.teamHub.tab.v1";
 
-export type HubTab = "home" | "activity" | "dms" | "later" | "people";
+export type HubTab = "home" | "unreads" | "activity" | "dms" | "drafts" | "files" | "later" | "people";
 
 export type LaterItem = {
   id: string;
@@ -19,6 +19,10 @@ export type LaterItem = {
   text: string;
   authorName: string;
   savedAt: number;
+  /** Mark done (kept until removed) */
+  done?: boolean;
+  /** Unix ms — show reminder toast when due */
+  remindAt?: number;
 };
 
 function readJson<T>(key: string, fallback: T): T {
@@ -85,6 +89,24 @@ export function removeLaterItem(id: string): LaterItem[] {
   return out;
 }
 
+export function updateLaterItem(id: string, patch: Partial<LaterItem>): LaterItem[] {
+  const out = getLaterItems().map((x) => (x.id === id ? { ...x, ...patch, id: x.id } : x));
+  writeJson(LATER_KEY, out);
+  return out;
+}
+
+export function snoozeLaterItem(id: string, msFromNow: number): LaterItem[] {
+  return updateLaterItem(id, { remindAt: Date.now() + msFromNow, done: false });
+}
+
+export function completeLaterItem(id: string, done = true): LaterItem[] {
+  return updateLaterItem(id, { done });
+}
+
+export function dueLaterReminders(now = Date.now()): LaterItem[] {
+  return getLaterItems().filter((x) => !x.done && x.remindAt && x.remindAt <= now);
+}
+
 export function isLaterSaved(teamId: string, channelId: string, messageId: string): boolean {
   const id = `${teamId}:${channelId}:${messageId}`;
   return getLaterItems().some((x) => x.id === id);
@@ -92,7 +114,8 @@ export function isLaterSaved(teamId: string, channelId: string, messageId: strin
 
 export function getHubTab(): HubTab {
   const t = readJson<string>(TAB_KEY, "home");
-  if (t === "activity" || t === "dms" || t === "later" || t === "people" || t === "home") return t;
+  const ok: HubTab[] = ["home", "unreads", "activity", "dms", "drafts", "files", "later", "people"];
+  if (ok.includes(t as HubTab)) return t as HubTab;
   return "home";
 }
 

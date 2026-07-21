@@ -39,6 +39,7 @@ import {
   markChannelRead,
   markChannelUnread,
   openOrCreateDm,
+  openOrCreateGroupDm,
   channelIsUnread,
   toggleMessageReaction,
   pinNote,
@@ -74,6 +75,10 @@ import {
 } from "@/lib/teamStore";
 import { addLaterItem } from "@/lib/teamHubPrefs";
 import { toast } from "@/lib/toast";
+import {
+  isChannelStarred,
+  toggleStarredChannel,
+} from "@/lib/teamExtras";
 
 const INVITE_ROLES: { id: TeamRole; label: string }[] = [
   { id: "member", label: "成員" },
@@ -512,9 +517,21 @@ function TeamRoomInner() {
   const mentionMatch = useMemo(() => draft.match(/@([^\s@]*)$/), [draft]);
   const mentionOpen = !!mentionMatch && !!activeChannel;
   const mentionMembers = useMemo(() => {
-    if (!mentionOpen || !mentionMatch) return [];
+    if (!mentionOpen || !mentionMatch) return [] as Array<Member | { uid: string; display_name: string; special: true }>;
     const q = mentionMatch[1].toLowerCase();
-    return members.filter((m) => memberLabel(m).toLowerCase().includes(q)).slice(0, 6);
+    const specials: Array<{ uid: string; display_name: string; special: true }> = (
+      [
+        { uid: "__channel__", display_name: "channel", special: true as const },
+        { uid: "__here__", display_name: "here", special: true as const },
+        { uid: "__everyone__", display_name: "everyone", special: true as const },
+      ] as const
+    )
+      .map((s) => ({ ...s, special: true as const }))
+      .filter((s) => s.display_name.includes(q) || q === "");
+    const people = members
+      .filter((m) => memberLabel(m).toLowerCase().includes(q))
+      .slice(0, 6);
+    return [...specials, ...people];
   }, [mentionOpen, mentionMatch, members]);
 
   const slashOpen = !mentionOpen && draft.startsWith("/") && !!activeChannel;
@@ -526,15 +543,37 @@ function TeamRoomInner() {
 
   const activeChannelMuted = !!(activeChannel && mutedChannels[activeChannel]);
 
-  const insertMention = (m: Member) => {
+  const firstUnreadMsgId = useMemo(() => {
+    if (!activeChannel || !messages.length) return null;
+    const lastRead = reads[activeChannel];
+    const hit = messages.find((m) => !m.thread_id && (!lastRead || m.created_at.getTime() > lastRead.getTime()));
+    return hit?.id || null;
+  }, [messages, activeChannel, reads]);
+
+  const [channelStarred, setChannelStarred] = useState(false);
+  useEffect(() => {
+    if (!id || !activeChannel) {
+      setChannelStarred(false);
+      return;
+    }
+    setChannelStarred(isChannelStarred(id, activeChannel));
+  }, [id, activeChannel]);
+
+  const insertMention = (m: Member | { display_name: string }) => {
     setDraft((d) => {
       const match = d.match(/@([^\s@]*)$/);
-      const name = memberLabel(m);
+      const name = "display_name" in m ? m.display_name || memberLabel(m as Member) : memberLabel(m as Member);
       if (!match) return `${d}@${name} `;
       const start = d.length - match[0].length;
       return `${d.slice(0, start)}@${name} `;
     });
     composerRef.current?.focus();
+  };
+
+  const jumpToUnread = () => {
+    if (!firstUnreadMsgId || !scrollRef.current) return;
+    const el = scrollRef.current.querySelector(`[data-msg-id="${firstUnreadMsgId}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   const handleDraftChange = (value: string) => {
@@ -1086,8 +1125,53 @@ function TeamRoomInner() {
     }
   };
 
+  const startGroupDm = async () => {
+    if (!id || !member || !user) return;
+    const others = members.filter((m) => m.uid !== user.uid);
+    if (others.length < 2) {
+      setError("群組私訊需要至少兩位其他成員");
+      return;
+    }
+    const pick = await askChoice({
+      title: "群組私訊 — 選第一位",
+      options: others.map((m) => ({ id: m.uid, label: memberLabel(m) })),
+    });
+    if (!pick) return;
+    const rest = others.filter((m) => m.uid !== pick.choice);
+    const pick2 = await askChoice({
+      title: "再選一位",
+      options: rest.map((m) => ({ id: m.uid, label: memberLabel(m), primary: true })),
+    });
+    if (!pick2) return;
+    const selected = [pick.choice, pick2.choice]
+      .map((uid) => members.find((m) => m.uid === uid))
+      .filter(Boolean) as Member[];
+    try {
+      const cid = await openOrCreateGroupDm(id, member, selected);
+      setActiveChannel(cid);
+      setSidebarOpen(false);
+      toast("已建立群組私訊");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "建立群組私訊失敗");
+    }
+  };
+
   const dmOtherMember = (c: Channel): Member | undefined =>
     members.find((mm) => mm.uid !== user?.uid && c.member_ids?.includes(mm.uid));
+
+  const dmLabel = (c: Channel) => {
+    if (c.dm_key?.startsWith("dm:group:")) {
+      const names = (c.member_ids || [])
+        .filter((uid) => uid !== user?.uid)
+        .map((uid) => {
+          const m = members.find((x) => x.uid === uid);
+          return m ? memberLabel(m) : uid.slice(0, 6);
+        });
+      return names.slice(0, 3).join("、") || c.name;
+    }
+    const other = dmOtherMember(c);
+    return other ? memberLabel(other) : c.name;
+  };
 
   const pickFile = () => fileInputRef.current?.click();
 
@@ -1189,12 +1273,11 @@ function TeamRoomInner() {
         <div className="tm-channel-list">
           <p className="tm-channel-label">私人訊息</p>
           {dms.length === 0 ? (
-            <p className="tm-sidebar-muted">點成員大頭貼選「傳訊息」開始私訊</p>
+            <p className="tm-sidebar-muted">點成員大頭貼選「傳訊息」，或建立群組私訊</p>
           ) : (
             dms.map((c) => {
               const unread = channelIsUnread(c, reads[c.id]);
               const muted = !!mutedChannels[c.id];
-              const other = dmOtherMember(c);
               return (
                 <button
                   key={c.id}
@@ -1203,7 +1286,8 @@ function TeamRoomInner() {
                   onClick={() => selectChannel(c.id)}
                 >
                   <span className="tm-dm-label">
-                    💬 {other ? memberLabel(other) : c.name}
+                    💬 {dmLabel(c)}
+                    {c.dm_key?.startsWith("dm:group:") ? " ·群" : ""}
                     {muted && (
                       <span className="tm-mute-icon" title="已靜音">
                         🔕
@@ -1215,6 +1299,9 @@ function TeamRoomInner() {
               );
             })
           )}
+          <button type="button" className="tm-channel-add" onClick={() => void startGroupDm()}>
+            ＋ 群組私訊
+          </button>
         </div>
 
         <div className="tm-channel-list">
@@ -1362,7 +1449,7 @@ function TeamRoomInner() {
           <span className="tm-channel-title">
             {activeChannelObj
               ? activeChannelObj.dm_key
-                ? `💬 ${dmOtherMember(activeChannelObj) ? memberLabel(dmOtherMember(activeChannelObj)!) : activeChannelObj.name}`
+                ? `💬 ${dmLabel(activeChannelObj)}`
                 : `# ${activeChannelObj.name}`
               : "選擇頻道"}
           </span>
@@ -1370,6 +1457,26 @@ function TeamRoomInner() {
             <span className="tm-lock" title="私人頻道">
               🔒
             </span>
+          )}
+          {activeChannel && (
+            <button
+              type="button"
+              className={`tm-hub-icon-btn${channelStarred ? " is-on" : ""}`}
+              title={channelStarred ? "取消星標" : "星標頻道"}
+              onClick={() => {
+                if (!id || !activeChannel) return;
+                toggleStarredChannel(id, activeChannel);
+                setChannelStarred(isChannelStarred(id, activeChannel));
+                toast(channelStarred ? "已取消星標" : "已星標頻道");
+              }}
+            >
+              {channelStarred ? "★" : "☆"}
+            </button>
+          )}
+          {firstUnreadMsgId && (
+            <button type="button" className="btn btn-sm btn-soft" onClick={jumpToUnread}>
+              跳到未讀
+            </button>
           )}
           {activeChannelObj && (
             <button
@@ -1625,8 +1732,13 @@ function TeamRoomInner() {
             )
           ) : (
             filteredMessages.map((m) => (
+              <div key={m.id}>
+                {m.id === firstUnreadMsgId && (
+                  <div className="tm-unread-sep" role="separator">
+                    <span>新訊息</span>
+                  </div>
+                )}
               <MessageRow
-                key={m.id}
                 m={m}
                 mine={m.author_id === user.uid}
                 mentioned={!!m.mentions?.includes(user.uid)}
@@ -1669,6 +1781,7 @@ function TeamRoomInner() {
                 onImageClick={setLightboxUrl}
                 onAuthorClick={(uid, e) => openMemberPopover(uid, e)}
               />
+              </div>
             ))
           )}
         </div>
@@ -1688,8 +1801,13 @@ function TeamRoomInner() {
                     className="tm-mention-menu-item"
                     onClick={() => insertMention(m)}
                   >
-                    <span className="tm-member-avatar">{(m.display_name || "?").slice(0, 1)}</span>
-                    {memberLabel(m)}
+                    <span className="tm-member-avatar">
+                      {"special" in m && m.special ? "#" : (m.display_name || "?").slice(0, 1)}
+                    </span>
+                    {"special" in m && m.special ? `@${m.display_name}` : memberLabel(m as Member)}
+                    {"special" in m && m.special ? (
+                      <span className="tm-sidebar-muted"> 通知頻道成員</span>
+                    ) : null}
                   </button>
                 ))}
               </div>
