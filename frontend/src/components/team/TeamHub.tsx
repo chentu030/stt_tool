@@ -69,6 +69,12 @@ import {
   type NotifPrefs,
   type FollowedThread,
 } from "@/lib/teamExtras";
+import {
+  TeamTasksPanel,
+  TeamStandupPanel,
+  TeamBookmarksStrip,
+  fileHitToNote,
+} from "@/components/team/TeamHubWorkPanels";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "擁有者",
@@ -83,6 +89,8 @@ const TABS: { id: HubTab; label: string }[] = [
   { id: "activity", label: "活動" },
   { id: "dms", label: "私訊" },
   { id: "threads", label: "討論串" },
+  { id: "tasks", label: "任務" },
+  { id: "standup", label: "Standup" },
   { id: "drafts", label: "草稿" },
   { id: "files", label: "檔案" },
   { id: "later", label: "稍後" },
@@ -986,6 +994,15 @@ export default function TeamHub() {
             <p className="tm-hub-empty-hint">沒有符合篩選的團隊。</p>
           ) : (
             <div className="tm-hub-team-list">
+              <TeamBookmarksStrip
+                onOpen={(b) => {
+                  const params = new URLSearchParams({
+                    channel: b.channelId,
+                    msg: b.messageId,
+                  });
+                  router.push(`/team/${b.teamId}?${params}`);
+                }}
+              />
               {starredChannelRows.length > 0 && homeFilter !== "unread" && (
                 <div className="tm-hub-section">
                   <div className="tm-hub-section-head">
@@ -1342,6 +1359,14 @@ export default function TeamHub() {
         </section>
       )}
 
+      {tab === "tasks" && user && (
+        <TeamTasksPanel teams={teams} uid={user.uid} displayName={displayName || undefined} />
+      )}
+
+      {tab === "standup" && user && (
+        <TeamStandupPanel teams={teams} uid={user.uid} displayName={displayName || undefined} />
+      )}
+
       {tab === "drafts" && (
         <section className="tm-hub-panel">
           <div className="tm-hub-toolbar">
@@ -1405,28 +1430,44 @@ export default function TeamHub() {
             <ul className="tm-hub-feed">
               {files.map((f) => (
                 <li key={`${f.teamId}-${f.channelId}-${f.message.id}`}>
-                  <button
-                    type="button"
-                    className="tm-hub-feed-item"
-                    onClick={() => {
-                      const params = new URLSearchParams({
-                        channel: f.channelId,
-                        msg: f.message.id,
-                      });
-                      router.push(`/team/${f.teamId}?${params}`);
-                    }}
-                  >
-                    <span className="tm-hub-feed-kind">檔案</span>
-                    <span className="tm-hub-feed-body">
-                      <strong>{f.message.file_name || f.message.text || "檔案"}</strong>
-                      <span className="tm-hub-feed-meta">
-                        {f.teamName} · #{f.channelName} · {f.message.author_name || ""}
+                  <div className="tm-hub-feed-item tm-hub-later-item">
+                    <button
+                      type="button"
+                      className="tm-hub-later-main"
+                      onClick={() => {
+                        const params = new URLSearchParams({
+                          channel: f.channelId,
+                          msg: f.message.id,
+                        });
+                        router.push(`/team/${f.teamId}?${params}`);
+                      }}
+                    >
+                      <span className="tm-hub-feed-kind">檔案</span>
+                      <span className="tm-hub-feed-body">
+                        <strong>{f.message.file_name || f.message.text || "檔案"}</strong>
+                        <span className="tm-hub-feed-meta">
+                          {f.teamName} · #{f.channelName} · {f.message.author_name || ""}
+                        </span>
                       </span>
-                    </span>
-                    <span className="tm-hub-feed-time">
-                      {formatRelative(f.message.created_at)}
-                    </span>
-                  </button>
+                      <span className="tm-hub-feed-time">
+                        {formatRelative(f.message.created_at)}
+                      </span>
+                    </button>
+                    {user && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() =>
+                          void fileHitToNote(user.uid, f).then((noteId) => {
+                            toast("已轉成筆記");
+                            router.push(`/notes/${noteId}`);
+                          })
+                        }
+                      >
+                        轉筆記
+                      </button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>

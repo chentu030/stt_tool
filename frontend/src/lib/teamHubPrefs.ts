@@ -13,6 +13,8 @@ export type HubTab =
   | "activity"
   | "dms"
   | "threads"
+  | "tasks"
+  | "standup"
   | "drafts"
   | "files"
   | "later"
@@ -130,6 +132,8 @@ export function getHubTab(): HubTab {
     "activity",
     "dms",
     "threads",
+    "tasks",
+    "standup",
     "drafts",
     "files",
     "later",

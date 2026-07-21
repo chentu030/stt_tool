@@ -297,6 +297,18 @@ service cloud.firestore {
         allow read: if isTeamMember(teamId);
         allow create: if isTeamMember(teamId);
       }
+
+      match /tasks/{taskId} {
+        allow read, create, update, delete: if isTeamMember(teamId);
+      }
+
+      match /standups/{dateKey}/entries/{entryUid} {
+        allow read: if isTeamMember(teamId);
+        allow create, update: if isTeamMember(teamId)
+          && request.auth.uid == entryUid;
+        allow delete: if isTeamMember(teamId)
+          && (request.auth.uid == entryUid || isTeamAdmin(teamId));
+      }
     }
 
     match /invites/{token} {

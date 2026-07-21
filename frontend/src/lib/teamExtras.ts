@@ -222,3 +222,59 @@ export function isThreadFollowed(teamId: string, channelId: string, messageId: s
   const id = `${teamId}:${channelId}:${messageId}`;
   return getFollowedThreads().some((x) => x.id === id);
 }
+
+/* ── Personal bookmarks (not team-wide pins) ── */
+
+const BOOKMARKS_KEY = "albireus.teamHub.bookmarks.v1";
+
+export type BookmarkItem = {
+  id: string;
+  teamId: string;
+  teamName: string;
+  channelId: string;
+  channelName: string;
+  messageId: string;
+  text: string;
+  authorName: string;
+  savedAt: number;
+};
+
+export function getBookmarks(): BookmarkItem[] {
+  try {
+    const raw = localStorage.getItem(BOOKMARKS_KEY);
+    const v = raw ? (JSON.parse(raw) as BookmarkItem[]) : [];
+    if (!Array.isArray(v)) return [];
+    return v
+      .filter((x) => x && typeof x.id === "string")
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  } catch {
+    return [];
+  }
+}
+
+export function addBookmark(item: Omit<BookmarkItem, "id" | "savedAt"> & { savedAt?: number }): BookmarkItem[] {
+  const id = `${item.teamId}:${item.channelId}:${item.messageId}`;
+  const list = getBookmarks().filter((x) => x.id !== id);
+  const next: BookmarkItem = { ...item, id, savedAt: item.savedAt ?? Date.now() };
+  const out = [next, ...list].slice(0, 100);
+  try {
+    localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(out));
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+
+export function removeBookmark(id: string): BookmarkItem[] {
+  const out = getBookmarks().filter((x) => x.id !== id);
+  try {
+    localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(out));
+  } catch {
+    /* ignore */
+  }
+  return out;
+}
+
+export function isBookmarked(teamId: string, channelId: string, messageId: string): boolean {
+  return getBookmarks().some((x) => x.id === `${teamId}:${channelId}:${messageId}`);
+}

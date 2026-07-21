@@ -42,6 +42,10 @@ import {
   openOrCreateGroupDm,
   forwardMessage,
   setMemberStatus,
+  createTeamTask,
+  createPollMessage,
+  votePollOption,
+  toggleMessageDecision,
   channelIsUnread,
   toggleMessageReaction,
   pinNote,
@@ -83,6 +87,9 @@ import {
   followThread,
   unfollowThread,
   isThreadFollowed,
+  addBookmark,
+  isBookmarked,
+  removeBookmark,
 } from "@/lib/teamExtras";
 
 const INVITE_ROLES: { id: TeamRole; label: string }[] = [
@@ -129,13 +136,16 @@ type SlashCommand = { cmd: string; desc: string };
 const SLASH_COMMANDS: SlashCommand[] = [
   { cmd: "/me", desc: "以動作訊息發送（斜體）" },
   { cmd: "/shrug", desc: "附加 ¯\\_(ツ)_/¯" },
+  { cmd: "/poll", desc: "建立投票（選項用 | 分隔）" },
   { cmd: "/note", desc: "以剩餘文字為標題建立筆記" },
   { cmd: "/summary", desc: "產生本頻道 AI 摘要" },
+  { cmd: "/actions", desc: "抽出行動項目" },
+  { cmd: "/meeting", desc: "產生會議包（摘要＋待辦）" },
   { cmd: "/help", desc: "顯示指令說明" },
 ];
 
 const SLASH_HELP_TEXT =
-  "可用指令：/me 動作內容、/shrug 附加表情、/note 標題 建立筆記、/summary 產生摘要、/help 顯示說明";
+  "可用指令：/me、/shrug、/poll 問題 | 選項A | 選項B、/note、/summary、/actions、/meeting、/help";
 
 function TeamRoomInner() {
   const { id } = useParams<{ id: string }>();
@@ -642,7 +652,34 @@ function TeamRoomInner() {
         return true;
       }
       case "/summary": {
-        void runAiSummary();
+        void runAiSummary("summarize");
+        return true;
+      }
+      case "/actions": {
+        void runAiSummary("actions");
+        return true;
+      }
+      case "/meeting": {
+        void runAiSummary("meeting_pack");
+        return true;
+      }
+      case "/poll": {
+        const parts = rest.split("|").map((s) => s.trim()).filter(Boolean);
+        if (parts.length < 3) {
+          setError("用法：/poll 問題 | 選項A | 選項B");
+          return true;
+        }
+        try {
+          await createPollMessage(
+            id,
+            activeChannel,
+            { uid: user.uid, name: displayName || undefined },
+            parts[0],
+            parts.slice(1)
+          );
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "建立投票失敗");
+        }
         return true;
       }
       case "/help": {
@@ -919,7 +956,7 @@ function TeamRoomInner() {
     }
   };
 
-  const runAiSummary = async () => {
+  const runAiSummary = async (action: "summarize" | "actions" | "meeting_pack" = "summarize") => {
     if (!id || !activeChannel) return;
     setAiOpen(true);
     setAiBusy(true);
@@ -935,16 +972,16 @@ function TeamRoomInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "summarize",
+          action,
           title: activeChannelObj?.name || "頻道",
           body: text || "（沒有訊息）",
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "摘要失敗");
+      if (!res.ok) throw new Error(data.error || "產生失敗");
       setAiSummary(String(data.text || ""));
     } catch (e) {
-      setAiError(e instanceof Error ? e.message : "摘要失敗");
+      setAiError(e instanceof Error ? e.message : "產生失敗");
     } finally {
       setAiBusy(false);
     }
@@ -976,21 +1013,42 @@ function TeamRoomInner() {
 
   const convertMessageToNote = async (m: Message) => {
     if (!user || !id || !activeChannel || convertingId) return;
+    const mode = await askChoice({
+      title: "轉成筆記",
+      message: "存到哪裡？",
+      options: [
+        { id: "note", label: "一般筆記（並釘到團隊知識）", primary: true },
+        { id: "journal", label: "今日日誌" },
+      ],
+    });
+    if (!mode) return;
     setConvertingId(m.id);
     try {
       const title = m.text.trim().slice(0, 40) || "訊息筆記";
       const body = `> 來自 ${m.author_name || "匿名"} · #${activeChannelObj?.name || ""} · ${m.created_at.toLocaleString("zh-TW")}\n\n${m.text}`;
-      const noteId = await createNote(user.uid, title, body);
-      await pinNote(id, noteId, title, user.uid);
-      await sendMessage(id, activeChannel, {
-        author_id: user.uid,
-        author_name: displayName || "",
-        text: `將訊息轉為筆記「${title}」`,
-        kind: "note_share",
-        note_id: noteId,
-        note_title: title,
-        members,
-      });
+      const today = new Date().toISOString().slice(0, 10);
+      const noteId = await createNote(
+        user.uid,
+        mode.choice === "journal" ? `日誌 · ${today}` : title,
+        body,
+        undefined,
+        mode.choice === "journal" ? ["journal", "team"] : [],
+        mode.choice === "journal" ? { journal_date: today } : undefined
+      );
+      if (mode.choice !== "journal") {
+        await pinNote(id, noteId, title, user.uid);
+        await sendMessage(id, activeChannel, {
+          author_id: user.uid,
+          author_name: displayName || "",
+          text: `將訊息轉為筆記「${title}」`,
+          kind: "note_share",
+          note_id: noteId,
+          note_title: title,
+          members,
+        });
+      } else {
+        toast("已寫入今日日誌");
+      }
       setNoteFlash((f) => ({ ...f, [m.id]: noteId }));
       setTimeout(() => {
         setNoteFlash((f) => {
@@ -1003,6 +1061,38 @@ function TeamRoomInner() {
       setError(e instanceof Error ? e.message : "轉筆記失敗");
     } finally {
       setConvertingId(null);
+    }
+  };
+
+  const convertMessageToTask = async (m: Message) => {
+    if (!user || !id || !activeChannel) return;
+    const assigneePick = await askChoice({
+      title: "指派任務（可跳過）",
+      options: [
+        { id: "__none__", label: "不指派", primary: true },
+        ...members.map((x) => ({
+          id: x.uid,
+          label: memberLabel(x),
+        })),
+      ],
+    });
+    if (!assigneePick) return;
+    const assignee =
+      assigneePick.choice === "__none__"
+        ? undefined
+        : members.find((x) => x.uid === assigneePick.choice);
+    try {
+      await createTeamTask(id, {
+        title: m.text.trim().slice(0, 120) || "任務",
+        created_by: user.uid,
+        assignee_uid: assignee?.uid,
+        assignee_name: assignee ? memberLabel(assignee) : undefined,
+        channel_id: activeChannel,
+        message_id: m.id,
+      });
+      toast("已建立任務（見團隊 Hub「任務」）");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "建立任務失敗");
     }
   };
 
@@ -1688,9 +1778,25 @@ function TeamRoomInner() {
               type="button"
               className="btn btn-sm btn-soft"
               disabled={!activeChannel || aiBusy}
-              onClick={() => void runAiSummary()}
+              onClick={() => void runAiSummary("summarize")}
             >
               {aiBusy ? "摘要中…" : "摘要"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              disabled={!activeChannel || aiBusy}
+              onClick={() => void runAiSummary("actions")}
+            >
+              待辦
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              disabled={!activeChannel || aiBusy}
+              onClick={() => void runAiSummary("meeting_pack")}
+            >
+              會議
             </button>
           </div>
         </div>
@@ -1845,6 +1951,36 @@ function TeamRoomInner() {
                     : undefined
                 }
                 onNoteify={() => void convertMessageToNote(m)}
+                onMakeTask={() => void convertMessageToTask(m)}
+                onToggleDecision={() =>
+                  void toggleMessageDecision(id, activeChannel!, m.id, !m.is_decision).then(() =>
+                    toast(m.is_decision ? "已取消決策標記" : "已標為決策")
+                  )
+                }
+                onBookmark={() => {
+                  if (!activeChannel || !team) return;
+                  if (isBookmarked(id, activeChannel, m.id)) {
+                    removeBookmark(`${id}:${activeChannel}:${m.id}`);
+                    toast("已取消書籤");
+                  } else {
+                    addBookmark({
+                      teamId: id,
+                      teamName: team.name,
+                      channelId: activeChannel,
+                      channelName: activeChannelObj?.name || "頻道",
+                      messageId: m.id,
+                      text: (m.text || "").slice(0, 160),
+                      authorName: m.author_name || "",
+                    });
+                    toast("已加入書籤");
+                  }
+                }}
+                bookmarked={
+                  !!(id && activeChannel && isBookmarked(id, activeChannel, m.id))
+                }
+                onVote={(optionId) =>
+                  void votePollOption(id, activeChannel!, m.id, optionId, user.uid)
+                }
                 onTogglePin={() => void doTogglePin(m)}
                 onEdit={() => void doEditMessage(m)}
                 onDelete={() => void doDeleteMessage(m)}
@@ -2291,6 +2427,11 @@ function MessageRow({
   onReact,
   onPinNote,
   onNoteify,
+  onMakeTask,
+  onToggleDecision,
+  onBookmark,
+  bookmarked,
+  onVote,
   onTogglePin,
   onEdit,
   onDelete,
@@ -2315,6 +2456,11 @@ function MessageRow({
   onReact: (emoji: string) => void;
   onPinNote?: () => void;
   onNoteify?: () => void;
+  onMakeTask?: () => void;
+  onToggleDecision?: () => void;
+  onBookmark?: () => void;
+  bookmarked?: boolean;
+  onVote?: (optionId: string) => void;
   onTogglePin: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -2366,7 +2512,7 @@ function MessageRow({
 
   return (
     <div
-      className={`tm-msg${mine ? " is-mine" : ""}${mentioned ? " is-mentioned" : ""}${m.pinned ? " is-pinned" : ""}`}
+      className={`tm-msg${mine ? " is-mine" : ""}${mentioned ? " is-mentioned" : ""}${m.pinned ? " is-pinned" : ""}${m.is_decision ? " is-decision" : ""}`}
       data-msg-id={m.id}
     >
       <div className="tm-msg-meta">
@@ -2381,6 +2527,7 @@ function MessageRow({
         </span>
         {m.edited_at && <span className="tm-msg-edited">已編輯</span>}
         {m.pinned && <span className="tm-msg-pin-flag" title="已釘選">📌</span>}
+        {m.is_decision && <span className="tm-decision-badge">決策</span>}
       </div>
       {m.kind === "note_share" && m.note_id ? (
         <Link href={`/notes/${m.note_id}`} className="tm-note-card">
@@ -2402,6 +2549,37 @@ function MessageRow({
               📎 {m.file_name || "下載檔案"}
             </a>
           )}
+        </div>
+      ) : m.kind === "poll" && m.poll_options ? (
+        <div className="tm-poll">
+          <p className="tm-poll-q">📊 {m.poll_question || m.text}</p>
+          <ul className="tm-poll-options">
+            {m.poll_options.map((o) => {
+              const count = Object.keys(o.votes || {}).length;
+              const total = m.poll_options!.reduce(
+                (n, x) => n + Object.keys(x.votes || {}).length,
+                0
+              );
+              const pct = total ? Math.round((count / total) * 100) : 0;
+              return (
+                <li key={o.id}>
+                  <button
+                    type="button"
+                    className="tm-poll-opt"
+                    onClick={() => onVote?.(o.id)}
+                  >
+                    <span className="tm-poll-opt-bar" style={{ width: `${pct}%` }} />
+                    <span className="tm-poll-opt-label">
+                      {o.text}
+                      <em>
+                        {count} · {pct}%
+                      </em>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       ) : (
         <span className="tm-msg-text">{renderMentions(m.text)}</span>
@@ -2486,6 +2664,21 @@ function MessageRow({
         {onNoteify && m.kind !== "note_share" && (
           <button type="button" className="doc-cmd" disabled={converting} onClick={onNoteify}>
             {converting ? "轉換中…" : "轉筆記"}
+          </button>
+        )}
+        {onMakeTask && (
+          <button type="button" className="doc-cmd" onClick={onMakeTask}>
+            轉任務
+          </button>
+        )}
+        {onToggleDecision && (
+          <button type="button" className="doc-cmd" onClick={onToggleDecision}>
+            {m.is_decision ? "取消決策" : "標為決策"}
+          </button>
+        )}
+        {onBookmark && (
+          <button type="button" className="doc-cmd" onClick={onBookmark}>
+            {bookmarked ? "取消書籤" : "書籤"}
           </button>
         )}
         {mine && (

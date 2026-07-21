@@ -13211,10 +13211,105 @@ body.is-sidebar-resizing iframe {
   resize: vertical;
   font-family: inherit;
 }
-.tm-canvas-editor:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-  box-shadow: 0 0 0 3px var(--accent-soft);
+.tm-decision-badge {
+  font-size: 0.65rem;
+  font-weight: 750;
+  color: #fff;
+  background: var(--accent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+.tm-msg.is-decision {
+  border-left: 3px solid var(--accent);
+  padding-left: 0.55rem;
+}
+.tm-poll {
+  margin: 0.35rem 0;
+}
+.tm-poll-q {
+  margin: 0 0 0.45rem;
+  font-weight: 700;
+}
+.tm-poll-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.tm-poll-opt {
+  position: relative;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  background: var(--bg-card);
+  cursor: pointer;
+  overflow: hidden;
+}
+.tm-poll-opt:hover { border-color: var(--accent); }
+.tm-poll-opt-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+.tm-poll-opt-label {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.tm-poll-opt-label em {
+  font-style: normal;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+.tm-task-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+.tm-task-status {
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.25rem 0.35rem;
+  background: var(--bg-elevated);
+  color: var(--text-main);
+  font-size: 0.75rem;
+}
+.is-strike { text-decoration: line-through; opacity: 0.65; }
+.tm-standup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 560px;
+}
+.tm-standup-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+.tm-standup-form textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  resize: vertical;
 }
 
 @media (max-width: 640px) {

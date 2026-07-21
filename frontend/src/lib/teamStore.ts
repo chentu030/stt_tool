@@ -56,7 +56,14 @@ export type Channel = {
   last_message_preview?: string;
 };
 
-export type MessageKind = "text" | "note_share" | "file";
+export type MessageKind = "text" | "note_share" | "file" | "poll";
+
+export type PollOption = {
+  id: string;
+  text: string;
+  /** uid -> true */
+  votes: Record<string, boolean>;
+};
 
 export type Message = {
   id: string;
@@ -73,9 +80,39 @@ export type Message = {
   edited_at?: Date;
   deleted?: boolean;
   pinned?: boolean;
+  /** Official decision marker (Slack/Teams gap) */
+  is_decision?: boolean;
   file_url?: string;
   file_name?: string;
   file_mime?: string;
+  poll_question?: string;
+  poll_options?: PollOption[];
+  poll_multi?: boolean;
+};
+
+export type TeamTaskStatus = "open" | "doing" | "done";
+
+export type TeamTask = {
+  id: string;
+  title: string;
+  status: TeamTaskStatus;
+  assignee_uid?: string;
+  assignee_name?: string;
+  due?: string;
+  channel_id?: string;
+  message_id?: string;
+  note_id?: string;
+  created_by: string;
+  created_at: Date;
+};
+
+export type StandupEntry = {
+  uid: string;
+  name: string;
+  yesterday: string;
+  today: string;
+  blockers: string;
+  updated_at: Date;
 };
 
 export type InviteStatus = "pending" | "accepted" | "revoked";
@@ -237,9 +274,22 @@ function messageFromDoc(id: string, data: Record<string, unknown>): Message {
     edited_at: (data.edited_at as { toDate?: () => Date })?.toDate?.(),
     deleted: !!data.deleted,
     pinned: !!data.pinned,
+    is_decision: !!data.is_decision,
     file_url: data.file_url ? String(data.file_url) : undefined,
     file_name: data.file_name ? String(data.file_name) : undefined,
     file_mime: data.file_mime ? String(data.file_mime) : undefined,
+    poll_question: data.poll_question ? String(data.poll_question) : undefined,
+    poll_multi: !!data.poll_multi,
+    poll_options: Array.isArray(data.poll_options)
+      ? (data.poll_options as PollOption[]).map((o) => ({
+          id: String(o.id || ""),
+          text: String(o.text || ""),
+          votes:
+            o.votes && typeof o.votes === "object"
+              ? (o.votes as Record<string, boolean>)
+              : {},
+        }))
+      : undefined,
   };
 }
 
@@ -1437,5 +1487,218 @@ export function listenChannelPresence(
         .filter(Boolean) as { uid: string; name: string; color: string }[];
       cb(people);
     }
+  );
+}
+
+function tasksCol(teamId: string) {
+  return collection(db, "teams", teamId, "tasks");
+}
+
+function standupCol(teamId: string, dateKey: string) {
+  return collection(db, "teams", teamId, "standups", dateKey, "entries");
+}
+
+export function todayStandupKey(d = new Date()): string {
+  return d.toISOString().slice(0, 10);
+}
+
+export function listenTeamTasks(
+  teamId: string,
+  cb: (tasks: TeamTask[]) => void
+): Unsubscribe {
+  return onSnapshot(tasksCol(teamId), (snap) => {
+    const list = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        title: String(data.title || ""),
+        status: (data.status as TeamTaskStatus) || "open",
+        assignee_uid: data.assignee_uid ? String(data.assignee_uid) : undefined,
+        assignee_name: data.assignee_name ? String(data.assignee_name) : undefined,
+        due: data.due ? String(data.due) : undefined,
+        channel_id: data.channel_id ? String(data.channel_id) : undefined,
+        message_id: data.message_id ? String(data.message_id) : undefined,
+        note_id: data.note_id ? String(data.note_id) : undefined,
+        created_by: String(data.created_by || ""),
+        created_at: data.created_at?.toDate?.() || new Date(),
+      } satisfies TeamTask;
+    });
+    list.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    cb(list);
+  });
+}
+
+export async function createTeamTask(
+  teamId: string,
+  input: {
+    title: string;
+    created_by: string;
+    assignee_uid?: string;
+    assignee_name?: string;
+    due?: string;
+    channel_id?: string;
+    message_id?: string;
+  }
+): Promise<string> {
+  const ref = doc(tasksCol(teamId));
+  await setDoc(ref, {
+    title: input.title.trim().slice(0, 200) || "未命名任務",
+    status: "open" as TeamTaskStatus,
+    assignee_uid: input.assignee_uid || "",
+    assignee_name: input.assignee_name || "",
+    due: input.due || "",
+    channel_id: input.channel_id || "",
+    message_id: input.message_id || "",
+    note_id: "",
+    created_by: input.created_by,
+    created_at: Timestamp.now(),
+  });
+  await pushActivity(teamId, {
+    kind: "task_created",
+    text: `建立任務「${input.title.trim().slice(0, 40)}」`,
+    actor_id: input.created_by,
+    channel_id: input.channel_id,
+  }).catch(() => undefined);
+  return ref.id;
+}
+
+export async function updateTeamTask(
+  teamId: string,
+  taskId: string,
+  patch: Partial<Pick<TeamTask, "title" | "status" | "assignee_uid" | "assignee_name" | "due" | "note_id">>
+): Promise<void> {
+  const data: Record<string, string> = {};
+  if (patch.title !== undefined) data.title = patch.title.trim().slice(0, 200);
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.assignee_uid !== undefined) data.assignee_uid = patch.assignee_uid;
+  if (patch.assignee_name !== undefined) data.assignee_name = patch.assignee_name;
+  if (patch.due !== undefined) data.due = patch.due;
+  if (patch.note_id !== undefined) data.note_id = patch.note_id;
+  if (!Object.keys(data).length) return;
+  await updateDoc(doc(tasksCol(teamId), taskId), data);
+}
+
+export async function deleteTeamTask(teamId: string, taskId: string): Promise<void> {
+  await deleteDoc(doc(tasksCol(teamId), taskId));
+}
+
+export async function toggleMessageDecision(
+  teamId: string,
+  channelId: string,
+  messageId: string,
+  isDecision: boolean
+): Promise<void> {
+  await updateDoc(doc(messagesCol(teamId, channelId), messageId), {
+    is_decision: isDecision,
+  });
+}
+
+export async function createPollMessage(
+  teamId: string,
+  channelId: string,
+  author: { uid: string; name?: string },
+  question: string,
+  optionTexts: string[],
+  multi = false
+): Promise<string> {
+  const options: PollOption[] = optionTexts
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((text, i) => ({ id: `o${i}`, text, votes: {} }));
+  if (options.length < 2) throw new Error("投票至少需要兩個選項");
+  const ref = doc(messagesCol(teamId, channelId));
+  const now = Timestamp.now();
+  await setDoc(ref, {
+    author_id: author.uid,
+    author_name: author.name || "",
+    text: question.trim(),
+    thread_id: "",
+    kind: "poll" as MessageKind,
+    note_id: "",
+    note_title: "",
+    reactions: {},
+    mentions: [],
+    file_url: "",
+    file_name: "",
+    file_mime: "",
+    pinned: false,
+    deleted: false,
+    is_decision: false,
+    poll_question: question.trim(),
+    poll_options: options,
+    poll_multi: multi,
+    created_at: now,
+  });
+  await updateDoc(doc(channelsCol(teamId), channelId), {
+    last_message_at: now,
+    last_message_preview: `📊 ${question.trim().slice(0, 60)}`,
+  }).catch(() => undefined);
+  return ref.id;
+}
+
+export async function votePollOption(
+  teamId: string,
+  channelId: string,
+  messageId: string,
+  optionId: string,
+  uid: string
+): Promise<void> {
+  const ref = doc(messagesCol(teamId, channelId), messageId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const data = snap.data();
+  const multi = !!data.poll_multi;
+  const options = Array.isArray(data.poll_options) ? [...data.poll_options] : [];
+  const next = options.map((o: PollOption) => {
+    const votes = { ...((o.votes as Record<string, boolean>) || {}) };
+    if (o.id === optionId) {
+      if (votes[uid]) delete votes[uid];
+      else votes[uid] = true;
+    } else if (!multi && votes[uid]) {
+      delete votes[uid];
+    }
+    return { id: o.id, text: o.text, votes };
+  });
+  await updateDoc(ref, { poll_options: next });
+}
+
+export function listenStandupEntries(
+  teamId: string,
+  dateKey: string,
+  cb: (entries: StandupEntry[]) => void
+): Unsubscribe {
+  return onSnapshot(standupCol(teamId, dateKey), (snap) => {
+    const list = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        uid: d.id,
+        name: String(data.name || d.id.slice(0, 6)),
+        yesterday: String(data.yesterday || ""),
+        today: String(data.today || ""),
+        blockers: String(data.blockers || ""),
+        updated_at: data.updated_at?.toDate?.() || new Date(),
+      } satisfies StandupEntry;
+    });
+    list.sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+    cb(list);
+  });
+}
+
+export async function upsertStandupEntry(
+  teamId: string,
+  dateKey: string,
+  entry: Omit<StandupEntry, "updated_at">
+): Promise<void> {
+  await setDoc(
+    doc(standupCol(teamId, dateKey), entry.uid),
+    {
+      name: entry.name,
+      yesterday: entry.yesterday.slice(0, 500),
+      today: entry.today.slice(0, 500),
+      blockers: entry.blockers.slice(0, 500),
+      updated_at: Timestamp.now(),
+    },
+    { merge: true }
   );
 }
