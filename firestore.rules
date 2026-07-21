@@ -243,8 +243,12 @@ service cloud.firestore {
         allow update: if isTeamAdmin(teamId)
           || (signedIn() && request.auth.uid == memberId
               && request.resource.data.diff(resource.data).affectedKeys()
-                   .hasOnly(['display_name', 'photo_url']));
+                   .hasOnly(['display_name', 'photo_url', 'status']));
         allow delete: if isTeamAdmin(teamId) || request.auth.uid == memberId;
+      }
+
+      match /meta/{docId} {
+        allow read, write: if isTeamMember(teamId);
       }
 
       match /channels/{channelId} {

@@ -165,3 +165,60 @@ export function showDesktopNotification(title: string, body: string, onClick?: (
     /* ignore */
   }
 }
+
+/* ── Followed threads (Slack-style) ── */
+
+const FOLLOWED_KEY = "albireus.teamHub.followedThreads.v1";
+
+export type FollowedThread = {
+  id: string;
+  teamId: string;
+  teamName: string;
+  channelId: string;
+  channelName: string;
+  messageId: string;
+  preview: string;
+  authorName: string;
+  followedAt: number;
+};
+
+export function getFollowedThreads(): FollowedThread[] {
+  try {
+    const raw = localStorage.getItem(FOLLOWED_KEY);
+    const v = raw ? (JSON.parse(raw) as FollowedThread[]) : [];
+    if (!Array.isArray(v)) return [];
+    return v
+      .filter((x) => x && typeof x.id === "string")
+      .sort((a, b) => (b.followedAt || 0) - (a.followedAt || 0));
+  } catch {
+    return [];
+  }
+}
+
+export function setFollowedThreads(items: FollowedThread[]) {
+  try {
+    localStorage.setItem(FOLLOWED_KEY, JSON.stringify(items.slice(0, 80)));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function followThread(item: Omit<FollowedThread, "id" | "followedAt"> & { followedAt?: number }): FollowedThread[] {
+  const id = `${item.teamId}:${item.channelId}:${item.messageId}`;
+  const list = getFollowedThreads().filter((x) => x.id !== id);
+  const next: FollowedThread = { ...item, id, followedAt: item.followedAt ?? Date.now() };
+  const out = [next, ...list];
+  setFollowedThreads(out);
+  return out;
+}
+
+export function unfollowThread(id: string): FollowedThread[] {
+  const out = getFollowedThreads().filter((x) => x.id !== id);
+  setFollowedThreads(out);
+  return out;
+}
+
+export function isThreadFollowed(teamId: string, channelId: string, messageId: string): boolean {
+  const id = `${teamId}:${channelId}:${messageId}`;
+  return getFollowedThreads().some((x) => x.id === id);
+}

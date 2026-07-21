@@ -27,12 +27,15 @@ import {
   openOrCreateDm,
   openOrCreateGroupDm,
   listRecentTeamFiles,
+  listenTeamCanvas,
+  saveTeamCanvas,
   type TeamMembership,
   type Channel,
   type Member,
   type TeamNotification,
   type TeamActivity,
   type TeamFileHit,
+  type TeamCanvas,
 } from "@/lib/teamStore";
 import {
   getStarredTeamIds,
@@ -56,12 +59,15 @@ import {
   listLocalDrafts,
   clearLocalDraft,
   getStarredChannelKeys,
-  toggleStarredChannel,
+  channelStarKey,
   getNotifPrefs,
   setNotifPrefs,
   ensureDesktopNotifPermission,
+  getFollowedThreads,
+  unfollowThread,
   type DraftItem,
   type NotifPrefs,
+  type FollowedThread,
 } from "@/lib/teamExtras";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -76,9 +82,11 @@ const TABS: { id: HubTab; label: string }[] = [
   { id: "unreads", label: "未讀" },
   { id: "activity", label: "活動" },
   { id: "dms", label: "私訊" },
+  { id: "threads", label: "討論串" },
   { id: "drafts", label: "草稿" },
   { id: "files", label: "檔案" },
   { id: "later", label: "稍後" },
+  { id: "canvas", label: "Canvas" },
   { id: "people", label: "成員" },
 ];
 
@@ -170,6 +178,12 @@ export default function TeamHub() {
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [files, setFiles] = useState<TeamFileHit[]>([]);
   const [filesBusy, setFilesBusy] = useState(false);
+  const [followed, setFollowed] = useState<FollowedThread[]>([]);
+  const [canvasTeamId, setCanvasTeamId] = useState("");
+  const [canvas, setCanvas] = useState<TeamCanvas | null>(null);
+  const [canvasTitle, setCanvasTitle] = useState("團隊 Canvas");
+  const [canvasBody, setCanvasBody] = useState("");
+  const [canvasBusy, setCanvasBusy] = useState(false);
   const [notifPrefs, setNotifPrefsState] = useState<NotifPrefs>(() =>
     typeof window !== "undefined" ? getNotifPrefs() : { desktop: true, sound: true, mode: "mentions" }
   );
@@ -186,8 +200,22 @@ export default function TeamHub() {
     setSections(getHubSections());
     setTab(getHubTab());
     setDrafts(listLocalDrafts());
+    setFollowed(getFollowedThreads());
     setNotifPrefsState(getNotifPrefs());
   }, []);
+
+  useEffect(() => {
+    if (teams.length && !canvasTeamId) setCanvasTeamId(teams[0].id);
+  }, [teams, canvasTeamId]);
+
+  useEffect(() => {
+    if (!canvasTeamId || tab !== "canvas") return;
+    return listenTeamCanvas(canvasTeamId, (c) => {
+      setCanvas(c);
+      setCanvasTitle(c?.title || "團隊 Canvas");
+      setCanvasBody(c?.body || "");
+    });
+  }, [canvasTeamId, tab]);
 
   useEffect(() => {
     if (!user) {
@@ -353,6 +381,41 @@ export default function TeamHub() {
     return rows;
   }, [teams, bundles, mutedByTeam, user]);
 
+  const starredChannelRows = useMemo(() => {
+    if (!user) return [];
+    const rows: Array<{ teamId: string; teamName: string; channel: Channel; label: string }> = [];
+    for (const key of starredChannels) {
+      const idx = key.indexOf(":");
+      if (idx < 0) continue;
+      const teamId = key.slice(0, idx);
+      const channelId = key.slice(idx + 1);
+      if (!teamId || !channelId) continue;
+      const t = teams.find((x) => x.id === teamId);
+      const c = bundles[teamId]?.channels.find((x) => x.id === channelId);
+      if (!t || !c) continue;
+      rows.push({
+        teamId,
+        teamName: t.name,
+        channel: c,
+        label: c.dm_key ? dmPeerLabel(c, user.uid, bundles[teamId]?.members || []) : `#${c.name}`,
+      });
+    }
+    return rows;
+  }, [starredChannels, teams, bundles, user]);
+
+  const saveCanvas = async () => {
+    if (!user || !canvasTeamId) return;
+    setCanvasBusy(true);
+    try {
+      await saveTeamCanvas(canvasTeamId, user.uid, { title: canvasTitle, body: canvasBody });
+      toast("Canvas 已儲存");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "儲存 Canvas 失敗");
+    } finally {
+      setCanvasBusy(false);
+    }
+  };
+
   const unreadTotal = useMemo(
     () => Object.values(unreadByTeam).reduce((a, b) => a + b, 0),
     [unreadByTeam]
@@ -401,7 +464,13 @@ export default function TeamHub() {
     if (!user) return [];
     const map = new Map<
       string,
-      { uid: string; name: string; photo?: string; teams: Array<{ id: string; name: string; role: string }> }
+      {
+        uid: string;
+        name: string;
+        photo?: string;
+        status?: string;
+        teams: Array<{ id: string; name: string; role: string }>;
+      }
     >();
     for (const t of teams) {
       const b = bundles[t.id];
@@ -412,11 +481,13 @@ export default function TeamHub() {
           uid: m.uid,
           name: m.display_name || m.uid.slice(0, 8),
           photo: m.photo_url,
+          status: m.status,
           teams: [],
         };
         cur.teams.push({ id: t.id, name: t.name, role: m.role });
         if (m.display_name) cur.name = m.display_name;
         if (m.photo_url) cur.photo = m.photo_url;
+        if (m.status) cur.status = m.status;
         map.set(m.uid, cur);
       }
     }
@@ -805,6 +876,7 @@ export default function TeamHub() {
           if (t.id === "later") badge = later.filter((x) => !x.done).length;
           if (t.id === "home" || t.id === "unreads") badge = unreadTotal;
           if (t.id === "drafts") badge = drafts.length || (tab === "drafts" ? 0 : listLocalDrafts().length);
+          if (t.id === "threads") badge = followed.length;
           return (
             <button
               key={t.id}
@@ -914,6 +986,33 @@ export default function TeamHub() {
             <p className="tm-hub-empty-hint">沒有符合篩選的團隊。</p>
           ) : (
             <div className="tm-hub-team-list">
+              {starredChannelRows.length > 0 && homeFilter !== "unread" && (
+                <div className="tm-hub-section">
+                  <div className="tm-hub-section-head">
+                    <h3 className="tm-hub-section-title">星標頻道</h3>
+                  </div>
+                  <ul className="tm-hub-feed">
+                    {starredChannelRows.map((r) => (
+                      <li key={channelStarKey(r.teamId, r.channel.id)}>
+                        <button
+                          type="button"
+                          className="tm-hub-feed-item"
+                          onClick={() => openTeam(r.teamId, r.channel.id)}
+                        >
+                          <span className="tm-hub-feed-kind">★</span>
+                          <span className="tm-hub-feed-body">
+                            <strong>{r.label}</strong>
+                            <span className="tm-hub-feed-meta">{r.teamName}</span>
+                            <span className="tm-hub-feed-text">
+                              {r.channel.last_message_preview || "尚無訊息"}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {homeGroups.map((group) => (
                 <div key={group.key} className="tm-hub-section">
                   <div className="tm-hub-section-head">
@@ -1194,6 +1293,55 @@ export default function TeamHub() {
         </section>
       )}
 
+      {tab === "threads" && (
+        <section className="tm-hub-panel">
+          {followed.length === 0 ? (
+            <div className="tm-empty">
+              <h2 className="tm-empty-title">尚未追蹤討論串</h2>
+              <p>在訊息上按「追蹤討論串」，回覆會集中在這裡（類似 Slack Threads）。</p>
+            </div>
+          ) : (
+            <ul className="tm-hub-feed">
+              {followed.map((item) => (
+                <li key={item.id}>
+                  <div className="tm-hub-feed-item tm-hub-later-item">
+                    <button
+                      type="button"
+                      className="tm-hub-later-main"
+                      onClick={() => {
+                        const params = new URLSearchParams({
+                          channel: item.channelId,
+                          msg: item.messageId,
+                        });
+                        router.push(`/team/${item.teamId}?${params}`);
+                      }}
+                    >
+                      <span className="tm-hub-feed-body">
+                        <strong>
+                          {item.teamName} · #{item.channelName}
+                        </strong>
+                        <span className="tm-hub-feed-meta">{item.authorName || "討論串"}</span>
+                        <span className="tm-hub-feed-text">{item.preview}</span>
+                      </span>
+                      <span className="tm-hub-feed-time">
+                        {formatRelative(new Date(item.followedAt))}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setFollowed(unfollowThread(item.id))}
+                    >
+                      取消追蹤
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {tab === "drafts" && (
         <section className="tm-hub-panel">
           <div className="tm-hub-toolbar">
@@ -1360,6 +1508,59 @@ export default function TeamHub() {
         </section>
       )}
 
+      {tab === "canvas" && (
+        <section className="tm-hub-panel">
+          {teams.length === 0 ? (
+            <p className="tm-hub-empty-hint">先建立或加入團隊，再使用共享 Canvas。</p>
+          ) : (
+            <>
+              <div className="tm-hub-toolbar">
+                <select
+                  className="tm-hub-search"
+                  value={canvasTeamId}
+                  onChange={(e) => setCanvasTeamId(e.target.value)}
+                  aria-label="選擇團隊 Canvas"
+                >
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  disabled={canvasBusy || !canvasTeamId}
+                  onClick={() => void saveCanvas()}
+                >
+                  {canvasBusy ? "儲存中…" : "儲存 Canvas"}
+                </button>
+              </div>
+              <input
+                className="tm-hub-search"
+                style={{ maxWidth: "100%", marginBottom: "0.65rem" }}
+                value={canvasTitle}
+                onChange={(e) => setCanvasTitle(e.target.value)}
+                placeholder="Canvas 標題"
+              />
+              <textarea
+                className="tm-canvas-editor"
+                value={canvasBody}
+                onChange={(e) => setCanvasBody(e.target.value)}
+                placeholder="團隊共用筆記／規範／決策記錄（類似 Slack Canvas）…"
+                rows={16}
+              />
+              {canvas?.updated_at ? (
+                <p className="tm-hub-feed-meta" style={{ marginTop: "0.5rem" }}>
+                  上次更新 {formatRelative(canvas.updated_at)}
+                  {canvas.updated_by ? ` · ${canvas.updated_by.slice(0, 8)}` : ""}
+                </p>
+              ) : null}
+            </>
+          )}
+        </section>
+      )}
+
       {tab === "people" && (
         <section className="tm-hub-panel">
           <div className="tm-hub-toolbar">
@@ -1402,6 +1603,7 @@ export default function TeamHub() {
                     <span className="tm-team-avatar">{teamInitial(p.name)}</span>
                     <span className="tm-hub-person-info">
                       <strong>{p.name}</strong>
+                      {p.status ? <span className="tm-hub-status">{p.status}</span> : null}
                       <span className="tm-hub-feed-meta">
                         {p.teams.map((t) => t.name).join(" · ")}
                       </span>

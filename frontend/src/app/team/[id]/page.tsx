@@ -40,6 +40,8 @@ import {
   markChannelUnread,
   openOrCreateDm,
   openOrCreateGroupDm,
+  forwardMessage,
+  setMemberStatus,
   channelIsUnread,
   toggleMessageReaction,
   pinNote,
@@ -78,6 +80,9 @@ import { toast } from "@/lib/toast";
 import {
   isChannelStarred,
   toggleStarredChannel,
+  followThread,
+  unfollowThread,
+  isThreadFollowed,
 } from "@/lib/teamExtras";
 
 const INVITE_ROLES: { id: TeamRole; label: string }[] = [
@@ -1156,6 +1161,81 @@ function TeamRoomInner() {
     }
   };
 
+  const doForward = async (m: Message) => {
+    if (!id || !user || !activeChannel) return;
+    const targets = channels.filter((c) => c.id !== activeChannel);
+    if (!targets.length) {
+      setError("沒有其他可轉傳的頻道");
+      return;
+    }
+    const pick = await askChoice({
+      title: "轉傳到…",
+      options: targets.map((c) => ({
+        id: c.id,
+        label: c.dm_key ? `💬 ${dmLabel(c)}` : `#${c.name}`,
+      })),
+    });
+    if (!pick) return;
+    const note = await askPrompt({
+      title: "附加說明（可留空）",
+      defaultValue: "",
+    });
+    if (note === null) return;
+    try {
+      await forwardMessage(
+        id,
+        pick.choice,
+        { uid: user.uid, name: displayName || undefined },
+        {
+          author_name: m.author_name,
+          text: m.text || m.note_title || m.file_name || "",
+          channelName: activeChannelObj?.name,
+        },
+        note
+      );
+      toast("已轉傳");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "轉傳失敗");
+    }
+  };
+
+  const doFollowThread = (m: Message) => {
+    if (!id || !team || !activeChannel) return;
+    const followed = isThreadFollowed(id, activeChannel, m.id);
+    if (followed) {
+      unfollowThread(`${id}:${activeChannel}:${m.id}`);
+      toast("已取消追蹤");
+    } else {
+      followThread({
+        teamId: id,
+        teamName: team.name,
+        channelId: activeChannel,
+        channelName: activeChannelObj?.name || "頻道",
+        messageId: m.id,
+        preview: (m.text || "").slice(0, 120),
+        authorName: m.author_name || "",
+      });
+      toast("已追蹤討論串");
+    }
+  };
+
+  const doSetMyStatus = async () => {
+    if (!id || !user) return;
+    const cur = members.find((m) => m.uid === user.uid)?.status || "";
+    const next = await askPrompt({
+      title: "設定狀態",
+      message: "例如：會議中、專注工作、請假…（清空則清除狀態）",
+      defaultValue: cur,
+    });
+    if (next === null) return;
+    try {
+      await setMemberStatus(id, user.uid, next);
+      toast(next.trim() ? "狀態已更新" : "狀態已清除");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新狀態失敗");
+    }
+  };
+
   const dmOtherMember = (c: Channel): Member | undefined =>
     members.find((mm) => mm.uid !== user?.uid && c.member_ids?.includes(mm.uid));
 
@@ -1377,6 +1457,7 @@ function TeamRoomInner() {
                   <span className="tm-member-name">
                     {m.display_name || m.uid.slice(0, 6)}
                     {m.uid === user.uid ? "（你）" : ""}
+                    {m.status ? <span className="tm-hub-status"> · {m.status}</span> : null}
                   </span>
                 </button>
                 {canAdmin && m.role !== "owner" && m.uid !== user.uid ? (
@@ -1402,6 +1483,9 @@ function TeamRoomInner() {
         </div>
 
         <div className="tm-sidebar-foot">
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => void doSetMyStatus()}>
+            狀態
+          </button>
           <button
             type="button"
             className={`btn btn-sm btn-ghost${activityOpen ? " is-on" : ""}`}
@@ -1778,6 +1862,11 @@ function TeamRoomInner() {
                   });
                   toast("已加入稍後再看");
                 }}
+                onForward={() => void doForward(m)}
+                onFollow={() => doFollowThread(m)}
+                followed={
+                  !!(id && activeChannel && isThreadFollowed(id, activeChannel, m.id))
+                }
                 onImageClick={setLightboxUrl}
                 onAuthorClick={(uid, e) => openMemberPopover(uid, e)}
               />
@@ -2207,6 +2296,9 @@ function MessageRow({
   onDelete,
   onCopyLink,
   onSaveLater,
+  onForward,
+  onFollow,
+  followed,
   onImageClick,
   onAuthorClick,
 }: {
@@ -2228,6 +2320,9 @@ function MessageRow({
   onDelete: () => void;
   onCopyLink: () => void;
   onSaveLater?: () => void;
+  onForward?: () => void;
+  onFollow?: () => void;
+  followed?: boolean;
   onImageClick: (url: string) => void;
   onAuthorClick: (uid: string, e: ReactMouseEvent) => void;
 }) {
@@ -2371,6 +2466,16 @@ function MessageRow({
         {onSaveLater && (
           <button type="button" className="doc-cmd" onClick={onSaveLater}>
             稍後再看
+          </button>
+        )}
+        {onFollow && (
+          <button type="button" className="doc-cmd" onClick={onFollow}>
+            {followed ? "取消追蹤" : "追蹤討論串"}
+          </button>
+        )}
+        {onForward && (
+          <button type="button" className="doc-cmd" onClick={onForward}>
+            轉傳
           </button>
         )}
         {onPinNote && (

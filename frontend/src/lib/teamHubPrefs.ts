@@ -7,7 +7,17 @@ const STARRED_KEY = "albireus.teamHub.starred.v1";
 const LATER_KEY = "albireus.teamHub.later.v1";
 const TAB_KEY = "albireus.teamHub.tab.v1";
 
-export type HubTab = "home" | "unreads" | "activity" | "dms" | "drafts" | "files" | "later" | "people";
+export type HubTab =
+  | "home"
+  | "unreads"
+  | "activity"
+  | "dms"
+  | "threads"
+  | "drafts"
+  | "files"
+  | "later"
+  | "people"
+  | "canvas";
 
 export type LaterItem = {
   id: string;
@@ -114,7 +124,18 @@ export function isLaterSaved(teamId: string, channelId: string, messageId: strin
 
 export function getHubTab(): HubTab {
   const t = readJson<string>(TAB_KEY, "home");
-  const ok: HubTab[] = ["home", "unreads", "activity", "dms", "drafts", "files", "later", "people"];
+  const ok: HubTab[] = [
+    "home",
+    "unreads",
+    "activity",
+    "dms",
+    "threads",
+    "drafts",
+    "files",
+    "later",
+    "people",
+    "canvas",
+  ];
   if (ok.includes(t as HubTab)) return t as HubTab;
   return "home";
 }

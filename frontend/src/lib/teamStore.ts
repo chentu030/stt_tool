@@ -37,6 +37,8 @@ export type Member = {
   joined_at: Date;
   display_name?: string;
   photo_url?: string;
+  /** Slack-style custom status, e.g. "會議中" */
+  status?: string;
 };
 
 export type Channel = {
@@ -191,6 +193,7 @@ function memberFromDoc(uid: string, data: Record<string, unknown>): Member {
     joined_at: (data.joined_at as { toDate?: () => Date })?.toDate?.() || new Date(),
     display_name: data.display_name ? String(data.display_name) : undefined,
     photo_url: data.photo_url ? String(data.photo_url) : undefined,
+    status: data.status ? String(data.status).slice(0, 80) : undefined,
   };
 }
 
@@ -913,6 +916,82 @@ export async function transferOwnership(
 export async function setMemberRole(teamId: string, uid: string, role: TeamRole): Promise<void> {
   await updateDoc(doc(membersCol(teamId), uid), { role });
   await updateDoc(doc(userTeamsCol(uid), teamId), { role }).catch(() => undefined);
+}
+
+/** Self-serve status line (visible to teammates). */
+export async function setMemberStatus(
+  teamId: string,
+  uid: string,
+  status: string
+): Promise<void> {
+  await updateDoc(doc(membersCol(teamId), uid), {
+    status: status.trim().slice(0, 80),
+  });
+}
+
+export type TeamCanvas = {
+  teamId: string;
+  title: string;
+  body: string;
+  updated_at: Date;
+  updated_by?: string;
+};
+
+export function listenTeamCanvas(
+  teamId: string,
+  cb: (canvas: TeamCanvas | null) => void
+): Unsubscribe {
+  return onSnapshot(doc(collection(db, "teams", teamId, "meta"), "canvas"), (snap) => {
+    if (!snap.exists()) {
+      cb(null);
+      return;
+    }
+    const data = snap.data();
+    cb({
+      teamId,
+      title: String(data.title || "團隊 Canvas"),
+      body: String(data.body || ""),
+      updated_at: data.updated_at?.toDate?.() || new Date(),
+      updated_by: data.updated_by ? String(data.updated_by) : undefined,
+    });
+  });
+}
+
+export async function saveTeamCanvas(
+  teamId: string,
+  uid: string,
+  patch: { title?: string; body?: string }
+): Promise<void> {
+  const ref = doc(collection(db, "teams", teamId, "meta"), "canvas");
+  await setDoc(
+    ref,
+    {
+      title: (patch.title ?? "團隊 Canvas").trim().slice(0, 80) || "團隊 Canvas",
+      body: patch.body ?? "",
+      updated_at: Timestamp.now(),
+      updated_by: uid,
+    },
+    { merge: true }
+  );
+}
+
+/** Forward a message into another channel (quote-style text). */
+export async function forwardMessage(
+  teamId: string,
+  toChannelId: string,
+  author: { uid: string; name?: string },
+  original: { author_name?: string; text: string; channelName?: string },
+  note?: string
+): Promise<string> {
+  const quote = `↪ 轉自 ${original.author_name || "某人"}${
+    original.channelName ? `（#${original.channelName}）` : ""
+  }：\n> ${original.text.slice(0, 500)}`;
+  const text = note?.trim() ? `${note.trim()}\n\n${quote}` : quote;
+  return sendMessage(teamId, toChannelId, {
+    author_id: author.uid,
+    author_name: author.name,
+    text,
+  });
 }
 
 export async function listTeamInvites(teamId: string): Promise<Invite[]> {
