@@ -78,17 +78,19 @@ def _normalize_whisper_language(raw: Optional[str]) -> str:
     """Map UI / env language prefs to incredibly-fast-whisper language codes.
 
     \"None\" means auto-detect (do not force a language).
+
+    UI \"zh-TW\" / \"zh-CN\" intentionally map to None: forcing ``chinese`` on
+    English audio makes Whisper emit Chinese gibberish / pseudo-translation.
+    Chinese results are still normalized to Traditional via OpenCC afterward.
     """
     v = (raw or "").strip()
     if not v or v.lower() in ("none", "auto", "detect", "null"):
         return "None"
     key = v.lower().replace("_", "-")
+    # Prefer Traditional Chinese in the product UI — do NOT force ASR language.
+    if key in ("zh", "zh-tw", "zh-cn", "zh-hk", "chinese", "cht", "chs"):
+        return "None"
     mapping = {
-        "zh": "chinese",
-        "zh-tw": "chinese",
-        "zh-cn": "chinese",
-        "zh-hk": "chinese",
-        "chinese": "chinese",
         "en": "english",
         "english": "english",
         "ja": "japanese",
@@ -1144,14 +1146,41 @@ def _merge_caption_sentences(
 
 
 def _yt_caption_lang_keys(language: Optional[str]) -> List[str]:
-    """依偏好語言排出字幕語系候選（含自動字幕常見變體）。"""
+    """依偏好語言排出字幕語系候選（含自動字幕常見變體）。
+
+    對中文偏好：先找人工中文字幕，但英文原音 ASR／人工英文字幕排在
+    「中文自動翻譯字幕」之前，避免英文片被 YouTube 翻譯軌整段翻成中文。
+    """
     keys: List[str] = []
+    lang = _normalize_whisper_language(language)
+    raw = (language or "").strip().lower().replace("_", "-")
+    want_zh = raw in ("zh", "zh-tw", "zh-cn", "zh-hk", "chinese", "cht", "chs") or lang == "chinese"
+
+    if want_zh:
+        # Manual / regional Chinese first
+        for k in ("zh-TW", "zh-Hant", "zh", "zh-Hans", "zh-CN", "zh-HK"):
+            if k not in keys:
+                keys.append(k)
+        # Original English speech before Chinese auto-translate
+        for k in ("en-orig", "en", "en-en", "en-US", "en-GB"):
+            if k not in keys:
+                keys.append(k)
+        return keys
+
     two = None
-    if language and language not in ("None", "auto"):
-        two = {"english": "en", "german": "de", "japanese": "ja", "french": "fr",
-               "korean": "ko", "spanish": "es", "dutch": "nl", "russian": "ru",
-               "vietnamese": "vi"}.get(language, (language or "")[:2].lower() or None)
-        if two:
+    if language and language not in ("None", "auto") and lang not in ("None",):
+        two = {
+            "english": "en",
+            "german": "de",
+            "japanese": "ja",
+            "french": "fr",
+            "korean": "ko",
+            "spanish": "es",
+            "dutch": "nl",
+            "russian": "ru",
+            "vietnamese": "vi",
+        }.get(lang, (lang or "")[:2].lower() or None)
+        if two and two != "ch":
             keys += [two, f"{two}-orig", f"{two}-en", f"{two}-US", f"{two}-GB"]
     # 永遠附上英文備援（多數教育／談話節目預設）
     for k in ("en", "en-orig", "en-en", "en-US", "en-GB"):
@@ -1162,6 +1191,9 @@ def _yt_caption_lang_keys(language: Optional[str]) -> List[str]:
 def _pick_caption_track(info: dict, preferred: List[str]) -> tuple:
     """從 yt-dlp info 挑出最佳字幕軌。回傳 (entries, source) 或 (None, None)。
     source: 'manual' | 'auto'
+
+    Auto Chinese tracks are often machine translations of English speech — prefer
+    English ASR / original over zh auto when both exist.
     """
     manuals = info.get("subtitles") or {}
     autos = info.get("automatic_captions") or {}
@@ -1180,9 +1212,17 @@ def _pick_caption_track(info: dict, preferred: List[str]) -> tuple:
     entries, _ = find_in(manuals, preferred)
     if entries:
         return entries, "manual"
-    entries, _ = find_in(autos, preferred)
-    if entries:
-        return entries, "auto"
+
+    # Autos: English original speech before Chinese (often translated) tracks
+    en_auto_keys = [k for k in preferred if k == "en" or k.startswith("en")]
+    other_auto_keys = [k for k in preferred if k not in en_auto_keys]
+    for key_group in (en_auto_keys, other_auto_keys):
+        if not key_group:
+            continue
+        entries, _ = find_in(autos, key_group)
+        if entries:
+            return entries, "auto"
+
     # 最後：任意英文／任意第一軌
     for bucket, src in ((manuals, "manual"), (autos, "auto")):
         for k, entries in bucket.items():
