@@ -12911,10 +12911,12 @@ body.is-sidebar-resizing iframe {
 
 .tm-page {
   position: relative;
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem 4rem;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 1.35rem 1.35rem 3rem;
   isolation: isolate;
+  box-sizing: border-box;
 }
 .tm-page-glow {
   pointer-events: none;
@@ -13146,12 +13148,26 @@ body.is-sidebar-resizing iframe {
 .tm-team-card-role { font-size: 0.76rem; color: var(--text-muted); }
 
 /* ── Team Hub (Slack / Teams inspired) ── */
+.app-main:has(.tm-hub),
+.app-main:has(.tm-room) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  --main-pad-x: 0px;
+  --main-pad-y: 0px;
+}
 .tm-hub {
   position: relative;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 1.15rem 1.25rem 2.5rem;
   isolation: isolate;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
 }
 .tm-hub-head {
   display: flex;
@@ -13678,8 +13694,12 @@ body.is-sidebar-resizing iframe {
 .tm-room {
   display: grid;
   grid-template-columns: 220px 1fr;
+  flex: 1;
+  width: 100%;
   height: 100%;
   min-height: 0;
+  margin: 0;
+  background: var(--bg-primary);
 }
 .tm-sidebar {
   border-right: 1px solid var(--border);
