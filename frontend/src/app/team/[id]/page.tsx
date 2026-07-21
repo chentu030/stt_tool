@@ -69,6 +69,8 @@ import {
   type TeamPin,
   type TeamActivity,
 } from "@/lib/teamStore";
+import { addLaterItem } from "@/lib/teamHubPrefs";
+import { toast } from "@/lib/toast";
 
 const INVITE_ROLES: { id: TeamRole; label: string }[] = [
   { id: "member", label: "成員" },
@@ -1537,6 +1539,19 @@ function TeamRoomInner() {
                 onEdit={() => void doEditMessage(m)}
                 onDelete={() => void doDeleteMessage(m)}
                 onCopyLink={() => void copyMessageLink(m)}
+                onSaveLater={() => {
+                  if (!activeChannel || !team) return;
+                  addLaterItem({
+                    teamId: id,
+                    teamName: team.name,
+                    channelId: activeChannel,
+                    channelName: activeChannelObj?.name || "頻道",
+                    messageId: m.id,
+                    text: (m.text || m.note_title || m.file_name || "訊息").slice(0, 160),
+                    authorName: m.author_name || "",
+                  });
+                  toast("已加入稍後再看");
+                }}
                 onImageClick={setLightboxUrl}
                 onAuthorClick={(uid, e) => openMemberPopover(uid, e)}
               />
@@ -1943,6 +1958,7 @@ function MessageRow({
   onEdit,
   onDelete,
   onCopyLink,
+  onSaveLater,
   onImageClick,
   onAuthorClick,
 }: {
@@ -1963,6 +1979,7 @@ function MessageRow({
   onEdit: () => void;
   onDelete: () => void;
   onCopyLink: () => void;
+  onSaveLater?: () => void;
   onImageClick: (url: string) => void;
   onAuthorClick: (uid: string, e: ReactMouseEvent) => void;
 }) {
@@ -2103,6 +2120,11 @@ function MessageRow({
         <button type="button" className="doc-cmd" onClick={onCopyLink}>
           {copied ? "已複製" : "複製連結"}
         </button>
+        {onSaveLater && (
+          <button type="button" className="doc-cmd" onClick={onSaveLater}>
+            稍後再看
+          </button>
+        )}
         {onPinNote && (
           <button type="button" className="doc-cmd" onClick={onPinNote}>
             釘選
