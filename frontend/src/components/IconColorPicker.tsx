@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 import {
   FOLDER_ICONS,
@@ -33,6 +33,29 @@ type Props = {
 };
 
 const CUSTOMS_KEY = "cadence_page_color_customs";
+const VIEW_PAD = 8;
+
+function clampFixedPos(x: number, y: number, w: number, h: number) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const menuH = Math.min(h, vh - VIEW_PAD * 2);
+  const menuW = Math.min(w, vw - VIEW_PAD * 2);
+  const maxX = Math.max(VIEW_PAD, vw - menuW - VIEW_PAD);
+  const maxY = Math.max(VIEW_PAD, vh - menuH - VIEW_PAD);
+  let left = Math.min(Math.max(VIEW_PAD, x), maxX);
+  let top = y;
+  if (top + menuH > vh - VIEW_PAD) {
+    const above = y - VIEW_PAD;
+    const below = vh - VIEW_PAD - y;
+    if (above > below) {
+      top = y - menuH;
+    } else {
+      top = vh - menuH - VIEW_PAD;
+    }
+  }
+  top = Math.min(Math.max(VIEW_PAD, top), maxY);
+  return { left, top, maxHeight: Math.max(180, vh - top - VIEW_PAD) };
+}
 
 function loadCustoms(): string[] {
   if (typeof window === "undefined") return [];
@@ -96,10 +119,42 @@ export default function IconColorPicker({
 
   const [draft, setDraft] = useState(activeHex);
   const [customs, setCustoms] = useState<string[]>(() => loadCustoms());
+  const [fit, setFit] = useState<{ left: number; top: number; maxHeight: number } | null>(
+    () =>
+      fixed
+        ? {
+            left: x!,
+            top: y!,
+            maxHeight:
+              typeof window !== "undefined"
+                ? Math.max(180, window.innerHeight - y! - VIEW_PAD)
+                : 480,
+          }
+        : null
+  );
 
   useEffect(() => {
     setDraft(activeHex);
   }, [activeHex]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    if (fixed && typeof x === "number" && typeof y === "number") {
+      el.style.maxHeight = `${window.innerHeight - VIEW_PAD * 2}px`;
+      const { width, height } = el.getBoundingClientRect();
+      const next = clampFixedPos(x, y, Math.max(width, 260), height);
+      setFit(next);
+      return;
+    }
+
+    const rect = el.getBoundingClientRect();
+    const room = window.innerHeight - rect.top - VIEW_PAD;
+    if (room > 120 && rect.height > room) {
+      el.style.maxHeight = `${room}px`;
+    }
+  }, [fixed, x, y, customs.length, mode]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -108,13 +163,22 @@ export default function IconColorPicker({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
+    const onResize = () => {
+      if (!fixed || typeof x !== "number" || typeof y !== "number" || !ref.current) return;
+      const el = ref.current;
+      el.style.maxHeight = `${window.innerHeight - VIEW_PAD * 2}px`;
+      const { width, height } = el.getBoundingClientRect();
+      setFit(clampFixedPos(x, y, Math.max(width, 260), height));
+    };
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
     };
-  }, [onClose]);
+  }, [onClose, fixed, x, y]);
 
   const rgb = useMemo(() => hexToRgb(draft), [draft]);
   const normalizedDraft = normalizeHexColor(draft) || draft;
@@ -154,7 +218,11 @@ export default function IconColorPicker({
     <div
       ref={ref}
       className={`ic-picker ic-picker--rich${fixed ? " ic-picker--fixed" : ""} ${className}`.trim()}
-      style={fixed ? { left: x, top: y } : undefined}
+      style={
+        fixed && fit
+          ? { left: fit.left, top: fit.top, maxHeight: fit.maxHeight }
+          : undefined
+      }
       role="dialog"
       aria-label="選擇圖示與顏色"
       onMouseDown={(e) => e.stopPropagation()}

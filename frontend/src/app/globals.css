@@ -10936,7 +10936,10 @@ body.is-sidebar-resizing iframe {
 .ic-picker--rich {
   width: min(280px, 88vw);
   max-height: min(72vh, 560px);
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;

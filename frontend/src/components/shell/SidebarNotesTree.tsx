@@ -573,7 +573,7 @@ export default function SidebarNotesTree() {
     y: number
   ) => {
     closeCtx();
-    const pos = clampMenuPos(x, y, 300, 520);
+    const pos = clampMenuPos(x, y, 300, 640);
     setStylePicker({ ...pos, target });
   };
 
