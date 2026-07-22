@@ -2333,8 +2333,9 @@ async def stt_google_health():
         "ready": ok_v2 or ok_pkg,
         "mode": os.environ.get("GOOGLE_STT_MODE", "batch"),
         "billing": "dynamic_batch_approx_0.003_usd_per_min",
-        "stream_enabled": (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "").strip().lower()
-        in ("1", "true", "yes"),
+        "stream_enabled": (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "1").strip().lower()
+        not in ("0", "false", "no", "off"),
+        "stream_max_secs": max(60, min(7200, int(os.environ.get("GOOGLE_STT_STREAM_MAX_SECS") or "7200"))),
         "location": _google_stt_location(),
         "model": _google_stt_model(),
         "note": "預設 V2 動態批次（較便宜）。串流已預設關閉，避免 $0.016/min。",
@@ -2479,24 +2480,24 @@ def _run_google_stream_v1(
 @app.websocket("/api/stt/google/stream")
 async def stt_google_stream(websocket: WebSocket):
     """
-    Real-time StreamingRecognize bridge — DISABLED by default (cost).
-    Set GOOGLE_STT_ENABLE_STREAM=1 to opt in (~$0.016/min).
+    Real-time StreamingRecognize bridge.
+    Enabled by default so clients can opt in; set GOOGLE_STT_ENABLE_STREAM=0 to force-disable.
+    Soft-cap session length (default 7200s / 2h) via GOOGLE_STT_STREAM_MAX_SECS.
     """
     await websocket.accept()
-    enabled = (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    raw_flag = (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "1").strip().lower()
+    enabled = raw_flag not in ("0", "false", "no", "off")
     if not enabled:
         await websocket.send_json(
             {
                 "type": "error",
-                "message": "串流辨識已關閉（成本約 $0.016/分鐘）。請使用段落動態批次（約 $0.003/分鐘）。若要啟用請設 GOOGLE_STT_ENABLE_STREAM=1。",
+                "message": "串流辨識已由伺服器關閉。請使用段落動態批次，或請管理員設定 GOOGLE_STT_ENABLE_STREAM=1。",
             }
         )
         await websocket.close()
         return
+    max_secs = int(os.environ.get("GOOGLE_STT_STREAM_MAX_SECS") or "7200")
+    max_secs = max(60, min(7200, max_secs))
     try:
         init_raw = await websocket.receive_text()
         init = json.loads(init_raw) if init_raw else {}
@@ -2511,6 +2512,7 @@ async def stt_google_stream(websocket: WebSocket):
     loop = asyncio.get_running_loop()
     out_q: asyncio.Queue = asyncio.Queue()
     stop_flag = threading.Event()
+    started_at = time.time()
 
     def emit(ev: dict):
         if stop_flag.is_set():
@@ -2551,7 +2553,19 @@ async def stt_google_stream(websocket: WebSocket):
     out_task = asyncio.create_task(pump_out())
     try:
         while True:
-            msg = await websocket.receive()
+            if time.time() - started_at >= max_secs:
+                emit(
+                    {
+                        "type": "error",
+                        "message": f"即時串流已達上限（{max_secs // 60} 分鐘），請結束後重新開始。",
+                    }
+                )
+                audio_q.put(None)
+                break
+            try:
+                msg = await asyncio.wait_for(websocket.receive(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
             if msg.get("type") == "websocket.disconnect":
                 break
             if "bytes" in msg and msg["bytes"] is not None:

@@ -1,6 +1,13 @@
-# Google Speech-to-Text（動態批次／經濟模式）
+# Google Speech-to-Text
 
-產品預設走 **V2 Dynamic Batch**（約 **$0.003／分鐘**）。即時錄音與快速錄音 **只使用 Google STT**，不會改走 Whisper。
+產品有兩種 Google STT 路徑：
+
+| 模式 | 用途 | 約略費用 | 預設 |
+|------|------|----------|------|
+| **動態批次** `POST /api/stt/google` | 切段後辨識（即時錄音預設、快速錄音） | ~$0.003／分鐘 | **開** |
+| **即時串流** `WS /api/stt/google/stream` | 邊講邊出字 | ~$0.016／分鐘 | 伺服器允許，**使用者預設關**；單次最多 **2 小時** |
+
+前端設定「即時串流轉錄」或錄音面板切換「即時串流」後才會走 WebSocket。到時長上限會自動結束。
 
 若 Cloud Run 尚未部署 `/api/stt/google`，會回 `404 Not Found`，需重新部署後端後才能使用。
 
@@ -21,7 +28,7 @@ gcloud run deploy whisper-api \
 
 並設定 `GOOGLE_STT_PROJECT_ID` 為專案 **ID**（例如 `stt-tool-f6e6d`），不要只填 OAuth 的數字 project number。
 
-## 預設路徑：`POST /api/stt/google`
+## 批次路徑：`POST /api/stt/google`
 
 用於筆記切段辨識、快速錄音。流程：音訊上傳 GCS → `BatchRecognize` + `DYNAMIC_BATCHING` → 回傳文字。
 
@@ -34,7 +41,8 @@ gcloud run deploy whisper-api \
 | `GOOGLE_STT_MODEL` | 預設 `chirp_2` |
 | `GOOGLE_STT_MODE` | 預設 `batch` |
 | `GOOGLE_STT_BATCH_TIMEOUT` | 預設 `240` |
-| `GOOGLE_STT_ENABLE_STREAM` | 預設關閉（串流約 $0.016／分鐘） |
+| `GOOGLE_STT_ENABLE_STREAM` | 預設 `1`（允許串流）；設 `0` 可強制關閉 |
+| `GOOGLE_STT_STREAM_MAX_SECS` | 單次串流上限秒數，預設 `7200`（2 小時） |
 
 服務帳號需 `roles/speech.client`，並能讀寫 Storage（`stt-batch/`）。Speech 服務代理也要能讀該 bucket。
 

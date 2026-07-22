@@ -19543,6 +19543,10 @@ body.is-sidebar-resizing iframe {
   background: var(--accent-soft);
   font-variant-numeric: normal;
 }
+.voice-live-dock-meta strong .voice-live-source-badge.is-stream {
+  color: #fff;
+  background: var(--accent);
+}
 .voice-live-source {
   display: inline-flex;
   align-items: center;

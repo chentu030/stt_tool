@@ -84,6 +84,13 @@ export type UserPrefs = {
   liveOrganizeEveryChunks: number;
   /** Live note: silence duration (ms) treated as end of utterance */
   liveSilenceMs: number;
+  /**
+   * Live note: use Google real-time streaming STT (costlier).
+   * Default false → chunked dynamic batch. Max session length: liveStreamMaxMins.
+   */
+  liveStreamStt: boolean;
+  /** Cap for a single streaming live session (minutes), max 120 */
+  liveStreamMaxMins: number;
   /** Live note: hide/show recording dock (e.g. mod+shift+h) */
   liveHideDockShortcut: string;
   /** Journal */
@@ -256,6 +263,8 @@ export const DEFAULT_PREFS: UserPrefs = {
   liveChunkMinSecs: 30,
   liveOrganizeEveryChunks: 10,
   liveSilenceMs: 1200,
+  liveStreamStt: false,
+  liveStreamMaxMins: 120,
   liveHideDockShortcut: DEFAULT_LIVE_HIDE_DOCK_SHORTCUT,
   journalWeekStart: "monday",
   journalDefaultEnergy: 3,
@@ -353,6 +362,8 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     liveChunkMinSecs: clamp(Number(p.liveChunkMinSecs) || 30, 15, 300),
     liveOrganizeEveryChunks: clamp(Number(p.liveOrganizeEveryChunks) || 10, 1, 50),
     liveSilenceMs: clamp(Number(p.liveSilenceMs) || 1200, 600, 4000),
+    liveStreamStt: !!p.liveStreamStt,
+    liveStreamMaxMins: clamp(Number(p.liveStreamMaxMins) || 120, 15, 120),
     liveHideDockShortcut: sanitizeShortcutSpec(p.liveHideDockShortcut, DEFAULT_LIVE_HIDE_DOCK_SHORTCUT),
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
     journalTags: sanitizeJournalTags(p.journalTags),

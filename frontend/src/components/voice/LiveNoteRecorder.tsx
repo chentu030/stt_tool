@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { uploadNoteMedia } from "@/lib/firebase";
 import {
   organizeLiveSegment,
+  mapCaptureLangToGoogle,
   transcribeWithGoogle,
 } from "@/lib/googleStt";
+import { GoogleLiveSttSession } from "@/lib/googleSttStream";
 import {
   ContinuousDualRecorder,
   acquireLiveAudioStream,
@@ -34,6 +36,8 @@ export function liveModeLabel(mode: LiveRecordMode): string {
 }
 
 const AUDIO_SOURCES: LiveAudioSource[] = ["mic", "system", "both"];
+/** Hard product cap for a single streaming session. */
+const STREAM_ABS_MAX_SECS = 2 * 60 * 60;
 
 type Props = {
   uid: string;
@@ -77,15 +81,21 @@ export default function LiveNoteRecorder({
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
-  const language = prefs?.captureLanguage || "zh-TW";
+  const language = mapCaptureLangToGoogle(prefs?.captureLanguage || "zh-TW");
   const minSecs = Math.max(15, prefs?.liveChunkMinSecs ?? 30);
   const organizeEvery = Math.max(1, prefs?.liveOrganizeEveryChunks ?? 10);
   const silenceMs = Math.max(600, prefs?.liveSilenceMs ?? 1200);
   const maxSecs = minSecs * MAX_CHUNK_MULT;
+  const streamMaxSecs = Math.min(
+    STREAM_ABS_MAX_SECS,
+    Math.max(15 * 60, (prefs?.liveStreamMaxMins ?? 120) * 60)
+  );
   const doStt = mode !== "audio";
   const doOrganize = mode === "organize";
 
   const [audioSource, setAudioSource] = useState<LiveAudioSource>(audioSourceProp);
+  /** Session opt-in; seeded from prefs (default off = batch). */
+  const [streamOn, setStreamOn] = useState(() => Boolean(prefs?.liveStreamStt));
   const [live, setLive] = useState(false);
   const [starting, setStarting] = useState(Boolean(autoStart));
   const [secs, setSecs] = useState(0);
@@ -123,10 +133,20 @@ export default function LiveNoteRecorder({
   const silenceSinceRef = useRef<number | null>(null);
   const modeRef = useRef(mode);
   const audioSourceRef = useRef(audioSource);
+  const streamOnRef = useRef(streamOn);
+  const streamSessionRef = useRef<GoogleLiveSttSession | null>(null);
+  const streamInterimIdRef = useRef<string | null>(null);
+  const secsRef = useRef(0);
+  const stopRef = useRef<() => Promise<void>>(async () => {});
 
   cutModeRef.current = cutMode;
   modeRef.current = mode;
   audioSourceRef.current = audioSource;
+  streamOnRef.current = streamOn;
+
+  useEffect(() => {
+    if (!live && !stopping) setStreamOn(Boolean(prefs?.liveStreamStt));
+  }, [prefs?.liveStreamStt, live, stopping]);
 
   const clearTimers = () => {
     if (tickRef.current) window.clearInterval(tickRef.current);
@@ -266,9 +286,14 @@ export default function LiveNoteRecorder({
         const audioBlock = got.url
           ? `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${got.url}" title="${job.label}"></audio>\n\n`
           : "";
+        const streaming = streamOnRef.current && modeRef.current !== "audio";
         if (modeRef.current === "audio") {
           insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}`);
           setStatus(`「${job.label}」音檔已寫入`);
+        } else if (streaming && !got.transcript.trim()) {
+          // Text already streamed in; keep a compact audio bookmark per cut.
+          if (audioBlock) insertMd(`\n<!-- ${job.label} · ${time} -->\n${audioBlock}`);
+          setStatus(`「${job.label}」音檔已附上`);
         } else {
           insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}${got.transcript}\n`);
           queueTranscriptForOrganize(got.transcript);
@@ -292,7 +317,14 @@ export default function LiveNoteRecorder({
   const startSegJob = (blob: Blob, label: string, lineId: string) => {
     setPending((n) => n + 1);
     const m = modeRef.current;
-    setStatus(m === "audio" ? `儲存「${label}」音檔…` : `批次辨識「${label}」中…`);
+    const streaming = streamOnRef.current && m !== "audio";
+    setStatus(
+      m === "audio"
+        ? `儲存「${label}」音檔…`
+        : streaming
+          ? `儲存「${label}」音檔（串流已出字）…`
+          : `批次辨識「${label}」中…`
+    );
 
     const result = (async (): Promise<{ transcript: string; url: string } | null> => {
       try {
@@ -305,6 +337,13 @@ export default function LiveNoteRecorder({
         if (m === "audio") {
           const up = await upPromise;
           upsertLine(lineId, { text: "音檔已儲存", state: "ready" });
+          return { transcript: "", url: up?.url || "" };
+        }
+
+        // Streaming already wrote finals into the note — only keep audio for this cut.
+        if (streaming) {
+          const up = await upPromise;
+          upsertLine(lineId, { text: "音檔已附上（文字已由串流出）", state: "ready" });
           return { transcript: "", url: up?.url || "" };
         }
 
@@ -328,6 +367,69 @@ export default function LiveNoteRecorder({
 
     jobsRef.current.push({ id: lineId, label, result });
     void drainJobs();
+  };
+
+  const stopStreamSession = async () => {
+    const s = streamSessionRef.current;
+    streamSessionRef.current = null;
+    streamInterimIdRef.current = null;
+    if (!s) return;
+    try {
+      await s.stop();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const startStreamSession = async (media: MediaStream) => {
+    await stopStreamSession();
+    const session = new GoogleLiveSttSession({
+      language,
+      onEvent: (ev) => {
+        if (ev.type === "interim") {
+          const text = (ev.text || "").trim();
+          if (!text) return;
+          let id = streamInterimIdRef.current;
+          if (!id) {
+            id = `stream-interim-${Date.now()}`;
+            streamInterimIdRef.current = id;
+            setLines((prev) => [
+              ...prev.filter((l) => l.id !== id),
+              { id, label: "即時", text, state: "pending" },
+            ]);
+          } else {
+            upsertLine(id, { text, state: "pending" });
+          }
+          setStatus("即時辨識中…");
+          return;
+        }
+        if (ev.type === "final") {
+          const text = (ev.text || "").trim();
+          const interimId = streamInterimIdRef.current;
+          if (interimId) {
+            setLines((prev) => prev.filter((l) => l.id !== interimId));
+            streamInterimIdRef.current = null;
+          }
+          if (!text) return;
+          const lineId = `stream-final-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          setLines((prev) => [...prev, { id: lineId, label: "串流", text, state: "ready" }]);
+          insertMd(`${text} `);
+          queueTranscriptForOrganize(text);
+          setStatus("即時出字中…");
+          return;
+        }
+        if (ev.type === "info" && ev.message) {
+          setStatus(ev.message);
+          return;
+        }
+        if (ev.type === "error") {
+          toast(ev.message || "即時串流失敗");
+          setStatus(`串流錯誤：${ev.message || "未知"}`);
+        }
+      },
+    });
+    streamSessionRef.current = session;
+    await session.start({ language, stream: media, ownStream: false });
   };
 
   const cutParagraph = async (
@@ -362,7 +464,10 @@ export default function LiveNoteRecorder({
         {
           id: lineId,
           label,
-          text: modeRef.current === "audio" ? "儲存音檔中…" : "批次辨識中…",
+          text:
+            modeRef.current === "audio" || streamOnRef.current
+              ? "儲存音檔中…"
+              : "批次辨識中…",
           state: "pending",
         },
       ]);
@@ -376,6 +481,7 @@ export default function LiveNoteRecorder({
   const start = async () => {
     const src = audioSourceRef.current;
     const srcLabel = liveAudioSourceLabel(src);
+    const useStream = streamOnRef.current && modeRef.current !== "audio";
     setStarting(true);
     setStatus(
       src === "system"
@@ -390,6 +496,7 @@ export default function LiveNoteRecorder({
     pendingOrgTextsRef.current = [];
     setStopping(false);
     jobsRef.current = [];
+    secsRef.current = 0;
     try {
       const acquired = await acquireLiveAudioStream(src);
       const rec = new ContinuousDualRecorder();
@@ -397,6 +504,18 @@ export default function LiveNoteRecorder({
       recRef.current = rec;
       extRef.current = rec.extension || "webm";
       if (rec.mediaStream) startSilenceMonitor(rec.mediaStream);
+      if (useStream && rec.mediaStream) {
+        setStatus("連接即時串流…");
+        try {
+          await startStreamSession(rec.mediaStream);
+        } catch (e) {
+          await stopStreamSession();
+          const msg = e instanceof Error ? e.message : "無法開啟即時串流";
+          toast(`${msg} · 已改用切段批次`);
+          streamOnRef.current = false;
+          setStreamOn(false);
+        }
+      }
       liveRef.current = true;
       setLive(true);
       setSecs(0);
@@ -404,6 +523,7 @@ export default function LiveNoteRecorder({
       segSecsRef.current = 0;
       labelSeqRef.current = 0;
       const srcBit = `來源：${srcLabel}`;
+      const streamBit = streamOnRef.current && modeRef.current !== "audio" ? " · 即時串流" : "";
       if (modeRef.current === "audio") {
         setStatus(
           cutModeRef.current === "auto"
@@ -413,18 +533,30 @@ export default function LiveNoteRecorder({
       } else if (modeRef.current === "transcribe") {
         setStatus(
           cutModeRef.current === "auto"
-            ? `${srcBit} · 轉錄：講超過 ${minSecs}s 且停頓後切段轉字`
-            : `${srcBit} · 轉錄：按「段落結束」轉字`
+            ? `${srcBit}${streamBit} · 講超過 ${minSecs}s 且停頓後切段`
+            : `${srcBit}${streamBit} · 按「段落結束」切段`
         );
       } else {
         setStatus(
           cutModeRef.current === "auto"
-            ? `${srcBit} · 自動切段：講超過 ${minSecs}s 且停頓後切段；每 ${organizeEvery} 段整理`
-            : `${srcBit} · 手動切段：按「段落結束」；需要時按「AI 整理」`
+            ? `${srcBit}${streamBit} · ≥${minSecs}s 停頓切段；每 ${organizeEvery} 段整理`
+            : `${srcBit}${streamBit} · 手動切段；需要時按「AI 整理」`
         );
       }
       tickRef.current = window.setInterval(() => {
-        setSecs((s) => s + 1);
+        setSecs((s) => {
+          const n = s + 1;
+          secsRef.current = n;
+          if (
+            streamOnRef.current &&
+            modeRef.current !== "audio" &&
+            n >= streamMaxSecs
+          ) {
+            toast(`即時串流最長 ${Math.round(streamMaxSecs / 60)} 分鐘，已自動結束`);
+            void stopRef.current();
+          }
+          return n;
+        });
         setSegSecs((s) => {
           const n = s + 1;
           segSecsRef.current = n;
@@ -432,6 +564,7 @@ export default function LiveNoteRecorder({
         });
       }, 1000);
     } catch (e) {
+      await stopStreamSession();
       setStatus(e instanceof Error ? e.message : "無法開始錄音");
       throw e;
     } finally {
@@ -445,6 +578,7 @@ export default function LiveNoteRecorder({
     setStarting(false);
     clearTimers();
     stopSilenceMonitor();
+    await stopStreamSession();
     const rec = recRef.current;
     liveRef.current = false;
     setLive(false);
@@ -465,7 +599,10 @@ export default function LiveNoteRecorder({
           {
             id: lineId,
             label,
-            text: modeRef.current === "audio" ? "儲存音檔中…" : "批次辨識中…",
+            text:
+              modeRef.current === "audio" || streamOnRef.current
+                ? "儲存音檔中…"
+                : "批次辨識中…",
             state: "pending",
           },
         ]);
@@ -502,10 +639,12 @@ export default function LiveNoteRecorder({
       setStatus("結束失敗，可再試一次");
     }
   };
+  stopRef.current = stop;
 
   const cancelBoot = () => {
     clearTimers();
     stopSilenceMonitor();
+    void stopStreamSession();
     void recRef.current?.stopAll();
     recRef.current = null;
     liveRef.current = false;
@@ -531,6 +670,8 @@ export default function LiveNoteRecorder({
     return () => {
       clearTimers();
       stopSilenceMonitor();
+      void streamSessionRef.current?.stop();
+      streamSessionRef.current = null;
       void recRef.current?.stopAll();
     };
   }, []);
@@ -575,12 +716,14 @@ export default function LiveNoteRecorder({
   const canPickSource = !live && !stopping && !booting;
   const idle = !live && !stopping && !booting;
   const showPreview = lines.length > 0 || live || stopping;
-  const emptyHint =
-    mode === "audio"
-      ? `≥${minSecs}s 停頓切段存檔`
+  const streamActive = doStt && streamOn;
+  const emptyHint = !doStt
+    ? `≥${minSecs}s 停頓切段存檔`
+    : streamActive
+      ? `即時串流出字 · 最長 ${Math.round(streamMaxSecs / 60)} 分 · 停頓仍切段存音檔`
       : mode === "transcribe"
-        ? `≥${minSecs}s 停頓切段轉字`
-        : `≥${minSecs}s 切段 · 每 ${organizeEvery} 段整理`;
+        ? `≥${minSecs}s 停頓切段轉字（批次）`
+        : `≥${minSecs}s 切段批次 · 每 ${organizeEvery} 段整理`;
 
   return (
     <>
@@ -606,6 +749,9 @@ export default function LiveNoteRecorder({
                   {title}
                   {live || stopping ? (
                     <span className="voice-live-source-badge">{liveAudioSourceLabel(audioSource)}</span>
+                  ) : null}
+                  {streamActive && (live || stopping || idle) ? (
+                    <span className="voice-live-source-badge is-stream">即時</span>
                   ) : null}
                 </strong>
                 {live || stopping || booting ? (
@@ -638,6 +784,31 @@ export default function LiveNoteRecorder({
                     {src === "mic" ? "麥克風" : src === "system" ? "裝置" : "兩者"}
                   </button>
                 ))}
+                {doStt ? (
+                  <button
+                    type="button"
+                    className={`voice-live-source-chip${streamOn ? " is-on" : ""}`}
+                    disabled={!canPickSource}
+                    title={
+                      streamOn
+                        ? `即時串流已開（最長 ${Math.round(streamMaxSecs / 60)} 分）。再按可改回切段批次。`
+                        : "預設切段批次較省；開啟即時串流可邊講邊出字（較貴，最長 2 小時）"
+                    }
+                    onClick={() => {
+                      const next = !streamOn;
+                      setStreamOn(next);
+                      streamOnRef.current = next;
+                      prefsCtx?.setPrefs({ liveStreamStt: next });
+                      setStatus(
+                        next
+                          ? `已開即時串流（最長 ${Math.round(streamMaxSecs / 60)} 分）`
+                          : "已改用切段批次（較省）"
+                      );
+                    }}
+                  >
+                    {streamOn ? "即時串流" : "切段批次"}
+                  </button>
+                ) : null}
               </div>
             )}
 

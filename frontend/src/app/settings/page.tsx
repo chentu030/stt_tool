@@ -826,6 +826,29 @@ export default function SettingsPage() {
               />
             </Row>
             <Row
+              label="即時串流轉錄"
+              hint="預設關閉（切段批次較省）。開啟後邊講邊出字；單次最長 2 小時，費用較高。"
+            >
+              <Toggle
+                checked={prefs.liveStreamStt}
+                onChange={(liveStreamStt) => patch({ liveStreamStt })}
+              />
+            </Row>
+            <Row
+              label={`串流最長 ${prefs.liveStreamMaxMins} 分鐘`}
+              hint="僅套用在即時串流；到時自動結束本場"
+            >
+              <input
+                type="range"
+                min={15}
+                max={120}
+                step={15}
+                value={prefs.liveStreamMaxMins}
+                disabled={!prefs.liveStreamStt}
+                onChange={(e) => patch({ liveStreamMaxMins: Number(e.target.value) })}
+              />
+            </Row>
+            <Row
               label="隱藏錄製面板快捷鍵"
               hint="錄製中可隱藏底部面板，避免旁人注意；再按一次或點角落小點即可顯示。預設 ⌘/Ctrl + Shift + H"
             >
