@@ -650,6 +650,21 @@ export const NoteEmbed = Node.create({
           if (typeof pos !== "number") return;
           editor.commands.setNodeSelection(pos);
         },
+        onDelete: () => {
+          const pos = typeof getPos === "function" ? getPos() : null;
+          if (typeof pos !== "number") return;
+          const cur = editor.state.doc.nodeAt(pos);
+          if (!cur) return;
+          editor
+            .chain()
+            .focus()
+            .command(({ tr, dispatch }) => {
+              tr.delete(pos, pos + cur.nodeSize);
+              dispatch?.(tr);
+              return true;
+            })
+            .run();
+        },
         getReadOnly: () => !editor.isEditable,
       });
 

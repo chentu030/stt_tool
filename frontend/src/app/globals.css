@@ -9780,6 +9780,16 @@ body.is-split-resizing iframe {
   margin: 0;
   cursor: grab;
   max-width: min(100%, 720px);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+/* While dragging a floating image, block native text selection under the pointer. */
+body.rich-media-float-dragging,
+body.rich-media-float-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: grabbing !important;
 }
 .rich-media-frame[data-wrap="front"] {
   z-index: 6;

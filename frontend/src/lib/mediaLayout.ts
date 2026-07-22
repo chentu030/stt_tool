@@ -46,6 +46,14 @@ export function clampOffset(n: unknown, fallback = 8): number {
   return Math.min(92, Math.max(0, Math.round(v * 10) / 10));
 }
 
+/** Horizontal % offset for absolute (front/behind) media from align. */
+export function offsetXForAlign(align: MediaAlign, widthPct: number): number {
+  const w = clampWidthPct(widthPct, 100);
+  if (align === "left") return 0;
+  if (align === "right") return clampOffset(Math.max(0, 100 - w), 0);
+  return clampOffset(Math.max(0, (100 - w) / 2), 0);
+}
+
 export function normalizeAlign(v: unknown): MediaAlign {
   return v === "left" || v === "right" || v === "center" ? v : "center";
 }

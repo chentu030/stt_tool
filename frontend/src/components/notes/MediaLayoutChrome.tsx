@@ -7,6 +7,7 @@ import {
   clampWidthPct,
   normalizeAlign,
   normalizeWrap,
+  offsetXForAlign,
   readLayoutFromAttrs,
   type MediaAlign,
   type MediaLayout,
@@ -18,16 +19,26 @@ type Props = {
   updateAttributes: (patch: Partial<MediaLayout>) => void;
   /** Keep NodeSelection after layout edits so chrome stays usable. */
   onRequestSelect?: () => void;
+  /** Remove the media node from the document. */
+  onDelete?: () => void;
   selected?: boolean;
   readOnly?: boolean;
   className?: string;
   children: ReactNode;
 };
 
+function setFloatDragging(on: boolean) {
+  document.body.classList.toggle("rich-media-float-dragging", on);
+  if (on) {
+    window.getSelection()?.removeAllRanges();
+  }
+}
+
 export default function MediaLayoutChrome({
   attrs,
   updateAttributes,
   onRequestSelect,
+  onDelete,
   selected = false,
   readOnly = false,
   className = "",
@@ -43,6 +54,10 @@ export default function MediaLayoutChrome({
     if (!selected) setMenuOpen(false);
   }, [selected]);
 
+  useEffect(() => {
+    return () => setFloatDragging(false);
+  }, []);
+
   const commitLayout = useCallback(
     (patch: Partial<MediaLayout>) => {
       updateAttributes(patch);
@@ -50,6 +65,41 @@ export default function MediaLayoutChrome({
       queueMicrotask(() => onRequestSelect?.());
     },
     [onRequestSelect, updateAttributes]
+  );
+
+  const applyAlign = useCallback(
+    (raw: MediaAlign) => {
+      const align = normalizeAlign(raw);
+      if (layout.wrap === "front" || layout.wrap === "behind") {
+        // Full-width overlays can't visually shift; shrink so L/C/R is meaningful.
+        const widthPct = layout.widthPct >= 95 ? 45 : layout.widthPct;
+        commitLayout({
+          align,
+          widthPct,
+          offsetX: offsetXForAlign(align, widthPct),
+        });
+        return;
+      }
+      if (layout.wrap === "floatLeft" || layout.wrap === "floatRight") {
+        if (align === "left") {
+          commitLayout({ align, wrap: "floatLeft" });
+          return;
+        }
+        if (align === "right") {
+          commitLayout({ align, wrap: "floatRight" });
+          return;
+        }
+        commitLayout({ align, wrap: "inline" });
+        return;
+      }
+      // Inline/break: margin align needs width < 100% to look different.
+      if (align !== "left" && layout.widthPct >= 95 && layout.wrap !== "break") {
+        commitLayout({ align, widthPct: 60 });
+        return;
+      }
+      commitLayout({ align });
+    },
+    [commitLayout, layout.widthPct, layout.wrap]
   );
 
   const onResizePointerDown = useCallback(
@@ -93,7 +143,9 @@ export default function MediaLayoutChrome({
       // Always try to select first so chrome (環繞 / 縮放) can appear again.
       onRequestSelect?.();
       if (layout.wrap !== "front" && layout.wrap !== "behind") return;
-      // Do not preventDefault on click — that blocked TipTap NodeSelection and trapped overlay images.
+      // Capture-phase + preventDefault stops native text selection under the floating image.
+      e.preventDefault();
+      e.stopPropagation();
       const prose = frameRef.current?.closest(".rich-prose") as HTMLElement | null;
       if (!prose) return;
       const startX = e.clientX;
@@ -106,6 +158,7 @@ export default function MediaLayoutChrome({
           if (dist < 5) return;
           dragging = true;
           floating.current = true;
+          setFloatDragging(true);
         }
         if (!floating.current) return;
         ev.preventDefault();
@@ -118,6 +171,7 @@ export default function MediaLayoutChrome({
       };
       const onUp = () => {
         floating.current = false;
+        setFloatDragging(false);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         if (dragging) queueMicrotask(() => onRequestSelect?.());
@@ -153,7 +207,7 @@ export default function MediaLayoutChrome({
       data-oy={layout.offsetY}
       data-selected={showChrome ? "1" : "0"}
       style={style}
-      onPointerDown={onFloatPointerDown}
+      onPointerDownCapture={onFloatPointerDown}
     >
       {showChrome ? (
         <div
@@ -168,7 +222,7 @@ export default function MediaLayoutChrome({
               type="button"
               className={layout.align === a ? "is-on" : ""}
               title={a === "left" ? "靠左" : a === "right" ? "靠右" : "置中"}
-              onClick={() => commitLayout({ align: normalizeAlign(a) })}
+              onClick={() => applyAlign(a)}
             >
               {a === "left" ? "左" : a === "right" ? "右" : "中"}
             </button>
@@ -192,7 +246,17 @@ export default function MediaLayoutChrome({
                     role="menuitem"
                     className={layout.wrap === o.id ? "is-on" : ""}
                     onClick={() => {
-                      commitLayout({ wrap: normalizeWrap(o.id) as MediaWrap });
+                      const wrap = normalizeWrap(o.id) as MediaWrap;
+                      if (wrap === "front" || wrap === "behind") {
+                        const widthPct = layout.widthPct >= 95 ? 45 : layout.widthPct;
+                        commitLayout({
+                          wrap,
+                          widthPct,
+                          offsetX: offsetXForAlign(layout.align, widthPct),
+                        });
+                      } else {
+                        commitLayout({ wrap });
+                      }
                       setMenuOpen(false);
                     }}
                   >
@@ -204,6 +268,23 @@ export default function MediaLayoutChrome({
             ) : null}
           </div>
           <span className="rich-media-toolbar-pct">{layout.widthPct}%</span>
+          {onDelete ? (
+            <>
+              <span className="rich-media-toolbar-sep" />
+              <button
+                type="button"
+                className="rich-media-toolbar-delete"
+                title="移除圖片"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDelete();
+                }}
+              >
+                刪除
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
       <div className="rich-media-frame-body">{children}</div>

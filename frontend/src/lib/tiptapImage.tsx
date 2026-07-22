@@ -16,7 +16,14 @@ import {
   type MediaLayout,
 } from "@/lib/mediaLayout";
 
-function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
+function ImageUrlView({
+  node,
+  updateAttributes,
+  selected,
+  editor,
+  getPos,
+  deleteNode,
+}: ReactNodeViewProps) {
   const src = String(node.attrs.src || "");
   const alt = String(node.attrs.alt || "");
   const [draft, setDraft] = useState(src);
@@ -126,6 +133,32 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
         >
           清除
         </button>
+        <button
+          type="button"
+          className="rich-embed-clear"
+          title="移除圖片"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            try {
+              deleteNode();
+            } catch {
+              const pos = typeof getPos === "function" ? getPos() : null;
+              if (typeof pos !== "number" || !editor) return;
+              editor
+                .chain()
+                .focus()
+                .command(({ tr, dispatch }) => {
+                  tr.delete(pos, pos + node.nodeSize);
+                  dispatch?.(tr);
+                  return true;
+                })
+                .run();
+            }
+          }}
+        >
+          刪除
+        </button>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -155,6 +188,27 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
         attrs={node.attrs as Record<string, unknown>}
         updateAttributes={patchLayout}
         onRequestSelect={selectSelf}
+        onDelete={
+          readOnly
+            ? undefined
+            : () => {
+                try {
+                  deleteNode();
+                } catch {
+                  const pos = typeof getPos === "function" ? getPos() : null;
+                  if (typeof pos !== "number" || !editor) return;
+                  editor
+                    .chain()
+                    .focus()
+                    .command(({ tr, dispatch }) => {
+                      tr.delete(pos, pos + node.nodeSize);
+                      dispatch?.(tr);
+                      return true;
+                    })
+                    .run();
+                }
+              }
+        }
         selected={showChrome}
         readOnly={!!readOnly}
       >

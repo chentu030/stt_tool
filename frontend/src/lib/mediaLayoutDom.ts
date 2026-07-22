@@ -7,7 +7,9 @@ import {
   clampWidthPct,
   normalizeAlign,
   normalizeWrap,
+  offsetXForAlign,
   readLayoutFromAttrs,
+  type MediaAlign,
   type MediaLayout,
 } from "@/lib/mediaLayout";
 
@@ -18,9 +20,15 @@ export type LayoutChromeControls = {
   destroy: () => void;
 };
 
+function setFloatDragging(on: boolean) {
+  document.body.classList.toggle("rich-media-float-dragging", on);
+  if (on) window.getSelection()?.removeAllRanges();
+}
+
 export function mountLayoutChrome(opts: {
   updateAttributes: (patch: Partial<MediaLayout>) => void;
   onRequestSelect?: () => void;
+  onDelete?: () => void;
   getReadOnly?: () => boolean;
 }): LayoutChromeControls {
   const root = document.createElement("div");
@@ -61,6 +69,36 @@ export function mountLayoutChrome(opts: {
     }
   };
 
+  const applyAlign = (raw: MediaAlign) => {
+    const align = normalizeAlign(raw);
+    if (layout.wrap === "front" || layout.wrap === "behind") {
+      const widthPct = layout.widthPct >= 95 ? 45 : layout.widthPct;
+      applyLayout({
+        align,
+        widthPct,
+        offsetX: offsetXForAlign(align, widthPct),
+      });
+      return;
+    }
+    if (layout.wrap === "floatLeft" || layout.wrap === "floatRight") {
+      if (align === "left") {
+        applyLayout({ align, wrap: "floatLeft" });
+        return;
+      }
+      if (align === "right") {
+        applyLayout({ align, wrap: "floatRight" });
+        return;
+      }
+      applyLayout({ align, wrap: "inline" });
+      return;
+    }
+    if (align !== "left" && layout.widthPct >= 95 && layout.wrap !== "break") {
+      applyLayout({ align, widthPct: 60 });
+      return;
+    }
+    applyLayout({ align });
+  };
+
   const rebuildToolbar = () => {
     toolbar.innerHTML = "";
     toolbar.hidden = !(selected && !readOnly);
@@ -83,8 +121,8 @@ export function mountLayoutChrome(opts: {
 
     (["left", "center", "right"] as const).forEach((a) => {
       toolbar.appendChild(
-        mkBtn(a === "left" ? "左" : a === "right" ? "右" : "中", a, layout.align === a, () => {
-          applyLayout({ align: normalizeAlign(a) });
+        mkBtn(a === "left" ? "左" : a === "right" ? "右" : "中", a === "left" ? "靠左" : a === "right" ? "靠右" : "置中", layout.align === a, () => {
+          applyAlign(a);
         })
       );
     });
@@ -119,7 +157,17 @@ export function mountLayoutChrome(opts: {
           e.preventDefault();
           e.stopPropagation();
           menuOpen = false;
-          applyLayout({ wrap: normalizeWrap(o.id) });
+          const wrap = normalizeWrap(o.id);
+          if (wrap === "front" || wrap === "behind") {
+            const widthPct = layout.widthPct >= 95 ? 45 : layout.widthPct;
+            applyLayout({
+              wrap,
+              widthPct,
+              offsetX: offsetXForAlign(layout.align, widthPct),
+            });
+          } else {
+            applyLayout({ wrap });
+          }
         });
         pop.appendChild(b);
       });
@@ -131,6 +179,17 @@ export function mountLayoutChrome(opts: {
     pct.className = "rich-media-toolbar-pct";
     pct.textContent = `${layout.widthPct}%`;
     toolbar.appendChild(pct);
+
+    if (opts.onDelete) {
+      const sep2 = document.createElement("span");
+      sep2.className = "rich-media-toolbar-sep";
+      toolbar.appendChild(sep2);
+      toolbar.appendChild(
+        mkBtn("刪除", "移除", false, () => {
+          opts.onDelete?.();
+        })
+      );
+    }
   };
 
   let resizing = false;
@@ -165,47 +224,54 @@ export function mountLayoutChrome(opts: {
   });
 
   let floating = false;
-  root.addEventListener("pointerdown", (e) => {
-    if (readOnly || opts.getReadOnly?.()) return;
-    const t = e.target as HTMLElement;
-    if (t.closest(".rich-media-toolbar, .rich-media-resize, input, button, a, textarea")) return;
-    opts.onRequestSelect?.();
-    if (layout.wrap !== "front" && layout.wrap !== "behind") return;
-    // Click must still select; only drag after a small move threshold.
-    const prose = root.closest(".rich-prose") as HTMLElement | null;
-    if (!prose) return;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const rect = prose.getBoundingClientRect();
-    let dragging = false;
-    const onMove = (ev: PointerEvent) => {
-      const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
-      if (!dragging) {
-        if (dist < 5) return;
-        dragging = true;
-        floating = true;
-      }
-      if (!floating) return;
-      ev.preventDefault();
-      const x = ((ev.clientX - rect.left) / rect.width) * 100;
-      const y = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * 100;
-      applyLayout(
-        {
-          offsetX: clampOffset(x - layout.widthPct / 2, layout.offsetX),
-          offsetY: clampOffset(y - 4, layout.offsetY),
-        },
-        { reselect: false }
-      );
-    };
-    const onUp = () => {
-      floating = false;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      if (dragging) queueMicrotask(() => opts.onRequestSelect?.());
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  });
+  root.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (readOnly || opts.getReadOnly?.()) return;
+      const t = e.target as HTMLElement;
+      if (t.closest(".rich-media-toolbar, .rich-media-resize, input, button, a, textarea")) return;
+      opts.onRequestSelect?.();
+      if (layout.wrap !== "front" && layout.wrap !== "behind") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const prose = root.closest(".rich-prose") as HTMLElement | null;
+      if (!prose) return;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const rect = prose.getBoundingClientRect();
+      let dragging = false;
+      const onMove = (ev: PointerEvent) => {
+        const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+        if (!dragging) {
+          if (dist < 5) return;
+          dragging = true;
+          floating = true;
+          setFloatDragging(true);
+        }
+        if (!floating) return;
+        ev.preventDefault();
+        const x = ((ev.clientX - rect.left) / rect.width) * 100;
+        const y = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * 100;
+        applyLayout(
+          {
+            offsetX: clampOffset(x - layout.widthPct / 2, layout.offsetX),
+            offsetY: clampOffset(y - 4, layout.offsetY),
+          },
+          { reselect: false }
+        );
+      };
+      const onUp = () => {
+        floating = false;
+        setFloatDragging(false);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        if (dragging) queueMicrotask(() => opts.onRequestSelect?.());
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    true
+  );
 
   const sync = (attrs: Record<string, unknown>, isSelected: boolean, isReadOnly: boolean) => {
     if (destroyed) return;
@@ -223,6 +289,7 @@ export function mountLayoutChrome(opts: {
     sync,
     destroy: () => {
       destroyed = true;
+      setFloatDragging(false);
     },
   };
 }
