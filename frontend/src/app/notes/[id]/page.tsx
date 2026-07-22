@@ -2030,6 +2030,12 @@ function NotePageInner() {
                   }}
                 />
                 <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+                <span className="doc-meta-chip" title="建立時間">
+                  建立 {note.created_at.toLocaleString("zh-TW")}
+                </span>
+                <span className="doc-meta-chip" title="最後編輯時間">
+                  編輯 {note.updated_at.toLocaleString("zh-TW")}
+                </span>
                 {note.source_job_id && (
                   <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
                     來源逐字稿
@@ -2049,6 +2055,12 @@ function NotePageInner() {
                 </span>
               ))}
               <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+              <span className="doc-meta-chip" title="建立時間">
+                建立 {note.created_at.toLocaleString("zh-TW")}
+              </span>
+              <span className="doc-meta-chip" title="最後編輯時間">
+                編輯 {note.updated_at.toLocaleString("zh-TW")}
+              </span>
             </div>
           )}
 

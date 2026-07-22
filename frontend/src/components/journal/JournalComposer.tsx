@@ -7,6 +7,7 @@ import {
   MoodId,
   promptForDate,
 } from "@/lib/journalMeta";
+import AiMarkdown from "@/components/AiMarkdown";
 
 export type JournalComposerHandle = {
   save: () => void;
@@ -40,6 +41,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   const [text, setText] = useState(initialText);
   const [m, setM] = useState<MoodId | undefined>(mood);
   const [e, setE] = useState(energy);
+  const [mode, setMode] = useState<"preview" | "edit">(initialText.trim() ? "preview" : "edit");
   const prompt = promptForDate(dateKey);
 
   const dirty =
@@ -65,9 +67,19 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           <h2 className="font-display">{dateKey}</h2>
           <p className="jn-prompt">今日提問：{prompt}</p>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onOpenFull}>
-          完整編輯
-        </button>
+        <div className="jn-composer-top-actions">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setMode((x) => (x === "preview" ? "edit" : "preview"))}
+            title={mode === "preview" ? "編輯 Markdown 原文" : "預覽 Markdown / LaTeX"}
+          >
+            {mode === "preview" ? "編輯原文" : "預覽"}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onOpenFull}>
+            完整編輯
+          </button>
+        </div>
       </div>
 
       <div className="jn-mood-row">
@@ -113,27 +125,47 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
         <button
           type="button"
           className="jn-chip"
-          onClick={() =>
-            setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`)
-          }
+          onClick={() => {
+            setMode("edit");
+            setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`);
+          }}
         >
           插入今日提問
         </button>
       </div>
 
-      <textarea
-        className="input jn-textarea"
-        rows={10}
-        placeholder="寫下今天的節奏、卡住的地方、或一句話就好…"
-        value={text}
-        onChange={(ev) => setText(ev.target.value)}
-        onKeyDown={(ev) => {
-          if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "s") {
-            ev.preventDefault();
-            onSave({ text, mood: m, energy: e });
-          }
-        }}
-      />
+      {mode === "preview" ? (
+        <button
+          type="button"
+          className="jn-preview"
+          onClick={() => setMode("edit")}
+          title="點擊編輯原文"
+        >
+          {text.trim() ? (
+            <AiMarkdown text={text} className="jn-preview-md" />
+          ) : (
+            <p className="jn-preview-empty">還沒有內容 · 點此開始寫</p>
+          )}
+        </button>
+      ) : (
+        <textarea
+          className="input jn-textarea"
+          rows={10}
+          placeholder="寫下今天的節奏、卡住的地方、或一句話就好…（支援 Markdown / LaTeX）"
+          value={text}
+          autoFocus
+          onChange={(ev) => setText(ev.target.value)}
+          onKeyDown={(ev) => {
+            if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "s") {
+              ev.preventDefault();
+              onSave({ text, mood: m, energy: e });
+            }
+          }}
+          onBlur={() => {
+            if (text.trim()) setMode("preview");
+          }}
+        />
+      )}
 
       <div className="jn-composer-actions">
         <button

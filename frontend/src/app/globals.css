@@ -5251,6 +5251,12 @@ a.sidebar-user-name:hover {
   align-items: flex-start;
   margin-bottom: 0.75rem;
 }
+.jn-composer-top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
 .jn-composer-top h2 { font-size: 1.35rem; margin: 0; }
 .jn-prompt {
   margin-top: 0.35rem;
@@ -5314,6 +5320,33 @@ a.sidebar-user-name:hover {
   resize: vertical;
   line-height: 1.6;
   margin-bottom: 0.75rem;
+}
+.jn-preview {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  margin-bottom: 0.75rem;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-muted);
+  cursor: text;
+  color: inherit;
+  font: inherit;
+  overflow: auto;
+}
+.jn-preview:hover {
+  border-color: color-mix(in srgb, var(--text-main) 22%, var(--border));
+}
+.jn-preview-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+.jn-preview-md {
+  font-size: 0.95rem;
+  line-height: 1.65;
 }
 .jn-composer-actions {
   display: flex;
