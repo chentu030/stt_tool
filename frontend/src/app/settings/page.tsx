@@ -954,13 +954,6 @@ export default function SettingsPage() {
                 </Link>
               </div>
             ) : null}
-            <div className="st-tool-block">
-              <h3>YouTube 本機擷取器</h3>
-              <p>用你自己的 IP 下載公開影片音訊，避開伺服器被封鎖。</p>
-              <a className="btn btn-soft btn-sm" href="/youtube-extractor.zip" download>
-                下載擴充
-              </a>
-            </div>
           </section>
 
           <section id="st-about" className="st-card">
