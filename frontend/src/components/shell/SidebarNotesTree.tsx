@@ -1824,12 +1824,6 @@ export default function SidebarNotesTree() {
         ) : null}
       </div>
 
-      <div className="sb-tree-foot">
-        <Link href="/library" className="sb-tree-all">
-          知識庫 · {tree.total}
-        </Link>
-      </div>
-
       {menuPortal}
       {stylePickerPortal}
       {createMenu && typeof document !== "undefined"
