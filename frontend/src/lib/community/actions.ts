@@ -20,10 +20,21 @@ import type {
 import { ALBIREUS_APP_VERSION } from "@/lib/community/types";
 import { isCommunitySafeMode } from "@/lib/community/libraryPrefs";
 import { effectivePermissions } from "@/lib/community/permissions";
+import { assertCanInstallPaid, isPaidListing } from "@/lib/community/communityPaid";
+import { getCatalog } from "@/lib/community/builtins";
 
 export async function resolveAnySource(source: string): Promise<ResolvedPackage> {
   const builtin = resolveBuiltinSource(source);
-  if (builtin) return builtin;
+  if (builtin) {
+    const cat = getCatalog().find((c) => c.source === source || c.id === builtin.manifest.id);
+    return {
+      ...builtin,
+      paid: isPaidListing({
+        paid: cat?.paid,
+        manifestPaid: builtin.manifest.paid,
+      }),
+    };
+  }
   if (source.startsWith("hosted:")) {
     const id = source.slice("hosted:".length).trim();
     const { getPublishedPackage, publishedToResolved } = await import("@/lib/community/publish");
@@ -51,12 +62,20 @@ function assertSafeModeAllows(pack: ResolvedPackage) {
   }
 }
 
+function packIsPaid(pack: ResolvedPackage): boolean {
+  return isPaidListing({ paid: pack.paid, manifestPaid: pack.manifest.paid });
+}
+
+export type InstallOpts = { email?: string | null };
+
 export async function installResolvedPackage(
   uid: string,
-  pack: ResolvedPackage
+  pack: ResolvedPackage,
+  opts?: InstallOpts
 ): Promise<{ kind: "extension" | "template"; id: string }> {
   assertMinAppVersion(pack);
   assertSafeModeAllows(pack);
+  assertCanInstallPaid(opts?.email, packIsPaid(pack));
   const now = Date.now();
   if (pack.manifest.kind === "extension") {
     const settings: Record<string, string | boolean | number> = {};
@@ -100,22 +119,25 @@ export async function installResolvedPackage(
   return { kind: "template", id: item.id };
 }
 
-export async function installFromSource(uid: string, source: string) {
+export async function installFromSource(uid: string, source: string, opts?: InstallOpts) {
   const pack = await resolveAnySource(source);
-  return installResolvedPackage(uid, pack);
+  return installResolvedPackage(uid, pack, opts);
 }
 
-export async function installFromFile(uid: string, file: File) {
+export async function installFromFile(uid: string, file: File, opts?: InstallOpts) {
   const name = file.name.toLowerCase();
   if (name.endsWith(".zip")) {
     const buf = await file.arrayBuffer();
     const pack = await resolvePackageFromZip(buf, file.name);
-    return installResolvedPackage(uid, pack);
+    return installResolvedPackage(uid, pack, opts);
   }
   if (name.endsWith(".json")) {
     const text = await file.text();
     const pack = await resolvePackageFromJsonFile(text, file.name);
-    return installResolvedPackage(uid, pack);
+    return installResolvedPackage(uid, {
+      ...pack,
+      paid: isPaidListing({ paid: pack.paid, manifestPaid: pack.manifest.paid }),
+    }, opts);
   }
   throw new Error("請匯入 .zip 或 albireus.json");
 }
@@ -240,7 +262,8 @@ export function previewTemplatePages(tpl: InstalledTemplate | ResolvedPackage): 
 export async function installCollectionSources(
   uid: string,
   sources: string[],
-  installedIds: Set<string>
+  installedIds: Set<string>,
+  opts?: InstallOpts
 ): Promise<{ ok: number; skipped: number; failed: string[] }> {
   let ok = 0;
   let skipped = 0;
@@ -252,7 +275,7 @@ export async function installCollectionSources(
         skipped += 1;
         continue;
       }
-      await installResolvedPackage(uid, pack);
+      await installResolvedPackage(uid, pack, opts);
       installedIds.add(pack.manifest.id);
       ok += 1;
     } catch (e) {

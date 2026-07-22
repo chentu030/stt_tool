@@ -45,6 +45,7 @@ export default function CommunitySubmitPage() {
     "# 說明\n\n在這裡介紹你的套件：功能、使用方式、注意事項。\n\n可用螢光筆、顏色、圖片與清單。\n"
   );
   const [zipFile, setZipFile] = useState<File | null>(null);
+  const [paid, setPaid] = useState(false);
   const [tplPages, setTplPages] = useState<TemplatePageDef[]>([
     { title: "首頁", body: "# 新模板\n\n開始編輯…\n", file: "home.md" },
   ]);
@@ -111,6 +112,7 @@ export default function CommunitySubmitPage() {
         entry,
         createLabel,
         pages: tplPages,
+        paid,
       });
 
       if (advancedJson.trim()) {
@@ -143,6 +145,7 @@ export default function CommunitySubmitPage() {
               )
             : undefined,
         tags: tagList,
+        paid,
         onProgress: setProgress,
       });
       toast("已上架到社群商店");
@@ -281,6 +284,17 @@ export default function CommunitySubmitPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="一句話說明這個套件能做什麼"
               />
+            </label>
+            <label className="community-submit-full community-submit-paid">
+              <input
+                type="checkbox"
+                checked={paid}
+                onChange={(e) => setPaid(e.target.checked)}
+              />
+              <span>
+                標記為<strong>收費</strong>
+                <em>收費套件會出現在「收費擴充」分頁，一般使用者無法直接安裝／下載（購買流程尚未開放）</em>
+              </span>
             </label>
             {kind === "extension" && (
               <>

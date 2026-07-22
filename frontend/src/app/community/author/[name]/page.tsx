@@ -68,12 +68,13 @@ export default function CommunityAuthorPage() {
               installed={installed.has(entry.id)}
               href={`/community/${entry.id}?kind=${entry.kind}`}
               busy={busy}
+              viewerEmail={user?.email}
               userRating={getLocalRating(entry.id)}
               onInstall={() =>
                 void (async () => {
                   setBusy(true);
                   try {
-                    await installFromSource(user.uid, entry.source);
+                    await installFromSource(user.uid, entry.source, { email: user?.email });
                     toast("安裝完成");
                   } catch (e) {
                     toast(e instanceof Error ? e.message : "安裝失敗");

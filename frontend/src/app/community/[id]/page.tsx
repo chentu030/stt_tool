@@ -37,6 +37,10 @@ import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
 import { askConfirm } from "@/lib/dialogs";
+import {
+  canBypassPaidLocks,
+  isPaidListing,
+} from "@/lib/community/communityPaid";
 
 function CommunityPackageDetailInner() {
   const { id } = useParams<{ id: string }>();
@@ -173,12 +177,16 @@ function CommunityPackageDetailInner() {
   const installedExt = extensions.find((e) => e.id === id);
   const installedTpl = templates.find((t) => t.id === id);
   const installed = Boolean(installedExt || installedTpl);
+  const packPaid = pack
+    ? isPaidListing({ paid: pack.paid, manifestPaid: pack.manifest.paid })
+    : isPaidListing({ paid: entry?.paid });
+  const installLocked = packPaid && !installed && !canBypassPaidLocks(user?.email);
 
   const doInstall = async (source: string) => {
     if (!user) return;
     setBusy(true);
     try {
-      await installFromSource(user.uid, source);
+      await installFromSource(user.uid, source, { email: user.email });
       toast("安裝完成");
       setConfirmPack(null);
       setPreviewTpl(null);
@@ -255,6 +263,7 @@ function CommunityPackageDetailInner() {
                 </Link>
                 {" · "}v{pack.manifest.version}
                 {installed ? " · 已安裝" : ""}
+                {packPaid ? " · 收費" : ""}
                 {fav ? " · 已收藏" : ""}
               </p>
             </div>
@@ -264,10 +273,11 @@ function CommunityPackageDetailInner() {
                   <button
                     type="button"
                     className="btn"
-                    disabled={busy}
+                    disabled={busy || installLocked}
+                    title={installLocked ? "收費套件：目前尚未開放購買" : undefined}
                     onClick={() => setConfirmPack(pack)}
                   >
-                    安裝
+                    {installLocked ? "即將開放購買" : "安裝"}
                   </button>
                   {pack.manifest.kind === "template" && (
                     <button
@@ -391,6 +401,7 @@ function CommunityPackageDetailInner() {
             entries={related}
             installedIds={installedIds}
             busy={busy}
+            viewerEmail={user?.email}
             onInstall={(e) =>
               void resolveAnySource(e.source).then((p) => setConfirmPack(p))
             }
@@ -433,6 +444,7 @@ function CommunityPackageDetailInner() {
           pack={confirmPack}
           open
           busy={busy}
+          viewerEmail={user?.email}
           onClose={() => setConfirmPack(null)}
           onConfirm={() => void doInstall(confirmPack.source)}
         />

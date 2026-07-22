@@ -69,7 +69,12 @@ export function parseLibraryBackup(text: string): LibraryBackupV1 {
 export async function restoreLibraryBackup(
   uid: string,
   backup: LibraryBackupV1,
-  opts?: { skipExisting?: boolean; existingExtIds?: Set<string>; existingTplIds?: Set<string> }
+  opts?: {
+    skipExisting?: boolean;
+    existingExtIds?: Set<string>;
+    existingTplIds?: Set<string>;
+    email?: string | null;
+  }
 ): Promise<{ installed: number; skipped: number; failed: string[] }> {
   let installed = 0;
   let skipped = 0;
@@ -77,6 +82,7 @@ export async function restoreLibraryBackup(
   const skipExisting = opts?.skipExisting !== false;
   const extIds = opts?.existingExtIds || new Set<string>();
   const tplIds = opts?.existingTplIds || new Set<string>();
+  const email = opts?.email;
 
   for (const item of backup.extensions) {
     if (!item.source) {
@@ -88,7 +94,7 @@ export async function restoreLibraryBackup(
       continue;
     }
     try {
-      const r = await installFromSource(uid, item.source);
+      const r = await installFromSource(uid, item.source, { email });
       if (item.settings) await saveExtensionSettings(uid, r.id, item.settings);
       if (item.enabled === false) await setExtensionEnabled(uid, r.id, false);
       installed += 1;
@@ -106,7 +112,7 @@ export async function restoreLibraryBackup(
       continue;
     }
     try {
-      const r = await installFromSource(uid, item.source);
+      const r = await installFromSource(uid, item.source, { email });
       if (item.enabled === false) await setTemplateEnabled(uid, r.id, false);
       installed += 1;
     } catch {

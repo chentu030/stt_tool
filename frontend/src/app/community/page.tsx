@@ -51,7 +51,7 @@ import {
   restoreLibraryBackup,
 } from "@/lib/community/libraryBackup";
 
-type Tab = "extensions" | "templates" | "installed";
+type Tab = "extensions" | "templates" | "paid" | "installed";
 type SortKey = "featured" | "rating" | "name" | "downloads";
 type ScopeFilter = "" | "installed" | "not_installed" | "favorites" | "recent";
 
@@ -116,6 +116,7 @@ export default function CommunityStorePage() {
     for (const c of catalog) {
       if (tab === "extensions" && c.kind !== "extension") continue;
       if (tab === "templates" && c.kind !== "template") continue;
+      if (tab === "paid" && !c.paid) continue;
       if (c.category) s.add(c.category);
       (c.tags || []).forEach((t) => s.add(t));
     }
@@ -130,6 +131,7 @@ export default function CommunityStorePage() {
     let list = catalog.filter((c) => {
       if (tab === "extensions" && c.kind !== "extension") return false;
       if (tab === "templates" && c.kind !== "template") return false;
+      if (tab === "paid" && !c.paid) return false;
       if (category) {
         const hit =
           c.category === category || (c.tags || []).includes(category);
@@ -190,7 +192,7 @@ export default function CommunityStorePage() {
     if (!user) return;
     setBusy(true);
     try {
-      const result = await installFromSource(user.uid, source);
+      const result = await installFromSource(user.uid, source, { email: user.email });
       toast(result.kind === "extension" ? "已安裝擴充功能" : "已安裝模板");
       if (result.kind === "extension") setTab("installed");
     } catch (e) {
@@ -204,7 +206,7 @@ export default function CommunityStorePage() {
     if (!user) return;
     setBusy(true);
     try {
-      const result = await installFromFile(user.uid, file);
+      const result = await installFromFile(user.uid, file, { email: user.email });
       toast(result.kind === "extension" ? "已匯入擴充功能" : "已匯入模板");
       setTab("installed");
     } catch (e) {
@@ -336,6 +338,7 @@ export default function CommunityStorePage() {
       const result = await restoreLibraryBackup(user.uid, backup, {
         existingExtIds: installedExtIds,
         existingTplIds: installedTplIds,
+        email: user.email,
       });
       const parts = [`已安裝 ${result.installed}`];
       if (result.skipped) parts.push(`略過 ${result.skipped}`);
@@ -490,6 +493,7 @@ export default function CommunityStorePage() {
             [
               ["extensions", "擴充功能"],
               ["templates", "模板"],
+              ["paid", "收費擴充"],
               ["installed", "已安裝"],
             ] as const
           ).map(([id, label]) => (
@@ -504,6 +508,11 @@ export default function CommunityStorePage() {
               {label}
               {id === "installed" && (
                 <span className="community-tab-count">{extensions.length + templates.length}</span>
+              )}
+              {id === "paid" && (
+                <span className="community-tab-count">
+                  {catalog.filter((c) => c.paid).length}
+                </span>
               )}
             </button>
           ))}
@@ -818,6 +827,7 @@ export default function CommunityStorePage() {
                             : installedTplIds.has(entry.id)
                         }
                         busy={busy}
+                        viewerEmail={user?.email}
                         onInstall={() => void doInstall(entry.source)}
                         onOpen={() => {
                           if (entry.kind === "template") {
@@ -845,6 +855,7 @@ export default function CommunityStorePage() {
                         : installedTplIds.has(entry.id)
                     }
                     busy={busy}
+                    viewerEmail={user?.email}
                     onInstall={() => void doInstall(entry.source)}
                     onOpen={() => {
                       if (entry.kind === "template") {
@@ -872,6 +883,7 @@ export default function CommunityStorePage() {
                       : installedTplIds.has(entry.id)
                   }
                   busy={busy}
+                  viewerEmail={user?.email}
                   onInstall={() => void doInstall(entry.source)}
                   onOpen={() => {
                     if (entry.kind === "template") {
@@ -918,12 +930,14 @@ function CatalogCard({
   busy,
   onInstall,
   onOpen,
+  viewerEmail,
 }: {
   entry: CatalogEntry;
   installed: boolean;
   busy?: boolean;
   onInstall: () => void;
   onOpen: () => void;
+  viewerEmail?: string | null;
 }) {
   const userRating = typeof window !== "undefined" ? getLocalRating(entry.id) : null;
   return (
@@ -935,6 +949,7 @@ function CatalogCard({
       onInstall={onInstall}
       onOpen={onOpen}
       userRating={userRating}
+      viewerEmail={viewerEmail}
     />
   );
 }

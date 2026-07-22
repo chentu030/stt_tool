@@ -123,6 +123,7 @@ function parsePublished(id: string, data: Record<string, unknown>): PublishedPac
         : undefined,
     rating: typeof data.rating === "number" ? data.rating : undefined,
     downloads: typeof data.downloads === "number" ? data.downloads : undefined,
+    paid: data.paid === true || (manifest as { paid?: boolean }).paid === true,
     createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
     updatedAt: typeof data.updatedAt === "number" ? data.updatedAt : Date.now(),
   };
@@ -144,6 +145,7 @@ export function publishedToCatalogEntry(p: PublishedPackage): CatalogEntry {
     featured: false,
     rating: p.rating,
     downloads: p.downloads || 0,
+    paid: Boolean(p.paid || p.manifest.paid),
   };
 }
 
@@ -201,6 +203,7 @@ export function publishedToResolved(p: PublishedPackage): ResolvedPackage {
     readme: p.readmeMd,
     source: p.source || `hosted:${p.id}`,
     sourceKind: "hosted",
+    paid: Boolean(p.paid || p.manifest.paid),
   };
 }
 
@@ -218,6 +221,8 @@ export type PublishInput = {
   templateFiles?: Record<string, string>;
   onProgress?: (msg: string) => void;
   tags?: string[];
+  /** Mark as paid (install locked until billing) */
+  paid?: boolean;
 };
 
 export async function publishCommunityPackage(input: PublishInput): Promise<PublishedPackage> {
@@ -258,6 +263,7 @@ export async function publishCommunityPackage(input: PublishInput): Promise<Publ
     cover,
     screenshots: screenshots.slice(0, 8),
     author: input.authorName || input.manifest.author,
+    paid: input.paid === true || input.manifest.paid === true,
   };
 
   if (input.zipFile) {
@@ -380,6 +386,7 @@ export async function publishCommunityPackage(input: PublishInput): Promise<Publ
     assetUrls: Object.keys(assetUrls).length ? assetUrls : undefined,
     rating: existing?.rating,
     downloads: existing?.downloads || 0,
+    paid: input.paid === true || Boolean(manifest.paid),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   };
@@ -418,6 +425,7 @@ export function buildDraftManifest(opts: {
   entry?: string;
   createLabel?: string;
   pages?: TemplateManifest["pages"];
+  paid?: boolean;
 }): CommunityManifest {
   const id = sanitizePackageId(opts.id);
   if (opts.kind === "extension") {
@@ -432,6 +440,7 @@ export function buildDraftManifest(opts: {
       icon: opts.icon || "extension",
       category: opts.category || "其他",
       minAppVersion: "0.1.0",
+      paid: opts.paid === true,
       permissions: ["iframe", "network", "settings", "storage", "clipboard"],
       pageType: {
         type: "iframe",
@@ -451,6 +460,7 @@ export function buildDraftManifest(opts: {
     icon: opts.icon || "description",
     category: opts.category || "其他",
     minAppVersion: "0.1.0",
+    paid: opts.paid === true,
     permissions: ["notes_write"],
     pages:
       opts.pages && opts.pages.length

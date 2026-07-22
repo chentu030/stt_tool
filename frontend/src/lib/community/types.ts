@@ -51,6 +51,8 @@ type ListingFields = {
   changelog?: ChangelogEntry[];
   permissions?: PackagePermission[];
   license?: string;
+  /** Paid listing — cannot install/download without bypass until billing ships */
+  paid?: boolean;
 };
 
 export type ExtensionManifest = ListingFields & {
@@ -118,6 +120,8 @@ export type CatalogEntry = {
   rating?: number;
   downloads?: number;
   collectionIds?: string[];
+  /** Paid — install locked for everyone except PAID_BYPASS_EMAILS */
+  paid?: boolean;
 };
 
 export type StoreCollection = {
@@ -157,6 +161,8 @@ export type ResolvedPackage = {
   readme?: string;
   source: string;
   sourceKind: "github" | "file" | "catalog" | "hosted";
+  /** Effective paid lock from listing or manifest */
+  paid?: boolean;
 };
 
 /** Public listing published by users (Firestore `community_packages`). */
@@ -184,6 +190,8 @@ export type PublishedPackage = {
   assetUrls?: Record<string, string>;
   rating?: number;
   downloads?: number;
+  /** Paid listing — cannot install without bypass */
+  paid?: boolean;
   createdAt: number;
   updatedAt: number;
 };

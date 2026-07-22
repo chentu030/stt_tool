@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>即時行情 — Albireus</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="gate" class="gate" hidden>
+      <div class="gate-card">
+        <h1>即時行情</h1>
+        <p class="sub">
+          請在擴充設定填入<strong>HTTPS</strong> Dashboard 網址後重新開啟。
+          Albireus 主站為 HTTPS，無法內嵌純 HTTP（例如 <code>http://IP:8080</code>）。
+        </p>
+        <label for="urlInput">Dashboard 網址</label>
+        <input id="urlInput" type="url" placeholder="https://your-dashboard.example/" autocomplete="off" />
+        <button type="button" class="btn" id="btnSave">儲存並載入</button>
+        <p class="hint" id="hint"></p>
+      </div>
+    </div>
+    <iframe id="frame" class="frame" title="即時行情 Dashboard" hidden></iframe>
+    <script src="./app.js"></script>
+  </body>
+</html>

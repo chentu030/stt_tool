@@ -102,6 +102,26 @@
     "collectionIds": ["getting-started"]
   },
   {
+    "id": "realtime-dashboard",
+    "kind": "extension",
+    "name": "即時行情",
+    "description": "嵌入你的台股即時行情 Dashboard（需 HTTPS）。收費擴充：一般使用者無法直接安裝。",
+    "author": "Albireus",
+    "icon": "monitoring",
+    "cover": "https://images.unsplash.com/photo-1642790106117-e829e14a795f?w=800&q=60",
+    "screenshots": [
+      "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=960&q=60"
+    ],
+    "category": "財經",
+    "source": "builtin:realtime-dashboard",
+    "tags": ["財經", "股市", "即時", "收費"],
+    "featured": true,
+    "paid": true,
+    "rating": 4.9,
+    "downloads": 0,
+    "collectionIds": []
+  },
+  {
     "id": "vocab-srs",
     "kind": "extension",
     "name": "背單字",

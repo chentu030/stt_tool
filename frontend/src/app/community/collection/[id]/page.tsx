@@ -42,7 +42,9 @@ export default function CommunityCollectionPage() {
     setBusy(true);
     try {
       const sources = entries.map((e) => e.source);
-      const r = await installCollectionSources(user.uid, sources, new Set(installed));
+      const r = await installCollectionSources(user.uid, sources, new Set(installed), {
+        email: user.email,
+      });
       toast(
         `合輯安裝：成功 ${r.ok}、略過 ${r.skipped}${r.failed.length ? `、失敗 ${r.failed.length}` : ""}`
       );
@@ -116,12 +118,13 @@ export default function CommunityCollectionPage() {
             installed={installed.has(entry.id)}
             href={`/community/${entry.id}?kind=${entry.kind}`}
             busy={busy}
+            viewerEmail={user?.email}
             userRating={getLocalRating(entry.id)}
             onInstall={() =>
               void (async () => {
                 setBusy(true);
                 try {
-                  await installFromSource(user.uid, entry.source);
+                  await installFromSource(user.uid, entry.source, { email: user.email });
                   toast("安裝完成");
                 } catch (e) {
                   toast(e instanceof Error ? e.message : "安裝失敗");

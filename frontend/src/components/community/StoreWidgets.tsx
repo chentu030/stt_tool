@@ -18,6 +18,10 @@ import {
   trustScore,
 } from "@/lib/community/permissions";
 import { isFavorite } from "@/lib/community/libraryPrefs";
+import {
+  canBypassPaidLocks,
+  isPaidListing,
+} from "@/lib/community/communityPaid";
 
 export function StarRow({
   value,
@@ -97,6 +101,7 @@ export function PackageCard({
   busy,
   userRating,
   favorited,
+  viewerEmail,
 }: {
   entry: CatalogEntry;
   installed: boolean;
@@ -106,11 +111,15 @@ export function PackageCard({
   busy?: boolean;
   userRating?: PackageRating | null;
   favorited?: boolean;
+  /** Used to unlock paid install for allowlisted emails */
+  viewerEmail?: string | null;
 }) {
   const rating = displayRating(entry.rating, userRating || null);
   const fav = favorited ?? (typeof window !== "undefined" ? isFavorite(entry.id) : false);
+  const paid = isPaidListing({ paid: entry.paid });
+  const installLocked = paid && !installed && !canBypassPaidLocks(viewerEmail);
   return (
-    <article className="community-card">
+    <article className={`community-card${paid ? " is-paid" : ""}`}>
       {entry.cover ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -139,6 +148,7 @@ export function PackageCard({
         />
         <span>{entry.name}</span>
       </div>
+      {paid ? <span className="community-paid-badge">收費</span> : null}
       <div className="community-card-top">
         <PageChromeIcon
           icon={entry.icon}
@@ -153,6 +163,7 @@ export function PackageCard({
             <Link href={`/community/author/${encodeURIComponent(entry.author)}`}>{entry.author}</Link>
             {entry.featured ? " · 精選" : ""}
             {entry.category ? ` · ${entry.category}` : ""}
+            {paid ? " · 收費" : ""}
             {installed ? " · 已安裝" : ""}
           </span>
         </div>
@@ -186,8 +197,14 @@ export function PackageCard({
             {entry.kind === "template" ? "套用" : "開啟"}
           </button>
         ) : (
-          <button type="button" className="btn" disabled={busy} onClick={onInstall}>
-            安裝
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || installLocked}
+            title={installLocked ? "收費套件：目前尚未開放購買" : undefined}
+            onClick={onInstall}
+          >
+            {installLocked ? "即將開放購買" : "安裝"}
           </button>
         )}
       </div>
@@ -293,14 +310,18 @@ export function InstallConfirmModal({
   busy,
   onClose,
   onConfirm,
+  viewerEmail,
 }: {
   pack: ResolvedPackage;
   open: boolean;
   busy?: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  viewerEmail?: string | null;
 }) {
   if (!open) return null;
+  const paid = isPaidListing({ paid: pack.paid, manifestPaid: pack.manifest.paid });
+  const installLocked = paid && !canBypassPaidLocks(viewerEmail);
   return (
     <div className="community-detail-backdrop" onClick={onClose}>
       <div className="community-detail" onClick={(e) => e.stopPropagation()}>
@@ -313,6 +334,7 @@ export function InstallConfirmModal({
             <h2>確認安裝</h2>
             <p>
               {pack.manifest.name} · v{pack.manifest.version}
+              {paid ? " · 收費" : ""}
             </p>
           </div>
           <button type="button" className="community-detail-close" onClick={onClose}>
@@ -321,11 +343,18 @@ export function InstallConfirmModal({
         </header>
         <TrustScorecard manifest={pack.manifest} />
         <p className="community-detail-desc">
-          請確認權限與來源可信後再安裝。擴充以沙箱 iframe 執行；模板會寫入知識庫。
+          {installLocked
+            ? "此為收費套件：目前尚未開放購買，無法直接安裝／下載。"
+            : "請確認權限與來源可信後再安裝。擴充以沙箱 iframe 執行；模板會寫入知識庫。"}
         </p>
         <div className="community-card-actions">
-          <button type="button" className="btn" disabled={busy} onClick={onConfirm}>
-            {busy ? "安裝中…" : "確認安裝"}
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || installLocked}
+            onClick={onConfirm}
+          >
+            {busy ? "安裝中…" : installLocked ? "即將開放購買" : "確認安裝"}
           </button>
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             取消
@@ -341,11 +370,13 @@ export function RelatedPackages({
   installedIds,
   busy,
   onInstall,
+  viewerEmail,
 }: {
   entries: CatalogEntry[];
   installedIds: Set<string>;
   busy?: boolean;
   onInstall: (entry: CatalogEntry) => void;
+  viewerEmail?: string | null;
 }) {
   if (!entries.length) return null;
   return (
@@ -359,6 +390,7 @@ export function RelatedPackages({
             installed={installedIds.has(entry.id)}
             href={`/community/${entry.id}?kind=${entry.kind}`}
             busy={busy}
+            viewerEmail={viewerEmail}
             userRating={getLocalRating(entry.id)}
             onInstall={() => onInstall(entry)}
             onOpen={() => {

@@ -19,6 +19,7 @@
 | Sandbox | iframe uses `sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"`. |
 | Language | UI copy for Taiwan users should be **Traditional Chinese** (`zh-TW`). |
 | App version | Current `minAppVersion` baseline: `0.1.0` |
+| Paid lock | Optional `"paid": true` — store shows under **收費擴充**; install/download blocked until billing exists. Bypass allowlist (host-side): `lcy101120@gmail.com`. |
 
 If the user asks for “a Chrome-style extension API inside Albireus”, redirect them to: **ship a small HTTPS web app + `albireus.json`**.
 

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "kind": "extension",
+  "id": "realtime-dashboard",
+  "name": "即時行情",
+  "version": "1.0.0",
+  "description": "嵌入你的台股即時行情 Dashboard（需 HTTPS）。收費擴充：一般使用者無法直接安裝。",
+  "author": "Albireus",
+  "authorUrl": "https://github.com/chentu030/stt_tool",
+  "icon": "monitoring",
+  "category": "財經",
+  "paid": true,
+  "cover": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=60",
+  "screenshots": [
+    "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=960&q=60"
+  ],
+  "nav": { "label": "即時行情", "order": 52 },
+  "pageType": {
+    "type": "iframe",
+    "entry": "/community-apps/realtime-dashboard/index.html",
+    "createLabel": "新即時行情頁"
+  },
+  "settings": [
+    {
+      "key": "dashboard_url",
+      "label": "Dashboard HTTPS 網址",
+      "type": "string",
+      "default": "",
+      "description": "必須是 https://。若 VM 僅有 http://IP:8080，請先加反向代理／憑證後再填入。",
+      "group": "連線",
+      "wide": true
+    }
+  ],
+  "permissions": ["iframe", "network", "settings", "storage"],
+  "minAppVersion": "0.1.0",
+  "homepage": "https://albireus.com/community-apps/realtime-dashboard/",
+  "repository": "https://github.com/chentu030/stt_tool",
+  "license": "MIT",
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-07-22",
+      "notes": "初版：收費殼層嵌入外部 HTTPS 即時行情 Dashboard。"
+    }
+  ]
+}

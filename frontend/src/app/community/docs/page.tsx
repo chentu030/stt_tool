@@ -48,6 +48,9 @@ export default function CommunityDocsPage() {
           <li>
             <code>name</code>、<code>version</code>（semver）、<code>description</code>、<code>author</code>
           </li>
+          <li>
+            <code>paid</code>（選填）：設為 <code>true</code> 即為收費套件，會出現在「收費擴充」分頁；一般使用者無法直接安裝／下載（購買流程尚未開放）
+          </li>
         </ul>
       </section>
 

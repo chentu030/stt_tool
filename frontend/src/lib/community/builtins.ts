@@ -330,6 +330,72 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
       ],
     },
   }),
+  "builtin:realtime-dashboard": () => ({
+    source: "builtin:realtime-dashboard",
+    sourceKind: "catalog",
+    paid: true,
+    readme: `# 即時行情（收費）
+
+嵌入你部署的台股即時行情 Dashboard。
+
+- 靜態殼層：\`/community-apps/realtime-dashboard/index.html\`
+- 在擴充設定填入 **HTTPS** \`dashboard_url\`
+- HTTP VM 網址無法直接嵌在 Albireus（混合內容會被擋）
+
+一般帳號無法安裝；允許名單可破除收費限制。
+`,
+    files: {
+      "albireus.json": "",
+    },
+    manifest: {
+      schema: 1,
+      kind: "extension",
+      id: "realtime-dashboard",
+      name: "即時行情",
+      version: "1.0.0",
+      description:
+        "嵌入你的台股即時行情 Dashboard（需 HTTPS）。收費擴充：一般使用者無法直接安裝。",
+      author: "Albireus",
+      authorUrl: "https://github.com/chentu030/stt_tool",
+      homepage: "https://albireus.com/community-apps/realtime-dashboard/",
+      repository: "https://github.com/chentu030/stt_tool",
+      license: "MIT",
+      icon: "monitoring",
+      category: "財經",
+      paid: true,
+      cover: "https://images.unsplash.com/photo-1642790106117-e829e14a795f?w=800&q=60",
+      screenshots: [
+        "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=960&q=60",
+      ],
+      minAppVersion: "0.1.0",
+      permissions: ["iframe", "network", "settings", "storage"],
+      changelog: [
+        {
+          version: "1.0.0",
+          date: "2026-07-22",
+          notes: "初版：收費殼層嵌入外部 HTTPS 即時行情 Dashboard。",
+        },
+      ],
+      nav: { label: "即時行情", order: 52 },
+      pageType: {
+        type: "iframe",
+        entry: "/community-apps/realtime-dashboard/index.html",
+        createLabel: "新即時行情頁",
+      },
+      settings: [
+        {
+          key: "dashboard_url",
+          label: "Dashboard HTTPS 網址",
+          type: "string",
+          default: "",
+          description:
+            "必須是 https://。若 VM 僅有 http://IP:8080，請先加反向代理／憑證後再填入。",
+          group: "連線",
+          wide: true,
+        },
+      ],
+    },
+  }),
   "builtin:vocab-srs": () => ({
     source: "builtin:vocab-srs",
     sourceKind: "catalog",

@@ -140,6 +140,7 @@ function listingExtras(o: Record<string, unknown>) {
     changelog: parseChangelog(o.changelog),
     permissions: parsePermissions(o.permissions),
     license: str(o.license) || undefined,
+    paid: o.paid === true || o.paid === "true" || o.paid === 1,
   };
 }
 
