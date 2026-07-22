@@ -5149,11 +5149,23 @@ a.sidebar-user-name:hover {
   margin-bottom: 0.55rem;
   min-width: 0;
 }
+.jn-list-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
 .jn-list-head .input {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 200px;
+  max-width: 160px;
   width: auto;
+}
+.jn-add-entry {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .jn-list { display: flex; flex-direction: column; gap: 0.4rem; max-height: 420px; overflow: auto; }
 .jn-card {

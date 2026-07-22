@@ -100,7 +100,11 @@ export function toJournalEntries(notes: Note[]): JournalEntry[] {
       meta: parseJournalMeta(n.body_md),
       wordCount: countWords(n.body_md),
     }))
-    .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+    .sort((a, b) => {
+      const byDay = b.dateKey.localeCompare(a.dateKey);
+      if (byDay !== 0) return byDay;
+      return b.updated_at.getTime() - a.updated_at.getTime();
+    });
 }
 
 export type JournalStats = {

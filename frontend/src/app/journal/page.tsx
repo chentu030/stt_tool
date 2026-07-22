@@ -50,6 +50,8 @@ export default function JournalPage() {
   const composerRef = useRef<JournalComposerHandle>(null);
   const today = journalTitle();
   const [selected, setSelected] = useState(today);
+  /** Which journal note is open in the composer (same day can have many). */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [cursor, setCursor] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
@@ -84,10 +86,20 @@ export default function JournalPage() {
   }, []);
 
   const entries = useMemo(() => toJournalEntries(notes), [notes]);
+  /** One representative entry per day (newest) — calendar / week strip. */
   const byDate = useMemo(() => {
     const m = new Map<string, (typeof entries)[0]>();
     for (const e of entries) {
-      if (!m.has(e.dateKey)) m.set(e.dateKey, e);
+      const prev = m.get(e.dateKey);
+      if (!prev || e.updated_at.getTime() > prev.updated_at.getTime()) m.set(e.dateKey, e);
+    }
+    return m;
+  }, [entries]);
+
+  const wordsByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of entries) {
+      m.set(e.dateKey, (m.get(e.dateKey) || 0) + e.wordCount);
     }
     return m;
   }, [entries]);
@@ -98,7 +110,14 @@ export default function JournalPage() {
     [cursor, byDate]
   );
 
-  const selectedEntry = byDate.get(selected);
+  const selectedEntry = useMemo(() => {
+    if (selectedId) {
+      const hit = entries.find((e) => e.id === selectedId);
+      if (hit) return hit;
+    }
+    return byDate.get(selected) || null;
+  }, [selectedId, entries, byDate, selected]);
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return entries;
@@ -122,9 +141,18 @@ export default function JournalPage() {
     });
   }, [composerDirty]);
 
-  const ensureNote = async (dateKey: string, seedBody?: string, meta?: { mood?: MoodId; energy?: number }) => {
+  const ensureNote = async (
+    dateKey: string,
+    seedBody?: string,
+    meta?: { mood?: MoodId; energy?: number },
+    opts?: { noteId?: string | null; forceNew?: boolean }
+  ) => {
     if (!user) throw new Error("未登入");
-    const existing = byDate.get(dateKey);
+    const existing = opts?.forceNew
+      ? null
+      : opts?.noteId
+        ? entries.find((e) => e.id === opts.noteId) || null
+        : byDate.get(dateKey);
     const daily = NOTE_TEMPLATES.find((x) => x.id === "daily")!;
     let body = seedBody ?? existing?.body_md ?? daily.body;
     if (meta) body = upsertJournalMeta(body, meta);
@@ -151,7 +179,13 @@ export default function JournalPage() {
     if (!(await confirmLeaveComposer())) return;
     setBusy(true);
     try {
-      const id = await ensureNote(dateKey);
+      const preferred =
+        selectedEntry?.dateKey === dateKey
+          ? selectedEntry.id
+          : byDate.get(dateKey)?.id;
+      const id = preferred || (await ensureNote(dateKey, undefined, undefined, { forceNew: true }));
+      setSelected(dateKey);
+      setSelectedId(id);
       router.push(`/notes/${id}`);
     } catch (e) {
       toast(e instanceof Error ? e.message : "無法開啟");
@@ -169,7 +203,7 @@ export default function JournalPage() {
     if (!user || busy) return;
     setBusy(true);
     try {
-      const existing = byDate.get(selected);
+      const existing = selectedEntry;
       let text = payload.text;
       if (payload.appendTemplate) {
         text = `${text.trim()}${text.trim() ? "\n\n" : ""}${payload.appendTemplate}`;
@@ -184,15 +218,41 @@ export default function JournalPage() {
         mood: payload.mood,
         energy: payload.energy,
       });
-      await ensureNote(selected, body, {
-        mood: payload.mood,
-        energy: payload.energy,
-      });
+      const id = await ensureNote(
+        selected,
+        body,
+        {
+          mood: payload.mood,
+          energy: payload.energy,
+        },
+        { noteId: existing?.id ?? selectedId }
+      );
+      setSelectedId(id);
       toast(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
       setComposerDirty(false);
       setComposerKey((k) => k + 1);
     } catch (e) {
       toast(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createNewForDay = async (dateKey: string) => {
+    if (!user || busy) return;
+    if (!(await confirmLeaveComposer())) return;
+    setBusy(true);
+    try {
+      const id = await ensureNote(dateKey, undefined, undefined, { forceNew: true });
+      const d = parseDateKey(dateKey);
+      if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
+      setSelected(dateKey);
+      setSelectedId(id);
+      setComposerDirty(false);
+      setComposerKey((k) => k + 1);
+      toast("已新增日誌");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "無法新增");
     } finally {
       setBusy(false);
     }
@@ -210,15 +270,30 @@ export default function JournalPage() {
     const d = new Date();
     setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setSelected(today);
+    setSelectedId(byDate.get(today)?.id ?? null);
     setComposerDirty(false);
     setComposerKey((k) => k + 1);
   };
 
   const onSelectDay = async (dateKey: string) => {
-    if (dateKey === selected) return;
+    const primary = byDate.get(dateKey);
+    const nextId = primary?.id ?? null;
+    if (dateKey === selected && nextId === selectedId) return;
     if (!(await confirmLeaveComposer())) return;
     setSelected(dateKey);
+    setSelectedId(nextId);
     const d = parseDateKey(dateKey);
+    if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
+    setComposerDirty(false);
+    setComposerKey((k) => k + 1);
+  };
+
+  const onSelectEntry = async (entry: (typeof entries)[0]) => {
+    if (entry.id === selectedId) return;
+    if (!(await confirmLeaveComposer())) return;
+    setSelected(entry.dateKey);
+    setSelectedId(entry.id);
+    const d = parseDateKey(entry.dateKey);
     if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setComposerDirty(false);
     setComposerKey((k) => k + 1);
@@ -237,8 +312,12 @@ export default function JournalPage() {
     }
     await deleteNote(id);
     toast("已刪除日誌");
-    if (dateKey === selected) {
-      setSelected(today);
+    if (id === selectedId || (dateKey === selected && selectedId === id)) {
+      const remaining = entries
+        .filter((e) => e.dateKey === dateKey && e.id !== id)
+        .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+      setSelected(dateKey);
+      setSelectedId(remaining[0]?.id ?? null);
       setComposerDirty(false);
       setComposerKey((k) => k + 1);
     }
@@ -373,7 +452,7 @@ export default function JournalPage() {
             onAppendJournal={(md) => {
               void (async () => {
                 try {
-                  const existing = byDate.get(selected);
+                  const existing = selectedEntry;
                   const base =
                     existing?.body_md.replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim() ||
                     composerBody ||
@@ -382,10 +461,13 @@ export default function JournalPage() {
                   const mood = existing?.meta.mood;
                   const energy = existing?.meta.energy || 3;
                   const body = upsertJournalMeta(next, { mood, energy });
-                  await ensureNote(selected, body, { mood, energy });
+                  const id = await ensureNote(selected, body, { mood, energy }, {
+                    noteId: existing?.id ?? selectedId,
+                  });
+                  setSelectedId(id);
                   setComposerDirty(false);
                   setComposerKey((k) => k + 1);
-                  toast("快速錄音已寫入今日日誌");
+                  toast("快速錄音已寫入目前日誌");
                 } catch (e) {
                   toast(e instanceof Error ? e.message : "寫入日誌失敗");
                 }
@@ -443,32 +525,48 @@ export default function JournalPage() {
           <div className="jn-week-strip">
             <h3>鄰近日子</h3>
             <div className="jn-week-row">
-              {weekNeighbors.map(({ dateKey, entry }) => (
+              {weekNeighbors.map(({ dateKey }) => {
+                const words = wordsByDate.get(dateKey) || 0;
+                return (
                 <button
                   key={dateKey}
                   type="button"
-                  className={`jn-week-pill${dateKey === selected ? " is-on" : ""}${entry ? " has" : ""}`}
+                  className={`jn-week-pill${dateKey === selected ? " is-on" : ""}${words > 0 ? " has" : ""}`}
                   onClick={() => {
                     void onSelectDay(dateKey);
                   }}
                 >
                   <strong>{dateKey.slice(5)}</strong>
-                  <span>{entry ? `${entry.wordCount} 字` : "空"}</span>
+                  <span>{words > 0 ? `${words} 字` : "空"}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
 
           <section className="jn-list-section">
             <div className="jn-list-head">
               <h3>過往日誌</h3>
-              <input
-                className="input"
-                style={{ maxWidth: 200 }}
-                placeholder="搜尋…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-              />
+              <div className="jn-list-head-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm jn-add-entry"
+                  disabled={busy}
+                  title={`在 ${selected} 新增一則日誌`}
+                  onClick={() => {
+                    void createNewForDay(selected);
+                  }}
+                >
+                  新增
+                </button>
+                <input
+                  className="input"
+                  style={{ maxWidth: 160 }}
+                  placeholder="搜尋…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
+              </div>
             </div>
             {filtered.length === 0 ? (
               <div className="jn-empty">
@@ -477,7 +575,7 @@ export default function JournalPage() {
                   type="button"
                   className="btn btn-ghost btn-sm"
                   onClick={() => {
-                    void onSelectDay(today);
+                    void createNewForDay(today);
                   }}
                 >
                   寫今天
@@ -491,13 +589,13 @@ export default function JournalPage() {
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(i * 0.02, 0.2) }}
-                    className={`jn-card${e.dateKey === selected ? " is-on" : ""}`}
+                    className={`jn-card${e.id === selectedEntry?.id ? " is-on" : ""}`}
                   >
                     <button
                       type="button"
                       className="jn-card-main"
                       onClick={() => {
-                        void onSelectDay(e.dateKey);
+                        void onSelectEntry(e);
                       }}
                     >
                       <div className="jn-card-top">
@@ -542,7 +640,7 @@ export default function JournalPage() {
 
         <div className="jn-center">
           <JournalComposer
-            key={`${selected}-${composerKey}-${selectedEntry?.updated_at?.getTime?.() || 0}`}
+            key={`${selectedId || "empty"}-${selected}-${composerKey}`}
             ref={composerRef}
             dateKey={selected}
             initialText={composerBody}
