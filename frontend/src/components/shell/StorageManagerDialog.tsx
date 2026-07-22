@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import {
@@ -19,10 +20,15 @@ type Props = {
 };
 
 export default function StorageManagerDialog({ uid, open, onClose }: Props) {
+  const [mounted, setMounted] = useState(false);
   const [files, setFiles] = useState<UserStorageFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -53,7 +59,7 @@ export default function StorageManagerDialog({ uid, open, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const listedBytes = files.reduce((sum, f) => sum + f.size, 0);
 
@@ -79,7 +85,7 @@ export default function StorageManagerDialog({ uid, open, onClose }: Props) {
     }
   };
 
-  return (
+  return createPortal(
     <div
       className="cadence-dialog-backdrop"
       role="presentation"
@@ -143,6 +149,7 @@ export default function StorageManagerDialog({ uid, open, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
