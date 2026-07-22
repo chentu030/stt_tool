@@ -642,7 +642,16 @@ function NotePageInner() {
         /* best-effort */
       }
       knownBodyById.current.set(savingId, nextBody);
-      setNote((n) => (n && n.id === savingId ? { ...n, body_md: nextBody, title: snap.title } : n));
+      setNote((n) =>
+        n && n.id === savingId
+          ? {
+              ...n,
+              body_md: nextBody,
+              title: snap.title,
+              updated_at: new Date(result.updatedAt),
+            }
+          : n
+      );
 
       // If the user kept typing during this save, do not clear dirty / wipe the newer draft.
       if (draftUnchanged(snap, draftRef.current)) {
