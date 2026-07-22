@@ -1262,7 +1262,15 @@ button, input, textarea, select {
   line-height: 1.5;
 }
 .cdb-error { color: var(--danger); }
-.cdb-page { padding: 0.5rem 0 2rem; }
+.cdb-page {
+  padding: 0.85rem 1.35rem 2rem;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+.cdb-page.is-embed {
+  padding: 0;
+}
 .cdb-page-nav {
   margin-bottom: 0.75rem;
 }
@@ -14061,6 +14069,17 @@ body.is-sidebar-resizing iframe {
 .doc-workspace.is-app-fill .note-app-surface,
 .doc-workspace.is-app-fill .web-page-view,
 .doc-workspace.is-app-fill .note-app-surface .cdb-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Database (and other non-iframe app surfaces): keep side breathing room in fill mode */
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame):not(.is-compact) {
+  padding: 0.85rem 1.35rem 1.35rem;
+  box-sizing: border-box;
+}
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb {
   flex: 1;
   min-height: 0;
   display: flex;
