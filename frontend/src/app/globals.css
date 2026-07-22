@@ -8431,6 +8431,16 @@ body.is-split-resizing iframe {
   -webkit-user-select: none;
   caret-color: transparent;
 }
+/* Prefer block rubber-band over text highlight until a line is clicked */
+.rich-canvas.is-block-select-priority .ProseMirror {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rich-canvas.is-block-select-priority .ProseMirror > .is-text-edit-armed,
+.rich-canvas.is-block-select-priority .ProseMirror > .is-text-edit-armed * {
+  user-select: text;
+  -webkit-user-select: text;
+}
 .ProseMirror > .is-block-selected {
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent-soft) 70%, transparent);

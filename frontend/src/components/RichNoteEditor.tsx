@@ -2338,6 +2338,9 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
   const dropRef = useRef<number | null>(null);
   const gripHideTimerRef = useRef<number | null>(null);
   const marqueeActiveRef = useRef(false);
+  /** After a click into a block, allow native text drag-select inside that block only. */
+  const textEditArmedRef = useRef(false);
+  const textEditBlockRef = useRef<HTMLElement | null>(null);
   const gripRef = useRef(grip);
   gripRef.current = grip;
   const blockSelRef = useRef(blockSel);
@@ -2369,6 +2372,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
   // Notion-like: Delete / Backspace / Ctrl+C / Ctrl+X on multi-block selection
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && textEditArmedRef.current) {
+        const canvas = editor.view.dom.closest(".rich-canvas");
+        textEditBlockRef.current?.classList.remove("is-text-edit-armed");
+        textEditArmedRef.current = false;
+        textEditBlockRef.current = null;
+        canvas?.classList.add("is-block-select-priority");
+      }
+
       const sel = blockSelRef.current;
       if (!sel) return;
       const range = {
@@ -2639,7 +2650,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
-    /** Windows Explorer-style rubber-band: drag a box over blocks to multi-select. */
+    /** Windows Explorer-style rubber-band: drag a box over blocks to multi-select.
+     * Block marquee wins by default; text drag-select only after clicking into a line. */
     const onMarqueeDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       if ((e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee) return;
@@ -2690,15 +2702,38 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         return;
       }
 
-      const emptyPara = (() => {
-        const p = t?.closest?.("p");
-        return !!(p && p.closest(".ProseMirror") && !(p.textContent || "").trim());
+      const topBlockEl = (() => {
+        if (!t || !root.contains(t)) return null;
+        let el: HTMLElement | null = t;
+        while (el && el !== root) {
+          if (el.parentElement === root) return el;
+          el = el.parentElement;
+        }
+        return null;
       })();
 
-      // Start marquee: page left margin, gutter, Alt+drag, empty/atom/chrome.
-      const allow =
-        e.altKey || inGutter || inPageLeftMargin || outsideEditor || onAtomChrome || emptyPara;
-      if (!allow) return;
+      // Text drag-select only after a prior click armed this same block.
+      const allowNativeText =
+        textEditArmedRef.current &&
+        !!topBlockEl &&
+        textEditBlockRef.current === topBlockEl &&
+        !e.altKey &&
+        !inGutter &&
+        !inPageLeftMargin &&
+        !outsideEditor &&
+        !onAtomChrome;
+
+      if (allowNativeText) return;
+
+      // Block marquee is the default for any drag in the note surface.
+      const inNoteSurface =
+        e.altKey ||
+        inGutter ||
+        inPageLeftMargin ||
+        outsideEditor ||
+        onAtomChrome ||
+        !!t?.closest?.(".ProseMirror");
+      if (!inNoteSurface) return;
 
       (e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee = true;
       e.preventDefault();
@@ -2763,11 +2798,33 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         }
       };
 
+      const disarmTextEdit = () => {
+        textEditArmedRef.current = false;
+        const prev = textEditBlockRef.current;
+        if (prev) prev.classList.remove("is-text-edit-armed");
+        textEditBlockRef.current = null;
+        canvas.classList.add("is-block-select-priority");
+      };
+
+      const armTextEdit = (blockEl: HTMLElement | null) => {
+        const prev = textEditBlockRef.current;
+        if (prev && prev !== blockEl) prev.classList.remove("is-text-edit-armed");
+        textEditArmedRef.current = !!blockEl;
+        textEditBlockRef.current = blockEl;
+        if (blockEl) {
+          blockEl.classList.add("is-text-edit-armed");
+          canvas.classList.remove("is-block-select-priority");
+        } else {
+          canvas.classList.add("is-block-select-priority");
+        }
+      };
+
       const onDragMove = (ev: MouseEvent) => {
         if (!armed) {
           if (Math.hypot(ev.clientX - originX, ev.clientY - originY) < 5) return;
           armed = true;
           marqueeActiveRef.current = true;
+          disarmTextEdit();
           canvas.classList.add("is-block-marquee");
           document.body.style.userSelect = "none";
           try {
@@ -2788,7 +2845,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         canvas.classList.remove("is-block-marquee");
         document.body.style.userSelect = prevUserSelect;
         if (!armed) {
-          // Click without drag in gutter / page margin: select single block under cursor
+          // Click without drag: place caret + arm text select for this block
           if (inGutter || inPageLeftMargin || onAtomChrome) {
             const hit = gripFromPos(originY, Math.max(originX, rootRect.left + 8));
             if (hit) {
@@ -2809,7 +2866,32 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
               setGrip(hit);
               selectSiblingRange(editor, hit.parentFrom, hit.index, hit.index);
               editor.view.focus();
+              disarmTextEdit();
             }
+            return;
+          }
+
+          // Content click → caret + enable text drag-select on this line/block
+          try {
+            const at = editor.view.posAtCoords({ left: originX, top: originY });
+            if (at) {
+              const $pos = editor.state.doc.resolve(at.pos);
+              const depth = $pos.depth >= 1 ? 1 : 0;
+              const blockStart = depth ? $pos.before(depth) : at.pos;
+              editor.chain().focus().setTextSelection(at.pos).run();
+              const dom = editor.view.nodeDOM(blockStart);
+              const blockEl =
+                dom instanceof HTMLElement && dom.parentElement === root
+                  ? dom
+                  : topBlockEl;
+              armTextEdit(blockEl);
+              setBlockSel(null);
+            } else if (topBlockEl) {
+              armTextEdit(topBlockEl);
+              editor.view.focus();
+            }
+          } catch {
+            if (topBlockEl) armTextEdit(topBlockEl);
           }
           return;
         }
@@ -2819,12 +2901,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         const b = Math.max(sel.anchor, sel.focus);
         selectSiblingRange(editor, sel.parentFrom, a, b);
         editor.view.focus();
+        disarmTextEdit();
       };
 
       document.addEventListener("mousemove", onDragMove);
       document.addEventListener("mouseup", onUp);
     };
 
+    canvas.classList.add("is-block-select-priority");
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mouseleave", onLeave);
     root.addEventListener("mousedown", onMarqueeDown, true);
@@ -2832,6 +2916,11 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     shell.addEventListener("mousedown", onMarqueeDown);
     return () => {
       cancelHideGrip();
+      canvas.classList.remove("is-block-select-priority");
+      canvas.classList.remove("is-block-marquee");
+      textEditBlockRef.current?.classList.remove("is-text-edit-armed");
+      textEditArmedRef.current = false;
+      textEditBlockRef.current = null;
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mouseleave", onLeave);
       root.removeEventListener("mousedown", onMarqueeDown, true);
