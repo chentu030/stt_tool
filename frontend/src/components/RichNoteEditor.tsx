@@ -55,7 +55,7 @@ import { resolveEmbedUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
-import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee, dropIndexAtClientY, BlockSelectionHighlight } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee, clientToHostLocal, dropIndexAtClientY, BlockSelectionHighlight } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
@@ -2847,6 +2847,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const host = positionHost();
       const originX = e.clientX;
       const originY = e.clientY;
+      /** Freeze in host content space — must not recompute from viewport after scroll. */
+      const originLocal = clientToHostLocal(originX, originY, host);
       let mode: 'pending' | 'marquee' = 'pending';
       const prevUserSelect = document.body.style.userSelect;
 
@@ -2858,32 +2860,50 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         canvas.classList.add('is-block-select-priority');
       };
 
-      const hostLocal = (cx: number, cy: number) => {
-        const hr = host.getBoundingClientRect();
-        const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
-        const scrollLeft = host === canvas ? canvas.scrollLeft : (host as HTMLElement).scrollLeft || 0;
-        return {
-          x: cx - hr.left + scrollLeft,
-          y: cy - hr.top + scrollTop,
-        };
+      const scrollParentOf = (el: HTMLElement): HTMLElement | null => {
+        let n: HTMLElement | null = el;
+        while (n && n !== document.body) {
+          const st = getComputedStyle(n);
+          const oy = st.overflowY;
+          if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && n.scrollHeight > n.clientHeight + 1) {
+            return n;
+          }
+          n = n.parentElement;
+        }
+        return (document.scrollingElement as HTMLElement | null) || document.documentElement;
+      };
+
+      const autoScrollDuringMarquee = (cy: number) => {
+        const scroller = scrollParentOf(host) || host;
+        const hr = scroller.getBoundingClientRect();
+        const edge = 56;
+        let dy = 0;
+        if (cy < hr.top + edge) dy = -Math.ceil(Math.min(36, (hr.top + edge - cy) * 0.55));
+        else if (cy > hr.bottom - edge) dy = Math.ceil(Math.min(36, (cy - (hr.bottom - edge)) * 0.55));
+        if (!dy) return;
+        if (scroller === document.documentElement || scroller === document.body) {
+          window.scrollBy(0, dy);
+        } else {
+          scroller.scrollTop += dy;
+        }
       };
 
       const applyMarqueeBox = (cx: number, cy: number) => {
+        const b = clientToHostLocal(cx, cy, host);
         const box = {
-          left: Math.min(originX, cx),
-          top: Math.min(originY, cy),
-          right: Math.max(originX, cx),
-          bottom: Math.max(originY, cy),
+          left: Math.min(originLocal.x, b.x),
+          top: Math.min(originLocal.y, b.y),
+          right: Math.max(originLocal.x, b.x),
+          bottom: Math.max(originLocal.y, b.y),
         };
-        const a = hostLocal(originX, originY);
-        const b = hostLocal(cx, cy);
         setMarquee({
-          left: Math.min(a.x, b.x),
-          top: Math.min(a.y, b.y),
-          width: Math.abs(b.x - a.x),
-          height: Math.abs(b.y - a.y),
+          left: box.left,
+          top: box.top,
+          width: box.right - box.left,
+          height: box.bottom - box.top,
         });
-        const hits = topLevelIndicesInMarquee(editor, box);
+        // Host-local hit-test so blocks that scrolled off-screen stay selected.
+        const hits = topLevelIndicesInMarquee(editor, box, host);
         if (!hits.length) {
           setBlockSel(null);
           return;
@@ -2897,11 +2917,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           const dom = editor.view.nodeDOM(pos.from);
           if (dom instanceof HTMLElement) {
             const br = dom.getBoundingClientRect();
-            const hr = host.getBoundingClientRect();
-            const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+            const local = clientToHostLocal(br.left, br.top, host);
             setGrip({
-              top: br.top - hr.top + scrollTop + Math.min(4, br.height / 2 - 12),
-              left: br.left - hr.left - 52,
+              top: local.y + Math.min(4, br.height / 2 - 12),
+              left: local.x - 52,
               from: pos.from,
               to: pos.to,
               index: mid,
@@ -2931,7 +2950,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
           startMarqueeMode(ev.clientX, ev.clientY);
           return;
         }
-        if (mode === 'marquee') applyMarqueeBox(ev.clientX, ev.clientY);
+        if (mode === 'marquee') {
+          autoScrollDuringMarquee(ev.clientY);
+          applyMarqueeBox(ev.clientX, ev.clientY);
+        }
       };
 
       const onUp = () => {

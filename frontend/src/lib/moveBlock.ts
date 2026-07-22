@@ -359,6 +359,31 @@ function rectsOverlap(
   return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
 }
 
+type HostLocalBox = { left: number; top: number; right: number; bottom: number };
+
+/** Map viewport client coords → host content space (survives scroll). */
+export function clientToHostLocal(
+  clientX: number,
+  clientY: number,
+  host: HTMLElement
+): { x: number; y: number } {
+  const hr = host.getBoundingClientRect();
+  return {
+    x: clientX - hr.left + host.scrollLeft,
+    y: clientY - hr.top + host.scrollTop,
+  };
+}
+
+function domRectToHostLocal(br: DOMRect, host: HTMLElement): HostLocalBox {
+  const hr = host.getBoundingClientRect();
+  return {
+    left: br.left - hr.left + host.scrollLeft,
+    top: br.top - hr.top + host.scrollTop,
+    right: br.right - hr.left + host.scrollLeft,
+    bottom: br.bottom - hr.top + host.scrollTop,
+  };
+}
+
 /** Collect top-level block DOM rects for marquee / lasso selection. */
 export function listTopLevelBlockRects(editor: Editor): MarqueeBlock[] {
   const { doc } = editor.state;
@@ -383,14 +408,36 @@ export function listTopLevelBlockRects(editor: Editor): MarqueeBlock[] {
   return out;
 }
 
-/** Indices of top-level blocks intersecting a client-space marquee box. */
+/**
+ * Indices of top-level blocks intersecting a marquee box.
+ * Pass `host` + box in host-local coords so selection survives scroll during drag.
+ * Without `host`, `box` is treated as viewport (client) coords.
+ */
 export function topLevelIndicesInMarquee(
   editor: Editor,
-  box: { left: number; top: number; right: number; bottom: number }
+  box: HostLocalBox,
+  host?: HTMLElement | null
 ): number[] {
-  return listTopLevelBlockRects(editor)
-    .filter((b) => rectsOverlap(b.rect, box))
-    .map((b) => b.index);
+  const { doc } = editor.state;
+  const hits: number[] = [];
+  let pos = 0;
+  for (let i = 0; i < doc.childCount; i++) {
+    const node = doc.child(i);
+    const from = pos;
+    const dom = editor.view.nodeDOM(from);
+    if (dom instanceof HTMLElement) {
+      const br = dom.getBoundingClientRect();
+      const rect = host ? domRectToHostLocal(br, host) : {
+        left: br.left,
+        top: br.top,
+        right: br.right,
+        bottom: br.bottom,
+      };
+      if (rectsOverlap(rect, box)) hits.push(i);
+    }
+    pos += node.nodeSize;
+  }
+  return hits;
 }
 
 /** Find the top-level (or list-item) block whose DOM rect contains clientY. */
