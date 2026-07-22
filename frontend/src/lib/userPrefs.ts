@@ -71,6 +71,12 @@ export type UserPrefs = {
   captureAutoOpenJob: boolean;
   captureMaxFiles: number;
   captureLanguage: string;
+  /** Live note: auto-cut only after pause once segment ≥ this many seconds */
+  liveChunkMinSecs: number;
+  /** Live note: run AI organize after this many finished chunks (auto mode) */
+  liveOrganizeEveryChunks: number;
+  /** Live note: silence duration (ms) treated as end of utterance */
+  liveSilenceMs: number;
   /** Journal */
   journalWeekStart: WeekStart;
   journalDefaultEnergy: number;
@@ -231,6 +237,9 @@ export const DEFAULT_PREFS: UserPrefs = {
   captureAutoOpenJob: true,
   captureMaxFiles: 8,
   captureLanguage: "auto",
+  liveChunkMinSecs: 30,
+  liveOrganizeEveryChunks: 10,
+  liveSilenceMs: 1200,
   journalWeekStart: "monday",
   journalDefaultEnergy: 3,
   journalShowHeatmap: true,
@@ -321,6 +330,9 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     editorLineHeight: clamp(Number(p.editorLineHeight) || 1.65, 1.3, 2.2),
     autosaveSeconds: clamp(Number(p.autosaveSeconds) || 2, 1, 30),
     captureMaxFiles: clamp(Number(p.captureMaxFiles) || 8, 1, 30),
+    liveChunkMinSecs: clamp(Number(p.liveChunkMinSecs) || 30, 15, 300),
+    liveOrganizeEveryChunks: clamp(Number(p.liveOrganizeEveryChunks) || 10, 1, 50),
+    liveSilenceMs: clamp(Number(p.liveSilenceMs) || 1200, 600, 4000),
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
     defaultFolder: String(p.defaultFolder || "").slice(0, 80),
     defaultTags: String(p.defaultTags || "").slice(0, 200),

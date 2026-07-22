@@ -22,9 +22,6 @@ type Props = {
   autoStart?: boolean;
 };
 
-/** Paragraph clips → V2 dynamic batch (~$0.003/min). Not true streaming. */
-const AUTO_SECS = 30;
-
 type PreviewLine = {
   id: string;
   label: string;
@@ -38,6 +35,11 @@ type SegJob = {
   result: Promise<{ transcript: string; url: string } | null>;
 };
 
+type CutMode = "auto" | "manual";
+
+/** Safety ceiling so a never-ending talk still cuts for Google batch limits. */
+const MAX_CHUNK_MULT = 6;
+
 export default function LiveNoteRecorder({
   uid,
   noteId,
@@ -46,8 +48,14 @@ export default function LiveNoteRecorder({
   insertMd,
   autoStart,
 }: Props) {
-  const prefs = usePrefsOptional()?.prefs;
+  const prefsCtx = usePrefsOptional();
+  const prefs = prefsCtx?.prefs;
   const language = prefs?.captureLanguage || "zh-TW";
+  const minSecs = Math.max(15, prefs?.liveChunkMinSecs ?? 30);
+  const organizeEvery = Math.max(1, prefs?.liveOrganizeEveryChunks ?? 10);
+  const silenceMs = Math.max(600, prefs?.liveSilenceMs ?? 1200);
+  const maxSecs = minSecs * MAX_CHUNK_MULT;
+
   const [live, setLive] = useState(false);
   const [secs, setSecs] = useState(0);
   const [segSecs, setSegSecs] = useState(0);
@@ -55,32 +63,96 @@ export default function LiveNoteRecorder({
   const [status, setStatus] = useState("準備麥克風…");
   const [lines, setLines] = useState<PreviewLine[]>([]);
   const [stopping, setStopping] = useState(false);
+  const [cutMode, setCutMode] = useState<CutMode>("auto");
+  const [pendingOrg, setPendingOrg] = useState(0);
+  const [orgBusy, setOrgBusy] = useState(false);
 
   const recRef = useRef<ContinuousDualRecorder | null>(null);
   const tickRef = useRef<number | null>(null);
-  const autoRef = useRef<number | null>(null);
+  const silencePollRef = useRef<number | null>(null);
   const startedRef = useRef(false);
   const labelSeqRef = useRef(0);
   const liveRef = useRef(false);
   const rotatingRef = useRef(false);
+  const cutModeRef = useRef<CutMode>("auto");
+  const segSecsRef = useRef(0);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const extRef = useRef("webm");
   const jobsRef = useRef<SegJob[]>([]);
   const drainRef = useRef<Promise<void>>(Promise.resolve());
   const drainingRef = useRef(false);
+  const pendingOrgTextsRef = useRef<string[]>([]);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceSinceRef = useRef<number | null>(null);
+
+  cutModeRef.current = cutMode;
 
   const clearTimers = () => {
     if (tickRef.current) window.clearInterval(tickRef.current);
-    if (autoRef.current) window.clearInterval(autoRef.current);
+    if (silencePollRef.current) window.clearInterval(silencePollRef.current);
     tickRef.current = null;
-    autoRef.current = null;
+    silencePollRef.current = null;
   };
 
-  const armAutoCut = () => {
-    if (autoRef.current) window.clearInterval(autoRef.current);
-    autoRef.current = window.setInterval(() => {
-      void cutParagraph(false);
-    }, AUTO_SECS * 1000);
+  const stopSilenceMonitor = () => {
+    if (silencePollRef.current) window.clearInterval(silencePollRef.current);
+    silencePollRef.current = null;
+    try {
+      void audioCtxRef.current?.close();
+    } catch {
+      /* ignore */
+    }
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+    silenceSinceRef.current = null;
+  };
+
+  const startSilenceMonitor = (stream: MediaStream) => {
+    stopSilenceMonitor();
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    audioCtxRef.current = ctx;
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.5;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+    const data = new Uint8Array(analyser.fftSize);
+
+    silencePollRef.current = window.setInterval(() => {
+      if (!liveRef.current || cutModeRef.current !== "auto" || rotatingRef.current) return;
+      const a = analyserRef.current;
+      if (!a) return;
+      a.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      const quiet = rms < 0.02;
+      const now = Date.now();
+      if (quiet) {
+        if (silenceSinceRef.current == null) silenceSinceRef.current = now;
+      } else {
+        silenceSinceRef.current = null;
+      }
+      const silentFor =
+        silenceSinceRef.current != null ? now - silenceSinceRef.current : 0;
+      const dur = segSecsRef.current;
+      // Cut after pause once past min length; or hard-cap for very long talk.
+      if (dur >= maxSecs) {
+        void cutParagraph(false, "max");
+        return;
+      }
+      if (dur >= minSecs && silentFor >= silenceMs) {
+        void cutParagraph(false, "silence");
+      }
+    }, 200);
   };
 
   const upsertLine = (id: string, patch: Partial<PreviewLine>) => {
@@ -91,6 +163,49 @@ export default function LiveNoteRecorder({
       next[i] = { ...next[i], ...patch };
       return next;
     });
+  };
+
+  const flushOrganize = async (manual: boolean) => {
+    const texts = pendingOrgTextsRef.current.slice();
+    if (!texts.length) {
+      if (manual) toast("目前沒有待整理的段落");
+      return;
+    }
+    pendingOrgTextsRef.current = [];
+    setPendingOrg(0);
+    setOrgBusy(true);
+    setStatus(manual ? "手動 AI 整理中…" : `每 ${organizeEvery} 段自動整理中…`);
+    try {
+      const packed = texts.map((t, i) => `【段 ${i + 1}】\n${t}`).join("\n\n");
+      const organized = await organizeLiveSegment(packed);
+      if (organized.trim()) {
+        insertMd(`\n**整理（${texts.length} 段）**\n\n${organized}\n`);
+        toast(`已整理 ${texts.length} 段`);
+      }
+      setStatus("整理完成 · 繼續錄製");
+    } catch (e) {
+      // Put back so user can retry
+      pendingOrgTextsRef.current = [...texts, ...pendingOrgTextsRef.current];
+      setPendingOrg(pendingOrgTextsRef.current.length);
+      toast(e instanceof Error ? e.message : "整理失敗");
+      setStatus("整理失敗，可再按「AI 整理」");
+    } finally {
+      setOrgBusy(false);
+    }
+  };
+
+  const maybeAutoOrganize = () => {
+    if (cutModeRef.current === "manual") return;
+    if (pendingOrgTextsRef.current.length < organizeEvery) return;
+    void flushOrganize(false);
+  };
+
+  const queueTranscriptForOrganize = (transcript: string) => {
+    const t = transcript.trim();
+    if (!t) return;
+    pendingOrgTextsRef.current.push(t);
+    setPendingOrg(pendingOrgTextsRef.current.length);
+    maybeAutoOrganize();
   };
 
   const drainJobs = () => {
@@ -111,16 +226,8 @@ export default function LiveNoteRecorder({
           ? `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${got.url}" title="${job.label}"></audio>\n\n`
           : "";
         insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}${got.transcript}\n`);
-        setStatus(`「${job.label}」已寫入 · 繼續錄製`);
-        void organizeLiveSegment(got.transcript)
-          .then((organized) => {
-            if (!organized.trim()) return;
-            insertMd(`\n**整理 · ${job.label}**\n\n${organized}\n`);
-            upsertLine(job.id, {
-              text: `${got.transcript}\n\n〔整理〕${organized}`,
-            });
-          })
-          .catch(() => {});
+        queueTranscriptForOrganize(got.transcript);
+        setStatus(`「${job.label}」已寫入 · 待整理 ${pendingOrgTextsRef.current.length} 段`);
       }
     })()
       .catch((e) => {
@@ -134,7 +241,7 @@ export default function LiveNoteRecorder({
 
   const startSegJob = (blob: Blob, label: string, lineId: string) => {
     setPending((n) => n + 1);
-    setStatus(`批次辨識「${label}」中（經濟模式）…`);
+    setStatus(`批次辨識「${label}」中…`);
 
     const result = (async (): Promise<{ transcript: string; url: string } | null> => {
       try {
@@ -167,15 +274,26 @@ export default function LiveNoteRecorder({
     void drainJobs();
   };
 
-  const cutParagraph = async (manual = true) => {
+  const cutParagraph = async (
+    manual = true,
+    reason: "manual" | "silence" | "max" = "manual"
+  ) => {
     const rec = recRef.current;
     if (!rec || !liveRef.current || rotatingRef.current || stopping) return;
+    if (!manual && cutModeRef.current === "manual") return;
     rotatingRef.current = true;
+    silenceSinceRef.current = null;
     try {
-      setStatus(manual ? "切段中…" : "自動切段…");
+      setStatus(
+        reason === "silence"
+          ? "偵測到停頓，切段中…"
+          : reason === "max"
+            ? "本段過長，強制切段…"
+            : "切段中…"
+      );
       const blob = await rec.rotateSegment();
+      segSecsRef.current = 0;
       setSegSecs(0);
-      armAutoCut();
       if (!blob) {
         setStatus("這段太短，已略過 · 繼續錄製");
         return;
@@ -185,10 +303,10 @@ export default function LiveNoteRecorder({
       const lineId = `seg-${Date.now()}-${labelSeqRef.current}`;
       setLines((prev) => [
         ...prev,
-        { id: lineId, label, text: "批次辨識中（較省，稍候出字）…", state: "pending" },
+        { id: lineId, label, text: "批次辨識中…", state: "pending" },
       ]);
       startSegJob(blob, label, lineId);
-      setStatus("本段已送出 · 可繼續講／再按段落結束");
+      setStatus("本段已送出 · 可繼續講");
     } finally {
       rotatingRef.current = false;
     }
@@ -198,29 +316,41 @@ export default function LiveNoteRecorder({
     setStatus("請求麥克風權限…");
     setLines([]);
     setPending(0);
+    setPendingOrg(0);
+    pendingOrgTextsRef.current = [];
     setStopping(false);
     jobsRef.current = [];
     const rec = new ContinuousDualRecorder();
     await rec.start();
     recRef.current = rec;
     extRef.current = rec.extension || "webm";
+    if (rec.mediaStream) startSilenceMonitor(rec.mediaStream);
     liveRef.current = true;
     setLive(true);
     setSecs(0);
     setSegSecs(0);
+    segSecsRef.current = 0;
     labelSeqRef.current = 0;
-    setStatus("錄製中 · 經濟模式：切段後用動態批次辨識（非逐字串流）");
+    setStatus(
+      cutModeRef.current === "auto"
+        ? `自動切段：講超過 ${minSecs}s 且停頓後切段；每 ${organizeEvery} 段整理`
+        : "手動切段：按「段落結束」；需要時按「AI 整理」"
+    );
     tickRef.current = window.setInterval(() => {
       setSecs((s) => s + 1);
-      setSegSecs((s) => s + 1);
+      setSegSecs((s) => {
+        const n = s + 1;
+        segSecsRef.current = n;
+        return n;
+      });
     }, 1000);
-    armAutoCut();
   };
 
   const stop = async () => {
     if (stopping) return;
     setStopping(true);
     clearTimers();
+    stopSilenceMonitor();
     const rec = recRef.current;
     liveRef.current = false;
     setLive(false);
@@ -245,6 +375,9 @@ export default function LiveNoteRecorder({
       await drainJobs();
       while (jobsRef.current.length) {
         await drainJobs();
+      }
+      if (pendingOrgTextsRef.current.length) {
+        await flushOrganize(true);
       }
       if (full && full.size > 1000) {
         setStatus("儲存完整音檔…");
@@ -286,6 +419,7 @@ export default function LiveNoteRecorder({
   useEffect(() => {
     return () => {
       clearTimers();
+      stopSilenceMonitor();
       void recRef.current?.stopAll();
     };
   }, []);
@@ -299,6 +433,7 @@ export default function LiveNoteRecorder({
   if (!open) return null;
 
   const pendingHint = pending > 0 ? ` · ${pending} 段辨識中` : "";
+  const orgHint = pendingOrg > 0 ? ` · 待整理 ${pendingOrg}` : "";
 
   return (
     <div className="voice-live-dock" role="dialog" aria-label="即時錄音轉錄">
@@ -309,8 +444,10 @@ export default function LiveNoteRecorder({
             <strong>即時錄音 · 經濟辨識</strong>
             <span>
               {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
-              {formatRecClock(segSecs)} / {AUTO_SECS}s
+              {formatRecClock(segSecs)}
+              {cutMode === "auto" ? `（≥${minSecs}s 停頓切段）` : "（手動）"}
               {pendingHint}
+              {orgHint}
             </span>
             <em>{status}</em>
           </div>
@@ -329,11 +466,39 @@ export default function LiveNoteRecorder({
             <>
               <button
                 type="button"
+                className={`btn btn-sm btn-ghost${cutMode === "manual" ? " is-on" : ""}`}
+                disabled={stopping}
+                title="切換自動／手動切段"
+                onClick={() => {
+                  setCutMode((m) => {
+                    const next = m === "auto" ? "manual" : "auto";
+                    setStatus(
+                      next === "auto"
+                        ? `已改自動：超過 ${minSecs}s 且停頓後切段`
+                        : "已改手動：按「段落結束」切段"
+                    );
+                    return next;
+                  });
+                }}
+              >
+                {cutMode === "auto" ? "自動切段" : "手動切段"}
+              </button>
+              <button
+                type="button"
                 className="btn btn-sm btn-soft"
                 disabled={!live || stopping}
-                onClick={() => void cutParagraph(true)}
+                onClick={() => void cutParagraph(true, "manual")}
               >
                 段落結束
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-soft"
+                disabled={stopping || orgBusy || pendingOrg === 0}
+                title="立即整理目前待整理段落（不受每 N 段限制）"
+                onClick={() => void flushOrganize(true)}
+              >
+                {orgBusy ? "整理中…" : `AI 整理${pendingOrg ? ` (${pendingOrg})` : ""}`}
               </button>
               <button
                 type="button"
@@ -351,7 +516,8 @@ export default function LiveNoteRecorder({
       <div className="voice-live-preview" ref={previewScrollRef} aria-label="逐字稿預覽">
         {lines.length === 0 ? (
           <p className="voice-live-preview-empty">
-            邊錄邊切段；每段用 Google V2 動態批次辨識（約 $0.003／分鐘，出字會稍慢）。可往上捲動回顧。
+            自動模式：講超過 {minSecs} 秒且停頓後才切段；每 {organizeEvery}{" "}
+            段才 AI 整理。也可改手動切段，並隨時按「AI 整理」。設定可在「設定 → 捕捉」調整。
           </p>
         ) : (
           lines.map((line) => (

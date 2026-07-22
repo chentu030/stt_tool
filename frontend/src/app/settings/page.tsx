@@ -767,6 +767,44 @@ export default function SettingsPage() {
                 onChange={(captureAutoOpenJob) => patch({ captureAutoOpenJob })}
               />
             </Row>
+            <Row
+              label={`即時錄音最短切段 ${prefs.liveChunkMinSecs}s`}
+              hint="自動模式：超過此時長且偵測到停頓後才切段（不會硬切句子中間）"
+            >
+              <input
+                type="range"
+                min={15}
+                max={180}
+                step={5}
+                value={prefs.liveChunkMinSecs}
+                onChange={(e) => patch({ liveChunkMinSecs: Number(e.target.value) })}
+              />
+            </Row>
+            <Row
+              label={`即時錄音每 ${prefs.liveOrganizeEveryChunks} 段整理`}
+              hint="自動模式累積此段數後才呼叫 AI 整理；手動「AI 整理」不受限"
+            >
+              <input
+                type="range"
+                min={1}
+                max={30}
+                value={prefs.liveOrganizeEveryChunks}
+                onChange={(e) => patch({ liveOrganizeEveryChunks: Number(e.target.value) })}
+              />
+            </Row>
+            <Row
+              label={`停頓判定 ${prefs.liveSilenceMs}ms`}
+              hint="安靜持續多久視為一句講完"
+            >
+              <input
+                type="range"
+                min={600}
+                max={3000}
+                step={100}
+                value={prefs.liveSilenceMs}
+                onChange={(e) => patch({ liveSilenceMs: Number(e.target.value) })}
+              />
+            </Row>
           </section>
 
           <section id="st-journal" className="st-card">

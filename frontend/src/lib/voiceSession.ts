@@ -24,7 +24,7 @@ export function formatRecClock(secs: number): string {
 }
 
 export class ContinuousDualRecorder {
-  private stream: MediaStream | null = null;
+  private media: MediaStream | null = null;
   private ownsStream = true;
   private fullRec: MediaRecorder | null = null;
   private segRec: MediaRecorder | null = null;
@@ -34,7 +34,7 @@ export class ContinuousDualRecorder {
   private rotating = false;
 
   async start(existingStream?: MediaStream): Promise<void> {
-    this.stream =
+    this.media =
       existingStream ||
       (await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -48,18 +48,22 @@ export class ContinuousDualRecorder {
     const opts = this.mime.mimeType ? { mimeType: this.mime.mimeType } : undefined;
 
     this.fullChunks = [];
-    this.fullRec = new MediaRecorder(this.stream, opts);
+    this.fullRec = new MediaRecorder(this.media, opts);
     this.fullRec.ondataavailable = (e) => {
       if (e.data.size) this.fullChunks.push(e.data);
     };
     this.fullRec.start(1000);
 
     this.segChunks = [];
-    this.segRec = new MediaRecorder(this.stream, opts);
+    this.segRec = new MediaRecorder(this.media, opts);
     this.segRec.ondataavailable = (e) => {
       if (e.data.size) this.segChunks.push(e.data);
     };
     this.segRec.start(1000);
+  }
+
+  get mediaStream(): MediaStream | null {
+    return this.media;
   }
 
   get extension(): string {
@@ -72,14 +76,14 @@ export class ContinuousDualRecorder {
 
   /** Stop current segment, return blob, immediately start the next segment (recording continues). */
   async rotateSegment(): Promise<Blob | null> {
-    if (!this.stream || !this.segRec || this.rotating) return null;
+    if (!this.media || !this.segRec || this.rotating) return null;
     if (this.segRec.state === "inactive") return null;
     this.rotating = true;
     try {
       const blob = await this.stopRecorder(this.segRec, this.segChunks);
       this.segChunks = [];
       const opts = this.mime.mimeType ? { mimeType: this.mime.mimeType } : undefined;
-      this.segRec = new MediaRecorder(this.stream, opts);
+      this.segRec = new MediaRecorder(this.media, opts);
       this.segRec.ondataavailable = (e) => {
         if (e.data.size) this.segChunks.push(e.data);
       };
@@ -101,10 +105,10 @@ export class ContinuousDualRecorder {
     if (this.fullRec && this.fullRec.state !== "inactive") {
       full = await this.stopRecorder(this.fullRec, this.fullChunks);
     }
-    this.stream?.getTracks().forEach((t) => {
+    this.media?.getTracks().forEach((t) => {
       if (this.ownsStream) t.stop();
     });
-    this.stream = null;
+    this.media = null;
     this.fullRec = null;
     this.segRec = null;
     this.fullChunks = [];
