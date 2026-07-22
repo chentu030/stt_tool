@@ -4,7 +4,8 @@ import PageLoading from "@/components/motion/PageLoading";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { getNote, updateNote } from "@/lib/firebase";
+import { getNote } from "@/lib/firebase";
+import { loadPendingNoteDraft, saveNoteWithSync } from "@/lib/offlineSync";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
@@ -32,8 +33,9 @@ export default function NoteSplitPane({
   const [icon, setIcon] = useState("");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved">("idle");
+  const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "offline">("idle");
   const dirty = useRef(false);
+  const baseUpdatedAt = useRef(0);
   const titleRef = useRef(title);
   const bodyRef = useRef(body);
   titleRef.current = title;
@@ -52,11 +54,22 @@ export default function NoteSplitPane({
           setError("找不到筆記");
           return;
         }
-        setTitle(n.title || "");
-        setBody(n.body_md || "");
+        const pending = await loadPendingNoteDraft(noteId);
+        let nextTitle = n.title || "";
+        let nextBody = n.body_md || "";
+        if (pending?.payload) {
+          if (typeof pending.payload.title === "string") nextTitle = pending.payload.title;
+          if (typeof pending.payload.body_md === "string") nextBody = pending.payload.body_md;
+          dirty.current = true;
+          setStatus("offline");
+        } else {
+          setStatus("idle");
+        }
+        baseUpdatedAt.current = pending?.baseUpdatedAt ?? n.updated_at.getTime();
+        setTitle(nextTitle);
+        setBody(nextBody);
         setIcon(n.icon || "");
         setReady(true);
-        setStatus("idle");
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "載入失敗");
       }
@@ -67,19 +80,63 @@ export default function NoteSplitPane({
   }, [noteId]);
 
   useEffect(() => {
+    const onReload = (ev: Event) => {
+      const id = (ev as CustomEvent<{ noteId?: string }>).detail?.noteId;
+      if (id !== noteId) return;
+      void getNote(noteId).then((n) => {
+        if (!n) return;
+        baseUpdatedAt.current = n.updated_at.getTime();
+        setTitle(n.title || "");
+        setBody(n.body_md || "");
+        dirty.current = false;
+        setStatus("saved");
+      });
+    };
+    const onBase = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ noteId?: string; updatedAt?: number }>).detail;
+      if (detail?.noteId !== noteId) return;
+      if (typeof detail.updatedAt === "number") baseUpdatedAt.current = detail.updatedAt;
+    };
+    window.addEventListener("albireus:note-reload", onReload);
+    window.addEventListener("albireus:note-base", onBase);
+    return () => {
+      window.removeEventListener("albireus:note-reload", onReload);
+      window.removeEventListener("albireus:note-base", onBase);
+    };
+  }, [noteId]);
+
+  useEffect(() => {
     if (!ready || !dirty.current) return;
     setStatus("dirty");
     const t = window.setTimeout(() => {
       setStatus("saving");
-      void updateNote(noteId, {
-        title: titleRef.current,
-        body_md: bodyRef.current,
-      })
-        .then(() => {
+      void saveNoteWithSync(
+        noteId,
+        {
+          title: titleRef.current,
+          body_md: bodyRef.current,
+        },
+        {
+          baseUpdatedAt: baseUpdatedAt.current || Date.now(),
+          label: titleRef.current,
+        }
+      ).then((result) => {
+        if (result.status === "queued") {
           dirty.current = false;
+          setStatus("offline");
+          return;
+        }
+        if (result.status === "saved" || (result.status === "conflict_resolved" && result.kept === "local")) {
+          dirty.current = false;
+          baseUpdatedAt.current = result.updatedAt;
           setStatus("saved");
-        })
-        .catch(() => setStatus("idle"));
+          return;
+        }
+        if (result.status === "conflict_resolved" && result.kept === "remote") {
+          return;
+        }
+        setStatus("idle");
+      });
     }, 700);
     return () => window.clearTimeout(t);
   }, [title, body, ready, noteId]);
@@ -115,7 +172,15 @@ export default function NoteSplitPane({
           <span className="note-split-title-text">{title || "未命名"}</span>
         </Link>
         <span className="note-split-status">
-          {status === "saving" ? "儲存中" : status === "saved" ? "已存" : status === "dirty" ? "未存" : ""}
+          {status === "saving"
+            ? "儲存中"
+            : status === "saved"
+              ? "已存"
+              : status === "offline"
+                ? "離線已存"
+                : status === "dirty"
+                  ? "未存"
+                  : ""}
         </span>
         <button
           type="button"
@@ -128,10 +193,10 @@ export default function NoteSplitPane({
         <button
           type="button"
           className="note-split-collapse"
-          title="暫時收合右側（仍保持並排）"
+          title="收合右側並排（仍保留並排）"
           onClick={() => onCollapse?.()}
         >
-          ›
+          ⟩
         </button>
         <button
           type="button"

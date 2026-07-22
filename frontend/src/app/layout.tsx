@@ -5,6 +5,7 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { PrefsProvider } from "@/components/PrefsProvider";
 import DialogProvider from "@/components/DialogProvider";
 import ToastProvider from "@/components/ToastProvider";
+import OfflineSyncBootstrap from "@/components/OfflineSyncBootstrap";
 import AppShell from "@/components/shell/AppShell";
 import AccessGate from "@/components/AccessGate";
 import { CommunityProvider } from "@/components/community/CommunityProvider";
@@ -70,6 +71,7 @@ export default function RootLayout({
           <PrefsProvider>
             <DialogProvider>
               <ToastProvider>
+                <OfflineSyncBootstrap />
                 <AccessGate>
                   <CommunityProvider>
                     <AppShell>{children}</AppShell>

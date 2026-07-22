@@ -36,6 +36,10 @@ import {
   Note,
   NoteVersion,
 } from "@/lib/firebase";
+import {
+  loadPendingNoteDraft,
+  saveNoteWithSync,
+} from "@/lib/offlineSync";
 import { takeNoteBodySeed } from "@/lib/jobToNote";
 import NoteAppSurface from "@/components/workspace/NoteAppSurface";
 import RichNoteEditor from "@/components/RichNoteEditor";
@@ -137,7 +141,7 @@ function NotePageInner() {
   const [parentId, setParentId] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error" | "offline">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [findOpen, setFindOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -202,6 +206,8 @@ function NotePageInner() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
   const knownBodyById = useRef<Map<string, string>>(new Map());
+  /** Cloud `updated_at` ms this editor session is based on (for conflict checks). */
+  const baseUpdatedAtRef = useRef(0);
   const draftRef = useRef<{
     noteId: string;
     title: string;
@@ -229,44 +235,130 @@ function NotePageInner() {
 
   useEffect(() => {
     if (!id) return;
-    getNote(id).then((n) => {
-      if (!n) return;
+    let cancelled = false;
+    void (async () => {
+      const n = await getNote(id);
+      if (cancelled || !n) return;
       const seeded = takeNoteBodySeed(id);
-      // Prefer non-empty seed / cloud body so we never paint an empty editor over fresh AI notes.
-      const bodyMd = (seeded && seeded.trim()) || n.body_md || "";
-      if (seeded && seeded.trim() && seeded.trim() !== (n.body_md || "").trim()) {
+      const pending = await loadPendingNoteDraft(id);
+      // Prefer non-empty seed / pending offline draft / cloud body so we never paint empty over fresh AI notes.
+      let bodyMd = (seeded && seeded.trim()) || n.body_md || "";
+      let titleMd = n.title;
+      let tagsMd = n.tags || [];
+      let folderMd = n.folder || "";
+      let iconMd = normalizePageIcon(n.icon || "");
+      let colorMd = normalizePageColor(n.color);
+      let coverMd = n.cover || "";
+      let parentMd = n.parent_id || "";
+      let fromOffline = false;
+      if (pending?.payload) {
+        const p = pending.payload;
+        if (typeof p.title === "string") titleMd = p.title;
+        if (typeof p.body_md === "string") bodyMd = p.body_md;
+        if (Array.isArray(p.tags)) tagsMd = p.tags as string[];
+        if (typeof p.folder === "string") folderMd = p.folder;
+        if (typeof p.icon === "string") iconMd = normalizePageIcon(p.icon);
+        if (typeof p.color === "string") colorMd = normalizePageColor(p.color);
+        if (typeof p.cover === "string") coverMd = p.cover;
+        if (typeof p.parent_id === "string") parentMd = p.parent_id;
+        fromOffline = true;
+      }
+      if (seeded && seeded.trim() && seeded.trim() !== (n.body_md || "").trim() && !pending) {
         void updateNote(id, { body_md: seeded }).catch(() => {});
       }
+      baseUpdatedAtRef.current = pending?.baseUpdatedAt ?? n.updated_at.getTime();
       setNote(n);
-      setTitle(n.title);
+      setTitle(titleMd);
       setBody(bodyMd);
-      setTags(n.tags || []);
-      setFolder(n.folder || "");
-      setIcon(normalizePageIcon(n.icon || ""));
-      setColor(normalizePageColor(n.color));
-      setCover(n.cover || "");
-      setParentId(n.parent_id || "");
+      setTags(tagsMd);
+      setFolder(folderMd);
+      setIcon(iconMd);
+      setColor(colorMd);
+      setCover(coverMd);
+      setParentId(parentMd);
       setNoteShare(parseNoteShare(n.share));
       const fromCloud = normalizeDeck(n.deck);
       const fromLocal = loadDeckLocal(n.id);
       setDeck(fromCloud || fromLocal);
       knownBodyById.current.set(id, bodyMd);
       latest.current = {
-        title: n.title,
+        title: titleMd,
         body: bodyMd,
-        tags: n.tags || [],
-        folder: n.folder || "",
-        icon: normalizePageIcon(n.icon || ""),
-        color: normalizePageColor(n.color),
-        cover: n.cover || "",
-        parent_id: n.parent_id || "",
+        tags: tagsMd,
+        folder: folderMd,
+        icon: iconMd,
+        color: colorMd,
+        cover: coverMd,
+        parent_id: parentMd,
       };
-      dirtyRef.current = false;
-      draftRef.current = null;
-      setDirty(false);
-      setStatus("idle");
-    });
+      dirtyRef.current = fromOffline;
+      draftRef.current = fromOffline
+        ? {
+            noteId: id,
+            title: titleMd,
+            body: bodyMd,
+            tags: tagsMd,
+            folder: folderMd,
+            icon: iconMd,
+            color: colorMd,
+            cover: coverMd,
+            parent_id: parentMd,
+          }
+        : null;
+      setDirty(fromOffline);
+      setStatus(fromOffline ? "offline" : "idle");
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id, router]);
+
+  useEffect(() => {
+    const onReload = (ev: Event) => {
+      const noteId = (ev as CustomEvent<{ noteId?: string }>).detail?.noteId;
+      if (!noteId || noteId !== id) return;
+      void getNote(noteId).then((n) => {
+        if (!n) return;
+        baseUpdatedAtRef.current = n.updated_at.getTime();
+        setNote(n);
+        setTitle(n.title);
+        setBody(n.body_md || "");
+        setTags(n.tags || []);
+        setFolder(n.folder || "");
+        setIcon(normalizePageIcon(n.icon || ""));
+        setColor(normalizePageColor(n.color));
+        setCover(n.cover || "");
+        setParentId(n.parent_id || "");
+        knownBodyById.current.set(noteId, n.body_md || "");
+        latest.current = {
+          title: n.title,
+          body: n.body_md || "",
+          tags: n.tags || [],
+          folder: n.folder || "",
+          icon: normalizePageIcon(n.icon || ""),
+          color: normalizePageColor(n.color),
+          cover: n.cover || "",
+          parent_id: n.parent_id || "",
+        };
+        dirtyRef.current = false;
+        draftRef.current = null;
+        setDirty(false);
+        setStatus("saved");
+        setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 1800);
+      });
+    };
+    const onBase = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ noteId?: string; updatedAt?: number }>).detail;
+      if (!detail?.noteId || detail.noteId !== id) return;
+      if (typeof detail.updatedAt === "number") baseUpdatedAtRef.current = detail.updatedAt;
+    };
+    window.addEventListener("albireus:note-reload", onReload);
+    window.addEventListener("albireus:note-base", onBase);
+    return () => {
+      window.removeEventListener("albireus:note-reload", onReload);
+      window.removeEventListener("albireus:note-base", onBase);
+    };
+  }, [id]);
 
   // Specialty apps own full-screen routes — leave the note shell (iframe) path.
   // Keep note shell when split-view is active so both panes can stay on /notes.
@@ -452,16 +544,57 @@ function NotePageInner() {
     try {
       const inlineTags = extractTagsFromText(nextBody);
       const mergedTags = Array.from(new Set([...draft.tags, ...inlineTags]));
-      await updateNote(savingId, {
-        title: draft.title,
-        body_md: nextBody,
-        tags: mergedTags,
-        folder: draft.folder,
-        icon: draft.icon,
-        color: draft.color || "",
-        cover: draft.cover,
-        parent_id: draft.parent_id,
-      });
+      const result = await saveNoteWithSync(
+        savingId,
+        {
+          title: draft.title,
+          body_md: nextBody,
+          tags: mergedTags,
+          folder: draft.folder,
+          icon: draft.icon,
+          color: draft.color || "",
+          cover: draft.cover,
+          parent_id: draft.parent_id,
+        },
+        {
+          baseUpdatedAt: baseUpdatedAtRef.current || Date.now(),
+          label: draft.title,
+        }
+      );
+
+      if (result.status === "queued") {
+        if (draftRef.current?.noteId === savingId) {
+          dirtyRef.current = false;
+        }
+        if (id === savingId) {
+          setDirty(false);
+          setStatus("offline");
+        }
+        return;
+      }
+
+      if (result.status === "cancelled") {
+        if (id === savingId) setStatus("dirty");
+        return;
+      }
+
+      if (result.status === "error") {
+        if (id === savingId) {
+          setStatus("error");
+          setErrorMsg(result.message);
+        }
+        return;
+      }
+
+      if (result.status === "conflict_resolved" && result.kept === "remote") {
+        // Editor reloads via albireus:note-reload
+        return;
+      }
+
+      if (result.status === "saved" || result.status === "conflict_resolved") {
+        baseUpdatedAtRef.current = result.updatedAt;
+      }
+
       try {
         await pushNoteVersion(savingId, draft.title, nextBody);
       } catch {
@@ -1170,6 +1303,7 @@ function NotePageInner() {
   const statusLabel =
     status === "saving" ? "儲存中…"
       : status === "saved" ? "已自動儲存"
+        : status === "offline" ? "已離線儲存，上線後同步"
         : status === "dirty" ? "未儲存變更"
           : status === "error" ? errorMsg
             : "";

@@ -38,8 +38,9 @@ function canvasesCol(uid: string) {
   return collection(db, "users", uid, "canvases");
 }
 
-function docFromData(id: string, data: Record<string, unknown>): CanvasDoc & { id: string } {
+function docFromData(id: string, data: Record<string, unknown>): CanvasDoc & { id: string; updated_at?: Date } {
   const base = emptyDoc((data.name as string) || "白板");
+  const updated = data.updated_at as { toDate?: () => Date } | Date | undefined;
   return {
     ...base,
     ...data,
@@ -55,6 +56,12 @@ function docFromData(id: string, data: Record<string, unknown>): CanvasDoc & { i
     media: Array.isArray(data.media) ? (data.media as CanvasDoc["media"]) : [],
     grid: data.grid !== false,
     snap: data.snap !== false,
+    updated_at:
+      updated && typeof updated === "object" && "toDate" in updated && updated.toDate
+        ? updated.toDate()
+        : updated instanceof Date
+          ? updated
+          : undefined,
   };
 }
 

@@ -40,10 +40,30 @@ export type ChoiceResult<T extends string = string> = {
   remember: boolean;
 };
 
+export type ConflictSide = {
+  label: string;
+  updatedAt?: number | Date | null;
+  title?: string;
+  preview: string;
+};
+
+export type ConflictDialogOptions = {
+  title?: string;
+  message?: string;
+  local: ConflictSide;
+  remote: ConflictSide;
+  keepLocalLabel?: string;
+  keepRemoteLabel?: string;
+  cancelLabel?: string;
+};
+
+export type ConflictChoice = "local" | "remote";
+
 type DialogApi = {
   prompt: (opts: PromptDialogOptions) => Promise<string | null>;
   confirm: (opts: ConfirmDialogOptions) => Promise<boolean>;
   choice: <T extends string>(opts: ChoiceDialogOptions<T>) => Promise<ChoiceResult<T> | null>;
+  conflict: (opts: ConflictDialogOptions) => Promise<ConflictChoice | null>;
 };
 
 let api: DialogApi | null = null;
@@ -88,4 +108,9 @@ export function askChoice<T extends string>(
   opts: ChoiceDialogOptions<T>
 ): Promise<ChoiceResult<T> | null> {
   return ensureApi().choice(opts);
+}
+
+/** Offline / multi-device conflict: preview both sides, pick local or remote. */
+export function askConflict(opts: ConflictDialogOptions): Promise<ConflictChoice | null> {
+  return ensureApi().conflict(opts);
 }

@@ -7,7 +7,7 @@ import {
 import {
   getFirestore, collection, doc, setDoc,
   query, where, onSnapshot, updateDoc, deleteDoc,
-  Timestamp, Unsubscribe, getDoc, getDocs
+  Timestamp, Unsubscribe, getDoc, getDocs, runTransaction,
 } from "firebase/firestore";
 import {
   getStorage, ref, uploadBytesResumable, getDownloadURL, getBytes, deleteObject,
@@ -425,71 +425,118 @@ export async function createNote(
   return id;
 }
 
+export class NoteConflictError extends Error {
+  remote: Note;
+  constructor(remote: Note) {
+    super("NOTE_CONFLICT");
+    this.name = "NoteConflictError";
+    this.remote = remote;
+  }
+}
+
+function noteFromSnap(id: string, data: Record<string, unknown>): Note {
+  const appLink =
+    data.app_link && typeof data.app_link === "object"
+      ? (data.app_link as Note["app_link"])
+      : undefined;
+  const created = data.created_at as { toDate?: () => Date } | Date | undefined;
+  const updated = data.updated_at as { toDate?: () => Date } | Date | undefined;
+  return {
+    id,
+    ...(data as Omit<Note, "id" | "created_at" | "updated_at" | "app_link">),
+    app_link: appLink,
+    created_at: (created && typeof created === "object" && "toDate" in created && created.toDate
+      ? created.toDate()
+      : created instanceof Date
+        ? created
+        : new Date()) as Date,
+    updated_at: (updated && typeof updated === "object" && "toDate" in updated && updated.toDate
+      ? updated.toDate()
+      : updated instanceof Date
+        ? updated
+        : new Date()) as Date,
+  };
+}
+
+export type NoteUpdateFields = Partial<
+  Pick<
+    Note,
+    | "title"
+    | "body_md"
+    | "tags"
+    | "folder"
+    | "journal_date"
+    | "status"
+    | "icon"
+    | "color"
+    | "cover"
+    | "parent_id"
+    | "sort_order"
+    | "deck"
+    | "database_id"
+    | "props"
+    | "share"
+    | "source_job_id"
+    | "app_link"
+  >
+>;
+
 export async function updateNote(
   noteId: string,
-  updates: Partial<
-    Pick<
-      Note,
-      | "title"
-      | "body_md"
-      | "tags"
-      | "folder"
-      | "journal_date"
-      | "status"
-      | "icon"
-      | "color"
-      | "cover"
-      | "parent_id"
-      | "sort_order"
-      | "deck"
-      | "database_id"
-      | "props"
-      | "share"
-      | "source_job_id"
-      | "app_link"
-    >
-  >,
-  options?: { silent?: boolean }
-) {
+  updates: NoteUpdateFields,
+  options?: {
+    silent?: boolean;
+    /** Conflict if cloud `updated_at` is newer than this ms / Date */
+    expectedUpdatedAt?: number | Date;
+    /** Skip conflict check and overwrite */
+    force?: boolean;
+  }
+): Promise<{ updatedAt: number }> {
+  const now = Timestamp.now();
   const payload: Record<string, unknown> = { ...updates };
-  if (!options?.silent) payload.updated_at = Timestamp.now();
-  await updateDoc(doc(db, "notes", noteId), payload);
+  if (!options?.silent) payload.updated_at = now;
+  const updatedAtMs = now.toMillis();
+
+  const expectedMs =
+    options?.expectedUpdatedAt == null
+      ? null
+      : typeof options.expectedUpdatedAt === "number"
+        ? options.expectedUpdatedAt
+        : options.expectedUpdatedAt.getTime();
+
+  const useConflictCheck =
+    !options?.force && !options?.silent && expectedMs != null && Number.isFinite(expectedMs);
+
+  if (!useConflictCheck) {
+    await updateDoc(doc(db, "notes", noteId), payload);
+    return { updatedAt: updatedAtMs };
+  }
+
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, "notes", noteId);
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("筆記不存在");
+    const data = snap.data() as Record<string, unknown>;
+    const remoteTs = data.updated_at as { toMillis?: () => number } | undefined;
+    const remoteMs = remoteTs?.toMillis?.() ?? 0;
+    if (remoteMs > expectedMs!) {
+      throw new NoteConflictError(noteFromSnap(snap.id, data));
+    }
+    tx.update(ref, payload);
+  });
+  return { updatedAt: updatedAtMs };
 }
 
 export async function getNote(noteId: string): Promise<Note | null> {
   const snap = await getDoc(doc(db, "notes", noteId));
   if (!snap.exists()) return null;
-  const data = snap.data();
-  const appLink =
-    data.app_link && typeof data.app_link === "object"
-      ? (data.app_link as Note["app_link"])
-      : undefined;
-  return {
-    id: snap.id,
-    ...data,
-    app_link: appLink,
-    created_at: data.created_at?.toDate?.() || new Date(),
-    updated_at: data.updated_at?.toDate?.() || new Date(),
-  } as Note;
+  return noteFromSnap(snap.id, snap.data() as Record<string, unknown>);
 }
 
 export function listenToUserNotes(uid: string, callback: (notes: Note[]) => void): Unsubscribe {
   const q = query(collection(db, "notes"), where("user_id", "==", uid));
   return onSnapshot(q, (snap) => {
-    const notes = snap.docs.map((d) => {
-      const data = d.data();
-      const appLink =
-        data.app_link && typeof data.app_link === "object"
-          ? (data.app_link as Note["app_link"])
-          : undefined;
-      return {
-        id: d.id,
-        ...data,
-        app_link: appLink,
-        created_at: data.created_at?.toDate?.() || new Date(),
-        updated_at: data.updated_at?.toDate?.() || new Date(),
-      } as Note;
-    });
+    const notes = snap.docs.map((d) => noteFromSnap(d.id, d.data() as Record<string, unknown>));
     notes.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
     callback(notes);
   });

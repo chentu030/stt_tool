@@ -24,6 +24,7 @@ import {
   lastBoardKey,
   type BoardConfig,
 } from "@/lib/boardStore";
+import { saveBoardWithSync } from "@/lib/offlineSync";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -433,7 +434,10 @@ export default function BoardByIdPage() {
     const next = board.folders.includes(folder)
       ? board.folders.filter((f) => f !== folder)
       : [...board.folders, folder];
-    await updateBoard(user.uid, board.id, { folders: next });
+    await saveBoardWithSync(user.uid, board.id, { folders: next }, {
+      baseUpdatedAt: board.updated_at.getTime(),
+      label: board.name,
+    });
   };
 
   const toggleScopeTag = async (tag: string) => {
@@ -441,7 +445,10 @@ export default function BoardByIdPage() {
     const next = board.tags.includes(tag)
       ? board.tags.filter((t) => t !== tag)
       : [...board.tags, tag];
-    await updateBoard(user.uid, board.id, { tags: next });
+    await saveBoardWithSync(user.uid, board.id, { tags: next }, {
+      baseUpdatedAt: board.updated_at.getTime(),
+      label: board.name,
+    });
   };
 
   const toggleScopeStatus = async (status: BoardStatus) => {
@@ -449,12 +456,18 @@ export default function BoardByIdPage() {
     const next = board.statuses.includes(status)
       ? board.statuses.filter((s) => s !== status)
       : [...board.statuses, status];
-    await updateBoard(user.uid, board.id, { statuses: next });
+    await saveBoardWithSync(user.uid, board.id, { statuses: next }, {
+      baseUpdatedAt: board.updated_at.getTime(),
+      label: board.name,
+    });
   };
 
   const clearScope = async (kind: "folders" | "tags" | "statuses") => {
     if (!user || !board) return;
-    await updateBoard(user.uid, board.id, { [kind]: [] });
+    await saveBoardWithSync(user.uid, board.id, { [kind]: [] }, {
+      baseUpdatedAt: board.updated_at.getTime(),
+      label: board.name,
+    });
   };
 
   const addScopeFolder = async () => {
@@ -467,9 +480,9 @@ export default function BoardByIdPage() {
     if (raw === null) return;
     const folder = raw.trim();
     if (board.folders.includes(folder)) return;
-    await updateBoard(user.uid, board.id, {
+    await saveBoardWithSync(user.uid, board.id, {
       folders: [...board.folders, folder],
-    });
+    }, { baseUpdatedAt: board.updated_at.getTime(), label: board.name });
   };
 
   const addScopeTag = async () => {
@@ -482,7 +495,10 @@ export default function BoardByIdPage() {
     if (raw === null) return;
     const tag = raw.trim().replace(/^#/, "");
     if (!tag || board.tags.includes(tag)) return;
-    await updateBoard(user.uid, board.id, { tags: [...board.tags, tag] });
+    await saveBoardWithSync(user.uid, board.id, { tags: [...board.tags, tag] }, {
+      baseUpdatedAt: board.updated_at.getTime(),
+      label: board.name,
+    });
   };
 
   const onCreateBoard = async () => {
@@ -500,7 +516,11 @@ export default function BoardByIdPage() {
 
   const onRenameBoard = async (id: string, name: string) => {
     if (!user) return;
-    await updateBoard(user.uid, id, { name });
+    const target = boards.find((b) => b.id === id);
+    await saveBoardWithSync(user.uid, id, { name }, {
+      baseUpdatedAt: target?.updated_at.getTime() || Date.now(),
+      label: name,
+    });
     toast("已重新命名");
   };
 

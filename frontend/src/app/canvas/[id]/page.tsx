@@ -62,12 +62,12 @@ import {
   listenCanvases,
   listenCanvas,
   createCanvas,
-  saveCanvas,
   renameCanvas,
   deleteCanvas,
   lastCanvasKey,
   type CanvasMeta,
 } from "@/lib/canvasCloud";
+import { saveCanvasWithSync } from "@/lib/offlineSync";
 import { usePrefs } from "@/components/PrefsProvider";
 import { useRedirectSpecialtyToNote } from "@/components/workspace/useRedirectSpecialtyToNote";
 
@@ -106,6 +106,7 @@ export default function CanvasIdPage() {
   const [stageAiAnchor, setStageAiAnchor] = useState<{ top: number; left: number } | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const skipCloud = useRef(false);
+  const baseUpdatedAt = useRef(0);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
   const drag = useRef<{
     mode: "move" | "pan" | "marquee" | "resize";
@@ -139,22 +140,38 @@ export default function CanvasIdPage() {
         return;
       }
       if (skipCloud.current) return;
+      const withAt = d as CanvasDoc & { updated_at?: Date };
+      if (withAt.updated_at) baseUpdatedAt.current = withAt.updated_at.getTime();
       setDoc(d);
       setReady(true);
       localStorage.setItem(lastCanvasKey(user.uid), canvasId);
     });
-    return () => unsub();
+    const onReload = (ev: Event) => {
+      const id = (ev as CustomEvent<{ canvasId?: string }>).detail?.canvasId;
+      if (id && id !== canvasId) return;
+      // Force next snapshot apply
+      skipCloud.current = false;
+    };
+    window.addEventListener("albireus:canvas-reload", onReload);
+    return () => {
+      unsub();
+      window.removeEventListener("albireus:canvas-reload", onReload);
+    };
   }, [user, canvasId, router]);
 
   useEffect(() => {
     if (!user || !canvasId || !ready) return;
     const t = setTimeout(() => {
       skipCloud.current = true;
-      void saveCanvas(user.uid, canvasId, doc).finally(() => {
-        setTimeout(() => {
-          skipCloud.current = false;
-        }, 200);
-      });
+      void saveCanvasWithSync(user.uid, canvasId, doc, baseUpdatedAt.current || Date.now())
+        .then((status) => {
+          if (status === "saved") baseUpdatedAt.current = Date.now();
+        })
+        .finally(() => {
+          setTimeout(() => {
+            skipCloud.current = false;
+          }, 200);
+        });
     }, 500);
     return () => clearTimeout(t);
   }, [doc, user, canvasId, ready]);

@@ -18,6 +18,9 @@ import {
   type ChoiceOption,
   type ChoiceResult,
   type ConfirmDialogOptions,
+  type ConflictChoice,
+  type ConflictDialogOptions,
+  type ConflictSide,
   type PromptDialogOptions,
 } from "@/lib/dialogs";
 
@@ -33,10 +36,27 @@ type ChoiceState = ChoiceDialogOptions<string> & {
   resolve: (value: ChoiceResult<string> | null) => void;
 };
 
+type ConflictState = ConflictDialogOptions & {
+  resolve: (value: ConflictChoice | null) => void;
+};
+
+function formatConflictTime(ms?: number | Date | null): string {
+  if (ms == null) return "未知時間";
+  const d = typeof ms === "number" ? new Date(ms) : ms;
+  if (Number.isNaN(d.getTime())) return "未知時間";
+  return d.toLocaleString("zh-TW", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function DialogProvider({ children }: { children: ReactNode }) {
   const [promptState, setPromptState] = useState<PromptState | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [choiceState, setChoiceState] = useState<ChoiceState | null>(null);
+  const [conflictState, setConflictState] = useState<ConflictState | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -47,6 +67,10 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
     return new Promise<string | null>((resolve) => {
       setConfirmState(null);
       setChoiceState((prev) => {
+        prev?.resolve(null);
+        return null;
+      });
+      setConflictState((prev) => {
         prev?.resolve(null);
         return null;
       });
@@ -61,6 +85,10 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
         prev?.resolve(null);
         return null;
       });
+      setConflictState((prev) => {
+        prev?.resolve(null);
+        return null;
+      });
       setConfirmState({ ...opts, resolve });
     });
   }, []);
@@ -69,6 +97,10 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
     return new Promise<ChoiceResult<T> | null>((resolve) => {
       setPromptState(null);
       setConfirmState(null);
+      setConflictState((prev) => {
+        prev?.resolve(null);
+        return null;
+      });
       setChoiceState((prev) => {
         prev?.resolve(null);
         return {
@@ -79,10 +111,25 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const conflict = useCallback((opts: ConflictDialogOptions) => {
+    return new Promise<ConflictChoice | null>((resolve) => {
+      setPromptState(null);
+      setConfirmState(null);
+      setChoiceState((prev) => {
+        prev?.resolve(null);
+        return null;
+      });
+      setConflictState((prev) => {
+        prev?.resolve(null);
+        return { ...opts, resolve };
+      });
+    });
+  }, []);
+
   useEffect(() => {
-    registerDialogApi({ prompt, confirm, choice });
+    registerDialogApi({ prompt, confirm, choice, conflict });
     return () => registerDialogApi(null);
-  }, [prompt, confirm, choice]);
+  }, [prompt, confirm, choice, conflict]);
 
   return (
     <>
@@ -119,6 +166,18 @@ export default function DialogProvider({ children }: { children: ReactNode }) {
             onClose={(value) => {
               choiceState.resolve(value);
               setChoiceState(null);
+            }}
+          />,
+          document.body
+        )}
+      {mounted &&
+        conflictState &&
+        createPortal(
+          <ConflictModal
+            state={conflictState}
+            onClose={(value) => {
+              conflictState.resolve(value);
+              setConflictState(null);
             }}
           />,
           document.body
@@ -390,6 +449,88 @@ function ChoiceModal({
         <div className="cadence-dialog-actions">
           <button type="button" className="btn btn-ghost" onClick={() => onClose(null)}>
             {state.cancelLabel || "取消"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConflictSideCard({ side }: { side: ConflictSide }) {
+  return (
+    <div className="cadence-conflict-side">
+      <div className="cadence-conflict-side-head">
+        <strong>{side.label}</strong>
+        <em>{formatConflictTime(side.updatedAt)}</em>
+      </div>
+      {side.title ? <p className="cadence-conflict-title">{side.title}</p> : null}
+      <pre className="cadence-conflict-preview">{side.preview || "（空白）"}</pre>
+    </div>
+  );
+}
+
+function ConflictModal({
+  state,
+  onClose,
+}: {
+  state: ConflictState;
+  onClose: (value: ConflictChoice | null) => void;
+}) {
+  const localRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    const t = window.setTimeout(() => localRef.current?.focus(), 20);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="cadence-dialog-backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose(null);
+      }}
+    >
+      <div
+        className="cadence-dialog cadence-dialog--conflict"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <h2 id={titleId} className="cadence-dialog-title">
+          {state.title || "內容衝突"}
+        </h2>
+        {state.message && <p className="cadence-dialog-msg">{state.message}</p>}
+        <div className="cadence-conflict-grid">
+          <ConflictSideCard side={state.local} />
+          <ConflictSideCard side={state.remote} />
+        </div>
+        <div className="cadence-dialog-actions cadence-conflict-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => onClose(null)}>
+            {state.cancelLabel || "稍後決定"}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => onClose("remote")}>
+            {state.keepRemoteLabel || "使用雲端版本"}
+          </button>
+          <button
+            ref={localRef}
+            type="button"
+            className="btn"
+            onClick={() => onClose("local")}
+          >
+            {state.keepLocalLabel || "使用我的版本"}
           </button>
         </div>
       </div>
