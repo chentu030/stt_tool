@@ -8893,13 +8893,18 @@ body.is-split-resizing iframe {
   -webkit-user-select: none;
   caret-color: transparent;
 }
-/* Note body: never allow casual cross-block text copy selection.
-   ProseMirror still paints TextSelection itself — JS must block that separately.
-   Only an armed top-level block opts into within-block text select. */
+/* Note body: text select inside blocks for copy.
+   Block rubber-band only while actively marquéeing (gutter / empty chrome / Alt). */
 .rich-editor .ProseMirror,
 .rich-editor .ProseMirror[contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+.rich-canvas.is-block-marquee .ProseMirror,
+.rich-canvas.is-block-marquee .ProseMirror[contenteditable="true"] {
   user-select: none !important;
   -webkit-user-select: none !important;
+  caret-color: transparent;
 }
 .rich-editor .ProseMirror > .is-text-edit-armed,
 .rich-editor .ProseMirror > .is-text-edit-armed * {
@@ -8908,8 +8913,8 @@ body.is-split-resizing iframe {
 }
 /* Prefer block rubber-band over text highlight until a line is clicked.
    Must beat global `.ProseMirror[contenteditable="true"] { user-select: text }`. */
-.rich-canvas.is-block-select-priority .ProseMirror,
-.rich-canvas.is-block-select-priority .ProseMirror[contenteditable="true"] {
+.rich-canvas.is-block-select-priority.is-block-marquee .ProseMirror,
+.rich-canvas.is-block-select-priority.is-block-marquee .ProseMirror[contenteditable="true"] {
   user-select: none !important;
   -webkit-user-select: none !important;
 }
