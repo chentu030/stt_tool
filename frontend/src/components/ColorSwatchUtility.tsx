@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ColorEyedropperTools from "@/components/ColorEyedropperTools";
 import {
+  isHostUtilityEnabled,
   loadColorSwatchHidden,
   loadColorSwatchOpen,
   saveColorSwatchHidden,
@@ -15,18 +16,33 @@ type Props = {
 };
 
 /**
- * Floating 色票工具 on note pages — host built-in utility (not an iframe extension).
+ * Floating 色票工具 on note pages — host built-in utility（擴充功能）.
  */
 export default function ColorSwatchUtility({ onApply }: Props) {
   const [ready, setReady] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [sample, setSample] = useState("#0d9488");
 
   useEffect(() => {
-    setOpen(loadColorSwatchOpen());
-    setHidden(loadColorSwatchHidden());
-    setReady(true);
+    const sync = () => {
+      setEnabled(isHostUtilityEnabled("color-eyedropper"));
+      setOpen(loadColorSwatchOpen());
+      setHidden(loadColorSwatchHidden());
+      setReady(true);
+    };
+    sync();
+    const onUtil = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ id?: string }>).detail;
+      if (!detail?.id || detail.id === "color-eyedropper") sync();
+    };
+    window.addEventListener("albireus:utility-enabled", onUtil as EventListener);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("albireus:utility-enabled", onUtil as EventListener);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
 
   const setOpenPref = useCallback((next: boolean) => {
@@ -54,7 +70,7 @@ export default function ColorSwatchUtility({ onApply }: Props) {
     setOpenPref(true);
   }, [setOpenPref]);
 
-  if (!ready) return null;
+  if (!ready || !enabled) return null;
 
   if (hidden) {
     return (
@@ -104,7 +120,7 @@ export default function ColorSwatchUtility({ onApply }: Props) {
         <button
           type="button"
           className="ced-float-dismiss"
-          title="隱藏色票按鈕（可稍後從角落小圖示還原）"
+          title="隱藏色票（可在社群商店 → 擴充功能 重新啟用）"
           aria-label="隱藏色票"
           onClick={dismissChip}
         >

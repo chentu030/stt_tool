@@ -2,7 +2,7 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { askPrompt, askConfirm } from "@/lib/dialogs";
+import { askPrompt, askConfirm, askChoice } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import {
   resolveMediaIngestChoice,
@@ -133,7 +133,7 @@ function NotePageInner() {
   // so `|| searchParams` would revive a closed split and make the × button look dead.
   const splitId = tabs ? tabs.splitId : searchParams.get("split") || null;
   const [splitLayout, setSplitLayout] = useNoteSplitLayout();
-  const { user, loading } = useAuth();
+  const { user, loading, displayName, photoURL } = useAuth();
   const prefsCtx = usePrefsOptional();
   const community = useCommunityOptional();
   const noteTemplates = useMemo(
@@ -1817,6 +1817,61 @@ function NotePageInner() {
                   { label: "複製連結", fn: () => copyLink() },
                   ...(viewMode === "write"
                     ? [
+                        {
+                          label: "分享為社群模板",
+                          fn: () => {
+                            if (!user) return;
+                            void (async () => {
+                              const name =
+                                (await askPrompt({
+                                  title: "模板名稱",
+                                  defaultValue: title || "未命名模板",
+                                  placeholder: "顯示在社群商店的名稱",
+                                })) || "";
+                              if (!name.trim()) return;
+                              const description =
+                                (await askPrompt({
+                                  title: "模板簡介（選填）",
+                                  defaultValue: "",
+                                  placeholder: "別人會看到的說明",
+                                })) ?? "";
+                              const pricing = await askChoice({
+                                title: "上架方式",
+                                message: "選擇免費或收費（收費目前僅標記，尚未開放購買）。",
+                                options: [
+                                  { id: "free", label: "免費" },
+                                  { id: "paid", label: "收費" },
+                                ],
+                              });
+                              if (!pricing) return;
+                              try {
+                                toast("正在上傳模板…");
+                                const { publishNoteAsCommunityTemplate } = await import(
+                                  "@/lib/community/publish"
+                                );
+                                const pack = await publishNoteAsCommunityTemplate({
+                                  uid: user.uid,
+                                  authorName: displayName || user.email?.split("@")[0] || "匿名",
+                                  authorPhoto: photoURL || undefined,
+                                  note: {
+                                    title,
+                                    body_md: body,
+                                    icon: icon || undefined,
+                                    cover: cover || undefined,
+                                    tags,
+                                  },
+                                  name: name.trim(),
+                                  description: description.trim(),
+                                  paid: pricing.choice === "paid",
+                                });
+                                toast("已分享到社群商店「模板」");
+                                router.push(`/community/${pack.id}?kind=template`);
+                              } catch (e) {
+                                toast(e instanceof Error ? e.message : "分享失敗");
+                              }
+                            })();
+                          },
+                        },
                         { label: "複製筆記", fn: () => duplicate() },
                       ]
                     : []),

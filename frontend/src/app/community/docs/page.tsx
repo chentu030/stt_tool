@@ -49,13 +49,13 @@ export default function CommunityDocsPage() {
             <code>name</code>、<code>version</code>（semver）、<code>description</code>、<code>author</code>
           </li>
           <li>
-            <code>paid</code>（選填）：設為 <code>true</code> 即為收費套件，會出現在「收費擴充」分頁；一般使用者無法直接安裝／下載（購買流程尚未開放）
+            <code>paid</code>（選填）：設為 <code>true</code> 即為收費套件；商店可用「免費／收費」篩選。一般使用者無法直接安裝／下載（購買流程尚未開放）
           </li>
         </ul>
       </section>
 
       <section>
-        <h2>擴充功能（extension）</h2>
+        <h2>擴充頁面（extension）</h2>
         <pre className="community-code">{`{
   "schema": 1,
   "kind": "extension",

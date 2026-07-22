@@ -470,3 +470,73 @@ export function buildDraftManifest(opts: {
 }
 
 export { sanitizePackageId, parseManifestJsonText };
+
+const DEFAULT_TEMPLATE_COVER =
+  "https://images.unsplash.com/photo-1455390582262-044cdead277a?w=800&q=60";
+
+/** Share the current note as a one-page community template. */
+export async function publishNoteAsCommunityTemplate(opts: {
+  uid: string;
+  authorName: string;
+  authorPhoto?: string;
+  note: {
+    title: string;
+    body_md: string;
+    icon?: string;
+    cover?: string;
+    tags?: string[];
+  };
+  /** Catalog display name (defaults to note title) */
+  name?: string;
+  description?: string;
+  category?: string;
+  paid?: boolean;
+  onProgress?: (msg: string) => void;
+}): Promise<PublishedPackage> {
+  const title = (opts.name || opts.note.title || "未命名模板").trim() || "未命名模板";
+  const slugBase = sanitizePackageId(
+    `note-${opts.uid.slice(0, 6)}-${title}`.slice(0, 48)
+  );
+  const id = `${slugBase}-${Date.now().toString(36).slice(-4)}`;
+  const file = "page.md";
+  const body = (opts.note.body_md || "").trim() || `# ${title}\n\n`;
+  const manifest = buildDraftManifest({
+    kind: "template",
+    id,
+    name: title,
+    version: "1.0.0",
+    description:
+      (opts.description || "").trim() ||
+      `由筆記「${opts.note.title || title}」分享的社群模板`,
+    author: opts.authorName || "匿名",
+    category: opts.category || "筆記",
+    icon: opts.note.icon || "description",
+    pages: [
+      {
+        title,
+        file,
+        body,
+        icon: opts.note.icon,
+        tags: opts.note.tags,
+      },
+    ],
+    paid: opts.paid,
+  }) as TemplateManifest;
+
+  manifest.cover = (opts.note.cover || "").trim() || DEFAULT_TEMPLATE_COVER;
+  if (opts.note.tags?.length) {
+    // tags live on CatalogEntry via publish input
+  }
+
+  return publishCommunityPackage({
+    uid: opts.uid,
+    authorName: opts.authorName,
+    authorPhoto: opts.authorPhoto,
+    manifest,
+    readmeMd: `# ${title}\n\n由使用者從筆記頁面分享到社群商店。\n`,
+    templateFiles: { [file]: body },
+    tags: opts.note.tags || ["筆記分享"],
+    paid: opts.paid,
+    onProgress: opts.onProgress,
+  });
+}

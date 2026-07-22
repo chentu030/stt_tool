@@ -24,7 +24,13 @@ import {
 } from "@/lib/community/store";
 import { getLocalRating } from "@/lib/community/ratings";
 import { isNewerVersion } from "@/lib/community/semver";
-import type { CatalogEntry, InstalledTemplate } from "@/lib/community/types";
+import {
+  isHostUtilityEnabled,
+  setHostUtilityEnabled,
+  uninstallHostUtility,
+  HOST_UTILITIES,
+} from "@/lib/hostUtilities";
+import { communityKindLabel, type CatalogEntry, type InstalledTemplate } from "@/lib/community/types";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import ScrambleText from "@/components/motion/ScrambleText";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
@@ -51,9 +57,9 @@ import {
   restoreLibraryBackup,
 } from "@/lib/community/libraryBackup";
 
-type Tab = "extensions" | "templates" | "paid" | "installed";
+type Tab = "pages" | "utilities" | "templates" | "installed";
 type SortKey = "featured" | "rating" | "name" | "downloads";
-type ScopeFilter = "" | "installed" | "not_installed" | "favorites" | "recent";
+type ScopeFilter = "" | "installed" | "not_installed" | "favorites" | "recent" | "free" | "paid";
 
 export default function CommunityStorePage() {
   const { user, loading } = useAuth();
@@ -61,7 +67,7 @@ export default function CommunityStorePage() {
   const prefsCtx = usePrefs();
   const { extensions, templates, enabledExtensions, ready, safeMode, refreshSafeMode } =
     useCommunity();
-  const [tab, setTab] = useState<Tab>("extensions");
+  const [tab, setTab] = useState<Tab>("pages");
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
   const [scope, setScope] = useState<ScopeFilter>("");
@@ -73,6 +79,7 @@ export default function CommunityStorePage() {
   const [installedQ, setInstalledQ] = useState("");
   const [ack, setAck] = useState(false);
   const [favTick, setFavTick] = useState(0);
+  const [utilTick, setUtilTick] = useState(0);
   const [publishedExtra, setPublishedExtra] = useState<CatalogEntry[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const libraryBackupRef = useRef<HTMLInputElement>(null);
@@ -114,9 +121,9 @@ export default function CommunityStorePage() {
   const categories = useMemo(() => {
     const s = new Set<string>();
     for (const c of catalog) {
-      if (tab === "extensions" && c.kind !== "extension") continue;
+      if (tab === "pages" && c.kind !== "extension") continue;
+      if (tab === "utilities" && c.kind !== "utility") continue;
       if (tab === "templates" && c.kind !== "template") continue;
-      if (tab === "paid" && !c.paid) continue;
       if (c.category) s.add(c.category);
       (c.tags || []).forEach((t) => s.add(t));
     }
@@ -129,9 +136,11 @@ export default function CommunityStorePage() {
     const recentIds = getRecentPackageIds();
     const recentSet = new Set(recentIds);
     let list = catalog.filter((c) => {
-      if (tab === "extensions" && c.kind !== "extension") return false;
+      if (tab === "pages" && c.kind !== "extension") return false;
+      if (tab === "utilities" && c.kind !== "utility") return false;
       if (tab === "templates" && c.kind !== "template") return false;
-      if (tab === "paid" && !c.paid) return false;
+      if (scope === "paid" && !c.paid) return false;
+      if (scope === "free" && c.paid) return false;
       if (category) {
         const hit =
           c.category === category || (c.tags || []).includes(category);
@@ -140,7 +149,9 @@ export default function CommunityStorePage() {
       const isInstalled =
         c.kind === "extension"
           ? installedExtIds.has(c.id)
-          : installedTplIds.has(c.id);
+          : c.kind === "template"
+            ? installedTplIds.has(c.id)
+            : isHostUtilityEnabled(c.id);
       if (scope === "installed" && !isInstalled) return false;
       if (scope === "not_installed" && isInstalled) return false;
       if (scope === "favorites" && !favIds.has(c.id)) return false;
@@ -181,6 +192,7 @@ export default function CommunityStorePage() {
     installedExtIds,
     installedTplIds,
     favTick,
+    utilTick,
   ]);
 
   const featured = useMemo(
@@ -193,7 +205,7 @@ export default function CommunityStorePage() {
     setBusy(true);
     try {
       const result = await installFromSource(user.uid, source, { email: user.email });
-      toast(result.kind === "extension" ? "已安裝擴充功能" : "已安裝模板");
+      toast(result.kind === "extension" ? "已安裝擴充頁面" : "已安裝模板");
       if (result.kind === "extension") setTab("installed");
     } catch (e) {
       toast(e instanceof Error ? e.message : "安裝失敗");
@@ -207,7 +219,7 @@ export default function CommunityStorePage() {
     setBusy(true);
     try {
       const result = await installFromFile(user.uid, file, { email: user.email });
-      toast(result.kind === "extension" ? "已匯入擴充功能" : "已匯入模板");
+      toast(result.kind === "extension" ? "已匯入擴充頁面" : "已匯入模板");
       setTab("installed");
     } catch (e) {
       toast(e instanceof Error ? e.message : "匯入失敗");
@@ -389,7 +401,7 @@ export default function CommunityStorePage() {
     return (
       <div className="community-page">
         <ScrambleText words="社群" as="h1" className="page-title font-display" />
-        <p className="page-sub">登入後瀏覽擴充功能與模板商店。</p>
+        <p className="page-sub">登入後瀏覽擴充頁面、擴充功能與模板。</p>
         <button type="button" className="btn" onClick={() => void loginWithGoogle()}>
           登入
         </button>
@@ -398,7 +410,7 @@ export default function CommunityStorePage() {
   }
 
   const showCollections =
-    (tab === "extensions" || tab === "templates") && !q && !category && !scope;
+    (tab === "pages" || tab === "templates") && !q && !category && !scope;
 
   return (
     <div className="community-page">
@@ -406,7 +418,7 @@ export default function CommunityStorePage() {
         <div>
           <ScrambleText words="社群商店" as="h1" className="page-title font-display" />
           <p className="page-sub">
-            探索擴充功能與模板：瀏覽、預覽、安裝與更新。支援 GitHub 與本機檔案匯入。
+            擴充頁面（獨立頁）、擴充功能（如色票工具）、模板（筆記結構）— 皆含免費與收費。可從筆記頁分享自己的模板到社群。
           </p>
           <div className="community-hero-links">
             <Link href="/community/docs">開發文件</Link>
@@ -459,7 +471,7 @@ export default function CommunityStorePage() {
         <div className="community-ack-banner doc-banner-ingest" role="status">
           <div className="doc-banner-ingest-main">
             <strong>安全模式已開啟</strong>
-            <p>擴充功能已從側欄隱藏，且不會載入到筆記頁面。</p>
+            <p>擴充頁面已從側欄隱藏，且不會載入到筆記頁面。</p>
           </div>
         </div>
       )}
@@ -469,7 +481,7 @@ export default function CommunityStorePage() {
           <div className="doc-banner-ingest-main">
             <strong>啟用社群套件</strong>
             <p>
-              社群擴充以沙箱 iframe 載入；模板會寫入知識庫。請只安裝你信任的來源。
+              社群擴充頁面以沙箱 iframe 載入；擴充功能由主程式提供；模板會寫入知識庫。請只安裝你信任的來源。
             </p>
             <div className="doc-banner-ingest-actions">
               <button
@@ -491,9 +503,9 @@ export default function CommunityStorePage() {
         <div className="community-tabs" role="tablist">
           {(
             [
-              ["extensions", "擴充功能"],
+              ["pages", "擴充頁面"],
+              ["utilities", "擴充功能"],
               ["templates", "模板"],
-              ["paid", "收費擴充"],
               ["installed", "已安裝"],
             ] as const
           ).map(([id, label]) => (
@@ -507,12 +519,15 @@ export default function CommunityStorePage() {
             >
               {label}
               {id === "installed" && (
-                <span className="community-tab-count">{extensions.length + templates.length}</span>
-              )}
-              {id === "paid" && (
                 <span className="community-tab-count">
-                  {catalog.filter((c) => c.paid).length}
+                  {extensions.length + templates.length + HOST_UTILITIES.filter((u) => isHostUtilityEnabled(u.id)).length}
                 </span>
+              )}
+              {id === "utilities" && (
+                <span className="community-tab-count">{catalog.filter((c) => c.kind === "utility").length}</span>
+              )}
+              {id === "pages" && (
+                <span className="community-tab-count">{catalog.filter((c) => c.kind === "extension").length}</span>
               )}
             </button>
           ))}
@@ -601,8 +616,10 @@ export default function CommunityStorePage() {
             {(
               [
                 ["", "全部"],
-                ["installed", "已安裝"],
-                ["not_installed", "未安裝"],
+                ["free", "免費"],
+                ["paid", "收費"],
+                ["installed", "已啟用／已安裝"],
+                ["not_installed", "未啟用／未安裝"],
                 ["favorites", "收藏"],
                 ["recent", "最近瀏覽"],
               ] as const
@@ -652,9 +669,9 @@ export default function CommunityStorePage() {
       {tab === "installed" ? (
         <div className="community-installed">
           <section>
-            <h2>擴充功能（{installedFiltered.ex.length}）</h2>
+            <h2>擴充頁面（{installedFiltered.ex.length}）</h2>
             {installedFiltered.ex.length === 0 ? (
-              <p className="community-empty">尚未安裝擴充。到「擴充功能」分頁安裝後，會出現在側欄「頁面」。</p>
+              <p className="community-empty">尚未安裝擴充頁面。到「擴充頁面」分頁安裝後，會出現在側欄「頁面」。</p>
             ) : (
               <div className="community-grid">
                 {installedFiltered.ex.map((ext) => (
@@ -721,6 +738,79 @@ export default function CommunityStorePage() {
                 ))}
               </div>
             )}
+          </section>
+          <section>
+            <h2>擴充功能（{HOST_UTILITIES.length}）</h2>
+            <div className="community-grid">
+              {HOST_UTILITIES.map((u) => {
+                const on = isHostUtilityEnabled(u.id);
+                return (
+                  <article key={u.id} className="community-card">
+                    <div className="community-card-top">
+                      <PageChromeIcon icon={u.icon} fallback="build" />
+                      <div>
+                        <strong>{u.name}</strong>
+                        <span>
+                          Albireus · 內建擴充功能
+                          {u.paid ? " · 收費" : " · 免費"}
+                          {on ? " · 已啟用" : " · 已移除"}
+                        </span>
+                      </div>
+                    </div>
+                    <p>{u.description}</p>
+                    <div className="community-card-actions">
+                      {on ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() => {
+                              setHostUtilityEnabled(u.id, false);
+                              setUtilTick((t) => t + 1);
+                              toast("已停用");
+                            }}
+                          >
+                            停用
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() =>
+                              void (async () => {
+                                const ok = await askConfirm({
+                                  title: `移除「${u.name}」？`,
+                                  message: "可之後在「擴充功能」分頁重新啟用。",
+                                  danger: true,
+                                  confirmLabel: "移除",
+                                });
+                                if (!ok) return;
+                                uninstallHostUtility(u.id);
+                                setUtilTick((t) => t + 1);
+                                toast("已移除");
+                              })()
+                            }
+                          >
+                            移除
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => {
+                            setHostUtilityEnabled(u.id, true);
+                            setUtilTick((t) => t + 1);
+                            toast("已啟用");
+                          }}
+                        >
+                          重新啟用
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </section>
           <section>
             <h2>模板（{installedFiltered.tp.length}）</h2>
@@ -803,7 +893,7 @@ export default function CommunityStorePage() {
                 .map((id) => catalog.find((c) => c.id === id))
                 .filter((c): c is CatalogEntry => {
                   if (!c) return false;
-                  if (tab === "extensions") return c.kind === "extension";
+                  if (tab === "pages") return c.kind === "extension";
                   return c.kind === "template";
                 });
               if (packs.length === 0) return null;
@@ -821,20 +911,13 @@ export default function CommunityStorePage() {
                       <CatalogCard
                         key={`col-${col.id}-${entry.kind}-${entry.id}`}
                         entry={entry}
-                        installed={
-                          entry.kind === "extension"
-                            ? installedExtIds.has(entry.id)
-                            : installedTplIds.has(entry.id)
-                        }
+                        installed={catalogInstalled(entry, installedExtIds, installedTplIds)}
                         busy={busy}
                         viewerEmail={user?.email}
+                        utilTick={utilTick}
+                        onUtilChange={() => setUtilTick((t) => t + 1)}
                         onInstall={() => void doInstall(entry.source)}
-                        onOpen={() => {
-                          if (entry.kind === "template") {
-                            const tpl = templates.find((t) => t.id === entry.id);
-                            if (tpl) setPreviewTpl(tpl);
-                          } else router.push(`/ext/${entry.id}`);
-                        }}
+                        onOpen={() => openCatalogEntry(entry, templates, setPreviewTpl, router)}
                       />
                     ))}
                   </div>
@@ -849,20 +932,13 @@ export default function CommunityStorePage() {
                   <CatalogCard
                     key={`f-${entry.kind}-${entry.id}`}
                     entry={entry}
-                    installed={
-                      entry.kind === "extension"
-                        ? installedExtIds.has(entry.id)
-                        : installedTplIds.has(entry.id)
-                    }
+                    installed={catalogInstalled(entry, installedExtIds, installedTplIds)}
                     busy={busy}
                     viewerEmail={user?.email}
+                    utilTick={utilTick}
+                    onUtilChange={() => setUtilTick((t) => t + 1)}
                     onInstall={() => void doInstall(entry.source)}
-                    onOpen={() => {
-                      if (entry.kind === "template") {
-                        const tpl = templates.find((t) => t.id === entry.id);
-                        if (tpl) setPreviewTpl(tpl);
-                      } else router.push(`/ext/${entry.id}`);
-                    }}
+                    onOpen={() => openCatalogEntry(entry, templates, setPreviewTpl, router)}
                   />
                 ))}
               </div>
@@ -877,25 +953,22 @@ export default function CommunityStorePage() {
                 <CatalogCard
                   key={`${entry.kind}:${entry.id}`}
                   entry={entry}
-                  installed={
-                    entry.kind === "extension"
-                      ? installedExtIds.has(entry.id)
-                      : installedTplIds.has(entry.id)
-                  }
+                  installed={catalogInstalled(entry, installedExtIds, installedTplIds)}
                   busy={busy}
                   viewerEmail={user?.email}
+                  utilTick={utilTick}
+                  onUtilChange={() => setUtilTick((t) => t + 1)}
                   onInstall={() => void doInstall(entry.source)}
-                  onOpen={() => {
-                    if (entry.kind === "template") {
-                      const tpl = templates.find((t) => t.id === entry.id);
-                      if (tpl) setPreviewTpl(tpl);
-                    } else router.push(`/ext/${entry.id}`);
-                  }}
+                  onOpen={() => openCatalogEntry(entry, templates, setPreviewTpl, router)}
                 />
               ))}
             </div>
             {filteredCatalog.length === 0 && (
-              <p className="community-empty">沒有符合的項目。試試從 GitHub 安裝或匯入檔案。</p>
+              <p className="community-empty">
+                {tab === "utilities"
+                  ? "沒有符合的擴充功能。"
+                  : "沒有符合的項目。試試從 GitHub 安裝或匯入檔案。"}
+              </p>
             )}
           </section>
         </>
@@ -911,13 +984,39 @@ export default function CommunityStorePage() {
         />
       )}
 
-      {enabledExtensions.length > 0 && tab === "extensions" && (
+      {enabledExtensions.length > 0 && tab === "pages" && (
         <p className="community-footnote">
-          目前已啟用 {enabledExtensions.length} 個擴充，它們會顯示在左側「頁面」區域。
+          目前已啟用 {enabledExtensions.length} 個擴充頁面，它們會顯示在左側「頁面」區域。
         </p>
       )}
     </div>
   );
+}
+
+function catalogInstalled(
+  entry: CatalogEntry,
+  extIds: Set<string>,
+  tplIds: Set<string>
+): boolean {
+  if (entry.kind === "extension") return extIds.has(entry.id);
+  if (entry.kind === "template") return tplIds.has(entry.id);
+  return isHostUtilityEnabled(entry.id);
+}
+
+function openCatalogEntry(
+  entry: CatalogEntry,
+  templates: InstalledTemplate[],
+  setPreviewTpl: (t: InstalledTemplate) => void,
+  router: { push: (href: string) => void }
+) {
+  if (entry.kind === "template") {
+    const tpl = templates.find((t) => t.id === entry.id);
+    if (tpl) setPreviewTpl(tpl);
+    return;
+  }
+  if (entry.kind === "extension") {
+    router.push(`/ext/${entry.id}`);
+  }
 }
 
 function uidSafe(uid: string) {
@@ -931,6 +1030,8 @@ function CatalogCard({
   onInstall,
   onOpen,
   viewerEmail,
+  utilTick,
+  onUtilChange,
 }: {
   entry: CatalogEntry;
   installed: boolean;
@@ -938,7 +1039,91 @@ function CatalogCard({
   onInstall: () => void;
   onOpen: () => void;
   viewerEmail?: string | null;
+  utilTick?: number;
+  onUtilChange?: () => void;
 }) {
+  void utilTick;
+  if (entry.kind === "utility") {
+    const on = isHostUtilityEnabled(entry.id);
+    return (
+      <article className={`community-card${entry.paid ? " is-paid" : ""}`}>
+        <div
+          className="community-card-cover community-card-cover-fallback"
+          aria-hidden
+        >
+          <PageChromeIcon icon={entry.icon} fallback="build" />
+          <span>{entry.name}</span>
+        </div>
+        {entry.paid ? <span className="community-paid-badge">收費</span> : null}
+        <div className="community-card-top">
+          <PageChromeIcon icon={entry.icon} fallback="build" />
+          <div>
+            <strong>{entry.name}</strong>
+            <span>
+              {entry.author}
+              {entry.featured ? " · 精選" : ""}
+              {entry.category ? ` · ${entry.category}` : ""}
+              {entry.paid ? " · 收費" : " · 免費"}
+              {on ? " · 已啟用" : " · 已移除"}
+              {" · "}
+              {communityKindLabel("utility")}
+            </span>
+          </div>
+        </div>
+        <p>{entry.description}</p>
+        <div className="community-card-actions">
+          {on ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setHostUtilityEnabled(entry.id, false);
+                  onUtilChange?.();
+                  toast("已停用");
+                }}
+              >
+                停用
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() =>
+                  void (async () => {
+                    const ok = await askConfirm({
+                      title: `移除「${entry.name}」？`,
+                      message: "可之後在此重新啟用。",
+                      danger: true,
+                      confirmLabel: "移除",
+                    });
+                    if (!ok) return;
+                    uninstallHostUtility(entry.id);
+                    onUtilChange?.();
+                    toast("已移除");
+                  })()
+                }
+              >
+                移除
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setHostUtilityEnabled(entry.id, true);
+                onUtilChange?.();
+                toast("已啟用");
+              }}
+            >
+              啟用
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
+
   const userRating = typeof window !== "undefined" ? getLocalRating(entry.id) : null;
   return (
     <PackageCard

@@ -144,7 +144,7 @@ export function PackageCard({
       >
         <PageChromeIcon
           icon={entry.icon}
-          fallback={entry.kind === "extension" ? "extension" : "description"}
+          fallback={entry.kind === "extension" ? "extension" : entry.kind === "utility" ? "build" : "description"}
         />
         <span>{entry.name}</span>
       </div>
@@ -152,7 +152,7 @@ export function PackageCard({
       <div className="community-card-top">
         <PageChromeIcon
           icon={entry.icon}
-          fallback={entry.kind === "extension" ? "extension" : "description"}
+          fallback={entry.kind === "extension" ? "extension" : entry.kind === "utility" ? "build" : "description"}
         />
         <div>
           <strong>
@@ -163,8 +163,9 @@ export function PackageCard({
             <Link href={`/community/author/${encodeURIComponent(entry.author)}`}>{entry.author}</Link>
             {entry.featured ? " · 精選" : ""}
             {entry.category ? ` · ${entry.category}` : ""}
-            {paid ? " · 收費" : ""}
+            {paid ? " · 收費" : " · 免費"}
             {installed ? " · 已安裝" : ""}
+            {` · ${entry.kind === "extension" ? "擴充頁面" : entry.kind === "template" ? "模板" : "擴充功能"}`}
           </span>
         </div>
       </div>
@@ -483,7 +484,7 @@ export function PackageDetailBody({
             </div>
             <div>
               <dt>類型</dt>
-              <dd>{pack.manifest.kind === "extension" ? "擴充功能" : "模板"}</dd>
+              <dd>{pack.manifest.kind === "extension" ? "擴充頁面" : "模板"}</dd>
             </div>
             {(pack.manifest.category || entry?.category) && (
               <div>

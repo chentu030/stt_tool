@@ -5,7 +5,15 @@ export const ALBIREUS_MANIFEST = "albireus.json";
 /** App version used for minAppVersion checks (keep in sync with frontend package.json). */
 export const ALBIREUS_APP_VERSION = "0.1.0";
 
-export type CommunityPackageKind = "extension" | "template";
+export type CommunityPackageKind = "extension" | "utility" | "template";
+
+/** Product-facing label for store / cards. */
+export function communityKindLabel(kind: CommunityPackageKind | string): string {
+  if (kind === "extension") return "擴充頁面";
+  if (kind === "utility") return "擴充功能";
+  if (kind === "template") return "模板";
+  return "套件";
+}
 
 /** Declared capabilities — shown before install (Chrome/Obsidian-style transparency). */
 export type PackagePermission =
@@ -112,7 +120,7 @@ export type CatalogEntry = {
   cover?: string;
   screenshots?: string[];
   category?: string;
-  /** GitHub owner/repo or https URL to albireus.json / zip */
+  /** GitHub owner/repo, https URL, or builtin-utility:<id> */
   source: string;
   tags?: string[];
   featured?: boolean;

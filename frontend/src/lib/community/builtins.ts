@@ -4,9 +4,20 @@ import type { ResolvedPackage, StoreCollection } from "@/lib/community/types";
 import catalog from "@/lib/community/catalog.json";
 import collections from "@/lib/community/collections.json";
 import type { CatalogEntry } from "@/lib/community/types";
+import { hostUtilitiesToCatalogEntries } from "@/lib/hostUtilities";
 
+/** Seed catalog + built-in host utilities（擴充功能）. */
 export function getCatalog(): CatalogEntry[] {
-  return catalog as CatalogEntry[];
+  const base = catalog as CatalogEntry[];
+  const utils = hostUtilitiesToCatalogEntries();
+  const seen = new Set(base.map((c) => c.id));
+  const merged = [...base];
+  for (const u of utils) {
+    if (seen.has(u.id)) continue;
+    merged.push(u);
+    seen.add(u.id);
+  }
+  return merged;
 }
 
 export function getCollections(): StoreCollection[] {

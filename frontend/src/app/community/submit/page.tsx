@@ -202,7 +202,8 @@ export default function CommunitySubmitPage() {
                 setIcon("extension");
               }}
             >
-              <strong>擴充功能／擴充頁面</strong>
+              <strong>擴充頁面</strong>
+              <span>獨立工作區頁面（iframe）</span>
               <span>iframe 沙箱頁面，可上傳 zip 靜態檔由 Albireus 代管</span>
             </button>
             <button
