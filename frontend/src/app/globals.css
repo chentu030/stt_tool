@@ -8266,7 +8266,7 @@ body.is-split-resizing iframe {
   line-height: 1.45;
 }
 .note-ai-msg--user { background: var(--accent-soft); }
-.note-ai-msg span {
+.note-ai-msg-role {
   display: block;
   font-size: 0.68rem;
   color: var(--text-muted);
@@ -8352,6 +8352,14 @@ body.is-split-resizing iframe {
   text-align: center;
 }
 .note-ai-md .rich-math-block .katex-display { margin: 0.2em 0; }
+/* Don't let chat word-break collapse KaTeX into a vertical strip */
+.note-ai-md .katex,
+.note-ai-md .katex *,
+.note-ai-md .rich-math-inline,
+.note-ai-md .rich-math-block {
+  word-break: normal;
+  overflow-wrap: normal;
+}
 .note-ai-compose {
   display: grid;
   grid-template-columns: 1fr;

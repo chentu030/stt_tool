@@ -913,7 +913,7 @@ export default function GlobalAiDock() {
             <div className="cadence-ai-dock-msgs" ref={listRef}>
               {msgs.map((m) => (
                 <div key={m.id} className={`note-ai-msg note-ai-msg--${m.role}`}>
-                  <span>{m.role === "user" ? "你" : assistantName}</span>
+                  <span className="note-ai-msg-role">{m.role === "user" ? "你" : assistantName}</span>
                   {m.role === "assistant" ? (
                     <AiMarkdown text={m.text} />
                   ) : (
