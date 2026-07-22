@@ -2036,12 +2036,26 @@ def _google_stt_language(raw: Optional[str]) -> str:
 
 
 def _google_project_id() -> str:
-    return (
+    """Speech V2 needs project *ID* (e.g. stt-tool-f6e6d), not OAuth/client project number."""
+    for key in ("GOOGLE_STT_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"):
+        v = (os.environ.get(key) or "").strip()
+        if v and not v.isdigit():
+            return v
+    try:
+        name = getattr(bucket, "name", "") or ""
+        if name.endswith(".firebasestorage.app"):
+            return name[: -len(".firebasestorage.app")]
+        if name.endswith(".appspot.com"):
+            return name[: -len(".appspot.com")]
+    except Exception:
+        pass
+    raw = (
         os.environ.get("GCP_PROJECT")
-        or os.environ.get("GOOGLE_CLOUD_PROJECT")
         or os.environ.get("GCLOUD_PROJECT")
+        or os.environ.get("GOOGLE_CLOUD_PROJECT")
         or ""
     ).strip()
+    return raw
 
 
 def _google_stt_v2_language(raw: Optional[str]) -> str:
