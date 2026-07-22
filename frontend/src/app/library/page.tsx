@@ -43,6 +43,11 @@ import {
   searchNotes,
   tagBuckets,
 } from "@/lib/libraryIndex";
+import {
+  dataTransferHasFiles,
+  importMarkdownFilesAsNotes,
+  markdownFilesFromDataTransfer,
+} from "@/lib/importMarkdownNotes";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -73,6 +78,8 @@ function LibraryPageInner() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkFolder, setBulkFolder] = useState("");
+  const [mdDropOver, setMdDropOver] = useState(false);
+  const mdDragDepth = useRef(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -158,6 +165,37 @@ function LibraryPageInner() {
     }
   };
 
+  const importDroppedMarkdown = async (files: File[]) => {
+    if (!user || creating || !files.length) return;
+    setCreating(true);
+    setCreateError("");
+    try {
+      const tags = parseDefaultTags(prefs.defaultTags);
+      const folder = folderFilter || prefs.defaultFolder || "";
+      const { createdIds, skipped } = await importMarkdownFilesAsNotes(user.uid, files, {
+        folder,
+        defaultTags: tags,
+        defaultStatus: prefs.defaultStatus || "backlog",
+      });
+      if (createdIds.length) {
+        toast(
+          createdIds.length === 1
+            ? "已從 Markdown 建立筆記"
+            : `已匯入 ${createdIds.length} 篇 Markdown 筆記`
+        );
+        router.push(`/notes/${createdIds[0]}`);
+      } else if (skipped.length) {
+        setCreateError(skipped[0]?.reason || "無法匯入");
+      } else {
+        setCreateError("沒有可匯入的 .md 檔案");
+      }
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : "匯入失敗");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -233,7 +271,38 @@ function LibraryPageInner() {
   }
 
   return (
-    <div className="kb-page">
+    <div
+      className={`kb-page${mdDropOver ? " is-md-drop" : ""}`}
+      onDragEnter={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        mdDragDepth.current += 1;
+        setMdDropOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        mdDragDepth.current = Math.max(0, mdDragDepth.current - 1);
+        if (mdDragDepth.current === 0) setMdDropOver(false);
+      }}
+      onDrop={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        mdDragDepth.current = 0;
+        setMdDropOver(false);
+        void importDroppedMarkdown(markdownFilesFromDataTransfer(e.dataTransfer));
+      }}
+    >
+      {mdDropOver ? (
+        <div className="kb-md-drop-overlay" aria-live="polite">
+          放開以匯入 Markdown
+          {folderFilter ? `到「${folderFilter}」` : ""}
+        </div>
+      ) : null}
       <header className="kb-hero">
         <div>
           <ScrambleText words="知識庫" as="h1" className="page-title font-display" speed={22} />

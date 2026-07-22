@@ -9619,6 +9619,27 @@ body.is-split-resizing iframe {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  position: relative;
+}
+.kb-page.is-md-drop {
+  outline: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -3px;
+  border-radius: 12px;
+}
+.kb-md-drop-overlay {
+  position: absolute;
+  inset: 0.35rem;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 650;
+  backdrop-filter: blur(2px);
 }
 .kb-hero {
   display: flex;
@@ -11664,6 +11685,31 @@ body.is-sidebar-resizing iframe {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  position: relative;
+}
+.sb-tree.is-file-drop {
+  outline: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+.sb-tree-list.is-file-drop-target {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 8px;
+}
+.sb-file-drop-banner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0 0.25rem 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated));
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: none;
 }
 .sb-tree-empty {
   display: flex;

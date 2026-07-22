@@ -52,6 +52,11 @@ import {
   setFolderStyle,
 } from "@/lib/pageChrome";
 import { toast } from "@/lib/toast";
+import {
+  dataTransferHasFiles,
+  importMarkdownFilesAsNotes,
+  markdownFilesFromDataTransfer,
+} from "@/lib/importMarkdownNotes";
 
 const EXPAND_KEY = "cadence_sidebar_expand_v1";
 
@@ -148,10 +153,13 @@ export default function SidebarNotesTree() {
     folder?: string;
   } | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  /** File-drop target: "" = root/default folder, or a folder path */
+  const [fileDropTarget, setFileDropTarget] = useState<string | null>(null);
   const [dropHint, setDropHint] = useState<{ noteId: string; place: "before" | "after" } | null>(
     null
   );
   const draggingId = useRef<string | null>(null);
+  const fileDragDepth = useRef(0);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
@@ -597,6 +605,48 @@ export default function SidebarNotesTree() {
     draggingId.current = null;
     setDragOverFolder(null);
     setDropHint(null);
+    setFileDropTarget(null);
+    fileDragDepth.current = 0;
+  };
+
+  const importMdFiles = async (files: File[], folderPath?: string) => {
+    if (!user || creating || !files.length) return;
+    setCreating(true);
+    clearDragState();
+    try {
+      const folder =
+        !folderPath || folderPath === UNCATEGORIZED
+          ? prefs?.defaultFolder || ""
+          : folderPath === ""
+            ? prefs?.defaultFolder || ""
+            : folderPath;
+      const tags = parseDefaultTags(prefs?.defaultTags || "");
+      const { createdIds, skipped } = await importMarkdownFilesAsNotes(user.uid, files, {
+        folder,
+        defaultTags: tags,
+        defaultStatus: prefs?.defaultStatus || "backlog",
+      });
+      if (createdIds.length) {
+        toast(
+          createdIds.length === 1
+            ? "已從 Markdown 建立筆記"
+            : `已匯入 ${createdIds.length} 篇 Markdown 筆記`
+        );
+        router.push(`/notes/${createdIds[0]}`);
+      }
+      if (skipped.length && !createdIds.length) {
+        toast(skipped[0]?.reason || "無法匯入");
+      } else if (skipped.length) {
+        toast(`${skipped.length} 個檔案已略過`);
+      }
+      if (!createdIds.length && !skipped.length) {
+        toast("沒有可匯入的 .md 檔案");
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "匯入失敗");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const toggleFav = (noteId: string) => {
@@ -1198,6 +1248,13 @@ export default function SidebarNotesTree() {
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (dataTransferHasFiles(e.dataTransfer)) {
+              const folder = normalizeFolderPath(note.folder || "") || "";
+              setDropHint(null);
+              setFileDropTarget(folder || "");
+              e.dataTransfer.dropEffect = "copy";
+              return;
+            }
             if (draggingId.current === note.id) return;
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const place = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
@@ -1216,6 +1273,13 @@ export default function SidebarNotesTree() {
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            if (dataTransferHasFiles(e.dataTransfer)) {
+              const files = markdownFilesFromDataTransfer(e.dataTransfer);
+              const folder = normalizeFolderPath(note.folder || "") || "";
+              clearDragState();
+              void importMdFiles(files, folder);
+              return;
+            }
             const id = e.dataTransfer.getData("text/note-id");
             const place = dropHint?.noteId === note.id ? dropHint.place : "before";
             clearDragState();
@@ -1388,11 +1452,39 @@ export default function SidebarNotesTree() {
   return (
     <div
       ref={rootRef}
-      className="sb-tree"
+      className={`sb-tree${fileDropTarget !== null ? " is-file-drop" : ""}`}
       tabIndex={0}
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest(".sb-row")) return;
         openCtx(e, { kind: "blank" });
+      }}
+      onDragEnter={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        fileDragDepth.current += 1;
+        if (fileDropTarget === null) setFileDropTarget("");
+      }}
+      onDragOver={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        fileDragDepth.current = Math.max(0, fileDragDepth.current - 1);
+        if (fileDragDepth.current === 0) setFileDropTarget(null);
+      }}
+      onDrop={(e) => {
+        if (!dataTransferHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const files = markdownFilesFromDataTransfer(e.dataTransfer);
+        const folder =
+          fileDropTarget && fileDropTarget !== UNCATEGORIZED ? fileDropTarget : undefined;
+        clearDragState();
+        void importMdFiles(files, folder);
       }}
     >
       <div className="sb-tree-head">
@@ -1427,7 +1519,7 @@ export default function SidebarNotesTree() {
 
       {!hintDismissed && (
         <div className="sb-hint">
-          <span>⌘K 搜尋 · 拖曳排序／移資料夾 · 右鍵管理 · F2 改名</span>
+          <span>⌘K 搜尋 · 拖曳 .md 匯入 · 拖曳排序／移資料夾 · 右鍵管理</span>
           <button
             type="button"
             aria-label="關閉提示"
@@ -1488,7 +1580,14 @@ export default function SidebarNotesTree() {
         </div>
       )}
 
-      <div className="sb-tree-list">
+      <div className={`sb-tree-list${fileDropTarget === "" ? " is-file-drop-target" : ""}`}>
+        {fileDropTarget !== null ? (
+          <div className="sb-file-drop-banner" aria-live="polite">
+            {fileDropTarget
+              ? `放開以匯入到「${fileDropTarget === UNCATEGORIZED ? "未分類" : fileDropTarget}」`
+              : "放開以匯入 Markdown 為筆記"}
+          </div>
+        ) : null}
         {rows.length === 0 ? (
           <div className="sb-tree-empty">
             {notes.length === 0 ? (
@@ -1525,7 +1624,7 @@ export default function SidebarNotesTree() {
               return (
                 <div key={`f:${row.path}`}>
                   <div
-                    className={`sb-row sb-row--folder${dragOverFolder === dropKey ? " is-drop" : ""}${colorId ? " has-color" : ""}`}
+                    className={`sb-row sb-row--folder${dragOverFolder === dropKey || fileDropTarget === dropKey ? " is-drop" : ""}${colorId ? " has-color" : ""}`}
                     style={{
                       paddingLeft: 8 + row.depth * 12,
                       ...(colorId
@@ -1537,12 +1636,31 @@ export default function SidebarNotesTree() {
                     }}
                     onDragOver={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
                       setDropHint(null);
+                      if (dataTransferHasFiles(e.dataTransfer)) {
+                        setFileDropTarget(dropKey);
+                        e.dataTransfer.dropEffect = "copy";
+                        return;
+                      }
                       setDragOverFolder(dropKey);
                     }}
-                    onDragLeave={() => setDragOverFolder(null)}
+                    onDragLeave={() => {
+                      setDragOverFolder(null);
+                      setFileDropTarget((cur) => (cur === dropKey ? "" : cur));
+                    }}
                     onDrop={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
+                      if (dataTransferHasFiles(e.dataTransfer)) {
+                        const files = markdownFilesFromDataTransfer(e.dataTransfer);
+                        clearDragState();
+                        void importMdFiles(
+                          files,
+                          dropKey === UNCATEGORIZED ? "" : dropKey
+                        );
+                        return;
+                      }
                       const id = e.dataTransfer.getData("text/note-id");
                       clearDragState();
                       if (id) void onDropToFolder(dropKey, id);
