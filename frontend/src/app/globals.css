@@ -5190,8 +5190,9 @@ a.sidebar-user-name:hover {
 }
 .jn-card-top {
   display: flex;
-  justify-content: space-between;
-  gap: 0.4rem;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   align-items: center;
   margin-bottom: 0.25rem;
 }
