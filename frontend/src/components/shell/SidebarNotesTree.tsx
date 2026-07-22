@@ -739,6 +739,25 @@ export default function SidebarNotesTree() {
     }, 220);
   };
 
+  const resetIconColor = async (target: CtxTarget) => {
+    if (target.kind === "note") {
+      await updateNote(target.noteId, { icon: "", color: "" });
+      toast("已還原圖示與顏色");
+      return;
+    }
+    if (target.kind === "folder") {
+      if (!prefsCtx) return;
+      prefsCtx.setPrefs((prev) => ({
+        ...prev,
+        folderStyles: setFolderStyle(prev.folderStyles || {}, target.path, {
+          icon: "",
+          color: "",
+        }),
+      }));
+      toast("已還原資料夾圖示與顏色");
+    }
+  };
+
   const renameNote = async (note: Note) => {
     const next = await askPrompt({
       title: "重新命名筆記",
