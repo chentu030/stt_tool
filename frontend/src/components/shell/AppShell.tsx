@@ -249,6 +249,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
   const [appsIconsOnly, setAppsIconsOnly] = useState(() => loadSidebarAppsIcons());
+  const [appsPage, setAppsPage] = useState(0);
   const sidebarDrag = useRef<{ startX: number; startW: number } | null>(null);
   const prefSidebarRef = useRef(prefSidebar);
   const isActive = (href: string) =>
@@ -276,7 +277,22 @@ export default function AppShell({ children }: { children: ReactNode }) {
       saveSidebarAppsIcons(next);
       return next;
     });
+    setAppsPage(0);
   }, []);
+
+  // Keep pager in range when apps list or layout mode changes; jump to page with active app.
+  useEffect(() => {
+    const pageSize = sidebarCollapsed || appsIconsOnly ? 10 : 6;
+    const pageCount = Math.max(1, Math.ceil(navApps.length / pageSize));
+    const activeIdx = navApps.findIndex((a) =>
+      a.href === "/" ? pathname === "/" : pathname.startsWith(a.href)
+    );
+    if (activeIdx >= 0) {
+      setAppsPage(Math.min(pageCount - 1, Math.floor(activeIdx / pageSize)));
+      return;
+    }
+    setAppsPage((p) => Math.min(p, pageCount - 1));
+  }, [navApps, sidebarCollapsed, appsIconsOnly, pathname]);
 
   const clearSidebarResize = useCallback(() => {
     sidebarDrag.current = null;
@@ -552,28 +568,62 @@ export default function AppShell({ children }: { children: ReactNode }) {
     const rail = Boolean(opts.collapsed);
     const iconsOnly = rail || Boolean(opts.iconsOnly);
     const onNavigate = opts.onNavigate;
+    // Labeled grid: 6 per page; icons-only / rail: 10 per page (avoids crushing the tree below).
+    const pageSize = iconsOnly ? 10 : 6;
+    const pageCount = Math.max(1, Math.ceil(navApps.length / pageSize));
+    const safePage = Math.min(appsPage, pageCount - 1);
+    const pageItems = navApps.slice(safePage * pageSize, safePage * pageSize + pageSize);
     return (
       <div className={`sidebar-apps-block${iconsOnly ? " is-icons" : ""}${rail ? " is-rail" : ""}`}>
         {!rail && (
           <div className="sidebar-apps-head">
             <span>頁面</span>
-            <button
-              type="button"
-              className="sidebar-apps-toggle"
-              title={iconsOnly ? "展開頁面標籤" : "收合為圖示"}
-              aria-label={iconsOnly ? "展開頁面標籤" : "收合為圖示"}
-              aria-pressed={iconsOnly}
-              onClick={toggleAppsIconsOnly}
-            >
-              {iconsOnly ? "▾" : "▴"}
-            </button>
+            <div className="sidebar-apps-head-actions">
+              {pageCount > 1 ? (
+                <div className="sidebar-apps-pager" role="group" aria-label="頁面翻頁">
+                  <button
+                    type="button"
+                    className="sidebar-apps-page-btn"
+                    title="上一頁"
+                    aria-label="上一頁"
+                    disabled={safePage <= 0}
+                    onClick={() => setAppsPage((p) => Math.max(0, p - 1))}
+                  >
+                    ‹
+                  </button>
+                  <span className="sidebar-apps-page-ind">
+                    {safePage + 1}/{pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    className="sidebar-apps-page-btn"
+                    title="下一頁"
+                    aria-label="下一頁"
+                    disabled={safePage >= pageCount - 1}
+                    onClick={() => setAppsPage((p) => Math.min(pageCount - 1, p + 1))}
+                  >
+                    ›
+                  </button>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="sidebar-apps-toggle"
+                title={iconsOnly ? "展開頁面標籤" : "收合為圖示"}
+                aria-label={iconsOnly ? "展開頁面標籤" : "收合為圖示"}
+                aria-pressed={iconsOnly}
+                onClick={toggleAppsIconsOnly}
+              >
+                {iconsOnly ? "▾" : "▴"}
+              </button>
+            </div>
           </div>
         )}
       <nav
         className={`sidebar-apps${rail ? " is-collapsed" : ""}${!rail && iconsOnly ? " is-icons" : ""}`}
         aria-label="應用"
       >
-        {navApps.map((item) => {
+        {pageItems.map((item) => {
           const BuiltinIcon = NAV_ICONS[item.id] || LibraryIcon;
           const iconNode =
             item.source === "extension" && item.icon ? (
@@ -663,6 +713,33 @@ export default function AppShell({ children }: { children: ReactNode }) {
           );
         })}
       </nav>
+      {rail && pageCount > 1 ? (
+        <div className="sidebar-apps-pager sidebar-apps-pager--rail" role="group" aria-label="頁面翻頁">
+          <button
+            type="button"
+            className="sidebar-apps-page-btn"
+            title="上一頁"
+            aria-label="上一頁"
+            disabled={safePage <= 0}
+            onClick={() => setAppsPage((p) => Math.max(0, p - 1))}
+          >
+            ‹
+          </button>
+          <span className="sidebar-apps-page-ind">
+            {safePage + 1}/{pageCount}
+          </span>
+          <button
+            type="button"
+            className="sidebar-apps-page-btn"
+            title="下一頁"
+            aria-label="下一頁"
+            disabled={safePage >= pageCount - 1}
+            onClick={() => setAppsPage((p) => Math.min(pageCount - 1, p + 1))}
+          >
+            ›
+          </button>
+        </div>
+      ) : null}
       </div>
     );
   };
