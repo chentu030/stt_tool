@@ -7188,15 +7188,27 @@ a.sidebar-user-name:hover {
 .doc-crumb {
   font-size: 0.8rem;
   color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  writing-mode: horizontal-tb;
 }
-.doc-crumb-sep { color: var(--text-muted); opacity: 0.5; font-size: 0.8rem; }
+.doc-crumb-sep {
+  color: var(--text-muted);
+  opacity: 0.5;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .doc-crumb-current {
   font-size: 0.82rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 14rem;
+  max-width: min(18rem, 42vw);
+  flex-shrink: 1;
+  min-width: 3rem;
+  writing-mode: horizontal-tb;
 }
 .doc-save-pill {
   font-size: 0.7rem;
