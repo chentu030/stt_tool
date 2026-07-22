@@ -738,7 +738,31 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   );
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
-  return normalizeTaskListHtml(html);
+  return wrapBareTablesHtml(normalizeTaskListHtml(html));
+}
+
+/** Ensure GFM tables get a horizontal scroll shell (TipTap also uses .tableWrapper). */
+function wrapBareTablesHtml(html: string): string {
+  if (!html || !/<table\b/i.test(html)) return html;
+  if (typeof DOMParser === "undefined") {
+    return html.replace(/<table\b[\s\S]*?<\/table>/gi, (table) => {
+      return `<div class="tableWrapper">${table}</div>`;
+    });
+  }
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("table").forEach((table) => {
+      const parent = table.parentElement;
+      if (parent?.classList.contains("tableWrapper")) return;
+      const wrap = doc.createElement("div");
+      wrap.className = "tableWrapper";
+      parent?.insertBefore(wrap, table);
+      wrap.appendChild(table);
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
 }
 
 /** Markdown → HTML with KaTeX already rendered (for AI chat / read-only views). */

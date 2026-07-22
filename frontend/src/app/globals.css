@@ -7425,10 +7425,12 @@ body.is-split-resizing iframe {
   background: none;
 }
 .note-ai-md table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   margin: 0.55em 0;
   font-size: 0.78em;
+  table-layout: auto;
 }
 .note-ai-md th,
 .note-ai-md td {
@@ -7436,6 +7438,9 @@ body.is-split-resizing iframe {
   padding: 0.3em 0.45em;
   text-align: left;
   vertical-align: top;
+  min-width: 4.5rem;
+  white-space: nowrap;
+  word-break: normal;
 }
 .note-ai-md th {
   background: color-mix(in srgb, var(--text) 5%, transparent);
@@ -12611,10 +12616,11 @@ body.is-sidebar-resizing iframe {
 .rich-prose .rich-table,
 .rich-prose table {
   border-collapse: collapse;
-  width: 100%;
-  margin: 0.85rem 0;
-  table-layout: fixed;
-  overflow: hidden;
+  /* Grow with columns; wrapper scrolls instead of crushing glyphs */
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  table-layout: auto;
 }
 .rich-prose .rich-table td,
 .rich-prose .rich-table th,
@@ -12623,14 +12629,19 @@ body.is-sidebar-resizing iframe {
   border: 1px solid var(--border, #d4d4d8);
   padding: 0.45rem 0.55rem;
   vertical-align: top;
-  min-width: 2.5rem;
+  min-width: 5.5rem;
+  max-width: 22rem;
   position: relative;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 .rich-prose .rich-table th,
 .rich-prose table th {
   background: var(--bg-muted, #f4f4f5);
   font-weight: 650;
   text-align: left;
+  max-width: none;
 }
 .rich-prose .rich-table .selectedCell::after,
 .rich-prose table .selectedCell::after {
@@ -12643,7 +12654,12 @@ body.is-sidebar-resizing iframe {
 }
 .rich-prose .tableWrapper {
   overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
+  width: 100%;
   margin: 0.85rem 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
 }
 .rich-prose .column-resize-handle {
   position: absolute;
