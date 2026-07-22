@@ -9,6 +9,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import AlbireusLogo from "@/components/AlbireusLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
+import SidebarAnonymousFeedback from "@/components/shell/SidebarAnonymousFeedback";
 import CommandPalette from "@/components/CommandPalette";
 import GlobalAiDock, { toggleGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NavHistoryControls from "@/components/shell/NavHistoryControls";
@@ -669,6 +670,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     const collapsed = Boolean(opts.collapsed);
     return (
       <div className="sidebar-footer">
+        <SidebarAnonymousFeedback collapsed={collapsed} />
         {loading ? null : user ? (
           <div className={`sidebar-user${collapsed ? " is-collapsed" : ""}`}>
             {photoURL ? (

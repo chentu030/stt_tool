@@ -181,6 +181,22 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Anonymous product feedback (sidebar). Create for anyone signed-in;
+    // identity fields are for moderation only — UI never displays them.
+    match /anonymous_feedback/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['message', 'createdAt', 'clientAt'])
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 2
+        && request.resource.data.message.size() <= 2000
+        && (!('uid' in request.resource.data)
+            || request.resource.data.uid == null
+            || request.resource.data.uid == request.auth.uid)
+        && (!('path' in request.resource.data)
+            || request.resource.data.path is string);
+      allow read, update, delete: if isAccessAllowlisted();
+    }
+
     // Public community store listings (user-published packages)
     match /community_packages/{packageId} {
       allow read: if resource.data.status == 'published'
