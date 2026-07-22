@@ -2036,11 +2036,15 @@ def _google_stt_language(raw: Optional[str]) -> str:
 
 
 def _google_project_id() -> str:
-    """Speech V2 needs project *ID* (e.g. stt-tool-f6e6d), not OAuth/client project number."""
+    """Speech V2 needs project *ID*, never a bare project number."""
     for key in ("GOOGLE_STT_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"):
         v = (os.environ.get(key) or "").strip()
         if v and not v.isdigit():
             return v
+    # Known mapping: Cloud Run project number → ID
+    num = (os.environ.get("GCP_PROJECT") or "").strip()
+    if num == "1016448029865":
+        return "project-05be5a7d-79c3-4a47-8d2"
     try:
         name = getattr(bucket, "name", "") or ""
         if name.endswith(".firebasestorage.app"):
@@ -2055,7 +2059,20 @@ def _google_project_id() -> str:
         or os.environ.get("GOOGLE_CLOUD_PROJECT")
         or ""
     ).strip()
+    if raw.isdigit():
+        raise RuntimeError(
+            f"GOOGLE_STT_PROJECT_ID 未設定（目前 GCP_PROJECT={raw} 是專案編號）。請設專案 ID，例如 project-05be5a7d-79c3-4a47-8d2。"
+        )
     return raw
+
+
+def _stt_batch_bucket_name() -> str:
+    """Prefer a GCS bucket in the Speech project so IAM is simpler than Firebase cross-project."""
+    override = (os.environ.get("GOOGLE_STT_GCS_BUCKET") or "").strip()
+    if override:
+        return override
+    pid = _google_project_id()
+    return f"{pid}-stt-batch"
 
 
 def _google_stt_v2_language(raw: Optional[str]) -> str:
@@ -2086,13 +2103,27 @@ def _google_stt_model() -> str:
 
 
 def _upload_stt_batch_gcs(content: bytes, filename: str, mime: str) -> tuple:
-    """Upload clip to Firebase/GCS for BatchRecognize. Returns (gs_uri, blob)."""
+    """Upload clip to GCS for BatchRecognize. Returns (gs_uri, cleanup_fn)."""
+    from google.cloud import storage as gcs
+
     safe = re.sub(r"[^\w.\-]+", "_", filename or "clip.webm")[:80]
     path = f"stt-batch/{uuid.uuid4().hex}_{safe}"
-    blob = bucket.blob(path)
+    bkt_name = _stt_batch_bucket_name()
+    client = gcs.Client(project=_google_project_id())
+    bkt = client.bucket(bkt_name)
+    if not bkt.exists():
+        bkt = client.create_bucket(bkt_name, location=_google_stt_location())
+    blob = bkt.blob(path)
     blob.upload_from_string(content, content_type=mime or "application/octet-stream")
-    gs_uri = f"gs://{bucket.name}/{path}"
-    return gs_uri, blob
+    gs_uri = f"gs://{bkt_name}/{path}"
+
+    def _cleanup():
+        try:
+            blob.delete()
+        except Exception:
+            pass
+
+    return gs_uri, _cleanup
 
 
 def _transcribe_google_v2_batch(content: bytes, language: str, mime: str = "") -> str:
@@ -2122,7 +2153,7 @@ def _transcribe_google_v2_batch(content: bytes, language: str, mime: str = "") -
     else:
         client = SpeechClient()
 
-    gs_uri, blob = _upload_stt_batch_gcs(
+    gs_uri, cleanup = _upload_stt_batch_gcs(
         content,
         f"clip-{int(time.time())}.webm",
         mime or "audio/webm",
@@ -2181,10 +2212,7 @@ def _transcribe_google_v2_batch(content: bytes, language: str, mime: str = "") -
             raise ValueError("Google STT batch 未辨識到語音（可能太短或太安靜）")
         return text
     finally:
-        try:
-            blob.delete()
-        except Exception:
-            pass
+        cleanup()
 
 
 def _transcribe_google_bytes_v1(content: bytes, language: str, mime: str = "") -> str:
