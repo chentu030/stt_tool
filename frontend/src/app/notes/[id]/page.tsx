@@ -98,8 +98,10 @@ import NotePresence from "@/components/notes/NotePresence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
 import LiveNoteRecorder, {
   liveModeLabel,
+  type LiveAudioSource,
   type LiveRecordMode,
 } from "@/components/voice/LiveNoteRecorder";
+import { liveAudioSourceHint, liveAudioSourceLabel } from "@/lib/voiceSession";
 import NotePageLog from "@/components/notes/NotePageLog";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
@@ -238,6 +240,7 @@ function NotePageInner() {
   const [liveOpen, setLiveOpen] = useState(false);
   const [liveAutoStart, setLiveAutoStart] = useState(false);
   const [liveMode, setLiveMode] = useState<LiveRecordMode>("organize");
+  const [liveAudioSource, setLiveAudioSource] = useState<LiveAudioSource>("mic");
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
   const liveMenuRef = useRef<HTMLDivElement | null>(null);
   const latest = useRef({
@@ -386,19 +389,26 @@ function NotePageInner() {
     router.replace(noteOpenHref(note));
   }, [note, splitId, router]);
 
-  // Open live note recorder from capture (?live=1[&liveMode=…])
+  // Open live note recorder from capture (?live=1[&liveMode=…][&liveAudio=…][&liveStart=1])
   useEffect(() => {
     if (!id) return;
     if (searchParams.get("live") !== "1") return;
     const raw = searchParams.get("liveMode");
     const mode: LiveRecordMode =
       raw === "audio" || raw === "transcribe" || raw === "organize" ? raw : "organize";
+    const rawSrc = searchParams.get("liveAudio");
+    const src: LiveAudioSource =
+      rawSrc === "system" || rawSrc === "both" || rawSrc === "mic" ? rawSrc : "mic";
     setLiveMode(mode);
-    setLiveAutoStart(true);
+    setLiveAudioSource(src);
+    // Capture opens picker; note menu / explicit liveStart=1 auto-starts
+    setLiveAutoStart(searchParams.get("liveStart") === "1");
     setLiveOpen(true);
     const url = new URL(window.location.href);
     url.searchParams.delete("live");
     url.searchParams.delete("liveMode");
+    url.searchParams.delete("liveAudio");
+    url.searchParams.delete("liveStart");
     window.history.replaceState({}, "", url.pathname + (url.search || ""));
   }, [id, searchParams]);
 
@@ -1629,14 +1639,38 @@ function NotePageInner() {
               <button
                 type="button"
                 className={`doc-cmd${liveOpen ? " is-on" : ""}`}
-                title="即時錄音：純錄製／轉錄／轉錄+整理"
+                title="即時錄音：麥克風／裝置聲音／兩者 · 純錄製／轉錄／整理"
                 aria-expanded={liveMenuOpen}
                 onClick={() => setLiveMenuOpen((v) => !v)}
               >
                 錄音
               </button>
               {liveMenuOpen ? (
-                <div className="doc-cmd-menu" role="menu">
+                <div className="doc-cmd-menu doc-cmd-menu--live" role="menu">
+                  <div className="doc-cmd-menu-section" role="group" aria-label="聲音來源">
+                    <p className="doc-cmd-menu-heading">聲音來源</p>
+                    <div className="doc-cmd-menu-chips">
+                      {(
+                        [
+                          ["mic", "麥克風"],
+                          ["system", "裝置聲音"],
+                          ["both", "兩者"],
+                        ] as const
+                      ).map(([src, label]) => (
+                        <button
+                          key={src}
+                          type="button"
+                          className={`doc-cmd-menu-chip${liveAudioSource === src ? " is-on" : ""}`}
+                          title={liveAudioSourceHint(src)}
+                          onClick={() => setLiveAudioSource(src)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="doc-cmd-menu-hint">{liveAudioSourceHint(liveAudioSource)}</p>
+                  </div>
+                  <p className="doc-cmd-menu-heading">錄製方式</p>
                   {(
                     [
                       ["audio", "只留音檔，不轉文字"],
@@ -1655,7 +1689,12 @@ function NotePageInner() {
                         setLiveMenuOpen(false);
                       }}
                     >
-                      <strong>{liveModeLabel(mode)}</strong>
+                      <strong>
+                        {liveModeLabel(mode)}
+                        <span className="doc-cmd-menu-src">
+                          · {liveAudioSourceLabel(liveAudioSource)}
+                        </span>
+                      </strong>
                       <span>{hint}</span>
                     </button>
                   ))}
@@ -2470,11 +2509,12 @@ function NotePageInner() {
 
       {user && note && liveOpen ? (
         <LiveNoteRecorder
-          key={`${note.id}-${liveMode}-${liveAutoStart ? "auto" : "manual"}`}
+          key={`${note.id}-${liveMode}-${liveAudioSource}-${liveAutoStart ? "auto" : "manual"}`}
           uid={user.uid}
           noteId={note.id}
           open={liveOpen}
           mode={liveMode}
+          audioSource={liveAudioSource}
           autoStart={liveAutoStart}
           onClose={() => {
             setLiveOpen(false);

@@ -8,7 +8,11 @@ import {
 } from "@/lib/googleStt";
 import {
   ContinuousDualRecorder,
+  acquireLiveAudioStream,
   formatRecClock,
+  liveAudioSourceHint,
+  liveAudioSourceLabel,
+  type LiveAudioSource,
 } from "@/lib/voiceSession";
 import { toast } from "@/lib/toast";
 import { usePrefsOptional } from "@/components/PrefsProvider";
@@ -21,11 +25,15 @@ import {
 /** audio = 純錄製；transcribe = 錄+轉字；organize = 轉字+AI 整理 */
 export type LiveRecordMode = "audio" | "transcribe" | "organize";
 
+export type { LiveAudioSource };
+
 export function liveModeLabel(mode: LiveRecordMode): string {
   if (mode === "audio") return "純錄製";
   if (mode === "transcribe") return "錄製 + 轉錄";
   return "轉錄 + 整理";
 }
+
+const AUDIO_SOURCES: LiveAudioSource[] = ["mic", "system", "both"];
 
 type Props = {
   uid: string;
@@ -35,6 +43,8 @@ type Props = {
   insertMd: (md: string) => void;
   autoStart?: boolean;
   mode?: LiveRecordMode;
+  /** Initial source; user can still change before pressing 開始 */
+  audioSource?: LiveAudioSource;
 };
 
 type PreviewLine = {
@@ -63,6 +73,7 @@ export default function LiveNoteRecorder({
   insertMd,
   autoStart,
   mode = "organize",
+  audioSource: audioSourceProp = "mic",
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
@@ -74,13 +85,16 @@ export default function LiveNoteRecorder({
   const doStt = mode !== "audio";
   const doOrganize = mode === "organize";
 
+  const [audioSource, setAudioSource] = useState<LiveAudioSource>(audioSourceProp);
   const [live, setLive] = useState(false);
   const [starting, setStarting] = useState(Boolean(autoStart));
   const [secs, setSecs] = useState(0);
   const [segSecs, setSegSecs] = useState(0);
   const [pending, setPending] = useState(0);
-  const [status, setStatus] = useState(
-    autoStart ? "正在啟動麥克風…" : "準備麥克風…"
+  const [status, setStatus] = useState(() =>
+    autoStart
+      ? `正在啟動${liveAudioSourceLabel(audioSourceProp)}…`
+      : `選擇來源後開始（目前：${liveAudioSourceLabel(audioSourceProp)}）`
   );
   const [lines, setLines] = useState<PreviewLine[]>([]);
   const [stopping, setStopping] = useState(false);
@@ -108,9 +122,11 @@ export default function LiveNoteRecorder({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const silenceSinceRef = useRef<number | null>(null);
   const modeRef = useRef(mode);
+  const audioSourceRef = useRef(audioSource);
 
   cutModeRef.current = cutMode;
   modeRef.current = mode;
+  audioSourceRef.current = audioSource;
 
   const clearTimers = () => {
     if (tickRef.current) window.clearInterval(tickRef.current);
@@ -358,8 +374,16 @@ export default function LiveNoteRecorder({
   };
 
   const start = async () => {
+    const src = audioSourceRef.current;
+    const srcLabel = liveAudioSourceLabel(src);
     setStarting(true);
-    setStatus("請求麥克風權限…");
+    setStatus(
+      src === "system"
+        ? "選擇要分享的分頁／視窗，並勾選分享音訊…"
+        : src === "both"
+          ? "請求麥克風，並選擇要分享音訊的分頁／視窗…"
+          : "請求麥克風權限…"
+    );
     setLines([]);
     setPending(0);
     setPendingOrg(0);
@@ -367,8 +391,9 @@ export default function LiveNoteRecorder({
     setStopping(false);
     jobsRef.current = [];
     try {
+      const acquired = await acquireLiveAudioStream(src);
       const rec = new ContinuousDualRecorder();
-      await rec.start();
+      await rec.start(acquired.stream, acquired.release);
       recRef.current = rec;
       extRef.current = rec.extension || "webm";
       if (rec.mediaStream) startSilenceMonitor(rec.mediaStream);
@@ -378,23 +403,24 @@ export default function LiveNoteRecorder({
       setSegSecs(0);
       segSecsRef.current = 0;
       labelSeqRef.current = 0;
+      const srcBit = `來源：${srcLabel}`;
       if (modeRef.current === "audio") {
         setStatus(
           cutModeRef.current === "auto"
-            ? `純錄製：講超過 ${minSecs}s 且停頓後切段存檔`
-            : "純錄製：按「段落結束」存音檔"
+            ? `${srcBit} · 純錄製：講超過 ${minSecs}s 且停頓後切段存檔`
+            : `${srcBit} · 純錄製：按「段落結束」存音檔`
         );
       } else if (modeRef.current === "transcribe") {
         setStatus(
           cutModeRef.current === "auto"
-            ? `轉錄：講超過 ${minSecs}s 且停頓後切段轉字`
-            : "轉錄：按「段落結束」轉字"
+            ? `${srcBit} · 轉錄：講超過 ${minSecs}s 且停頓後切段轉字`
+            : `${srcBit} · 轉錄：按「段落結束」轉字`
         );
       } else {
         setStatus(
           cutModeRef.current === "auto"
-            ? `自動切段：講超過 ${minSecs}s 且停頓後切段；每 ${organizeEvery} 段整理`
-            : "手動切段：按「段落結束」；需要時按「AI 整理」"
+            ? `${srcBit} · 自動切段：講超過 ${minSecs}s 且停頓後切段；每 ${organizeEvery} 段整理`
+            : `${srcBit} · 手動切段：按「段落結束」；需要時按「AI 整理」`
         );
       }
       tickRef.current = window.setInterval(() => {
@@ -405,6 +431,9 @@ export default function LiveNoteRecorder({
           return n;
         });
       }, 1000);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "無法開始錄音");
+      throw e;
     } finally {
       setStarting(false);
     }
@@ -547,12 +576,13 @@ export default function LiveNoteRecorder({
         ? "即時錄音 · 轉錄"
         : "即時錄音 · 轉錄整理";
   const booting = starting || (autoStart && !live && !stopping);
+  const canPickSource = !live && !stopping && !booting;
   const emptyHint =
     mode === "audio"
-      ? `純錄製：講超過 ${minSecs} 秒且停頓後切段存音檔。結束時會附上整場錄音。`
+      ? `純錄製（${liveAudioSourceLabel(audioSource)}）：講超過 ${minSecs} 秒且停頓後切段存音檔。結束時會附上整場錄音。`
       : mode === "transcribe"
-        ? `轉錄：講超過 ${minSecs} 秒且停頓後切段轉字並寫入筆記。結束時保留整場音檔。`
-        : `轉錄 + 整理：講超過 ${minSecs} 秒且停頓後切段；每 ${organizeEvery} 段 AI 整理。也可改手動切段。設定可在「設定 → 捕捉」調整。`;
+        ? `轉錄（${liveAudioSourceLabel(audioSource)}）：講超過 ${minSecs} 秒且停頓後切段轉字並寫入筆記。結束時保留整場音檔。`
+        : `轉錄 + 整理（${liveAudioSourceLabel(audioSource)}）：講超過 ${minSecs} 秒且停頓後切段；每 ${organizeEvery} 段 AI 整理。也可改手動切段。設定可在「設定 → 捕捉」調整。`;
 
   return (
     <>
@@ -570,7 +600,10 @@ export default function LiveNoteRecorder({
             <div className="voice-live-dock-main">
               <div className={`voice-live-dock-pulse${live ? "" : " is-off"}`} aria-hidden />
               <div className="voice-live-dock-meta">
-                <strong>{title}</strong>
+                <strong>
+                  {title}
+                  <span className="voice-live-source-badge">{liveAudioSourceLabel(audioSource)}</span>
+                </strong>
                 <span>
                   {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
                   {formatRecClock(segSecs)}
@@ -593,7 +626,15 @@ export default function LiveNoteRecorder({
                 </>
               ) : !live && !stopping ? (
                 <>
-                  <button type="button" className="btn btn-sm" onClick={() => void start()}>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() =>
+                      void start().catch((e) => {
+                        toast(e instanceof Error ? e.message : "無法開始錄音");
+                      })
+                    }
+                  >
                     開始
                   </button>
                   <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
@@ -664,6 +705,30 @@ export default function LiveNoteRecorder({
               )}
             </div>
           </div>
+
+          {canPickSource || booting ? (
+            <div className="voice-live-source" role="group" aria-label="錄音來源">
+              <span className="voice-live-source-label">聲音來源</span>
+              <div className="voice-live-source-chips">
+                {AUDIO_SOURCES.map((src) => (
+                  <button
+                    key={src}
+                    type="button"
+                    className={`voice-live-source-chip${audioSource === src ? " is-on" : ""}`}
+                    disabled={!canPickSource}
+                    title={liveAudioSourceHint(src)}
+                    onClick={() => {
+                      setAudioSource(src);
+                      setStatus(`選擇來源後開始（目前：${liveAudioSourceLabel(src)}）`);
+                    }}
+                  >
+                    {liveAudioSourceLabel(src)}
+                  </button>
+                ))}
+              </div>
+              <p className="voice-live-source-hint">{liveAudioSourceHint(audioSource)}</p>
+            </div>
+          ) : null}
 
           <div className="voice-live-preview" ref={previewScrollRef} aria-label="預覽">
             {lines.length === 0 ? (

@@ -389,7 +389,7 @@ export default function CapturePage() {
                   const id = await createNote(
                     user.uid,
                     `即時轉錄 · ${stamp}`,
-                    `# 即時轉錄\n\n> 開會／上課邊聽邊記。停頓後自動切段並轉字，每若干段 AI 整理進本篇，音檔一併保留。\n\n`,
+                    `# 即時轉錄\n\n> 開會／上課可錄麥克風、裝置聲音（線上課程、Drive 播放等），或兩者混音。停頓後自動切段並轉字，每若干段 AI 整理進本篇，音檔一併保留。\n\n`,
                     undefined,
                     ["live-stt"],
                     { folder: "即時轉錄", icon: "mic" }
@@ -405,7 +405,7 @@ export default function CapturePage() {
             }}
           >
             <strong>即時轉錄整理</strong>
-            <span>開會、上課邊錄邊整理進筆記，可回放音檔。</span>
+            <span>開會、上課可錄麥克風或裝置聲音，邊錄邊整理進筆記，可回放音檔。</span>
           </button>
           <div className="capture-mode-card capture-mode-card--voice">
             <QuickVoiceButton
