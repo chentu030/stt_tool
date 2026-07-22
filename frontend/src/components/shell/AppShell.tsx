@@ -939,7 +939,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {renderSidebarFooter({})}
         </aside>
 
-        <main className={`app-main${isDoc ? " app-main--doc" : ""}${isImmersive ? " app-main--immersive" : ""}`}>{mainContent}</main>
+        {/* Stable key: keep note/recorder state when shell chrome swaps at the mobile breakpoint */}
+        <main
+          key="cadence-app-main"
+          className={`app-main${isDoc ? " app-main--doc" : ""}${isImmersive ? " app-main--immersive" : ""}`}
+        >
+          {mainContent}
+        </main>
         {!isImmersive && (
         <nav className="mobile-bottom">
           {MOBILE_BOTTOM.map((item) => {
@@ -1097,7 +1103,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
           />
         )}
       </aside>
-      <main className={`app-main${isDoc ? " app-main--doc" : ""}`}>{mainContent}</main>
+      {/* Stable key: keep note/recorder state when shell chrome swaps at the mobile breakpoint */}
+      <main key="cadence-app-main" className={`app-main${isDoc ? " app-main--doc" : ""}`}>
+        {mainContent}
+      </main>
       {palette}
       <GlobalAiDock />
     </div>

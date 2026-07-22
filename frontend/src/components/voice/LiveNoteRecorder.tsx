@@ -9,6 +9,14 @@ import {
 } from "@/lib/googleStt";
 import { GoogleLiveSttSession } from "@/lib/googleSttStream";
 import {
+  STREAM_QUOTA_MAX_MINS,
+  STREAM_QUOTA_MAX_SECS,
+  addStreamUsedSecs,
+  formatStreamQuota,
+  getStreamUsedSecs,
+  streamRemainingSecs,
+} from "@/lib/sttStreamQuota";
+import {
   ContinuousDualRecorder,
   acquireLiveAudioStream,
   formatRecClock,
@@ -36,8 +44,6 @@ export function liveModeLabel(mode: LiveRecordMode): string {
 }
 
 const AUDIO_SOURCES: LiveAudioSource[] = ["mic", "system", "both"];
-/** Hard product cap for a single streaming session. */
-const STREAM_ABS_MAX_SECS = 2 * 60 * 60;
 
 type Props = {
   uid: string;
@@ -87,8 +93,8 @@ export default function LiveNoteRecorder({
   const silenceMs = Math.max(600, prefs?.liveSilenceMs ?? 1200);
   const maxSecs = minSecs * MAX_CHUNK_MULT;
   const streamMaxSecs = Math.min(
-    STREAM_ABS_MAX_SECS,
-    Math.max(15 * 60, (prefs?.liveStreamMaxMins ?? 120) * 60)
+    STREAM_QUOTA_MAX_SECS,
+    Math.max(15 * 60, (prefs?.liveStreamMaxMins ?? STREAM_QUOTA_MAX_MINS) * 60)
   );
   const doStt = mode !== "audio";
   const doOrganize = mode === "organize";
@@ -96,6 +102,8 @@ export default function LiveNoteRecorder({
   const [audioSource, setAudioSource] = useState<LiveAudioSource>(audioSourceProp);
   /** Session opt-in; seeded from prefs (default off = batch). */
   const [streamOn, setStreamOn] = useState(() => Boolean(prefs?.liveStreamStt));
+  const [streamUsedSecs, setStreamUsedSecs] = useState(() => getStreamUsedSecs());
+  const [streamLive, setStreamLive] = useState(false);
   const [live, setLive] = useState(false);
   const [starting, setStarting] = useState(Boolean(autoStart));
   const [secs, setSecs] = useState(0);
@@ -134,19 +142,34 @@ export default function LiveNoteRecorder({
   const modeRef = useRef(mode);
   const audioSourceRef = useRef(audioSource);
   const streamOnRef = useRef(streamOn);
+  const streamLiveRef = useRef(false);
   const streamSessionRef = useRef<GoogleLiveSttSession | null>(null);
   const streamInterimIdRef = useRef<string | null>(null);
+  const streamSessionStartedAtRef = useRef(0);
   const secsRef = useRef(0);
   const stopRef = useRef<() => Promise<void>>(async () => {});
+  const fallbackToBatchRef = useRef<(reason: "quota" | "error") => Promise<void>>(async () => {});
 
   cutModeRef.current = cutMode;
   modeRef.current = mode;
   audioSourceRef.current = audioSource;
-  streamOnRef.current = streamOn;
+  streamLiveRef.current = streamLive;
+
+  // Sync stream opt-in via effect so mid-tick re-renders cannot undo fallbackToBatch().
+  useEffect(() => {
+    streamOnRef.current = streamOn;
+  }, [streamOn]);
 
   useEffect(() => {
-    if (!live && !stopping) setStreamOn(Boolean(prefs?.liveStreamStt));
+    if (!live && !stopping) {
+      setStreamOn(Boolean(prefs?.liveStreamStt) && streamRemainingSecs() > 0);
+      setStreamUsedSecs(getStreamUsedSecs());
+    }
   }, [prefs?.liveStreamStt, live, stopping]);
+
+  useEffect(() => {
+    if (audioSourceProp && !live && !stopping) setAudioSource(audioSourceProp);
+  }, [audioSourceProp, live, stopping]);
 
   const clearTimers = () => {
     if (tickRef.current) window.clearInterval(tickRef.current);
@@ -373,6 +396,13 @@ export default function LiveNoteRecorder({
     const s = streamSessionRef.current;
     streamSessionRef.current = null;
     streamInterimIdRef.current = null;
+    streamLiveRef.current = false;
+    setStreamLive(false);
+    if (streamSessionStartedAtRef.current) {
+      const elapsed = Math.floor((Date.now() - streamSessionStartedAtRef.current) / 1000);
+      streamSessionStartedAtRef.current = 0;
+      if (elapsed > 0) setStreamUsedSecs(addStreamUsedSecs(elapsed));
+    }
     if (!s) return;
     try {
       await s.stop();
@@ -381,8 +411,26 @@ export default function LiveNoteRecorder({
     }
   };
 
+  /** Drop realtime STT but keep mic/system recording + batch cuts running. */
+  const fallbackToBatch = async (reason: "quota" | "error") => {
+    if (!streamLiveRef.current && !streamSessionRef.current) return;
+    await stopStreamSession();
+    streamOnRef.current = false;
+    setStreamOn(false);
+    const msg =
+      reason === "quota"
+        ? "即時額度已用完，已改切段批次（錄音未中斷）"
+        : "即時串流中斷，已改切段批次（錄音未中斷）";
+    setStatus(msg);
+    toast(msg);
+  };
+  fallbackToBatchRef.current = fallbackToBatch;
+
   const startStreamSession = async (media: MediaStream) => {
     await stopStreamSession();
+    if (streamRemainingSecs() <= 0) {
+      throw new Error("即時串流額度已用完");
+    }
     const session = new GoogleLiveSttSession({
       language,
       onEvent: (ev) => {
@@ -423,13 +471,15 @@ export default function LiveNoteRecorder({
           return;
         }
         if (ev.type === "error") {
-          toast(ev.message || "即時串流失敗");
-          setStatus(`串流錯誤：${ev.message || "未知"}`);
+          void fallbackToBatchRef.current("error");
         }
       },
     });
     streamSessionRef.current = session;
     await session.start({ language, stream: media, ownStream: false });
+    streamSessionStartedAtRef.current = Date.now();
+    streamLiveRef.current = true;
+    setStreamLive(true);
   };
 
   const cutParagraph = async (
@@ -505,15 +555,21 @@ export default function LiveNoteRecorder({
       extRef.current = rec.extension || "webm";
       if (rec.mediaStream) startSilenceMonitor(rec.mediaStream);
       if (useStream && rec.mediaStream) {
-        setStatus("連接即時串流…");
-        try {
-          await startStreamSession(rec.mediaStream);
-        } catch (e) {
-          await stopStreamSession();
-          const msg = e instanceof Error ? e.message : "無法開啟即時串流";
-          toast(`${msg} · 已改用切段批次`);
+        if (streamRemainingSecs() <= 0) {
           streamOnRef.current = false;
           setStreamOn(false);
+          toast("即時額度已用完，改用切段批次");
+        } else {
+          setStatus("連接即時串流…");
+          try {
+            await startStreamSession(rec.mediaStream);
+          } catch (e) {
+            await stopStreamSession();
+            const msg = e instanceof Error ? e.message : "無法開啟即時串流";
+            toast(`${msg} · 已改用切段批次`);
+            streamOnRef.current = false;
+            setStreamOn(false);
+          }
         }
       }
       liveRef.current = true;
@@ -547,14 +603,6 @@ export default function LiveNoteRecorder({
         setSecs((s) => {
           const n = s + 1;
           secsRef.current = n;
-          if (
-            streamOnRef.current &&
-            modeRef.current !== "audio" &&
-            n >= streamMaxSecs
-          ) {
-            toast(`即時串流最長 ${Math.round(streamMaxSecs / 60)} 分鐘，已自動結束`);
-            void stopRef.current();
-          }
           return n;
         });
         setSegSecs((s) => {
@@ -562,6 +610,16 @@ export default function LiveNoteRecorder({
           segSecsRef.current = n;
           return n;
         });
+        if (streamLiveRef.current && streamSessionStartedAtRef.current) {
+          const sessionElapsed = Math.floor(
+            (Date.now() - streamSessionStartedAtRef.current) / 1000
+          );
+          const total = getStreamUsedSecs() + sessionElapsed;
+          setStreamUsedSecs(total);
+          if (total >= STREAM_QUOTA_MAX_SECS || sessionElapsed >= streamMaxSecs) {
+            void fallbackToBatchRef.current("quota");
+          }
+        }
       }, 1000);
     } catch (e) {
       await stopStreamSession();
@@ -654,8 +712,16 @@ export default function LiveNoteRecorder({
   };
 
   useEffect(() => {
-    if (!open) return;
-    if (autoStart && !startedRef.current) {
+    if (!open) {
+      startedRef.current = false;
+      setDockHidden(false);
+      setStopping(false);
+      setStarting(false);
+      setLive(false);
+      liveRef.current = false;
+      return;
+    }
+    if (autoStart && !startedRef.current && !liveRef.current) {
       startedRef.current = true;
       void start().catch((e) => {
         toast(e instanceof Error ? e.message : "無法開始錄音");
@@ -683,10 +749,7 @@ export default function LiveNoteRecorder({
   }, [lines]);
 
   useEffect(() => {
-    if (!open) {
-      setDockHidden(false);
-      return;
-    }
+    if (!open) return;
     const spec = prefs?.liveHideDockShortcut || DEFAULT_LIVE_HIDE_DOCK_SHORTCUT;
     const onKey = (e: KeyboardEvent) => {
       if (!eventMatchesShortcut(e, spec)) return;
@@ -716,11 +779,13 @@ export default function LiveNoteRecorder({
   const canPickSource = !live && !stopping && !booting;
   const idle = !live && !stopping && !booting;
   const showPreview = lines.length > 0 || live || stopping;
-  const streamActive = doStt && streamOn;
+  const streamActive = doStt && streamOn && streamLive;
+  const streamWanted = doStt && streamOn;
+  const quotaLabel = formatStreamQuota(streamUsedSecs);
   const emptyHint = !doStt
     ? `≥${minSecs}s 停頓切段存檔`
-    : streamActive
-      ? `即時串流出字 · 最長 ${Math.round(streamMaxSecs / 60)} 分 · 停頓仍切段存音檔`
+    : streamWanted
+      ? `即時串流 · ${quotaLabel}（目前先提供 5 小時額度）`
       : mode === "transcribe"
         ? `≥${minSecs}s 停頓切段轉字（批次）`
         : `≥${minSecs}s 切段批次 · 每 ${organizeEvery} 段整理`;
@@ -750,8 +815,10 @@ export default function LiveNoteRecorder({
                   {live || stopping ? (
                     <span className="voice-live-source-badge">{liveAudioSourceLabel(audioSource)}</span>
                   ) : null}
-                  {streamActive && (live || stopping || idle) ? (
+                  {streamActive ? (
                     <span className="voice-live-source-badge is-stream">即時</span>
+                  ) : live && doStt ? (
+                    <span className="voice-live-source-badge">批次</span>
                   ) : null}
                 </strong>
                 {live || stopping || booting ? (
@@ -759,8 +826,15 @@ export default function LiveNoteRecorder({
                     {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
                     {formatRecClock(segSecs)}
                     {cutMode === "auto" ? ` · ≥${minSecs}s` : " · 手動"}
+                    {streamWanted || streamActive || streamUsedSecs > 0
+                      ? ` · 即時 ${quotaLabel}`
+                      : ""}
                     {pendingHint}
                     {orgHint}
+                  </span>
+                ) : doStt ? (
+                  <span title="目前先提供 5 小時（300 分鐘）即時額度">
+                    即時額度 {quotaLabel}
                   </span>
                 ) : null}
                 {(live || stopping || booting) && status ? <em title={status}>{status}</em> : null}
@@ -788,25 +862,31 @@ export default function LiveNoteRecorder({
                   <button
                     type="button"
                     className={`voice-live-source-chip${streamOn ? " is-on" : ""}`}
-                    disabled={!canPickSource}
+                    disabled={!canPickSource || streamRemainingSecs() <= 0}
                     title={
-                      streamOn
-                        ? `即時串流已開（最長 ${Math.round(streamMaxSecs / 60)} 分）。再按可改回切段批次。`
-                        : "預設切段批次較省；開啟即時串流可邊講邊出字（較貴，最長 2 小時）"
+                      streamRemainingSecs() <= 0
+                        ? "即時額度已用完，目前僅切段批次"
+                        : streamOn
+                          ? `即時串流（${quotaLabel}，目前先提供 5 小時）。再按改回切段批次。`
+                          : `開啟即時串流（${quotaLabel}，目前先提供 5 小時）`
                     }
                     onClick={() => {
+                      if (streamRemainingSecs() <= 0) {
+                        toast("即時額度已用完");
+                        return;
+                      }
                       const next = !streamOn;
                       setStreamOn(next);
                       streamOnRef.current = next;
                       prefsCtx?.setPrefs({ liveStreamStt: next });
                       setStatus(
                         next
-                          ? `已開即時串流（最長 ${Math.round(streamMaxSecs / 60)} 分）`
+                          ? `已開即時串流（${quotaLabel}，目前先 5 小時）`
                           : "已改用切段批次（較省）"
                       );
                     }}
                   >
-                    {streamOn ? "即時串流" : "切段批次"}
+                    {streamOn ? `即時 ${quotaLabel}` : "切段批次"}
                   </button>
                 ) : null}
               </div>

@@ -2335,7 +2335,7 @@ async def stt_google_health():
         "billing": "dynamic_batch_approx_0.003_usd_per_min",
         "stream_enabled": (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "1").strip().lower()
         not in ("0", "false", "no", "off"),
-        "stream_max_secs": max(60, min(7200, int(os.environ.get("GOOGLE_STT_STREAM_MAX_SECS") or "7200"))),
+        "stream_max_secs": max(60, min(18000, int(os.environ.get("GOOGLE_STT_STREAM_MAX_SECS") or "18000"))),
         "location": _google_stt_location(),
         "model": _google_stt_model(),
         "note": "預設 V2 動態批次（較便宜）。串流已預設關閉，避免 $0.016/min。",
@@ -2482,7 +2482,7 @@ async def stt_google_stream(websocket: WebSocket):
     """
     Real-time StreamingRecognize bridge.
     Enabled by default so clients can opt in; set GOOGLE_STT_ENABLE_STREAM=0 to force-disable.
-    Soft-cap session length (default 7200s / 2h) via GOOGLE_STT_STREAM_MAX_SECS.
+    Soft-cap session length (default 18000s / 5h) via GOOGLE_STT_STREAM_MAX_SECS.
     """
     await websocket.accept()
     raw_flag = (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "1").strip().lower()
@@ -2496,8 +2496,8 @@ async def stt_google_stream(websocket: WebSocket):
         )
         await websocket.close()
         return
-    max_secs = int(os.environ.get("GOOGLE_STT_STREAM_MAX_SECS") or "7200")
-    max_secs = max(60, min(7200, max_secs))
+    max_secs = int(os.environ.get("GOOGLE_STT_STREAM_MAX_SECS") or "18000")
+    max_secs = max(60, min(18000, max_secs))
     try:
         init_raw = await websocket.receive_text()
         init = json.loads(init_raw) if init_raw else {}

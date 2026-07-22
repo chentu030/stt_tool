@@ -827,7 +827,7 @@ export default function SettingsPage() {
             </Row>
             <Row
               label="即時串流轉錄"
-              hint="預設關閉（切段批次較省）。開啟後邊講邊出字；單次最長 2 小時，費用較高。"
+              hint="預設關閉（切段批次較省）。開啟後邊講邊出字；目前先提供 5 小時額度，用完會自動改回切段且不中斷錄音。"
             >
               <Toggle
                 checked={prefs.liveStreamStt}
@@ -835,13 +835,13 @@ export default function SettingsPage() {
               />
             </Row>
             <Row
-              label={`串流最長 ${prefs.liveStreamMaxMins} 分鐘`}
-              hint="僅套用在即時串流；到時自動結束本場"
+              label={`串流最長偏好 ${prefs.liveStreamMaxMins} 分鐘`}
+              hint="單次開啟串流的偏好上限（仍受 5 小時總額度限制）"
             >
               <input
                 type="range"
                 min={15}
-                max={120}
+                max={300}
                 step={15}
                 value={prefs.liveStreamMaxMins}
                 disabled={!prefs.liveStreamStt}

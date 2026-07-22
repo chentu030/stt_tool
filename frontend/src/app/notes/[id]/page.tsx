@@ -1639,7 +1639,7 @@ function NotePageInner() {
             <div className="doc-cmd-wrap" ref={liveMenuRef}>
               <button
                 type="button"
-                className={`doc-cmd${liveOpen ? " is-on" : ""}`}
+                className={`doc-cmd doc-cmd--keep${liveOpen ? " is-on" : ""}`}
                 title="即時錄音：麥克風／裝置聲音／兩者 · 純錄製／轉錄／整理"
                 aria-expanded={liveMenuOpen}
                 onClick={() => setLiveMenuOpen((v) => !v)}
@@ -2550,7 +2550,7 @@ function NotePageInner() {
 
       {user && note && liveOpen ? (
         <LiveNoteRecorder
-          key={`${note.id}-${liveMode}-${liveAudioSource}-${liveAutoStart ? "auto" : "manual"}`}
+          key={note.id}
           uid={user.uid}
           noteId={note.id}
           open={liveOpen}

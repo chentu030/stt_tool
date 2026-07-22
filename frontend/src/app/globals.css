@@ -7910,6 +7910,10 @@ a.sidebar-user-name:hover {
   .doc-command-actions .doc-cmd:not(.doc-cmd--keep) {
     display: none;
   }
+  .doc-command-actions .doc-cmd--keep,
+  .doc-command-actions .doc-cmd-wrap:has(.doc-cmd--keep) {
+    flex-shrink: 0;
+  }
   .doc-command-bar .doc-view-switch {
     margin-left: 0;
     flex-shrink: 0;
@@ -7918,6 +7922,10 @@ a.sidebar-user-name:hover {
 @media (max-width: 720px) {
   .doc-command-actions .doc-cmd:not(.doc-cmd--keep) {
     display: none;
+  }
+  .doc-command-actions .doc-cmd--keep,
+  .doc-command-actions .doc-cmd-wrap:has(.doc-cmd--keep) {
+    flex-shrink: 0;
   }
 }
 .doc-more-menu {
