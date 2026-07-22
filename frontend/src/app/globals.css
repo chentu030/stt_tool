@@ -534,6 +534,7 @@ button, input, textarea, select {
   flex-shrink: 0;
 }
 .cdb-icon-btn {
+  position: relative;
   width: 1.85rem;
   height: 1.85rem;
   display: inline-flex;
@@ -544,8 +545,71 @@ button, input, textarea, select {
   background: transparent;
   color: var(--text-muted);
   text-decoration: none;
-  font-size: 0.95rem;
+  font-size: 0.78rem;
+  font-weight: 700;
   cursor: pointer;
+}
+.cdb-icon-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 0.85rem;
+  height: 0.85rem;
+  padding: 0 0.15rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 0.85rem;
+  text-align: center;
+}
+.cdb-th-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: 0;
+  padding-right: 0.35rem;
+}
+.cdb-th-btn {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cdb-th-btn:hover span {
+  color: var(--accent);
+}
+.cdb-table th.is-sorted .cdb-th-btn span {
+  color: var(--accent);
+}
+.cdb-th-more {
+  flex-shrink: 0;
+  opacity: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.1rem 0.15rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cdb-table th:hover .cdb-th-more,
+.cdb-th-more:focus-visible {
+  opacity: 1;
+}
+.cdb-th-more:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
 }
 .cdb-icon-btn:hover,
 .cdb-icon-btn.is-on {
@@ -674,21 +738,6 @@ button, input, textarea, select {
   opacity: 0.7;
   font-weight: 500;
   font-size: 0.65rem;
-}
-.cdb-th-btn {
-  display: block;
-  width: 100%;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.cdb-th-btn:hover span {
-  color: var(--accent);
 }
 .cdb-th-select,
 .cdb-td-select {
@@ -7702,17 +7751,19 @@ a.sidebar-user-name:hover {
   letter-spacing: 0.04em;
   color: var(--text-muted);
   text-transform: none;
+  text-align: center;
 }
 .doc-cmd-menu-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+  justify-content: center;
 }
 .doc-cmd-menu-chip {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   width: auto !important;
-  min-width: 0;
-  padding: 0.38rem 0.45rem !important;
+  min-width: 4.2rem;
+  padding: 0.38rem 0.55rem !important;
   border-radius: 8px !important;
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent) !important;
   background: transparent !important;
@@ -7722,6 +7773,7 @@ a.sidebar-user-name:hover {
   cursor: pointer;
   text-align: center !important;
   align-items: center !important;
+  justify-content: center !important;
   flex-direction: row !important;
   gap: 0 !important;
 }
@@ -7739,6 +7791,7 @@ a.sidebar-user-name:hover {
   font-size: 0.68rem;
   line-height: 1.35;
   color: var(--text-muted);
+  text-align: center;
 }
 .doc-cmd-menu-src {
   font-weight: 500;
@@ -19450,8 +19503,9 @@ body.is-sidebar-resizing iframe {
 .voice-live-source {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.25rem;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
 }
 .voice-live-source-chip {
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);

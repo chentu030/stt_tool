@@ -545,6 +545,48 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     toast(`已刪除「${prop.name}」`);
   };
 
+  /** Click column header: none → asc → desc → clear (as primary sort). */
+  const cycleColumnSort = (propId: string) => {
+    if (!view) return;
+    const sorts = view.sorts || [];
+    const primary = sorts[0];
+    let next: DbSort[];
+    if (!primary || primary.propId !== propId) {
+      next = [{ propId, dir: "asc" }, ...sorts.filter((s) => s.propId !== propId)];
+    } else if (primary.dir === "asc") {
+      next = [{ propId, dir: "desc" }, ...sorts.slice(1)];
+    } else {
+      next = sorts.slice(1);
+    }
+    void patchActiveView({ sorts: next });
+  };
+
+  const filterByColumn = (prop: DbProperty) => {
+    if (!view) return;
+    setColMenuPropId(null);
+    setSettingsOpen(false);
+    const filters = view.filters || [];
+    const existing = filters.find((f) => f.propId === prop.id);
+    if (!existing) {
+      const op: DbFilterOp =
+        prop.type === "checkbox" || prop.type === "select" || prop.type === "status"
+          ? "eq"
+          : prop.type === "number" || prop.type === "date" || prop.type === "datetime"
+            ? "eq"
+            : "contains";
+      void patchActiveView({
+        filters: [...filters, { propId: prop.id, op, value: "" }],
+      });
+    }
+    setPanel("filter");
+  };
+
+  const sortDirOf = (propId: string): "asc" | "desc" | null => {
+    const s = view?.sorts?.[0];
+    if (!s || s.propId !== propId) return null;
+    return s.dir;
+  };
+
   const addRow = async () => {
     try {
       await createDatabaseRow(userId, databaseId, "未命名");
@@ -626,13 +668,35 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             aria-label="資料庫名稱"
           />
           <div className="cdb-title-actions">
+            <button
+              type="button"
+              className={`cdb-icon-btn${panel === "filter" ? " is-on" : ""}`}
+              title="篩選"
+              aria-label="篩選"
+              aria-pressed={panel === "filter"}
+              onClick={() => openPanel("filter")}
+            >
+              篩
+              {filterCount ? <em className="cdb-icon-badge">{filterCount}</em> : null}
+            </button>
+            <button
+              type="button"
+              className={`cdb-icon-btn${panel === "sort" ? " is-on" : ""}`}
+              title="排序"
+              aria-label="排序"
+              aria-pressed={panel === "sort"}
+              onClick={() => openPanel("sort")}
+            >
+              序
+              {sortCount ? <em className="cdb-icon-badge">{sortCount}</em> : null}
+            </button>
             <Link href={`/db/${db.id}`} className="cdb-icon-btn" title="全頁開啟" aria-label="全頁開啟">
               ↗
             </Link>
             <button
               ref={settingsBtnRef}
               type="button"
-              className={`cdb-icon-btn${settingsOpen || panel ? " is-on" : ""}`}
+              className={`cdb-icon-btn${settingsOpen || panel === "props" ? " is-on" : ""}`}
               title="設定"
               aria-label="資料庫設定"
               aria-expanded={settingsOpen}
@@ -641,7 +705,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 setLayoutOpen(false);
               }}
             >
-              ☰
+              ⚙
             </button>
             <button type="button" className="btn btn-sm cdb-new-btn" onClick={() => void addRow()}>
               新建
@@ -699,13 +763,13 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           </div>
 
           <hr className="cdb-settings-sep" />
-          <button type="button" onClick={() => openPanel("filter")}>
+          <button type="button" onClick={() => { setSettingsOpen(false); openPanel("filter"); }}>
             篩選{filterCount ? ` · ${filterCount}` : ""}
           </button>
-          <button type="button" onClick={() => openPanel("sort")}>
+          <button type="button" onClick={() => { setSettingsOpen(false); openPanel("sort"); }}>
             排序{sortCount ? ` · ${sortCount}` : ""}
           </button>
-          <button type="button" onClick={() => openPanel("props")}>
+          <button type="button" onClick={() => { setSettingsOpen(false); openPanel("props"); }}>
             屬性
           </button>
           {view?.type === "board" && (
@@ -978,20 +1042,39 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 </th>
                 {shownProps.map((p) => {
                   const w = widthOf(p);
+                  const dir = sortDirOf(p.id);
                   return (
-                    <th key={p.id} style={{ width: w, minWidth: w, maxWidth: w }}>
-                      <button
-                        type="button"
-                        className="cdb-th-btn"
-                        title="欄位選項"
-                        onClick={(e) => {
-                          colMenuAnchorRef.current = e.currentTarget;
-                          setColMenuPropId((cur) => (cur === p.id ? null : p.id));
-                        }}
-                      >
-                        <span>{p.name}</span>
-                        <em>{typeLabel(p.type)}</em>
-                      </button>
+                    <th
+                      key={p.id}
+                      style={{ width: w, minWidth: w, maxWidth: w }}
+                      className={dir ? "is-sorted" : undefined}
+                    >
+                      <div className="cdb-th-inner">
+                        <button
+                          type="button"
+                          className="cdb-th-btn"
+                          title={`點擊排序「${p.name}」（升冪 → 降冪 → 取消）`}
+                          onClick={() => cycleColumnSort(p.id)}
+                        >
+                          <span>
+                            {p.name}
+                            {dir === "asc" ? " ↑" : dir === "desc" ? " ↓" : ""}
+                          </span>
+                          <em>{typeLabel(p.type)}</em>
+                        </button>
+                        <button
+                          type="button"
+                          className="cdb-th-more"
+                          title="欄位選項"
+                          aria-label={`${p.name} 選項`}
+                          onClick={(e) => {
+                            colMenuAnchorRef.current = e.currentTarget;
+                            setColMenuPropId((cur) => (cur === p.id ? null : p.id));
+                          }}
+                        >
+                          ···
+                        </button>
+                      </div>
                       <i
                         className={`cdb-col-resizer${resizingProp === p.id ? " is-on" : ""}`}
                         role="separator"
@@ -1078,6 +1161,18 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
               if (!prop) return null;
               return (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setColMenuPropId(null);
+                      cycleColumnSort(prop.id);
+                    }}
+                  >
+                    排序此欄
+                  </button>
+                  <button type="button" onClick={() => filterByColumn(prop)}>
+                    篩選此欄
+                  </button>
                   <button type="button" onClick={() => void renameColumn(prop)}>
                     重新命名
                   </button>
