@@ -650,7 +650,6 @@ button, input, textarea, select {
 .cdb-table {
   table-layout: fixed;
   width: max-content;
-  min-width: 100%;
   border-collapse: collapse;
 }
 .cdb-table th, .cdb-table td {
@@ -675,6 +674,83 @@ button, input, textarea, select {
   opacity: 0.7;
   font-weight: 500;
   font-size: 0.65rem;
+}
+.cdb-th-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cdb-th-btn:hover span {
+  color: var(--accent);
+}
+.cdb-th-select,
+.cdb-td-select {
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  padding: 0.2rem 0.15rem !important;
+  text-align: center;
+  border-right: none !important;
+  vertical-align: middle;
+}
+.cdb-th-select input,
+.cdb-td-select input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+.cdb-table tbody tr.is-selected td {
+  background: color-mix(in srgb, var(--accent-soft) 55%, transparent);
+}
+.cdb-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--bg-card));
+}
+.cdb-bulk-count {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--accent);
+}
+.cdb-bulk-sep {
+  width: 1px;
+  height: 1.1rem;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+.cdb-bulk-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+.cdb-bulk-field select,
+.cdb-bulk-field input {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-main);
+  border-radius: 7px;
+  padding: 0.28rem 0.4rem;
+  font: inherit;
+  font-size: 0.78rem;
+  max-width: 11rem;
+}
+.cdb-menu-danger {
+  color: #b91c1c !important;
 }
 .cdb-col-resizer {
   position: absolute;

@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Note } from "@/lib/firebase";
-import { uploadFile } from "@/lib/firebase";
+import { deleteNote, uploadFile } from "@/lib/firebase";
 import {
   addDatabaseView,
   addProperty,
@@ -17,6 +17,8 @@ import {
   listenDatabase,
   listenDatabaseRows,
   patchView,
+  removeProperty,
+  scrubViewsAfterPropRemove,
   setCellValue,
   updateDatabase,
   visibleProperties,
@@ -33,11 +35,13 @@ import {
 } from "@/lib/database";
 import MenuSelect from "@/components/MenuSelect";
 import CadenceDateField from "@/components/CadenceDateField";
-import { askPrompt } from "@/lib/dialogs";
+import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/components/AuthProvider";
 import { resolvePersonLabel } from "@/lib/userProfile";
 
+const SELECT_COL_W = 28;
+const ADD_COL_W = 40;
 const COL_W_MIN = 72;
 const COL_W_MAX = 640;
 const COL_W_DEFAULT: Partial<Record<DbPropType, number>> = {
@@ -235,6 +239,13 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [resizingProp, setResizingProp] = useState<string | null>(null);
   const colWidthsRef = useRef<Record<string, number>>({});
   const patchViewRef = useRef<(patch: Partial<DbView>) => Promise<void>>(async () => {});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const [colMenuPropId, setColMenuPropId] = useState<string | null>(null);
+  const colMenuAnchorRef = useRef<HTMLElement | null>(null);
+  const [bulkPropId, setBulkPropId] = useState("");
+  const [bulkValue, setBulkValue] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(
     () =>
@@ -321,13 +332,28 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
 
   const widthOf = (prop: DbProperty) => colWidths[prop.id] ?? defaultColWidth(prop);
 
+  const freezeShownWidths = () => {
+    const frozen: Record<string, number> = { ...colWidthsRef.current };
+    for (const p of shownProps) {
+      if (frozen[p.id] == null) frozen[p.id] = defaultColWidth(p);
+    }
+    colWidthsRef.current = frozen;
+    setColWidths(frozen);
+    return frozen;
+  };
+
+  const tablePixelWidth =
+    SELECT_COL_W + shownProps.reduce((sum, p) => sum + widthOf(p), 0) + ADD_COL_W;
+
   const startColResize = (propId: string, startWidth: number, e: ReactPointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const frozen = freezeShownWidths();
+    const base = frozen[propId] ?? startWidth;
     const startX = e.clientX;
     setResizingProp(propId);
     const onMove = (ev: PointerEvent) => {
-      const next = clampColWidth(startWidth + (ev.clientX - startX));
+      const next = clampColWidth(base + (ev.clientX - startX));
       setColWidths((prev) => {
         const merged = { ...prev, [propId]: next };
         colWidthsRef.current = merged;
@@ -348,6 +374,175 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+  };
+
+  const visibleRowIds = useMemo(() => filteredRows.map((r) => r.id), [filteredRows]);
+  const selectedCount = useMemo(
+    () => visibleRowIds.filter((id) => selectedIds.has(id)).length,
+    [visibleRowIds, selectedIds]
+  );
+  const allVisibleSelected =
+    visibleRowIds.length > 0 && selectedCount === visibleRowIds.length;
+  const someVisibleSelected = selectedCount > 0 && !allVisibleSelected;
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someVisibleSelected;
+  }, [someVisibleSelected]);
+
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (!prev.size) return prev;
+      const keep = new Set(rows.map((r) => r.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (keep.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [rows]);
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        for (const id of visibleRowIds) next.delete(id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const id of visibleRowIds) next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectRow = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const bulkEditableProps = useMemo(
+    () =>
+      props.filter(
+        (p) =>
+          ![
+            "formula",
+            "rollup",
+            "files",
+            "relation",
+            "created_time",
+            "last_edited_time",
+            "created_by",
+            "last_edited_by",
+            "unique_id",
+          ].includes(p.type)
+      ),
+    [props]
+  );
+
+  useEffect(() => {
+    if (!bulkPropId && bulkEditableProps[0]) setBulkPropId(bulkEditableProps[0].id);
+  }, [bulkPropId, bulkEditableProps]);
+
+  const deleteSelectedRows = async () => {
+    const ids = visibleRowIds.filter((id) => selectedIds.has(id));
+    if (!ids.length) return;
+    const ok = await askConfirm({
+      title: "刪除選取的列",
+      message: `將刪除 ${ids.length} 列（含對應筆記頁），此操作無法復原。`,
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
+    setBulkBusy(true);
+    try {
+      for (const id of ids) await deleteNote(id);
+      setSelectedIds(new Set());
+      toast(`已刪除 ${ids.length} 列`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "刪除失敗");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const applyBulkEdit = async () => {
+    const ids = visibleRowIds.filter((id) => selectedIds.has(id));
+    const prop = props.find((p) => p.id === bulkPropId);
+    if (!ids.length || !prop) return;
+    setBulkBusy(true);
+    try {
+      let value: unknown = bulkValue;
+      if (prop.type === "checkbox") value = bulkValue === "true" || bulkValue === "1";
+      else if (prop.type === "number") {
+        const n = Number(bulkValue);
+        value = bulkValue.trim() === "" || !Number.isFinite(n) ? null : n;
+      } else if (prop.type === "multi_select" || prop.type === "tags") {
+        value = bulkValue
+          .split(/[,，]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else if (prop.type === "select" || prop.type === "status") {
+        value = bulkValue || null;
+      } else if (prop.type === "title") {
+        value = bulkValue.trim() || "未命名";
+      }
+      for (const id of ids) {
+        const row = rows.find((r) => r.id === id);
+        if (row) await setCellValue(row, prop, value);
+      }
+      toast(`已更新 ${ids.length} 列的「${prop.name}」`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "批次更新失敗");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const renameColumn = async (prop: DbProperty) => {
+    setColMenuPropId(null);
+    const next = await askPrompt({
+      title: "重新命名欄位",
+      message: `目前名稱：${prop.name}`,
+      defaultValue: prop.name,
+    });
+    if (next == null) return;
+    const name = next.trim();
+    if (!name || !db) return;
+    const properties = db.properties.map((p) => (p.id === prop.id ? { ...p, name } : p));
+    setDb({ ...db, properties });
+    await updateDatabase(db.id, { properties });
+  };
+
+  const deleteColumn = async (prop: DbProperty) => {
+    setColMenuPropId(null);
+    if (prop.type === "title") {
+      toast("標題欄無法刪除");
+      return;
+    }
+    if (!db) return;
+    const ok = await askConfirm({
+      title: "刪除整欄",
+      message: `確定刪除「${prop.name}」？各列此欄資料會一併移除（無法復原）。`,
+      confirmLabel: "刪除欄",
+      danger: true,
+    });
+    if (!ok) return;
+    const properties = removeProperty(db.properties, prop.id);
+    const views = scrubViewsAfterPropRemove(db.views, prop.id);
+    setDb({ ...db, properties, views });
+    setColWidths((prev) => {
+      const next = { ...prev };
+      delete next[prop.id];
+      colWidthsRef.current = next;
+      return next;
+    });
+    await updateDatabase(db.id, { properties, views });
+    toast(`已刪除「${prop.name}」`);
   };
 
   const addRow = async () => {
@@ -614,6 +809,8 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             props={props}
             visibleIds={view.visiblePropIds}
             onChange={(visiblePropIds) => void patchActiveView({ visiblePropIds })}
+            onRenameProp={(p) => void renameColumn(p)}
+            onDeleteProp={(p) => void deleteColumn(p)}
             onConfigureRollup={async (propId) => {
               const p = props.find((x) => x.id === propId);
               if (!p || p.type !== "rollup") return;
@@ -698,9 +895,6 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 </span>
                 <span>{row.updated_at.toLocaleDateString("zh-TW")}</span>
               </Link>
-              <button type="button" className="btn btn-ghost cdb-open-page" onClick={() => openRow(row.id)}>
-                開啟頁面
-              </button>
             </div>
           ))}
           <button type="button" className="cdb-add-row" onClick={() => void addRow()}>
@@ -709,23 +903,95 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
         </div>
       ) : (
         <div className={`cdb-table-wrap${resizingProp ? " is-resizing" : ""}`}>
-          <table className="cdb-table">
+          {selectedCount > 0 ? (
+            <div className="cdb-bulk-bar" role="toolbar" aria-label="批次操作">
+              <span className="cdb-bulk-count">已選 {selectedCount} 列</span>
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                disabled={bulkBusy}
+                onClick={() => setSelectedIds(new Set())}
+              >
+                取消選取
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={bulkBusy}
+                onClick={() => void deleteSelectedRows()}
+              >
+                刪除選取
+              </button>
+              <span className="cdb-bulk-sep" aria-hidden />
+              <label className="cdb-bulk-field">
+                <span>欄位</span>
+                <select
+                  value={bulkPropId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setBulkPropId(id);
+                    const p = props.find((x) => x.id === id);
+                    setBulkValue(p?.type === "checkbox" ? "true" : "");
+                  }}
+                >
+                  {bulkEditableProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <BulkValueInput
+                prop={props.find((p) => p.id === bulkPropId)}
+                value={bulkValue}
+                onChange={setBulkValue}
+              />
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={bulkBusy || !bulkPropId}
+                onClick={() => void applyBulkEdit()}
+              >
+                {bulkBusy ? "套用中…" : "套用到選取"}
+              </button>
+            </div>
+          ) : null}
+          <table className="cdb-table" style={{ width: tablePixelWidth, minWidth: tablePixelWidth }}>
             <colgroup>
-              <col style={{ width: 36 }} />
+              <col style={{ width: SELECT_COL_W }} />
               {shownProps.map((p) => (
                 <col key={p.id} style={{ width: widthOf(p) }} />
               ))}
-              <col style={{ width: 40 }} />
+              <col style={{ width: ADD_COL_W }} />
             </colgroup>
             <thead>
               <tr>
-                <th className="cdb-th-open" />
+                <th className="cdb-th-select" style={{ width: SELECT_COL_W, minWidth: SELECT_COL_W, maxWidth: SELECT_COL_W }}>
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    aria-label="全選目前列"
+                    title="全選"
+                  />
+                </th>
                 {shownProps.map((p) => {
                   const w = widthOf(p);
                   return (
                     <th key={p.id} style={{ width: w, minWidth: w, maxWidth: w }}>
-                      <span>{p.name}</span>
-                      <em>{typeLabel(p.type)}</em>
+                      <button
+                        type="button"
+                        className="cdb-th-btn"
+                        title="欄位選項"
+                        onClick={(e) => {
+                          colMenuAnchorRef.current = e.currentTarget;
+                          setColMenuPropId((cur) => (cur === p.id ? null : p.id));
+                        }}
+                      >
+                        <span>{p.name}</span>
+                        <em>{typeLabel(p.type)}</em>
+                      </button>
                       <i
                         className={`cdb-col-resizer${resizingProp === p.id ? " is-on" : ""}`}
                         role="separator"
@@ -736,7 +1002,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                     </th>
                   );
                 })}
-                <th className="cdb-th-add">
+                <th className="cdb-th-add" style={{ width: ADD_COL_W, minWidth: ADD_COL_W }}>
                   <button
                     ref={addPropBtnRef}
                     type="button"
@@ -771,16 +1037,17 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <tr key={row.id}>
-                  <td className="cdb-td-open">
-                    <button
-                      type="button"
-                      className="cdb-open-page"
-                      onClick={() => openRow(row.id)}
-                      title="開啟完整筆記頁"
-                    >
-                      ↗
-                    </button>
+                <tr key={row.id} className={selectedIds.has(row.id) ? "is-selected" : undefined}>
+                  <td
+                    className="cdb-td-select"
+                    style={{ width: SELECT_COL_W, minWidth: SELECT_COL_W, maxWidth: SELECT_COL_W }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(row.id)}
+                      onChange={() => toggleSelectRow(row.id)}
+                      aria-label={`選取 ${row.title || "未命名"}`}
+                    />
                   </td>
                   {shownProps.map((p) => (
                     <td key={p.id} style={{ width: widthOf(p), minWidth: widthOf(p), maxWidth: widthOf(p) }}>
@@ -800,12 +1067,110 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
               ))}
             </tbody>
           </table>
+          <CdbPortalMenu
+            open={Boolean(colMenuPropId)}
+            anchorRef={colMenuAnchorRef}
+            onClose={() => setColMenuPropId(null)}
+            align="left"
+          >
+            {(() => {
+              const prop = props.find((p) => p.id === colMenuPropId);
+              if (!prop) return null;
+              return (
+                <>
+                  <button type="button" onClick={() => void renameColumn(prop)}>
+                    重新命名
+                  </button>
+                  {prop.type !== "title" ? (
+                    <button type="button" className="cdb-menu-danger" onClick={() => void deleteColumn(prop)}>
+                      刪除整欄
+                    </button>
+                  ) : (
+                    <button type="button" disabled title="標題欄無法刪除">
+                      刪除整欄
+                    </button>
+                  )}
+                </>
+              );
+            })()}
+          </CdbPortalMenu>
           <button type="button" className="cdb-add-row" onClick={() => void addRow()}>
             + 新增列
           </button>
         </div>
       )}
     </div>
+  );
+}
+
+function BulkValueInput({
+  prop,
+  value,
+  onChange,
+}: {
+  prop?: DbProperty;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (!prop) return null;
+  if (prop.type === "checkbox") {
+    return (
+      <label className="cdb-bulk-field">
+        <span>設為</span>
+        <select value={value || "true"} onChange={(e) => onChange(e.target.value)}>
+          <option value="true">勾選</option>
+          <option value="false">取消勾選</option>
+        </select>
+      </label>
+    );
+  }
+  if (prop.type === "select" || prop.type === "status") {
+    return (
+      <label className="cdb-bulk-field">
+        <span>設為</span>
+        <select value={value} onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {(prop.options || []).map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+  if (prop.type === "date" || prop.type === "datetime") {
+    return (
+      <label className="cdb-bulk-field">
+        <span>設為</span>
+        <input
+          type={prop.type === "datetime" ? "datetime-local" : "date"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </label>
+    );
+  }
+  if (prop.type === "number") {
+    return (
+      <label className="cdb-bulk-field">
+        <span>設為</span>
+        <input type="number" value={value} onChange={(e) => onChange(e.target.value)} placeholder="數字" />
+      </label>
+    );
+  }
+  return (
+    <label className="cdb-bulk-field">
+      <span>設為</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={
+          prop.type === "multi_select" || prop.type === "tags" ? "多個值用逗號分隔" : "新值"
+        }
+      />
+    </label>
   );
 }
 
@@ -964,11 +1329,15 @@ function PropsPanel({
   visibleIds,
   onChange,
   onConfigureRollup,
+  onRenameProp,
+  onDeleteProp,
 }: {
   props: DbProperty[];
   visibleIds?: string[];
   onChange: (ids: string[] | undefined) => void;
   onConfigureRollup: (propId: string) => void;
+  onRenameProp?: (prop: DbProperty) => void;
+  onDeleteProp?: (prop: DbProperty) => void;
 }) {
   const active = visibleIds?.length ? new Set(visibleIds) : null;
   return (
@@ -1001,6 +1370,30 @@ function PropsPanel({
                   設定
                 </button>
               )}
+              {onRenameProp ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onRenameProp(p);
+                  }}
+                >
+                  改名
+                </button>
+              ) : null}
+              {onDeleteProp && p.type !== "title" ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost cdb-menu-danger"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onDeleteProp(p);
+                  }}
+                >
+                  刪欄
+                </button>
+              ) : null}
             </label>
           );
         })}
@@ -1332,7 +1725,7 @@ function FilesCell({
       const next = [...files];
       for (const file of arr) {
         const safe = file.name.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
-        const path = `users/${userId}/db/${databaseId}/${row.id}/${Date.now()}_${safe}`;
+        const path = `uploads/${userId}/db/${databaseId}/${row.id}/${Date.now()}_${safe}`;
         const url = await uploadFile(path, file);
         next.push({ url, name: file.name });
       }

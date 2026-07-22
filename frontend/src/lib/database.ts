@@ -627,6 +627,33 @@ export function addProperty(
   );
 }
 
+/** Remove a property (title cannot be removed). */
+export function removeProperty(properties: DbProperty[], propId: string): DbProperty[] {
+  const target = properties.find((p) => p.id === propId);
+  if (!target || target.type === "title") return properties;
+  return properties.filter((p) => p.id !== propId);
+}
+
+/** Drop references to a deleted property from all views. */
+export function scrubViewsAfterPropRemove(views: DbView[], propId: string): DbView[] {
+  return views.map((v) => {
+    const columnWidths = v.columnWidths
+      ? Object.fromEntries(Object.entries(v.columnWidths).filter(([id]) => id !== propId))
+      : undefined;
+    return {
+      ...v,
+      filters: v.filters?.filter((f) => f.propId !== propId),
+      sorts: v.sorts?.filter((s) => s.propId !== propId),
+      groupBy: v.groupBy === propId ? undefined : v.groupBy,
+      dateProp: v.dateProp === propId ? undefined : v.dateProp,
+      coverPropId: v.coverPropId === propId ? undefined : v.coverPropId,
+      visiblePropIds: v.visiblePropIds?.filter((id) => id !== propId),
+      cardPropIds: v.cardPropIds?.filter((id) => id !== propId),
+      columnWidths: columnWidths && Object.keys(columnWidths).length ? columnWidths : undefined,
+    };
+  });
+}
+
 function resolvePropToken(
   pid: string,
   row: Note,
