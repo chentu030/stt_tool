@@ -2549,7 +2549,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
       const gutterRight = rootRect.left + Math.max(contentPad, 44);
       if (e.clientX < gutterRight) return;
-      setBlockSel(null);
+      // Defer so ProseMirror can place the caret first.
+      queueMicrotask(() => {
+        if (blockSelRef.current) setBlockSel(null);
+      });
     };
     root.addEventListener("mousedown", onDown);
     return () => root.removeEventListener("mousedown", onDown);
