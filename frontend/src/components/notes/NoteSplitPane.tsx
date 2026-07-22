@@ -34,8 +34,10 @@ export default function NoteSplitPane({
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "offline">("idle");
+  const [saveKick, setSaveKick] = useState(0);
   const dirty = useRef(false);
   const baseUpdatedAt = useRef(0);
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
   const titleRef = useRef(title);
   const bodyRef = useRef(body);
   titleRef.current = title;
@@ -109,27 +111,39 @@ export default function NoteSplitPane({
     if (!ready || !dirty.current) return;
     setStatus("dirty");
     const t = window.setTimeout(() => {
-      setStatus("saving");
-      void saveNoteWithSync(
-        noteId,
-        {
-          title: titleRef.current,
-          body_md: bodyRef.current,
-        },
-        {
-          baseUpdatedAt: baseUpdatedAt.current || Date.now(),
-          label: titleRef.current,
-        }
-      ).then((result) => {
+      const job = saveChain.current.then(async () => {
+        if (!dirty.current) return;
+        const titleSnap = titleRef.current;
+        const bodySnap = bodyRef.current;
+        setStatus("saving");
+        const result = await saveNoteWithSync(
+          noteId,
+          {
+            title: titleSnap,
+            body_md: bodySnap,
+          },
+          {
+            baseUpdatedAt: baseUpdatedAt.current || Date.now(),
+            label: titleSnap,
+          }
+        );
         if (result.status === "queued") {
-          dirty.current = false;
+          if (titleRef.current === titleSnap && bodyRef.current === bodySnap) {
+            dirty.current = false;
+          }
           setStatus("offline");
           return;
         }
         if (result.status === "saved" || (result.status === "conflict_resolved" && result.kept === "local")) {
-          dirty.current = false;
           baseUpdatedAt.current = result.updatedAt;
-          setStatus("saved");
+          if (titleRef.current === titleSnap && bodyRef.current === bodySnap) {
+            dirty.current = false;
+            setStatus("saved");
+          } else {
+            dirty.current = true;
+            setStatus("dirty");
+            window.setTimeout(() => setSaveKick((n) => n + 1), 450);
+          }
           return;
         }
         if (result.status === "conflict_resolved" && result.kept === "remote") {
@@ -137,9 +151,12 @@ export default function NoteSplitPane({
         }
         setStatus("idle");
       });
+      saveChain.current = job.catch(() => {
+        /* keep chain alive */
+      });
     }, 700);
     return () => window.clearTimeout(t);
-  }, [title, body, ready, noteId]);
+  }, [title, body, ready, noteId, saveKick]);
 
   const markDirty = () => {
     dirty.current = true;

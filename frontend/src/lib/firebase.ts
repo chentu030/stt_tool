@@ -551,6 +551,7 @@ export async function updateNote(
     return { updatedAt: updatedAtMs };
   }
 
+  let adoptedRemoteMs: number | null = null;
   await runTransaction(db, async (tx) => {
     const ref = doc(db, "notes", noteId);
     const snap = await tx.get(ref);
@@ -559,11 +560,21 @@ export async function updateNote(
     const remoteTs = data.updated_at as { toMillis?: () => number } | undefined;
     const remoteMs = remoteTs?.toMillis?.() ?? 0;
     if (remoteMs > expectedMs!) {
-      throw new NoteConflictError(noteFromSnap(snap.id, data));
+      const remote = noteFromSnap(snap.id, data);
+      // Same payload already on cloud (overlapping identical write) — adopt remote clock.
+      const sameBody =
+        updates.body_md === undefined || updates.body_md === remote.body_md;
+      const sameTitle = updates.title === undefined || updates.title === remote.title;
+      if (sameBody && sameTitle) {
+        adoptedRemoteMs = remoteMs;
+        return;
+      }
+      throw new NoteConflictError(remote);
     }
+    adoptedRemoteMs = null;
     tx.update(ref, payload);
   });
-  return { updatedAt: updatedAtMs };
+  return { updatedAt: adoptedRemoteMs ?? updatedAtMs };
 }
 
 export async function getNote(noteId: string): Promise<Note | null> {

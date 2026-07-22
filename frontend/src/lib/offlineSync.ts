@@ -85,7 +85,7 @@ async function resolveNoteConflict(opts: {
 }): Promise<"local" | "remote" | null> {
   const choice = await askConflict({
     title: "筆記內容衝突",
-    message: `「${opts.label || "未命名"}」在離線期間雲端也有變更，請選擇要保留哪一版。`,
+    message: `「${opts.label || "未命名"}」的雲端內容比本機這次儲存基準更新（其他裝置或先前寫入）。請選擇要保留哪一版。`,
     local: {
       label: "我的版本（本機）",
       updatedAt: opts.localUpdatedAt,

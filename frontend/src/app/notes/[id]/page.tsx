@@ -205,6 +205,8 @@ function NotePageInner() {
   const [shareOpen, setShareOpen] = useState(false);
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Serialize autosaves so overlapping writes don't share a stale baseUpdatedAt. */
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const dirtyRef = useRef(false);
   const knownBodyById = useRef<Map<string, string>>(new Map());
   /** Cloud `updated_at` ms this editor session is based on (for conflict checks). */
@@ -533,7 +535,25 @@ function NotePageInner() {
     };
   };
 
-  const flushPendingSave = async (opts?: { silent?: boolean; onlyNoteId?: string }) => {
+  const draftUnchanged = (
+    snap: NonNullable<typeof draftRef.current>,
+    cur: NonNullable<typeof draftRef.current> | null
+  ) => {
+    if (!cur || cur.noteId !== snap.noteId) return false;
+    return (
+      cur.title === snap.title &&
+      cur.body === snap.body &&
+      cur.folder === snap.folder &&
+      cur.icon === snap.icon &&
+      cur.color === snap.color &&
+      cur.cover === snap.cover &&
+      cur.parent_id === snap.parent_id &&
+      cur.tags.length === snap.tags.length &&
+      cur.tags.every((t, i) => t === snap.tags[i])
+    );
+  };
+
+  const flushPendingSaveInner = async (opts?: { silent?: boolean; onlyNoteId?: string }) => {
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
@@ -542,8 +562,12 @@ function NotePageInner() {
     if (!dirtyRef.current || !draft) return;
     if (opts?.onlyNoteId && draft.noteId !== opts.onlyNoteId) return;
 
-    const nextBody = draft.body;
-    const known = knownBodyById.current.get(draft.noteId) || "";
+    const snap = {
+      ...draft,
+      tags: [...draft.tags],
+    };
+    const nextBody = snap.body;
+    const known = knownBodyById.current.get(snap.noteId) || "";
     // Never autosave an empty body over a note that already has content (race after AI create).
     if (!nextBody.trim() && known.trim()) {
       dirtyRef.current = false;
@@ -553,35 +577,38 @@ function NotePageInner() {
     }
 
     const silent = opts?.silent !== false;
-    const savingId = draft.noteId;
+    const savingId = snap.noteId;
     setStatus("saving");
     try {
       const inlineTags = extractTagsFromText(nextBody);
-      const mergedTags = Array.from(new Set([...draft.tags, ...inlineTags]));
+      const mergedTags = Array.from(new Set([...snap.tags, ...inlineTags]));
       const result = await saveNoteWithSync(
         savingId,
         {
-          title: draft.title,
+          title: snap.title,
           body_md: nextBody,
           tags: mergedTags,
-          folder: draft.folder,
-          icon: draft.icon,
-          color: draft.color || "",
-          cover: draft.cover,
-          parent_id: draft.parent_id,
+          folder: snap.folder,
+          icon: snap.icon,
+          color: snap.color || "",
+          cover: snap.cover,
+          parent_id: snap.parent_id,
         },
         {
           baseUpdatedAt: baseUpdatedAtRef.current || Date.now(),
-          label: draft.title,
+          label: snap.title,
         }
       );
 
       if (result.status === "queued") {
-        if (draftRef.current?.noteId === savingId) {
+        // Keep draft if user typed more while queuing; otherwise park as offline-clean.
+        if (draftUnchanged(snap, draftRef.current)) {
           dirtyRef.current = false;
-        }
-        if (id === savingId) {
-          setDirty(false);
+          if (id === savingId) {
+            setDirty(false);
+            setStatus("offline");
+          }
+        } else if (id === savingId) {
           setStatus("offline");
         }
         return;
@@ -610,21 +637,33 @@ function NotePageInner() {
       }
 
       try {
-        await pushNoteVersion(savingId, draft.title, nextBody);
+        await pushNoteVersion(savingId, snap.title, nextBody);
       } catch {
         /* best-effort */
       }
       knownBodyById.current.set(savingId, nextBody);
-      if (draftRef.current?.noteId === savingId) {
+      setNote((n) => (n && n.id === savingId ? { ...n, body_md: nextBody, title: snap.title } : n));
+
+      // If the user kept typing during this save, do not clear dirty / wipe the newer draft.
+      if (draftUnchanged(snap, draftRef.current)) {
         dirtyRef.current = false;
         draftRef.current = null;
-      }
-      setNote((n) => (n && n.id === savingId ? { ...n, body_md: nextBody, title: draft.title } : n));
-      if (id === savingId) {
-        setTags(mergedTags);
-        setDirty(false);
-        setStatus("saved");
-        setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1800 : 2200);
+        if (id === savingId) {
+          setTags(mergedTags);
+          setDirty(false);
+          setStatus("saved");
+          setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), silent ? 1800 : 2200);
+        }
+      } else if (draftRef.current?.noteId === savingId) {
+        dirtyRef.current = true;
+        if (id === savingId) {
+          setDirty(true);
+          setStatus("dirty");
+        }
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => {
+          void flushPendingSave({ silent: true });
+        }, 450);
       }
     } catch (e) {
       if (id === savingId) {
@@ -632,6 +671,14 @@ function NotePageInner() {
         setErrorMsg(e instanceof Error ? e.message : "儲存失敗");
       }
     }
+  };
+
+  const flushPendingSave = (opts?: { silent?: boolean; onlyNoteId?: string }) => {
+    const job = saveChainRef.current.then(() => flushPendingSaveInner(opts));
+    saveChainRef.current = job.catch(() => {
+      /* keep chain alive */
+    });
+    return job;
   };
 
   const save = async (silent = false) => {
