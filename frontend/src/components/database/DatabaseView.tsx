@@ -57,7 +57,6 @@ const COL_W_DEFAULT: Partial<Record<DbPropType, number>> = {
   last_edited_time: 140,
   created_by: 120,
   last_edited_by: 120,
-  tags: 160,
 };
 
 function defaultColWidth(prop: DbProperty): number {
