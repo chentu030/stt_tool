@@ -7249,6 +7249,12 @@ a.sidebar-user-name:hover {
   background: var(--bg-muted);
   padding: 0.15rem 0.45rem;
   border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.25;
+  writing-mode: horizontal-tb;
+  text-orientation: mixed;
+  align-self: center;
 }
 .doc-save-pill.is-error { color: var(--danger); }
 .doc-command-actions {

@@ -1489,10 +1489,12 @@ function NotePageInner() {
           })()}
           <span className="doc-crumb-sep">/</span>
           <span className="doc-crumb-current">{title || "未命名"}</span>
-          {statusLabel && (
-            <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>{statusLabel}</span>
-          )}
         </nav>
+        {statusLabel ? (
+          <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>
+            {statusLabel}
+          </span>
+        ) : null}
         <div className="doc-command-bar">
           {!isAppPage ? (
           <div className="doc-view-switch" role="tablist" aria-label="檢視模式">
