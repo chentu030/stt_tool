@@ -3,9 +3,9 @@
 import { useState } from "react";
 import {
   JournalStats,
-  MOODS,
-  heatWeeks,
   JOURNAL_PROMPTS,
+  heatWeeks,
+  type JournalTagDef,
 } from "@/lib/journalMeta";
 import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 
@@ -14,10 +14,18 @@ type Props = {
   dateKey: string;
   noteId?: string | null;
   noteTitle?: string;
+  tagDefs?: JournalTagDef[];
   onAskAi: (prompt: string) => Promise<string>;
 };
 
-export default function JournalAside({ stats, dateKey, noteId, noteTitle, onAskAi }: Props) {
+export default function JournalAside({
+  stats,
+  dateKey,
+  noteId,
+  noteTitle,
+  tagDefs = [],
+  onAskAi,
+}: Props) {
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
@@ -35,6 +43,20 @@ export default function JournalAside({ stats, dateKey, noteId, noteTitle, onAskA
       setAiBusy(false);
     }
   };
+
+  const tagRows = (() => {
+    const counts = stats.tagCounts || {};
+    const rows = tagDefs
+      .map((t) => ({ ...t, count: counts[t.id] || 0 }))
+      .filter((t) => t.count > 0);
+    // Include orphan tags from entries that were deleted from prefs
+    for (const [id, count] of Object.entries(counts)) {
+      if (!tagDefs.some((t) => t.id === id) && count > 0) {
+        rows.push({ id, label: id, color: "#94A3B8", count });
+      }
+    }
+    return rows.sort((a, b) => b.count - a.count).slice(0, 12);
+  })();
 
   return (
     <aside className="jn-aside">
@@ -77,18 +99,20 @@ export default function JournalAside({ stats, dateKey, noteId, noteTitle, onAskA
         </div>
       </section>
 
-      <section className="jn-aside-block">
-        <h3>情緒分布</h3>
-        <ul className="jn-mood-stats">
-          {MOODS.map((m) => (
-            <li key={m.id}>
-              <i style={{ background: m.color }} />
-              <span>{m.label}</span>
-              <em>{stats.moodCounts[m.id]}</em>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {tagRows.length > 0 && (
+        <section className="jn-aside-block">
+          <h3>標籤分布</h3>
+          <ul className="jn-mood-stats">
+            {tagRows.map((m) => (
+              <li key={m.id}>
+                <i style={{ background: m.color }} />
+                <span>{m.label}</span>
+                <em>{m.count}</em>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="jn-aside-block">
         <h3>靈感庫</h3>

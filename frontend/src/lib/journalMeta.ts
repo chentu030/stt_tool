@@ -4,7 +4,11 @@ import type { Note } from "@/lib/firebase";
 
 export type MoodId = "great" | "good" | "ok" | "low" | "rough";
 
-export const MOODS: { id: MoodId; label: string; color: string }[] = [
+export type JournalTagDef = { id: string; label: string; color: string };
+export type JournalTemplateDef = { id: string; label: string; body: string };
+
+/** Built-in starter tags (users can delete / replace via prefs). */
+export const DEFAULT_JOURNAL_TAGS: JournalTagDef[] = [
   { id: "great", label: "超好", color: "#34D399" },
   { id: "good", label: "不錯", color: "#0D9488" },
   { id: "ok", label: "普通", color: "#94A3B8" },
@@ -12,9 +16,29 @@ export const MOODS: { id: MoodId; label: string; color: string }[] = [
   { id: "rough", label: "很糟", color: "#EF4444" },
 ];
 
+/** @deprecated Prefer DEFAULT_JOURNAL_TAGS — kept for older imports */
+export const MOODS = DEFAULT_JOURNAL_TAGS;
+
+export const JOURNAL_TAG_COLORS = [
+  "#0D9488",
+  "#34D399",
+  "#3B82F6",
+  "#8B5CF6",
+  "#EC4899",
+  "#F59E0B",
+  "#EF4444",
+  "#94A3B8",
+  "#14B8A6",
+  "#F97316",
+];
+
 export type JournalMeta = {
+  /** Selected custom tag ids (multi). */
+  tags: string[];
+  /** Legacy single mood — still read for old notes. */
   mood?: MoodId;
-  energy?: number; // 1-5
+  /** Legacy energy — no longer written by UI. */
+  energy?: number;
 };
 
 export type JournalEntry = Note & {
@@ -26,23 +50,63 @@ export type JournalEntry = Note & {
 
 const META_RE = /<!--\s*cadence-journal\s+([^>]*)-->/i;
 
+function splitTagIds(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
 export function parseJournalMeta(body: string): JournalMeta {
   const m = META_RE.exec(body || "");
-  if (!m) return {};
+  if (!m) return { tags: [] };
   const attrs = m[1];
-  const mood = /mood="([^"]+)"/i.exec(attrs)?.[1] as MoodId | undefined;
+  const mood = /mood="([^"]*)"/i.exec(attrs)?.[1] as MoodId | "" | undefined;
   const energyRaw = /energy="(\d+)"/i.exec(attrs)?.[1];
   const energy = energyRaw ? Math.min(5, Math.max(1, Number(energyRaw))) : undefined;
+  const tagsAttr = /tags="([^"]*)"/i.exec(attrs)?.[1];
+  let tags = splitTagIds(tagsAttr);
+  const moodId = mood && DEFAULT_JOURNAL_TAGS.some((x) => x.id === mood) ? (mood as MoodId) : undefined;
+  // Migrate legacy single mood into tags when tags empty.
+  if (!tags.length && moodId) tags = [moodId];
   return {
-    mood: MOODS.some((x) => x.id === mood) ? mood : undefined,
+    tags,
+    mood: moodId,
     energy,
   };
 }
 
-export function upsertJournalMeta(body: string, meta: JournalMeta): string {
-  const tag = `<!--cadence-journal mood="${meta.mood || ""}" energy="${meta.energy ?? ""}"-->`;
+export function upsertJournalMeta(body: string, meta: Partial<JournalMeta> & { tags?: string[] }): string {
+  const tags = (meta.tags || []).map((t) => String(t).trim()).filter(Boolean).slice(0, 24);
+  const tag = `<!--cadence-journal tags="${tags.join(",")}"-->`;
   if (META_RE.test(body || "")) return (body || "").replace(META_RE, tag);
   return `${tag}\n${body || ""}`;
+}
+
+export function journalTagIdFromLabel(label: string, existing: JournalTagDef[]): string {
+  const base =
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^\w\u4e00-\u9fff-]/g, "")
+      .slice(0, 32) || `tag-${Date.now().toString(36)}`;
+  let id = base;
+  let n = 2;
+  const used = new Set(existing.map((t) => t.id));
+  while (used.has(id)) {
+    id = `${base}-${n}`;
+    n += 1;
+  }
+  return id;
+}
+
+export function nextJournalTagColor(existing: JournalTagDef[]): string {
+  const used = new Set(existing.map((t) => t.color.toLowerCase()));
+  const free = JOURNAL_TAG_COLORS.find((c) => !used.has(c.toLowerCase()));
+  return free || JOURNAL_TAG_COLORS[existing.length % JOURNAL_TAG_COLORS.length];
 }
 
 export function dateKeyFromDate(d: Date): string {
@@ -115,6 +179,9 @@ export type JournalStats = {
   longestStreak: number;
   wordsTotal: number;
   avgWords: number;
+  /** Counts by tag id (custom + legacy moods). */
+  tagCounts: Record<string, number>;
+  /** @deprecated use tagCounts */
   moodCounts: Record<MoodId, number>;
   filledDays: Set<string>;
 };
@@ -142,7 +209,6 @@ export function computeJournalStats(entries: JournalEntry[], today = new Date())
   let streak = 0;
   {
     const cursor = new Date(today);
-    // If today empty, start from yesterday
     if (!filledDays.has(dateKeyFromDate(cursor))) {
       cursor.setDate(cursor.getDate() - 1);
     }
@@ -176,10 +242,19 @@ export function computeJournalStats(entries: JournalEntry[], today = new Date())
     low: 0,
     rough: 0,
   };
+  const tagCounts: Record<string, number> = {};
   let wordsTotal = 0;
   for (const e of entries) {
     wordsTotal += e.wordCount;
-    if (e.meta.mood) moodCounts[e.meta.mood] += 1;
+    const ids = e.meta.tags?.length
+      ? e.meta.tags
+      : e.meta.mood
+        ? [e.meta.mood]
+        : [];
+    for (const id of ids) {
+      tagCounts[id] = (tagCounts[id] || 0) + 1;
+      if (id in moodCounts) moodCounts[id as MoodId] += 1;
+    }
   }
 
   return {
@@ -190,6 +265,7 @@ export function computeJournalStats(entries: JournalEntry[], today = new Date())
     longestStreak: Math.max(longest, streak),
     wordsTotal,
     avgWords: entries.length ? Math.round(wordsTotal / entries.length) : 0,
+    tagCounts,
     moodCounts,
     filledDays,
   };
@@ -201,6 +277,8 @@ export type CalCell = {
   inMonth: boolean;
   isToday: boolean;
   hasEntry: boolean;
+  /** First tag id for calendar dot color. */
+  tagId?: string;
   mood?: MoodId;
 };
 
@@ -220,12 +298,14 @@ export function buildMonthGrid(
     d.setDate(start.getDate() + i);
     const key = dateKeyFromDate(d);
     const entry = filled.get(key);
+    const tagId = entry?.meta.tags?.[0] || entry?.meta.mood;
     cells.push({
       dateKey: key,
       day: d.getDate(),
       inMonth: d.getMonth() === month,
       isToday: key === todayKey,
       hasEntry: !!entry,
+      tagId,
       mood: entry?.meta.mood,
     });
   }
@@ -276,7 +356,7 @@ export function promptForDate(dateKey: string): string {
   return JOURNAL_PROMPTS[hash % JOURNAL_PROMPTS.length];
 }
 
-export const CHECKIN_TEMPLATES = [
+export const DEFAULT_JOURNAL_TEMPLATES: JournalTemplateDef[] = [
   {
     id: "morning",
     label: "晨間",
@@ -314,6 +394,9 @@ export const CHECKIN_TEMPLATES = [
   },
 ];
 
+/** @deprecated Prefer DEFAULT_JOURNAL_TEMPLATES */
+export const CHECKIN_TEMPLATES = DEFAULT_JOURNAL_TEMPLATES;
+
 export function monthLabel(year: number, month: number): string {
   return `${year} 年 ${month + 1} 月`;
 }
@@ -322,15 +405,21 @@ export function weekdayLabels(): string[] {
   return ["一", "二", "三", "四", "五", "六", "日"];
 }
 
-export function exportMonthMarkdown(entries: JournalEntry[], year: number, month: number): string {
+export function exportMonthMarkdown(
+  entries: JournalEntry[],
+  year: number,
+  month: number,
+  tagDefs: JournalTagDef[] = DEFAULT_JOURNAL_TAGS
+): string {
   const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
   const list = entries.filter((e) => e.dateKey.startsWith(prefix)).sort((a, b) => a.dateKey.localeCompare(b.dateKey));
   const lines = [`# ${monthLabel(year, month)} 日誌匯出`, "", `篇數：${list.length}`, ""];
+  const labelOf = (id: string) => tagDefs.find((t) => t.id === id)?.label || id;
   for (const e of list) {
     lines.push(`## ${e.dateKey}`);
     lines.push("");
-    if (e.meta.mood) lines.push(`情緒：${MOODS.find((m) => m.id === e.meta.mood)?.label || e.meta.mood}`);
-    if (e.meta.energy) lines.push(`能量：${e.meta.energy}/5`);
+    const tags = e.meta.tags?.length ? e.meta.tags : e.meta.mood ? [e.meta.mood] : [];
+    if (tags.length) lines.push(`標籤：${tags.map(labelOf).join("、")}`);
     lines.push("");
     lines.push((e.body_md || "").replace(META_RE, "").trim());
     lines.push("");

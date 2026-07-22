@@ -876,15 +876,6 @@ export default function SettingsPage() {
                 ]}
               />
             </Row>
-            <Row label={`預設能量 ${prefs.journalDefaultEnergy}`}>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                value={prefs.journalDefaultEnergy}
-                onChange={(e) => patch({ journalDefaultEnergy: Number(e.target.value) })}
-              />
-            </Row>
             <Row label="顯示熱圖">
               <Toggle
                 checked={prefs.journalShowHeatmap}

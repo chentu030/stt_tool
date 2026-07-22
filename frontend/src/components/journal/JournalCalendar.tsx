@@ -2,10 +2,9 @@
 
 import {
   CalCell,
-  MoodId,
-  MOODS,
   monthLabel,
   weekdayLabels,
+  type JournalTagDef,
 } from "@/lib/journalMeta";
 
 type Props = {
@@ -13,6 +12,7 @@ type Props = {
   month: number;
   cells: CalCell[];
   selected: string;
+  tagDefs?: JournalTagDef[];
   onSelect: (dateKey: string) => void;
   onPrev: () => void;
   onNext: () => void;
@@ -24,6 +24,7 @@ export default function JournalCalendar({
   month,
   cells,
   selected,
+  tagDefs = [],
   onSelect,
   onPrev,
   onNext,
@@ -46,8 +47,9 @@ export default function JournalCalendar({
       </div>
       <div className="jn-cal-grid">
         {cells.map((c) => {
-          const moodColor = c.mood
-            ? MOODS.find((m) => m.id === (c.mood as MoodId))?.color
+          const tagId = c.tagId || c.mood;
+          const moodColor = tagId
+            ? tagDefs.find((m) => m.id === tagId)?.color
             : undefined;
           return (
             <button

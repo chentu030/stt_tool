@@ -23,8 +23,6 @@ import JournalComposer, { type JournalComposerHandle } from "@/components/journa
 import JournalAside from "@/components/journal/JournalAside";
 import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import {
-  MoodId,
-  MOODS,
   buildMonthGrid,
   computeJournalStats,
   dateKeyFromDate,
@@ -118,17 +116,22 @@ export default function JournalPage() {
     return byDate.get(selected) || null;
   }, [selectedId, entries, byDate, selected]);
 
+  const tagDefs = prefsCtx?.prefs.journalTags || [];
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return entries;
-    return entries.filter(
-      (e) =>
-        e.dateKey.includes(s) ||
-        e.title.toLowerCase().includes(s) ||
-        e.body_md.toLowerCase().includes(s) ||
-        (e.meta.mood && MOODS.find((m) => m.id === e.meta.mood)?.label.includes(s))
-    );
-  }, [entries, q]);
+    return entries.filter((e) => {
+      if (e.dateKey.includes(s) || e.title.toLowerCase().includes(s) || e.body_md.toLowerCase().includes(s)) {
+        return true;
+      }
+      const ids = e.meta.tags?.length ? e.meta.tags : e.meta.mood ? [e.meta.mood] : [];
+      return ids.some((id) => {
+        const def = tagDefs.find((t) => t.id === id);
+        return def?.label.toLowerCase().includes(s) || id.toLowerCase().includes(s);
+      });
+    });
+  }, [entries, q, tagDefs]);
 
   const confirmLeaveComposer = useCallback(async () => {
     if (!composerDirty) return true;
@@ -144,7 +147,7 @@ export default function JournalPage() {
   const ensureNote = async (
     dateKey: string,
     seedBody?: string,
-    meta?: { mood?: MoodId; energy?: number },
+    meta?: { tags?: string[] },
     opts?: { noteId?: string | null; forceNew?: boolean }
   ) => {
     if (!user) throw new Error("未登入");
@@ -156,7 +159,7 @@ export default function JournalPage() {
     const daily = NOTE_TEMPLATES.find((x) => x.id === "daily")!;
     let body = seedBody ?? existing?.body_md ?? daily.body;
     if (meta) body = upsertJournalMeta(body, meta);
-    else if (!existing) body = upsertJournalMeta(body, {});
+    else if (!existing) body = upsertJournalMeta(body, { tags: [] });
 
     if (existing) {
       await updateNote(existing.id, {
@@ -196,8 +199,7 @@ export default function JournalPage() {
 
   const saveComposer = async (payload: {
     text: string;
-    mood?: MoodId;
-    energy?: number;
+    tags: string[];
     appendTemplate?: string;
   }) => {
     if (!user || busy) return;
@@ -214,19 +216,10 @@ export default function JournalPage() {
       if (!text.trim()) {
         text = `${NOTE_TEMPLATES.find((x) => x.id === "daily")!.body}\n\n## 提問回應\n${promptForDate(selected)}\n\n`;
       }
-      const body = upsertJournalMeta(text, {
-        mood: payload.mood,
-        energy: payload.energy,
+      const body = upsertJournalMeta(text, { tags: payload.tags });
+      const id = await ensureNote(selected, body, { tags: payload.tags }, {
+        noteId: existing?.id ?? selectedId,
       });
-      const id = await ensureNote(
-        selected,
-        body,
-        {
-          mood: payload.mood,
-          energy: payload.energy,
-        },
-        { noteId: existing?.id ?? selectedId }
-      );
       setSelectedId(id);
       toast(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
       setComposerDirty(false);
@@ -324,7 +317,7 @@ export default function JournalPage() {
   };
 
   const exportMonth = () => {
-    const md = exportMonthMarkdown(entries, cursor.year, cursor.month);
+    const md = exportMonthMarkdown(entries, cursor.year, cursor.month, tagDefs);
     downloadText(`cadence-journal-${cursor.year}-${cursor.month + 1}.md`, md);
     toast("已匯出本月 Markdown");
   };
@@ -458,10 +451,13 @@ export default function JournalPage() {
                     composerBody ||
                     "";
                   const next = `${base.trim()}${base.trim() ? "\n\n" : ""}${md.trim()}\n`;
-                  const mood = existing?.meta.mood;
-                  const energy = existing?.meta.energy || 3;
-                  const body = upsertJournalMeta(next, { mood, energy });
-                  const id = await ensureNote(selected, body, { mood, energy }, {
+                  const tags = existing?.meta.tags?.length
+                    ? existing.meta.tags
+                    : existing?.meta.mood
+                      ? [existing.meta.mood]
+                      : [];
+                  const body = upsertJournalMeta(next, { tags });
+                  const id = await ensureNote(selected, body, { tags }, {
                     noteId: existing?.id ?? selectedId,
                   });
                   setSelectedId(id);
@@ -512,6 +508,7 @@ export default function JournalPage() {
             month={cursor.month}
             cells={cells}
             selected={selected}
+            tagDefs={tagDefs}
             onSelect={(dk) => {
               void onSelectDay(dk);
             }}
@@ -600,19 +597,27 @@ export default function JournalPage() {
                     >
                       <div className="jn-card-top">
                         <strong>{e.dateKey}</strong>
-                        {e.meta.mood && (
-                          <span
-                            className="jn-mood-dot"
-                            style={{ background: MOODS.find((m) => m.id === e.meta.mood)?.color }}
-                          >
-                            {MOODS.find((m) => m.id === e.meta.mood)?.label}
-                          </span>
-                        )}
+                        {(e.meta.tags?.length
+                          ? e.meta.tags
+                          : e.meta.mood
+                            ? [e.meta.mood]
+                            : []
+                        ).map((id) => {
+                          const def = tagDefs.find((t) => t.id === id);
+                          return (
+                            <span
+                              key={id}
+                              className="jn-mood-dot"
+                              style={{ background: def?.color || "#94A3B8" }}
+                            >
+                              {def?.label || id}
+                            </span>
+                          );
+                        })}
                       </div>
                       <p>{e.snippet}</p>
                       <div className="jn-card-meta">
                         <span>{e.wordCount} 字</span>
-                        {e.meta.energy ? <span>能量 {e.meta.energy}/5</span> : null}
                         <span>{e.updated_at.toLocaleString("zh-TW")}</span>
                       </div>
                     </button>
@@ -644,8 +649,13 @@ export default function JournalPage() {
             ref={composerRef}
             dateKey={selected}
             initialText={composerBody}
-            mood={selectedEntry?.meta.mood}
-            energy={selectedEntry?.meta.energy || 3}
+            tags={
+              selectedEntry?.meta.tags?.length
+                ? selectedEntry.meta.tags
+                : selectedEntry?.meta.mood
+                  ? [selectedEntry.meta.mood]
+                  : []
+            }
             busy={busy}
             onSave={(p) => {
               void saveComposer(p);
@@ -662,6 +672,7 @@ export default function JournalPage() {
           dateKey={selected}
           noteId={selectedEntry?.id}
           noteTitle={selectedEntry?.title}
+          tagDefs={tagDefs}
           onAskAi={askAi}
         />
       </div>

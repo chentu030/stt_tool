@@ -5276,8 +5276,7 @@ a.sidebar-user-name:hover {
   color: var(--text-muted);
   line-height: 1.45;
 }
-.jn-mood-row,
-.jn-energy-row {
+.jn-mood-row {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -5286,6 +5285,44 @@ a.sidebar-user-name:hover {
   color: var(--text-muted);
 }
 .jn-moods { display: flex; flex-wrap: wrap; gap: 0.3rem; min-width: 0; max-width: 100%; }
+.jn-tag-wrap,
+.jn-chip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+.jn-tag-wrap .jn-mood {
+  padding-right: 1.35rem;
+}
+.jn-chip-wrap .jn-chip {
+  padding-right: 1.35rem;
+}
+.jn-tag-x,
+.jn-chip-x {
+  position: absolute;
+  right: 0.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.05rem;
+  height: 1.05rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  padding: 0;
+}
+.jn-tag-wrap:hover .jn-tag-x,
+.jn-chip-wrap:hover .jn-chip-x,
+.jn-tag-x:focus-visible,
+.jn-chip-x:focus-visible {
+  opacity: 1;
+  color: #b91c1c;
+}
 .jn-mood {
   border: 1px solid var(--border);
   background: transparent;
@@ -5303,7 +5340,12 @@ a.sidebar-user-name:hover {
   color: var(--text-main);
   font-weight: 650;
 }
-.jn-energy-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+.jn-mood-add,
+.jn-chip-add {
+  border-style: dashed;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
 .jn-checkins {
   display: flex;
   flex-wrap: wrap;

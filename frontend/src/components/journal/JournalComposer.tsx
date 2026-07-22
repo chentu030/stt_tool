@@ -2,12 +2,16 @@
 
 import { useEffect, useImperativeHandle, forwardRef, useState } from "react";
 import {
-  CHECKIN_TEMPLATES,
-  MOODS,
-  MoodId,
+  journalTagIdFromLabel,
+  nextJournalTagColor,
   promptForDate,
+  type JournalTagDef,
+  type JournalTemplateDef,
 } from "@/lib/journalMeta";
 import AiMarkdown from "@/components/AiMarkdown";
+import { usePrefsOptional } from "@/components/PrefsProvider";
+import { askConfirm, askPrompt } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
 
 export type JournalComposerHandle = {
   save: () => void;
@@ -17,20 +21,25 @@ export type JournalComposerHandle = {
 type Props = {
   dateKey: string;
   initialText?: string;
-  mood?: MoodId;
-  energy?: number;
+  /** Selected tag ids for this entry. */
+  tags?: string[];
   busy?: boolean;
-  onSave: (payload: { text: string; mood?: MoodId; energy?: number; appendTemplate?: string }) => void;
+  onSave: (payload: { text: string; tags: string[]; appendTemplate?: string }) => void;
   onOpenFull: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
+
+function sameIds(a: string[] = [], b: string[] = []) {
+  if (a.length !== b.length) return false;
+  const sb = new Set(b);
+  return a.every((x) => sb.has(x));
+}
 
 const JournalComposer = forwardRef<JournalComposerHandle, Props>(function JournalComposer(
   {
     dateKey,
     initialText = "",
-    mood,
-    energy = 3,
+    tags: initialTags = [],
     busy,
     onSave,
     onOpenFull,
@@ -38,14 +47,16 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   },
   ref
 ) {
+  const prefsCtx = usePrefsOptional();
+  const tagDefs = prefsCtx?.prefs.journalTags || [];
+  const templates = prefsCtx?.prefs.journalTemplates || [];
+
   const [text, setText] = useState(initialText);
-  const [m, setM] = useState<MoodId | undefined>(mood);
-  const [e, setE] = useState(energy);
+  const [selected, setSelected] = useState<string[]>(initialTags);
   const [mode, setMode] = useState<"preview" | "edit">(initialText.trim() ? "preview" : "edit");
   const prompt = promptForDate(dateKey);
 
-  const dirty =
-    text !== initialText || m !== mood || e !== (energy || 3);
+  const dirty = text !== initialText || !sameIds(selected, initialTags);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -54,11 +65,91 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   useImperativeHandle(
     ref,
     () => ({
-      save: () => onSave({ text, mood: m, energy: e }),
+      save: () => onSave({ text, tags: selected }),
       isDirty: () => dirty,
     }),
-    [text, m, e, dirty, onSave]
+    [text, selected, dirty, onSave]
   );
+
+  const toggleTag = (id: string) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const addTagDef = async () => {
+    if (!prefsCtx) return;
+    const label = await askPrompt({ title: "新增標籤名稱", placeholder: "例如：專注、外出、會議", defaultValue: "" });
+    if (!label) return;
+    const existing = prefsCtx.prefs.journalTags || [];
+    if (existing.some((t) => t.label === label)) {
+      toast("已有同名標籤");
+      return;
+    }
+    const next: JournalTagDef = {
+      id: journalTagIdFromLabel(label, existing),
+      label,
+      color: nextJournalTagColor(existing),
+    };
+    prefsCtx.setPrefs({ journalTags: [...existing, next] });
+    setSelected((prev) => [...prev, next.id]);
+    toast("已新增標籤");
+  };
+
+  const removeTagDef = async (tag: JournalTagDef) => {
+    if (!prefsCtx) return;
+    if (
+      !(await askConfirm({
+        title: `刪除標籤「${tag.label}」？`,
+        message: "之後不會再出現在清單；已寫入日誌的紀錄仍保留。",
+        danger: true,
+        confirmLabel: "刪除",
+      }))
+    ) {
+      return;
+    }
+    prefsCtx.setPrefs({
+      journalTags: (prefsCtx.prefs.journalTags || []).filter((t) => t.id !== tag.id),
+    });
+    setSelected((prev) => prev.filter((id) => id !== tag.id));
+    toast("已刪除標籤");
+  };
+
+  const addTemplate = async () => {
+    if (!prefsCtx) return;
+    const label = await askPrompt({ title: "模板名稱", placeholder: "例如：週報、會議後", defaultValue: "" });
+    if (!label) return;
+    const body = await askPrompt({
+      title: "模板內容（Markdown）",
+      placeholder: "## 標題\n- ",
+      defaultValue: `## ${label}\n- \n`,
+    });
+    if (body == null) return;
+    const existing = prefsCtx.prefs.journalTemplates || [];
+    const next: JournalTemplateDef = {
+      id: journalTagIdFromLabel(label, existing.map((t) => ({ id: t.id, label: t.label, color: "" }))),
+      label,
+      body: body.trim() ? `${body.trim()}\n` : `## ${label}\n- \n`,
+    };
+    prefsCtx.setPrefs({ journalTemplates: [...existing, next] });
+    toast("已新增模板");
+  };
+
+  const removeTemplate = async (tpl: JournalTemplateDef) => {
+    if (!prefsCtx) return;
+    if (
+      !(await askConfirm({
+        title: `刪除模板「${tpl.label}」？`,
+        message: "可之後再新增。",
+        danger: true,
+        confirmLabel: "刪除",
+      }))
+    ) {
+      return;
+    }
+    prefsCtx.setPrefs({
+      journalTemplates: (prefsCtx.prefs.journalTemplates || []).filter((t) => t.id !== tpl.id),
+    });
+    toast("已刪除模板");
+  };
 
   return (
     <div className="jn-composer">
@@ -83,45 +174,71 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
       </div>
 
       <div className="jn-mood-row">
-        <span>情緒</span>
+        <span>標籤</span>
         <div className="jn-moods">
-          {MOODS.map((x) => (
-            <button
-              key={x.id}
-              type="button"
-              className={`jn-mood${m === x.id ? " is-on" : ""}`}
-              style={{ ["--mood" as string]: x.color }}
-              onClick={() => setM(x.id)}
-            >
-              {x.label}
-            </button>
-          ))}
+          {tagDefs.map((x) => {
+            const on = selected.includes(x.id);
+            return (
+              <span key={x.id} className={`jn-tag-wrap${on ? " is-on" : ""}`}>
+                <button
+                  type="button"
+                  className={`jn-mood${on ? " is-on" : ""}`}
+                  style={{ ["--mood" as string]: x.color }}
+                  onClick={() => toggleTag(x.id)}
+                >
+                  {x.label}
+                </button>
+                <button
+                  type="button"
+                  className="jn-tag-x"
+                  title={`刪除標籤「${x.label}」`}
+                  aria-label={`刪除 ${x.label}`}
+                  onClick={(ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    void removeTagDef(x);
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+          <button type="button" className="jn-mood jn-mood-add" onClick={() => void addTagDef()}>
+            + 標籤
+          </button>
         </div>
       </div>
 
-      <div className="jn-energy-row">
-        <span>能量 {e}/5</span>
-        <input
-          type="range"
-          min={1}
-          max={5}
-          value={e}
-          onChange={(ev) => setE(Number(ev.target.value))}
-        />
-      </div>
-
       <div className="jn-checkins">
-        {CHECKIN_TEMPLATES.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className="jn-chip"
-            disabled={busy}
-            onClick={() => onSave({ text, mood: m, energy: e, appendTemplate: t.body })}
-          >
-            + {t.label}
-          </button>
+        {templates.map((t) => (
+          <span key={t.id} className="jn-chip-wrap">
+            <button
+              type="button"
+              className="jn-chip"
+              disabled={busy}
+              onClick={() => onSave({ text, tags: selected, appendTemplate: t.body })}
+            >
+              + {t.label}
+            </button>
+            <button
+              type="button"
+              className="jn-chip-x"
+              title={`刪除模板「${t.label}」`}
+              aria-label={`刪除模板 ${t.label}`}
+              onClick={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                void removeTemplate(t);
+              }}
+            >
+              ×
+            </button>
+          </span>
         ))}
+        <button type="button" className="jn-chip jn-chip-add" onClick={() => void addTemplate()}>
+          + 模板
+        </button>
         <button
           type="button"
           className="jn-chip"
@@ -158,7 +275,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           onKeyDown={(ev) => {
             if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "s") {
               ev.preventDefault();
-              onSave({ text, mood: m, energy: e });
+              onSave({ text, tags: selected });
             }
           }}
           onBlur={() => {
@@ -171,9 +288,9 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
         <button
           type="button"
           className="btn"
-          disabled={busy || (!text.trim() && !m)}
+          disabled={busy || (!text.trim() && selected.length === 0)}
           title="儲存 ⌘S"
-          onClick={() => onSave({ text, mood: m, energy: e })}
+          onClick={() => onSave({ text, tags: selected })}
         >
           {busy ? "儲存中…" : dirty ? "儲存這天 *" : "儲存這天"}
         </button>
@@ -182,7 +299,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           className="btn btn-soft"
           disabled={busy}
           onClick={() =>
-            onSave({ text: `${text.trim()}\n\n> ${prompt}\n\n`, mood: m, energy: e })
+            onSave({ text: `${text.trim()}\n\n> ${prompt}\n\n`, tags: selected })
           }
         >
           用提問起筆並儲存

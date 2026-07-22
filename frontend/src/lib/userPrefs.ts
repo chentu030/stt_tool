@@ -1,6 +1,12 @@
 import type { FolderStyle } from "@/lib/pageChrome";
 import { sanitizeFolderStyles } from "@/lib/pageChrome";
 import { DEFAULT_LIVE_HIDE_DOCK_SHORTCUT, sanitizeShortcutSpec } from "@/lib/shortcutSpec";
+import {
+  DEFAULT_JOURNAL_TAGS,
+  DEFAULT_JOURNAL_TEMPLATES,
+  type JournalTagDef,
+  type JournalTemplateDef,
+} from "@/lib/journalMeta";
 
 /** Cadence user preferences — local persistence + document theming */
 
@@ -82,9 +88,14 @@ export type UserPrefs = {
   liveHideDockShortcut: string;
   /** Journal */
   journalWeekStart: WeekStart;
+  /** @deprecated Energy UI removed; kept for prefs migration. */
   journalDefaultEnergy: number;
   journalShowHeatmap: boolean;
   journalPromptDaily: boolean;
+  /** Custom multi-select journal chips (mood or anything). */
+  journalTags: JournalTagDef[];
+  /** Quick-insert paragraph templates on the journal composer. */
+  journalTemplates: JournalTemplateDef[];
   /** Graph */
   graphDefaultLayout: GraphLayoutPref;
   graphShowGhosts: boolean;
@@ -250,6 +261,8 @@ export const DEFAULT_PREFS: UserPrefs = {
   journalDefaultEnergy: 3,
   journalShowHeatmap: true,
   journalPromptDaily: true,
+  journalTags: DEFAULT_JOURNAL_TAGS.map((t) => ({ ...t })),
+  journalTemplates: DEFAULT_JOURNAL_TEMPLATES.map((t) => ({ ...t })),
   graphDefaultLayout: "force",
   graphShowGhosts: true,
   graphShowTagEdges: false,
@@ -342,6 +355,8 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     liveSilenceMs: clamp(Number(p.liveSilenceMs) || 1200, 600, 4000),
     liveHideDockShortcut: sanitizeShortcutSpec(p.liveHideDockShortcut, DEFAULT_LIVE_HIDE_DOCK_SHORTCUT),
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
+    journalTags: sanitizeJournalTags(p.journalTags),
+    journalTemplates: sanitizeJournalTemplates(p.journalTemplates),
     defaultFolder: String(p.defaultFolder || "").slice(0, 80),
     defaultTags: String(p.defaultTags || "").slice(0, 200),
     aiAssistantName: (() => {
@@ -364,6 +379,48 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     folderStyles: sanitizeFolderStyles(p.folderStyles),
     sidebarFolders: sanitizeSidebarFolders(p.sidebarFolders),
   };
+}
+
+function sanitizeJournalTags(raw: unknown): JournalTagDef[] {
+  if (raw === undefined || raw === null) {
+    return DEFAULT_JOURNAL_TAGS.map((t) => ({ ...t }));
+  }
+  if (!Array.isArray(raw)) return DEFAULT_JOURNAL_TAGS.map((t) => ({ ...t }));
+  const out: JournalTagDef[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Partial<JournalTagDef>;
+    const id = String(o.id || "").trim().slice(0, 40);
+    const label = String(o.label || "").trim().slice(0, 24);
+    const color = String(o.color || "#94A3B8").trim().slice(0, 32);
+    if (!id || !label || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, label, color: /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : "#94A3B8" });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+function sanitizeJournalTemplates(raw: unknown): JournalTemplateDef[] {
+  if (raw === undefined || raw === null) {
+    return DEFAULT_JOURNAL_TEMPLATES.map((t) => ({ ...t }));
+  }
+  if (!Array.isArray(raw)) return DEFAULT_JOURNAL_TEMPLATES.map((t) => ({ ...t }));
+  const out: JournalTemplateDef[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Partial<JournalTemplateDef>;
+    const id = String(o.id || "").trim().slice(0, 40);
+    const label = String(o.label || "").trim().slice(0, 24);
+    const body = String(o.body || "").slice(0, 4000);
+    if (!id || !label || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, label, body });
+    if (out.length >= 40) break;
+  }
+  return out;
 }
 
 function sanitizeSidebarFolders(raw: unknown): string[] {
