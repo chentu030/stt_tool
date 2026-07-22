@@ -1,4 +1,4 @@
-/** Dev-period access gate: allowlist + waitlist applications. */
+/** Onboarding gate: survey once, then immediate access (no manual review). */
 
 import {
   doc,
@@ -191,6 +191,7 @@ export async function ensureAllowlistAccess(user: User): Promise<void> {
   );
 }
 
+/** Persist onboarding survey; access is granted immediately (no manual review). */
 export async function submitAccessApplication(
   user: User,
   input: AccessApplicationInput
@@ -198,9 +199,6 @@ export async function submitAccessApplication(
   const ref = doc(db, "access_requests", user.uid);
   const prev = await getDoc(ref);
   if (prev.exists() && prev.data()?.status === "approved") return;
-  if (prev.exists() && prev.data()?.status === "pending") {
-    throw new Error("申請已送出，請稍候審核");
-  }
 
   const now = Timestamp.now();
   await setDoc(ref, {
@@ -208,7 +206,7 @@ export async function submitAccessApplication(
     email: normalizeEmail(user.email),
     display_name: input.displayName.trim(),
     username: input.username.trim().toLowerCase(),
-    status: "pending",
+    status: "approved",
     use_cases: input.useCases,
     current_workflows: input.currentWorkflows,
     frequencies: input.frequencies,
@@ -217,9 +215,28 @@ export async function submitAccessApplication(
     workflow_other: input.workflowOther.trim(),
     referral_other: input.referralOther.trim(),
     wished_features: input.wishedFeatures.trim(),
-    created_at: now,
+    approved_at: now,
     updated_at: now,
-  });
+    ...(prev.exists() ? {} : { created_at: now }),
+  }, { merge: true });
+}
+
+/** Promote legacy waitlist (pending) users so they are not stuck behind removed review. */
+export async function promotePendingAccess(user: User): Promise<void> {
+  const ref = doc(db, "access_requests", user.uid);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  if (snap.data()?.status !== "pending") return;
+  const now = Timestamp.now();
+  await setDoc(
+    ref,
+    {
+      status: "approved",
+      approved_at: now,
+      updated_at: now,
+    },
+    { merge: true }
+  );
 }
 
 export function resolveAccess(
