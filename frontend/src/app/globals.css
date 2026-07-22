@@ -18447,6 +18447,10 @@ body.is-sidebar-resizing iframe {
   border-color: color-mix(in srgb, #e25555 55%, var(--border));
   color: #e25555;
 }
+.voice-quick-btn.is-pending:not(.is-live) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
 .voice-quick-btn:disabled {
   opacity: 0.55;
   cursor: wait;
