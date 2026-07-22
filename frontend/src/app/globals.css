@@ -72,6 +72,38 @@ body {
   font-family: "Outfit", system-ui, sans-serif;
   transition: background-color 0.25s ease, color 0.25s ease;
   -webkit-font-smoothing: antialiased;
+  /* Default: no casual copy; opt-in below for editors + AI rail */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Editable fields + note editor (only while contenteditable) */
+input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+textarea,
+select,
+[contenteditable="true"],
+.ProseMirror[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Right AI rail (and float sheet): answers / compose may be copied */
+.cadence-ai-rail,
+.cadence-ai-rail *,
+.cadence-dialog input,
+.cadence-dialog textarea,
+.cadence-conflict-preview,
+.allow-text-select,
+.allow-text-select * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Reading / share preview: lock note body copy */
+.rich-editor--readonly .ProseMirror,
+.rich-editor--readonly .ProseMirror * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
 h1, h2, h3, .font-display {
