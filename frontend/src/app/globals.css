@@ -12426,7 +12426,7 @@ body.is-sidebar-resizing iframe {
   gap: 0.35rem;
   color: inherit;
   text-decoration: none;
-  padding: 0.05rem 0.15rem;
+  padding: 0.15rem 0.15rem;
 }
 .sb-folder-icon {
   width: 12px;
@@ -12808,18 +12808,26 @@ body.is-sidebar-resizing iframe {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
-.sb-section { margin: 0.15rem 0 0.25rem; }
+/* Keep 收藏 / 最近 / 全部 headers close; list rows stay airier below. */
+.sb-section {
+  margin: 0;
+  padding: 0;
+}
+.sb-section + .sb-section {
+  margin-top: 0.05rem;
+}
 .sb-section--all {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  margin-top: 0.05rem;
 }
 .sb-section--all .sb-tree-list {
   flex: 1;
 }
 .sb-section-label {
-  margin: 0 0.5rem 0.1rem;
+  margin: 0 0.5rem 0.05rem;
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -12832,7 +12840,7 @@ body.is-sidebar-resizing iframe {
   gap: 0.2rem;
   width: 100%;
   margin: 0;
-  padding: 0.05rem 0.35rem 0.05rem 0.25rem;
+  padding: 0.1rem 0.35rem 0.1rem 0.25rem;
   border: none;
   border-radius: 6px;
   background: transparent;
