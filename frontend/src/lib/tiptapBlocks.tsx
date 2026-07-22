@@ -103,10 +103,9 @@ export const Callout = Node.create({
 function ToggleView({
   node,
   updateAttributes,
-}: {
-  node: { attrs: { title: string; open: boolean } };
-  updateAttributes: (a: Record<string, unknown>) => void;
-}) {
+  editor,
+  getPos,
+}: ReactNodeViewProps) {
   const open = !!node.attrs.open;
   return (
     <NodeViewWrapper
@@ -127,6 +126,13 @@ function ToggleView({
           className="rich-toggle-title"
           value={node.attrs.title || ""}
           onChange={(e) => updateAttributes({ title: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              enterToggleBody(editor, getPos, updateAttributes, open, "toggleBlock");
+            }
+          }}
           placeholder="折疊標題"
         />
       </div>
@@ -136,6 +142,51 @@ function ToggleView({
       />
     </NodeViewWrapper>
   );
+}
+
+/** Enter on toggle title → open and insert/focus a body paragraph. */
+export function enterToggleBody(
+  editor: ReactNodeViewProps["editor"],
+  getPos: ReactNodeViewProps["getPos"],
+  updateAttributes: ReactNodeViewProps["updateAttributes"],
+  open: boolean,
+  typeName: "toggleBlock" | "toggleHeading"
+) {
+  if (!editor) return;
+  const pos = typeof getPos === "function" ? getPos() : null;
+  if (typeof pos !== "number") return;
+  if (!open) updateAttributes({ open: true });
+
+  const run = () => {
+    const current = editor.state.doc.nodeAt(pos);
+    if (!current || current.type.name !== typeName) return;
+    const contentStart = pos + 1;
+    const first = current.firstChild;
+    const placeholder =
+      first &&
+      first.type.name === "paragraph" &&
+      /^(折疊內文…|折疊內文\.\.\.)?$/.test((first.textContent || "").trim()) &&
+      current.childCount === 1;
+
+    const paragraph = editor.schema.nodes.paragraph.create();
+    editor
+      .chain()
+      .focus()
+      .command(({ tr, dispatch }) => {
+        if (placeholder && first) {
+          tr.replaceWith(contentStart, contentStart + first.nodeSize, paragraph);
+        } else {
+          tr.insert(contentStart, paragraph);
+        }
+        if (dispatch) dispatch(tr.scrollIntoView());
+        return true;
+      })
+      .setTextSelection(contentStart + 1)
+      .run();
+  };
+
+  if (open) run();
+  else requestAnimationFrame(run);
 }
 
 export const ToggleBlock = Node.create({

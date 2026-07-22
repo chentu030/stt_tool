@@ -1,8 +1,14 @@
 /** TipTap layout nodes: columns + toggle heading */
 
 import { Node, mergeAttributes } from "@tiptap/core";
-import { ReactNodeViewRenderer, NodeViewWrapper, NodeViewContent } from "@tiptap/react";
+import {
+  ReactNodeViewRenderer,
+  NodeViewWrapper,
+  NodeViewContent,
+  type ReactNodeViewProps,
+} from "@tiptap/react";
 import React from "react";
+import { enterToggleBody } from "@/lib/tiptapBlocks";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -28,7 +34,11 @@ export const Column = Node.create({
     return [{ tag: "div[data-note-column]" }];
   },
   renderHTML({ HTMLAttributes }) {
-    return ["div", mergeAttributes(HTMLAttributes, { class: "rich-column", "data-note-column": "1" }), 0];
+    return [
+      "div",
+      mergeAttributes(HTMLAttributes, { class: "rich-column", "data-note-column": "1" }),
+      0,
+    ];
   },
   addNodeView() {
     return ReactNodeViewRenderer(ColumnView as never);
@@ -89,10 +99,9 @@ export const Columns = Node.create({
 function ToggleHeadingView({
   node,
   updateAttributes,
-}: {
-  node: { attrs: { title: string; open: boolean; level: number } };
-  updateAttributes: (a: Record<string, unknown>) => void;
-}) {
+  editor,
+  getPos,
+}: ReactNodeViewProps) {
   const open = !!node.attrs.open;
   const level = Math.min(4, Math.max(1, Number(node.attrs.level) || 1));
   return (
@@ -116,6 +125,13 @@ function ToggleHeadingView({
           className={`rich-toggle-heading-title rich-toggle-heading-title--h${level}`}
           value={node.attrs.title || ""}
           onChange={(e) => updateAttributes({ title: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.stopPropagation();
+              enterToggleBody(editor, getPos, updateAttributes, open, "toggleHeading");
+            }
+          }}
           placeholder={`摺疊標題 ${level}`}
         />
       </div>
