@@ -27,6 +27,8 @@ import {
 } from "@/lib/userPrefs";
 import { AI_TEXT_MODELS } from "@/lib/aiPrefs";
 import { toast } from "@/lib/toast";
+import { isAllowlistedEmail } from "@/lib/accessGate";
+import { formatBytes, USER_STORAGE_LIMIT_BYTES } from "@/lib/storageQuota";
 
 function Row({
   label,
@@ -937,6 +939,21 @@ export default function SettingsPage() {
                 使用 Google 登入
               </button>
             )}
+            <div className="st-tool-block">
+              <h3>儲存空間</h3>
+              <p>
+                測試期間每位使用者上限約 {formatBytes(USER_STORAGE_LIMIT_BYTES)}。請自行備份重要資料，不要把重要檔案只保存在這裡。
+              </p>
+            </div>
+            {isAllowlistedEmail(user?.email) ? (
+              <div className="st-tool-block">
+                <h3>開發者工具</h3>
+                <p>審核內測申請，並以 support@albireus.com 寄出核准信。</p>
+                <Link className="btn btn-soft btn-sm" href="/admin/access">
+                  開啟內測申請核准
+                </Link>
+              </div>
+            ) : null}
             <div className="st-tool-block">
               <h3>YouTube 本機擷取器</h3>
               <p>用你自己的 IP 下載公開影片音訊，避開伺服器被封鎖。</p>

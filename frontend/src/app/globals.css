@@ -3811,6 +3811,98 @@ html[data-theme-transition="to-dark"]::view-transition-new(root) {
   flex-direction: column;
   gap: 0.4rem;
 }
+.sidebar-storage-tip {
+  padding: 0.45rem 0.5rem 0.35rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-muted) 70%, transparent);
+}
+.sidebar-storage-tip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+}
+.sidebar-storage-tip-head strong {
+  font-weight: 700;
+  color: var(--text-main);
+}
+.sidebar-storage-tip-head span {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-storage-bar {
+  margin: 0.35rem 0 0.4rem;
+  height: 4px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  overflow: hidden;
+}
+.sidebar-storage-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.sidebar-storage-tip.is-warn .sidebar-storage-bar i {
+  background: #d97706;
+}
+.sidebar-storage-tip.is-full .sidebar-storage-bar i {
+  background: #dc2626;
+}
+.sidebar-storage-tip-note {
+  margin: 0;
+  font-size: 0.64rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.admin-access-section {
+  margin-top: 1.25rem;
+}
+.admin-access-section h2 {
+  font-size: 1rem;
+  margin: 0 0 0.65rem;
+}
+.admin-access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.admin-access-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card, var(--bg-primary));
+}
+.admin-access-list strong {
+  display: block;
+  font-size: 0.92rem;
+}
+.admin-access-list span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.admin-access-list p {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 36rem;
+}
+.admin-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
 .desktop-sidebar--tree.is-collapsed .sidebar-user {
   justify-content: center;
 }

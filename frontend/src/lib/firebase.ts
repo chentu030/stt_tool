@@ -238,24 +238,43 @@ export async function deleteJob(jobId: string, storagePaths: string[], resultPat
 // ─── Storage helpers ─────────────────────────────────────────
 export function uploadFile(
   path: string,
-  file: File,
+  file: File | Blob,
   onProgress?: (pct: number) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const storageRef = ref(storage, path);
-    const task = uploadBytesResumable(storageRef, file);
-    task.on(
-      "state_changed",
-      (snap: UploadTaskSnapshot) => {
-        const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-        onProgress?.(pct);
-      },
-      reject,
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
-        resolve(url);
+    void (async () => {
+      try {
+        const { uidFromUploadPath, assertCanUpload, addStorageUsage } = await import(
+          "@/lib/storageQuota"
+        );
+        const uid = uidFromUploadPath(path);
+        const size = "size" in file ? Number(file.size) || 0 : 0;
+        if (uid && size > 0) {
+          await assertCanUpload(uid, size);
+        }
+        const storageRef = ref(storage, path);
+        const task = uploadBytesResumable(storageRef, file);
+        task.on(
+          "state_changed",
+          (snap: UploadTaskSnapshot) => {
+            const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+            onProgress?.(pct);
+          },
+          reject,
+          async () => {
+            try {
+              if (uid && size > 0) await addStorageUsage(uid, size);
+            } catch {
+              /* ignore quota bookkeeping */
+            }
+            const url = await getDownloadURL(task.snapshot.ref);
+            resolve(url);
+          }
+        );
+      } catch (e) {
+        reject(e);
       }
-    );
+    })();
   });
 }
 
