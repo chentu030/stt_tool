@@ -389,13 +389,13 @@ export default function CapturePage() {
                   const id = await createNote(
                     user.uid,
                     `即時轉錄 · ${stamp}`,
-                    `# 即時轉錄\n\n> 開會／上課邊聽邊記。按「段落結束」或約 45 秒自動切段，AI 會整理進本篇，音檔一併保留。\n\n`,
+                    `# 即時轉錄\n\n> 開會／上課邊聽邊記。停頓後自動切段並轉字，每若干段 AI 整理進本篇，音檔一併保留。\n\n`,
                     undefined,
                     ["live-stt"],
                     { folder: "即時轉錄", icon: "mic" }
                   );
                   toast("已開啟即時轉錄筆記");
-                  router.push(`/notes/${id}?live=1`);
+                  router.push(`/notes/${id}?live=1&liveMode=organize`);
                 } catch (e) {
                   toast(e instanceof Error ? e.message : "無法開始即時轉錄");
                 } finally {

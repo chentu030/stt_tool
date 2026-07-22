@@ -89,7 +89,10 @@ import { splitFolderPath } from "@/lib/noteTree";
 import { FocusModeProvider, useFocusMode } from "@/components/notes/FocusModeProvider";
 import NotePresence from "@/components/notes/NotePresence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
-import LiveNoteRecorder from "@/components/voice/LiveNoteRecorder";
+import LiveNoteRecorder, {
+  liveModeLabel,
+  type LiveRecordMode,
+} from "@/components/voice/LiveNoteRecorder";
 import NotePageLog from "@/components/notes/NotePageLog";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
@@ -227,6 +230,9 @@ function NotePageInner() {
   const insertMdRef = useRef<((md: string) => void) | null>(null);
   const [liveOpen, setLiveOpen] = useState(false);
   const [liveAutoStart, setLiveAutoStart] = useState(false);
+  const [liveMode, setLiveMode] = useState<LiveRecordMode>("organize");
+  const [liveMenuOpen, setLiveMenuOpen] = useState(false);
+  const liveMenuRef = useRef<HTMLDivElement | null>(null);
   const latest = useRef({
     title: "",
     body: "",
@@ -373,16 +379,30 @@ function NotePageInner() {
     router.replace(noteOpenHref(note));
   }, [note, splitId, router]);
 
-  // Open live note recorder from capture (?live=1)
+  // Open live note recorder from capture (?live=1[&liveMode=…])
   useEffect(() => {
     if (!id) return;
     if (searchParams.get("live") !== "1") return;
+    const raw = searchParams.get("liveMode");
+    const mode: LiveRecordMode =
+      raw === "audio" || raw === "transcribe" || raw === "organize" ? raw : "organize";
+    setLiveMode(mode);
     setLiveAutoStart(true);
     setLiveOpen(true);
     const url = new URL(window.location.href);
     url.searchParams.delete("live");
+    url.searchParams.delete("liveMode");
     window.history.replaceState({}, "", url.pathname + (url.search || ""));
   }, [id, searchParams]);
+
+  useEffect(() => {
+    if (!liveMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!liveMenuRef.current?.contains(e.target as Node)) setLiveMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [liveMenuOpen]);
 
   // Consume research insert handoff (when returning from /research)
   useEffect(() => {
@@ -1536,14 +1556,43 @@ function NotePageInner() {
           <NotePresence noteId={note.id} />
           <NoteHuddle noteId={note.id} />
           {!isAppPage && viewMode !== "slides" ? (
-            <button
-              type="button"
-              className={`doc-cmd${liveOpen ? " is-on" : ""}`}
-              title="即時錄音轉錄：邊錄邊整理進筆記"
-              onClick={() => setLiveOpen(true)}
-            >
-              即時轉錄
-            </button>
+            <div className="doc-cmd-wrap" ref={liveMenuRef}>
+              <button
+                type="button"
+                className={`doc-cmd${liveOpen ? " is-on" : ""}`}
+                title="即時錄音：純錄製／轉錄／轉錄+整理"
+                aria-expanded={liveMenuOpen}
+                onClick={() => setLiveMenuOpen((v) => !v)}
+              >
+                錄音
+              </button>
+              {liveMenuOpen ? (
+                <div className="doc-cmd-menu" role="menu">
+                  {(
+                    [
+                      ["audio", "只留音檔，不轉文字"],
+                      ["transcribe", "邊錄邊轉成文字寫入筆記"],
+                      ["organize", "轉字後再由 AI 整理重點"],
+                    ] as const
+                  ).map(([mode, hint]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLiveMode(mode);
+                        setLiveAutoStart(true);
+                        setLiveOpen(true);
+                        setLiveMenuOpen(false);
+                      }}
+                    >
+                      <strong>{liveModeLabel(mode)}</strong>
+                      <span>{hint}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           ) : null}
           {isAppPage ? (
             <button
@@ -2274,9 +2323,11 @@ function NotePageInner() {
 
       {user && note && liveOpen ? (
         <LiveNoteRecorder
+          key={`${note.id}-${liveMode}-${liveAutoStart ? "auto" : "manual"}`}
           uid={user.uid}
           noteId={note.id}
           open={liveOpen}
+          mode={liveMode}
           autoStart={liveAutoStart}
           onClose={() => {
             setLiveOpen(false);
