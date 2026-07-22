@@ -1318,7 +1318,7 @@ export default function SidebarNotesTree() {
           )}
           <button
             type="button"
-            className={`sb-note-icon${note.icon ? " has-icon" : ""}`}
+            className="sb-note-icon has-icon"
             title="圖示與顏色"
             aria-label="圖示與顏色"
             style={colorId ? { background: color.bg, color: color.fg } : undefined}
@@ -1332,7 +1332,6 @@ export default function SidebarNotesTree() {
             <PageChromeIcon
               icon={note.icon}
               color={colorId || undefined}
-              hideWhenEmpty
               fallback="description"
             />
           </button>
