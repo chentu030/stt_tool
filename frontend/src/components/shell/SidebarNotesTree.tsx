@@ -143,6 +143,8 @@ export default function SidebarNotesTree() {
   const rootRef = useRef<HTMLDivElement>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [q, setQ] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set([UNCATEGORIZED]));
   const [creating, setCreating] = useState(false);
   const [createMenu, setCreateMenu] = useState<{
@@ -1490,6 +1492,25 @@ export default function SidebarNotesTree() {
       <div className="sb-tree-head">
         <span className="sb-tree-label">筆記</span>
         <div className="sb-tree-actions">
+          <button
+            type="button"
+            title={searchOpen ? "關閉篩選" : "篩選筆記"}
+            aria-label={searchOpen ? "關閉篩選" : "篩選筆記"}
+            aria-pressed={searchOpen}
+            className={searchOpen || q ? "is-on" : undefined}
+            onClick={() => {
+              setSearchOpen((v) => {
+                const next = !v;
+                if (!next) setQ("");
+                return next;
+              });
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+              <circle cx="11" cy="11" r="7" />
+              <path d="M20 20l-3.5-3.5" />
+            </svg>
+          </button>
           <button type="button" title="全部展開" onClick={expandAll}>
             ⊞
           </button>
@@ -1510,12 +1531,16 @@ export default function SidebarNotesTree() {
         </div>
       </div>
 
-      <input
-        className="sb-tree-search"
-        placeholder="篩選…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-      />
+      {searchOpen ? (
+        <input
+          ref={searchInputRef}
+          className="sb-tree-search"
+          placeholder="篩選…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          autoFocus
+        />
+      ) : null}
 
       {!hintDismissed && (
         <div className="sb-hint">

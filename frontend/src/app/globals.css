@@ -12016,6 +12016,14 @@ body.is-sidebar-resizing iframe {
   background: var(--bg-muted);
   color: var(--text-main);
 }
+.sb-tree-actions button.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.sb-tree-actions button svg {
+  display: block;
+  margin: 0 auto;
+}
 .sb-tree-new {
   font-weight: 700 !important;
   color: var(--accent) !important;
