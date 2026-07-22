@@ -18187,3 +18187,177 @@ body.is-sidebar-resizing iframe {
   }
 }
 
+/* ── Voice: live note dock + quick capture ───────────────── */
+.voice-live-dock {
+  position: fixed;
+  left: 50%;
+  bottom: max(1.1rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  width: min(640px, calc(100vw - 1.5rem));
+  padding: 0.85rem 1rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg)) 92%, transparent);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 28%, transparent);
+}
+.voice-live-dock-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1;
+}
+.voice-live-dock-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e25555;
+  box-shadow: 0 0 0 0 color-mix(in srgb, #e25555 55%, transparent);
+  animation: voice-pulse 1.6s ease-out infinite;
+  flex-shrink: 0;
+}
+@keyframes voice-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, #e25555 50%, transparent); }
+  70% { box-shadow: 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.voice-live-dock-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.voice-live-dock-meta strong {
+  font-size: 0.92rem;
+}
+.voice-live-dock-meta span {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.voice-live-dock-meta em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--fg);
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42ch;
+}
+.voice-live-dock-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.voice-quick-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.voice-quick-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.voice-quick-btn.is-live {
+  border-color: color-mix(in srgb, #e25555 55%, var(--border));
+  color: #e25555;
+}
+.voice-quick-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.voice-quick-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+.voice-quick-card strong {
+  font-size: 0.95rem;
+}
+.voice-quick-card p {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.voice-quick-stop {
+  background: color-mix(in srgb, #e25555 18%, transparent) !important;
+  border-color: color-mix(in srgb, #e25555 40%, var(--border)) !important;
+}
+
+.capture-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 0 0 1.25rem;
+}
+.capture-mode-card {
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem 1.05rem;
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg)) 70%, transparent);
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.capture-mode-card:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--fg) 28%, var(--border));
+  transform: translateY(-1px);
+}
+.capture-mode-card:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.capture-mode-card strong {
+  font-size: 0.95rem;
+}
+.capture-mode-card > span {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.capture-mode-card--voice {
+  cursor: default;
+}
+.capture-mode-card--voice:hover {
+  transform: none;
+}
+.capture-mode-link {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+.capture-mode-link:hover {
+  color: var(--fg);
+}
+@media (max-width: 640px) {
+  .capture-modes {
+    grid-template-columns: 1fr;
+  }
+  .voice-live-dock {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+

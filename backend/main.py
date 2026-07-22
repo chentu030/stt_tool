@@ -2016,6 +2016,125 @@ async def beidanzi_dict_fetch(word: str = ""):
 async def health():
     return {"status": "ok", "engine": "replicate", "model": "incredibly-fast-whisper"}
 
+
+# ─── Google Cloud Speech-to-Text (chunk / quick voice) ───────────────────────
+def _google_stt_language(raw: Optional[str]) -> str:
+    s = (raw or "").strip()
+    if not s or s.lower() in ("auto", "none", "detect"):
+        return "zh-TW"
+    low = s.lower().replace("_", "-")
+    if low in ("zh", "zh-tw", "zh-hant", "cmn-hant-tw"):
+        return "zh-TW"
+    if low in ("zh-cn", "zh-hans", "cmn-hans-cn"):
+        return "zh-CN"
+    if low.startswith("en"):
+        return "en-US"
+    if low.startswith("ja"):
+        return "ja-JP"
+    return s
+
+
+def _transcribe_google_bytes(content: bytes, language: str, mime: str = "") -> str:
+    """Sync recognize via Google STT v1. Supports WEBM_OPUS (browser MediaRecorder)."""
+    if not content:
+        raise ValueError("empty audio")
+    try:
+        from google.cloud import speech_v1 as speech
+    except ImportError as e:
+        raise RuntimeError(
+            "缺少 google-cloud-speech。請在後端安裝並啟用 Cloud Speech-to-Text API。"
+        ) from e
+
+    client = speech.SpeechClient()
+    lang = _google_stt_language(language)
+    mime_l = (mime or "").lower()
+    # Browser MediaRecorder typically produces audio/webm;codecs=opus at 48 kHz.
+    if "webm" in mime_l or "opus" in mime_l or content[:4] == b"\x1aE\xdf\xa3":
+        encoding = speech.RecognitionConfig.AudioEncoding.WEBM_OPUS
+        rate = 48000
+    elif "wav" in mime_l or "wave" in mime_l or content[:4] == b"RIFF":
+        encoding = speech.RecognitionConfig.AudioEncoding.LINEAR16
+        rate = 16000
+    elif "flac" in mime_l:
+        encoding = speech.RecognitionConfig.AudioEncoding.FLAC
+        rate = 16000
+    else:
+        encoding = speech.RecognitionConfig.AudioEncoding.WEBM_OPUS
+        rate = 48000
+
+    config = speech.RecognitionConfig(
+        encoding=encoding,
+        sample_rate_hertz=rate,
+        language_code=lang,
+        enable_automatic_punctuation=True,
+        model="latest_long",
+        alternative_language_codes=["zh-TW", "zh-CN", "en-US"] if lang.startswith("zh") else [],
+    )
+    audio = speech.RecognitionAudio(content=content)
+    # Sync recognize ≈ 1 minute max — keep live segments under ~55s.
+    response = client.recognize(config=config, audio=audio)
+    parts: List[str] = []
+    for result in response.results:
+        alt = result.alternatives[0] if result.alternatives else None
+        if alt and alt.transcript:
+            parts.append(alt.transcript.strip())
+    text = "\n".join(parts).strip()
+    if not text:
+        raise ValueError("Google STT 未辨識到語音（可能太短或太安靜）")
+    return text
+
+
+@app.post("/api/stt/google")
+async def stt_google(
+    file: UploadFile = File(...),
+    language: Optional[str] = Form(None),
+):
+    """Transcribe a short audio clip with Google Cloud Speech-to-Text (for live segments / quick voice)."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "空音訊")
+    # Soft guard — sync recognize is not for long files
+    if len(raw) > 12 * 1024 * 1024:
+        raise HTTPException(400, "音訊過大，請縮短段落（建議 60 秒內）")
+    mime = file.content_type or ""
+    lang = language or DEFAULT_LANGUAGE
+
+    def run():
+        return _transcribe_google_bytes(raw, lang, mime)
+
+    try:
+        text = await asyncio.get_event_loop().run_in_executor(executor, run)
+        return {"text": text, "engine": "google-stt", "language": _google_stt_language(lang)}
+    except Exception as e:
+        msg = str(e)
+        if "default credentials" in msg.lower() or "GOOGLE_APPLICATION_CREDENTIALS" in msg:
+            raise HTTPException(
+                503,
+                "尚未設定 Google 憑證。請在 Cloud Run / 本機設定 GOOGLE_APPLICATION_CREDENTIALS，並啟用 Speech-to-Text API。",
+            ) from e
+        if "PERMISSION_DENIED" in msg or "403" in msg:
+            raise HTTPException(403, f"Speech-to-Text 權限不足：{msg}") from e
+        raise HTTPException(500, f"Google STT 失敗：{msg}") from e
+
+
+@app.get("/api/stt/google/health")
+async def stt_google_health():
+    try:
+        from google.cloud import speech_v1 as speech  # noqa: F401
+        ok_pkg = True
+    except Exception:
+        ok_pkg = False
+    creds = bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")) or bool(
+        os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCLOUD_PROJECT")
+    )
+    return {
+        "package": ok_pkg,
+        "credentials_hint": creds,
+        "ready": ok_pkg,
+        "note": "Cloud Run 可用服務帳號 ADC；本機請設 GOOGLE_APPLICATION_CREDENTIALS。",
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

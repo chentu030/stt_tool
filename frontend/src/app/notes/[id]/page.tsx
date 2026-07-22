@@ -89,6 +89,7 @@ import { splitFolderPath } from "@/lib/noteTree";
 import { FocusModeProvider, useFocusMode } from "@/components/notes/FocusModeProvider";
 import NotePresence from "@/components/notes/NotePresence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
+import LiveNoteRecorder from "@/components/voice/LiveNoteRecorder";
 import NotePageLog from "@/components/notes/NotePageLog";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
@@ -222,6 +223,8 @@ function NotePageInner() {
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRestored = useRef<string | null>(null);
   const insertMdRef = useRef<((md: string) => void) | null>(null);
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [liveAutoStart, setLiveAutoStart] = useState(false);
   const latest = useRef({
     title: "",
     body: "",
@@ -367,6 +370,17 @@ function NotePageInner() {
     if (!isFullScreenAppLink(note.app_link)) return;
     router.replace(noteOpenHref(note));
   }, [note, splitId, router]);
+
+  // Open live note recorder from capture (?live=1)
+  useEffect(() => {
+    if (!id) return;
+    if (searchParams.get("live") !== "1") return;
+    setLiveAutoStart(true);
+    setLiveOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("live");
+    window.history.replaceState({}, "", url.pathname + (url.search || ""));
+  }, [id, searchParams]);
 
   // Consume research insert handoff (when returning from /research)
   useEffect(() => {
@@ -1465,6 +1479,16 @@ function NotePageInner() {
           <div className="doc-command-actions">
           <NotePresence noteId={note.id} />
           <NoteHuddle noteId={note.id} />
+          {!isAppPage && viewMode !== "slides" ? (
+            <button
+              type="button"
+              className={`doc-cmd${liveOpen ? " is-on" : ""}`}
+              title="即時錄音轉錄：邊錄邊整理進筆記"
+              onClick={() => setLiveOpen(true)}
+            >
+              即時轉錄
+            </button>
+          ) : null}
           {isAppPage ? (
             <button
               type="button"
@@ -2179,6 +2203,28 @@ function NotePageInner() {
           }}
         />
       )}
+
+      {user && note && liveOpen ? (
+        <LiveNoteRecorder
+          uid={user.uid}
+          noteId={note.id}
+          open={liveOpen}
+          autoStart={liveAutoStart}
+          onClose={() => {
+            setLiveOpen(false);
+            setLiveAutoStart(false);
+          }}
+          insertMd={(md) => {
+            if (insertMdRef.current) insertMdRef.current(md);
+            else {
+              const next = `${latest.current.body || ""}${md}`;
+              latest.current = { ...latest.current, body: next };
+              setBody(next);
+              markDirty();
+            }
+          }}
+        />
+      ) : null}
     </div>
   );
 }

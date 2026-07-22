@@ -7,11 +7,12 @@ import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, jobDisplayTitle, fetchYoutubeTitle, type Job,
+  loginWithGoogle, createJob, updateJobStatus, uploadFile, listenToJob, listenToUserJobs, jobDisplayTitle, fetchYoutubeTitle, createNote, type Job,
 } from "@/lib/firebase";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import Link from "next/link";
+import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import { libraryJobsUrl } from "@/lib/navApps";
 import { toast } from "@/lib/toast";
 import { usePrefsOptional } from "@/components/PrefsProvider";
@@ -92,6 +93,7 @@ export default function CapturePage() {
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  const [liveBusy, setLiveBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -365,8 +367,61 @@ export default function CapturePage() {
       >
         <header className="capture-head">
           <ScrambleText words="捕捉" as="h1" className="capture-brand font-display" speed={22} />
-          <p className="capture-lead">上傳、貼連結或錄音。</p>
+          <p className="capture-lead">上傳、即時轉錄，或快速錄下飛過的想法。</p>
         </header>
+
+        <div className="capture-modes">
+          <button
+            type="button"
+            className="capture-mode-card"
+            disabled={busy || liveBusy || recording}
+            onClick={() => {
+              void (async () => {
+                if (!user) return;
+                setLiveBusy(true);
+                try {
+                  const stamp = new Date().toLocaleString("zh-TW", {
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                  const id = await createNote(
+                    user.uid,
+                    `即時轉錄 · ${stamp}`,
+                    `# 即時轉錄\n\n> 開會／上課邊聽邊記。按「段落結束」或約 45 秒自動切段，AI 會整理進本篇，音檔一併保留。\n\n`,
+                    undefined,
+                    ["live-stt"],
+                    { folder: "即時轉錄", icon: "mic" }
+                  );
+                  toast("已開啟即時轉錄筆記");
+                  router.push(`/notes/${id}?live=1`);
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : "無法開始即時轉錄");
+                } finally {
+                  setLiveBusy(false);
+                }
+              })();
+            }}
+          >
+            <strong>即時轉錄整理</strong>
+            <span>開會、上課邊錄邊整理進筆記，可回放音檔。</span>
+          </button>
+          <div className="capture-mode-card capture-mode-card--voice">
+            <QuickVoiceButton
+              uid={user.uid}
+              onAppendJournal={() => {
+                /* capture page: note already created under 日誌/快速錄音 */
+              }}
+              onCreatedNote={(noteId) => {
+                router.push(`/notes/${noteId}`);
+              }}
+            />
+            <Link href="/journal" className="capture-mode-link">
+              或到日誌邊寫邊錄 →
+            </Link>
+          </div>
+        </div>
 
         <div className="capture-recent">
           <div className="capture-recent-head">

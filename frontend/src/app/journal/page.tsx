@@ -21,6 +21,7 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import JournalCalendar from "@/components/journal/JournalCalendar";
 import JournalComposer, { type JournalComposerHandle } from "@/components/journal/JournalComposer";
 import JournalAside from "@/components/journal/JournalAside";
+import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import {
   MoodId,
   MOODS,
@@ -366,6 +367,36 @@ export default function JournalPage() {
           </p>
         </div>
         <div className="jn-hero-actions">
+          <QuickVoiceButton
+            uid={user.uid}
+            compact
+            onAppendJournal={(md) => {
+              void (async () => {
+                try {
+                  const existing = byDate.get(selected);
+                  const base =
+                    existing?.body_md.replace(/<!--\s*cadence-journal[^>]*-->/i, "").trim() ||
+                    composerBody ||
+                    "";
+                  const next = `${base.trim()}${base.trim() ? "\n\n" : ""}${md.trim()}\n`;
+                  const mood = existing?.meta.mood;
+                  const energy = existing?.meta.energy || 3;
+                  const body = upsertJournalMeta(next, { mood, energy });
+                  await ensureNote(selected, body, { mood, energy });
+                  setComposerDirty(false);
+                  setComposerKey((k) => k + 1);
+                  toast("快速錄音已寫入今日日誌");
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : "寫入日誌失敗");
+                }
+              })();
+            }}
+            onCreatedNote={(noteId) => {
+              toast("已另存快速筆記");
+              // keep user on journal; they can open from toast flow later
+              void noteId;
+            }}
+          />
           <button type="button" className="btn btn-ghost btn-sm" onClick={exportMonth}>
             匯出本月
           </button>
