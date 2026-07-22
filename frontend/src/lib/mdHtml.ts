@@ -3,6 +3,12 @@ import TurndownService from "turndown";
 import katex from "katex";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import {
+  formatEmbedToken,
+  layoutDataAttrString,
+  parseEmbedMid,
+  readLayoutFromElement,
+} from "@/lib/mediaLayout";
+import {
   decodeFormulaAttr,
   encodeFormulaAttr,
   normalizeLatexFormula,
@@ -19,7 +25,8 @@ function serializeBlankAtom(node: HTMLElement): string | null {
       const title = node.getAttribute("data-title") || "embed";
       const original =
         node.getAttribute("data-original") || node.getAttribute("data-src") || "";
-      return `\n\n[embed|${kind}|${title}](${original})\n\n`;
+      const layout = readLayoutFromElement(node);
+      return `\n\n${formatEmbedToken(kind, title, original, layout)}\n\n`;
     }
     if (node.getAttribute("data-cadence-web") === "1") {
       const url = node.getAttribute("data-url") || "";
@@ -228,10 +235,60 @@ turndown.addRule("noteEmbed", {
   },
   replacement: (_c, node) => {
     const el = node as HTMLElement;
-    const kind = el.getAttribute("data-kind") || "web";
-    const title = el.getAttribute("data-title") || "embed";
-    const original = el.getAttribute("data-original") || el.getAttribute("data-src") || "";
-    return `\n\n[embed|${kind}|${title}](${original})\n\n`;
+    // Prefer outer media frame if present
+    const frame =
+      (el.classList.contains("rich-media-frame") && el.getAttribute("data-note-embed") != null
+        ? el
+        : (el.closest(".rich-media-frame[data-note-embed]") as HTMLElement | null)) || el;
+    const kind = frame.getAttribute("data-kind") || el.getAttribute("data-kind") || "web";
+    const title = frame.getAttribute("data-title") || el.getAttribute("data-title") || "embed";
+    const original =
+      frame.getAttribute("data-original") ||
+      el.getAttribute("data-original") ||
+      frame.getAttribute("data-src") ||
+      el.getAttribute("data-src") ||
+      "";
+    const layout = readLayoutFromElement(frame);
+    return `\n\n${formatEmbedToken(kind, title, original, layout)}\n\n`;
+  },
+});
+
+turndown.addRule("richImageLayout", {
+  filter: (node) => {
+    if (node.nodeName !== "DIV") return false;
+    const el = node as HTMLElement;
+    return (
+      el.classList?.contains("rich-image-shell") === true ||
+      (el.classList?.contains("rich-media-frame") === true && !!el.querySelector("img.rich-image"))
+    );
+  },
+  replacement: (_c, node) => {
+    const el = node as HTMLElement;
+    const img = el.querySelector("img") as HTMLImageElement | null;
+    if (!img?.getAttribute("src")) return "";
+    const layout = readLayoutFromElement(el);
+    const src = img.getAttribute("src") || "";
+    const alt = img.getAttribute("alt") || "";
+    const data = layoutDataAttrString(layout);
+    return `\n\n<div class="rich-image-shell rich-media-frame" ${data}><img class="rich-image" src="${src.replace(/"/g, "&quot;")}" alt="${alt.replace(/"/g, "&quot;")}" ${data} /></div>\n\n`;
+  },
+});
+
+turndown.addRule("richImageBare", {
+  filter: (node) => {
+    if (node.nodeName !== "IMG") return false;
+    const el = node as HTMLElement;
+    if (el.closest(".rich-image-shell, .rich-media-frame, [data-note-embed]")) return false;
+    return el.classList?.contains("rich-image") === true || el.hasAttribute("data-width-pct");
+  },
+  replacement: (_c, node) => {
+    const img = node as HTMLImageElement;
+    const layout = readLayoutFromElement(img);
+    const src = img.getAttribute("src") || "";
+    if (!src) return "";
+    const alt = img.getAttribute("alt") || "";
+    const data = layoutDataAttrString(layout);
+    return `\n\n<div class="rich-image-shell rich-media-frame" ${data}><img class="rich-image" src="${src.replace(/"/g, "&quot;")}" alt="${alt.replace(/"/g, "&quot;")}" ${data} /></div>\n\n`;
   },
 });
 
@@ -604,23 +661,37 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<div class="ws-web-embed-shell" data-cadence-web="1" data-url="${escapeAttr(url || "")}" data-title="${escapeAttr(title || "")}"></div>`;
   });
 
-  s = s.replace(/\[embed\|([^\]|]+)\|([^\]]*)\]\(([^)]*)\)/g, (_m, kind, title, original) => {
+  s = s.replace(/\[embed\|([^\]]+)\]\(([^)]*)\)/g, (_m, mid, original) => {
     const raw = String(original || "").trim();
+    const parsed = parseEmbedMid(String(mid || ""));
+    const k = parsed.kind || "web";
+    const t = parsed.title || k;
+    const layoutMerged = {
+      widthPct: parsed.layout.widthPct ?? 100,
+      align: (parsed.layout.align ?? "center") as "left" | "center" | "right",
+      wrap: (parsed.layout.wrap ?? "inline") as
+        | "inline"
+        | "floatLeft"
+        | "floatRight"
+        | "break"
+        | "front"
+        | "behind",
+      offsetX: parsed.layout.offsetX ?? 8,
+      offsetY: parsed.layout.offsetY ?? 8,
+    };
+    const data = layoutDataAttrString(layoutMerged);
     if (!raw) {
-      const k = kind || "web";
-      const t = title || k;
-      const token = `[embed|${k}|${t}]()`;
-      // Keep text content so Turndown does not treat the shell as a blank node.
-      return `<div class="rich-embed rich-embed--${escapeAttr(k)} is-empty" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="" data-original="" data-frameable="1">${escapeHtml(token)}</div>`;
+      const token = formatEmbedToken(k, t, "", layoutMerged);
+      return `<div class="rich-embed rich-embed--${escapeAttr(k)} is-empty rich-media-frame" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="" data-original="" data-frameable="1" ${data}>${escapeHtml(token)}</div>`;
     }
-    const emb = resolveEmbedUrl(raw, String(title || ""));
-    const k = emb?.kind || kind || "web";
+    const emb = resolveEmbedUrl(raw, String(t || ""));
+    const kind = emb?.kind || k;
     const src = emb?.src || raw;
-    const t = title || emb?.title || k;
-    const frameable = emb ? emb.frameable : k !== "link" && k !== "web";
+    const title = t || emb?.title || kind;
+    const frameable = emb ? emb.frameable : kind !== "link" && kind !== "web";
     const cardClass = frameable ? "" : " rich-embed--card";
-    const token = `[embed|${k}|${t}](${raw})`;
-    return `<div class="rich-embed rich-embed--${escapeAttr(k)}${cardClass}" data-note-embed="1" data-kind="${escapeAttr(k)}" data-title="${escapeAttr(t)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(raw)}" data-frameable="${frameable ? "1" : "0"}">${escapeHtml(token)}</div>`;
+    const token = formatEmbedToken(kind, title, raw, layoutMerged);
+    return `<div class="rich-embed rich-embed--${escapeAttr(kind)}${cardClass} rich-media-frame" data-note-embed="1" data-kind="${escapeAttr(kind)}" data-title="${escapeAttr(title)}" data-src="${escapeAttr(src)}" data-original="${escapeAttr(raw)}" data-frameable="${frameable ? "1" : "0"}" ${data}>${escapeHtml(token)}</div>`;
   });
 
   s = s.replace(/\[bookmark\|([^\]]*)\]\(([^)]*)\)/g, (_m, title, href) => {
@@ -908,14 +979,23 @@ export function htmlToMarkdown(html: string): string {
         el.replaceWith(doc.createTextNode(park(`\n\n$$\n${f}\n$$\n\n`)));
       });
       doc.querySelectorAll("[data-note-embed], .rich-embed").forEach((el) => {
-        const kind = el.getAttribute("data-kind") || "web";
-        const title = el.getAttribute("data-title") || "embed";
+        if (el.closest(".rich-media-frame-body") && !el.classList.contains("rich-media-frame")) {
+          // Inner content host — prefer outer frame if present
+          const outer = el.closest(".rich-media-frame[data-note-embed]");
+          if (outer && outer !== el) return;
+        }
+        const frame =
+          (el.classList.contains("rich-media-frame")
+            ? el
+            : el.closest(".rich-media-frame[data-note-embed]")) || el;
+        const kind = frame.getAttribute("data-kind") || "web";
+        const title = frame.getAttribute("data-title") || "embed";
         const original =
-          el.getAttribute("data-original") || el.getAttribute("data-src") || "";
-        // Wrap in <p> so Turndown keeps the placeholder (orphan text nodes can be dropped).
+          frame.getAttribute("data-original") || frame.getAttribute("data-src") || "";
+        const layout = readLayoutFromElement(frame);
         const p = doc.createElement("p");
-        p.textContent = park(`\n\n[embed|${kind}|${title}](${original})\n\n`);
-        el.replaceWith(p);
+        p.textContent = park(`\n\n${formatEmbedToken(kind, title, original, layout)}\n\n`);
+        (el.classList.contains("rich-media-frame") ? el : frame).replaceWith(p);
       });
       doc.querySelectorAll("[data-cadence-database]").forEach((el) => {
         const id = el.getAttribute("data-database-id") || "";

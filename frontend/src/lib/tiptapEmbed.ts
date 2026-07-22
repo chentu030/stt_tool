@@ -7,6 +7,13 @@ import {
   normalizeLatexFormula,
 } from "@/lib/latexNormalize";
 import { resolveEmbedUrl, type EmbedResolved } from "@/lib/embedUrls";
+import {
+  formatEmbedToken,
+  layoutToDataAttrs,
+  mediaLayoutTipTapAttributes,
+  readLayoutFromAttrs,
+} from "@/lib/mediaLayout";
+import { mountLayoutChrome } from "@/lib/mediaLayoutDom";
 
 const EMBED_KIND_UI: Record<string, { label: string; placeholder: string }> = {
   youtube: { label: "YouTube", placeholder: "貼上 YouTube 連結…" },
@@ -564,6 +571,7 @@ export const NoteEmbed = Node.create({
       title: { default: "嵌入" },
       original: { default: null },
       frameable: { default: true },
+      ...mediaLayoutTipTapAttributes(),
     };
   },
   parseHTML() {
@@ -573,12 +581,20 @@ export const NoteEmbed = Node.create({
         getAttrs: (el) => {
           const d = el as HTMLElement;
           const frameAttr = d.getAttribute("data-frameable");
+          const layout = readLayoutFromAttrs({
+            widthPct: d.getAttribute("data-width-pct"),
+            align: d.getAttribute("data-align"),
+            wrap: d.getAttribute("data-wrap"),
+            offsetX: d.getAttribute("data-ox"),
+            offsetY: d.getAttribute("data-oy"),
+          });
           return {
             src: d.getAttribute("data-src"),
             kind: d.getAttribute("data-kind") || "web",
             title: d.getAttribute("data-title") || "嵌入",
             original: d.getAttribute("data-original"),
             frameable: frameAttr == null ? true : frameAttr !== "0",
+            ...layout,
           };
         },
       },
@@ -590,43 +606,63 @@ export const NoteEmbed = Node.create({
     const title = HTMLAttributes.title || "嵌入";
     const original = HTMLAttributes.original || src;
     const frameable = HTMLAttributes.frameable !== false && HTMLAttributes.frameable !== "0";
+    const layout = readLayoutFromAttrs(HTMLAttributes);
+    const token = formatEmbedToken(kind, title, original || "", layout);
 
     return [
       "div",
       mergeAttributes({
-        class: `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}${!original ? " is-empty" : ""}`,
+        class: `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}${!original ? " is-empty" : ""} rich-media-frame`,
         "data-note-embed": "1",
         "data-src": src,
         "data-kind": kind,
         "data-title": title,
         "data-original": original,
         "data-frameable": frameable ? "1" : "0",
+        ...layoutToDataAttrs(layout),
         contenteditable: "false",
       }),
-      // Text fallback so serializers that skip empty atoms still keep the embed
-      original ? `[embed|${kind}|${title}](${original})` : `[embed|${kind}|${title}]()`,
+      token,
     ];
   },
   addNodeView() {
     return ({ node, getPos, editor }: NodeViewRendererProps) => {
-      const dom = document.createElement("div");
+      let selected = false;
+      let current = node;
 
-      const applyResolved = (emb: EmbedResolved) => {
+      const patchAttrs = (patch: Record<string, unknown>) => {
         const pos = typeof getPos === "function" ? getPos() : null;
         if (typeof pos !== "number") return;
+        const cur = editor.state.doc.nodeAt(pos);
+        if (!cur || cur.type.name !== "noteEmbed") return;
         editor
           .chain()
           .command(({ tr }) => {
-            tr.setNodeMarkup(pos, undefined, {
-              src: emb.src,
-              kind: emb.kind,
-              title: emb.title,
-              original: emb.original,
-              frameable: emb.frameable,
-            });
+            tr.setNodeMarkup(pos, undefined, { ...cur.attrs, ...patch });
             return true;
           })
           .run();
+      };
+
+      const chrome = mountLayoutChrome({
+        updateAttributes: (patch) => patchAttrs(patch),
+        getReadOnly: () => !editor.isEditable,
+      });
+
+      const contentHost = document.createElement("div");
+      contentHost.className = `rich-embed`;
+      chrome.body.appendChild(contentHost);
+
+      const applyResolved = (emb: EmbedResolved) => {
+        const layout = readLayoutFromAttrs(current.attrs as Record<string, unknown>);
+        patchAttrs({
+          src: emb.src,
+          kind: emb.kind,
+          title: emb.title,
+          original: emb.original,
+          frameable: emb.frameable,
+          ...layout,
+        });
         editor.view.dom.dispatchEvent(
           new CustomEvent("cadence-embed-resolved", {
             bubbles: true,
@@ -637,29 +673,25 @@ export const NoteEmbed = Node.create({
 
       const clearEmbed = (preferKind: string) => {
         const ui = embedKindUi(preferKind);
-        const pos = typeof getPos === "function" ? getPos() : null;
-        if (typeof pos !== "number") return;
-        editor
-          .chain()
-          .command(({ tr }) => {
-            tr.setNodeMarkup(pos, undefined, {
-              src: null,
-              kind: preferKind || "web",
-              title: ui.label,
-              original: null,
-              frameable: true,
-            });
-            return true;
-          })
-          .run();
+        const layout = readLayoutFromAttrs(current.attrs as Record<string, unknown>);
+        patchAttrs({
+          src: null,
+          kind: preferKind || "web",
+          title: ui.label,
+          original: null,
+          frameable: true,
+          ...layout,
+        });
       };
 
       const sync = (n: typeof node) => {
+        current = n;
         const src = String(n.attrs.src || "");
         const kind = String(n.attrs.kind || "web");
         const title = String(n.attrs.title || embedKindUi(kind).label);
         const original = String(n.attrs.original || src || "");
         const frameable = n.attrs.frameable !== false && n.attrs.frameable !== "0";
+        const layout = readLayoutFromAttrs(n.attrs as Record<string, unknown>);
         const ui = embedKindUi(kind);
         const empty = !original.trim();
         let host = title;
@@ -669,14 +701,22 @@ export const NoteEmbed = Node.create({
           /* keep */
         }
 
-        dom.className = `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}${empty ? " is-empty" : ""}`;
-        dom.setAttribute("data-note-embed", "1");
-        dom.setAttribute("data-src", src);
-        dom.setAttribute("data-kind", kind);
-        dom.setAttribute("data-title", title);
-        dom.setAttribute("data-original", original);
-        dom.setAttribute("data-frameable", frameable ? "1" : "0");
-        dom.contentEditable = "false";
+        contentHost.className = `rich-embed rich-embed--${kind}${frameable ? "" : " rich-embed--card"}${empty ? " is-empty" : ""}`;
+        contentHost.setAttribute("data-note-embed", "1");
+        contentHost.setAttribute("data-src", src);
+        contentHost.setAttribute("data-kind", kind);
+        contentHost.setAttribute("data-title", title);
+        contentHost.setAttribute("data-original", original);
+        contentHost.setAttribute("data-frameable", frameable ? "1" : "0");
+        contentHost.contentEditable = "false";
+
+        chrome.root.setAttribute("data-note-embed", "1");
+        chrome.root.setAttribute("data-src", src);
+        chrome.root.setAttribute("data-kind", kind);
+        chrome.root.setAttribute("data-title", title);
+        chrome.root.setAttribute("data-original", original);
+        chrome.root.setAttribute("data-frameable", frameable ? "1" : "0");
+        chrome.sync(n.attrs as Record<string, unknown>, selected, !editor.isEditable);
 
         const bar = `
           <div class="rich-embed-bar">
@@ -699,7 +739,7 @@ export const NoteEmbed = Node.create({
         `;
 
         if (empty) {
-          dom.innerHTML = `
+          contentHost.innerHTML = `
             ${bar}
             <div class="rich-embed-empty-body">
               <p class="rich-embed-empty-hint">可貼上網址後按 Enter 嵌入；也可先留空。</p>
@@ -710,7 +750,7 @@ export const NoteEmbed = Node.create({
             typeof window !== "undefined"
               ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`
               : "";
-          dom.innerHTML = `
+          contentHost.innerHTML = `
             ${bar}
             <div class="rich-embed-card-body">
               ${fav ? `<img class="rich-embed-favicon" src="${fav}" alt="" width="28" height="28" />` : ""}
@@ -728,15 +768,26 @@ export const NoteEmbed = Node.create({
             ? ""
             : ` allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"`;
           const referrer = isPdfDirect ? "" : ` referrerpolicy="no-referrer-when-downgrade"`;
-          dom.innerHTML = `
+          contentHost.innerHTML = `
             ${bar}
             <iframe class="rich-embed-frame" src="${escapeAttr(src)}" title="${escapeAttr(title)}" loading="lazy"${allow}${referrer}${isPdfDirect ? "" : " allowfullscreen"}></iframe>
             <a class="rich-embed-open" href="${escapeAttr(original)}" target="_blank" rel="noopener noreferrer">開啟原始連結</a>
           `;
         }
 
-        const input = dom.querySelector(".rich-embed-url-input") as HTMLInputElement | null;
-        const clearBtn = dom.querySelector(".rich-embed-clear") as HTMLButtonElement | null;
+        // Keep markdown fallback text for serializers that read textContent
+        const token = formatEmbedToken(kind, title, original, layout);
+        let fallback = contentHost.querySelector(".rich-embed-md-fallback") as HTMLElement | null;
+        if (!fallback) {
+          fallback = document.createElement("span");
+          fallback.className = "rich-embed-md-fallback";
+          fallback.hidden = true;
+          contentHost.appendChild(fallback);
+        }
+        fallback.textContent = token;
+
+        const input = contentHost.querySelector(".rich-embed-url-input") as HTMLInputElement | null;
+        const clearBtn = contentHost.querySelector(".rich-embed-clear") as HTMLButtonElement | null;
 
         const commitFromInput = () => {
           if (!input) return;
@@ -762,7 +813,6 @@ export const NoteEmbed = Node.create({
           input.addEventListener("pointerdown", stop);
           input.addEventListener("mousedown", stop);
           input.addEventListener("click", stop);
-          // Paste into the URL field must not bubble to ProseMirror (which would insert a 2nd embed).
           input.addEventListener("paste", (e) => {
             e.stopPropagation();
             queueMicrotask(() => commitFromInput());
@@ -792,26 +842,34 @@ export const NoteEmbed = Node.create({
 
       sync(node);
       const armInteractive = () => {
-        dom.classList.add("is-interactive");
+        contentHost.classList.add("is-interactive");
       };
-      dom.addEventListener("pointerdown", armInteractive);
+      chrome.root.addEventListener("pointerdown", armInteractive);
       return {
-        dom,
+        dom: chrome.root,
+        selectNode: () => {
+          selected = true;
+          chrome.sync(current.attrs as Record<string, unknown>, true, !editor.isEditable);
+        },
+        deselectNode: () => {
+          selected = false;
+          chrome.sync(current.attrs as Record<string, unknown>, false, !editor.isEditable);
+        },
         update: (updated) => {
           if (updated.type.name !== "noteEmbed") return false;
-          const wasInteractive = dom.classList.contains("is-interactive");
+          const wasInteractive = contentHost.classList.contains("is-interactive");
           const active = document.activeElement;
           const keepFocus =
             active instanceof HTMLInputElement &&
             active.classList.contains("rich-embed-url-input") &&
-            dom.contains(active);
+            contentHost.contains(active);
           const draft = keepFocus ? active.value : null;
           const selStart = keepFocus ? active.selectionStart : null;
           const selEnd = keepFocus ? active.selectionEnd : null;
           sync(updated);
-          if (wasInteractive) dom.classList.add("is-interactive");
+          if (wasInteractive) contentHost.classList.add("is-interactive");
           if (keepFocus && draft != null) {
-            const next = dom.querySelector(".rich-embed-url-input") as HTMLInputElement | null;
+            const next = contentHost.querySelector(".rich-embed-url-input") as HTMLInputElement | null;
             if (next) {
               next.value = draft;
               next.focus();
@@ -827,7 +885,8 @@ export const NoteEmbed = Node.create({
           return true;
         },
         destroy: () => {
-          dom.removeEventListener("pointerdown", armInteractive);
+          chrome.root.removeEventListener("pointerdown", armInteractive);
+          chrome.destroy();
         },
       };
     };
@@ -845,6 +904,7 @@ export const NoteEmbed = Node.create({
               title: attrs.title || embedKindUi(attrs.kind || "web").label,
               original: attrs.original ?? null,
               frameable: attrs.frameable !== false,
+              ...readLayoutFromAttrs(attrs as Record<string, unknown>),
             },
           }),
     };

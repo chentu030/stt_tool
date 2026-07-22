@@ -8864,6 +8864,180 @@ body.is-split-resizing iframe {
   line-height: var(--editor-line-height, 1.65);
   color: var(--text-main);
   padding-left: var(--block-handle-space);
+  position: relative;
+}
+.rich-prose::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+/* Media layout frame: size / align / wrap */
+.rich-media-frame {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  margin: 0.85em 0;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  overflow: visible;
+}
+.rich-media-frame .rich-embed,
+.rich-media-frame .rich-image-shell {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+  width: 100%;
+}
+.rich-media-frame[data-align="left"] {
+  margin-left: 0;
+  margin-right: auto;
+}
+.rich-media-frame[data-align="center"] {
+  margin-left: auto;
+  margin-right: auto;
+}
+.rich-media-frame[data-align="right"] {
+  margin-left: auto;
+  margin-right: 0;
+}
+.rich-media-frame[data-wrap="floatLeft"] {
+  float: left;
+  margin: 0.35em 1em 0.65em 0;
+  clear: left;
+}
+.rich-media-frame[data-wrap="floatRight"] {
+  float: right;
+  margin: 0.35em 0 0.65em 1em;
+  clear: right;
+}
+.rich-media-frame[data-wrap="break"] {
+  float: none;
+  clear: both;
+  display: block;
+  width: 100% !important;
+  max-width: 100%;
+}
+.rich-media-frame[data-wrap="front"],
+.rich-media-frame[data-wrap="behind"] {
+  float: none;
+  position: absolute;
+  margin: 0;
+  cursor: grab;
+  max-width: min(100%, 720px);
+}
+.rich-media-frame[data-wrap="front"] {
+  z-index: 6;
+}
+.rich-media-frame[data-wrap="behind"] {
+  z-index: 0;
+  opacity: 0.92;
+}
+.rich-media-frame[data-selected="1"] {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+.rich-media-frame-body {
+  min-width: 0;
+  width: 100%;
+}
+.rich-media-toolbar {
+  position: absolute;
+  top: -2.05rem;
+  left: 0;
+  z-index: 8;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.3rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 12%, transparent);
+}
+.rich-media-toolbar button {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  padding: 0.22rem 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.rich-media-toolbar button:hover,
+.rich-media-toolbar button.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.rich-media-toolbar-sep {
+  width: 1px;
+  height: 1rem;
+  background: var(--border);
+  margin: 0 0.15rem;
+}
+.rich-media-toolbar-pct {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 0 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.rich-media-wrap-menu {
+  position: relative;
+}
+.rich-media-wrap-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 12;
+  min-width: 180px;
+  padding: 0.3rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.rich-media-wrap-pop button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+}
+.rich-media-wrap-pop strong {
+  font-size: 0.78rem;
+}
+.rich-media-wrap-pop span {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.rich-media-resize {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  z-index: 8;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 2px solid var(--bg-elevated, #fff);
+  border-radius: 3px;
+  background: var(--accent);
+  cursor: nwse-resize;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.rich-embed-md-fallback {
+  display: none !important;
 }
 .block-controls {
   position: absolute;
@@ -9794,10 +9968,13 @@ body.is-split-resizing iframe {
 }
 .rich-image-shell {
   margin: 0.85em 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--bg-elevated);
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+}
+.rich-image-shell > .rich-media-frame {
+  margin: 0;
 }
 .rich-image-shell .rich-image {
   display: block;
