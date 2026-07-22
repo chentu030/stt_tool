@@ -1,9 +1,74 @@
 import type { Editor } from "@tiptap/react";
-import { Fragment } from "@tiptap/pm/model";
-import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { Extension } from "@tiptap/core";
+import { Fragment, type Node as PmNode } from "@tiptap/pm/model";
+import { NodeSelection, TextSelection, Plugin, PluginKey } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 const LIST_ITEM = new Set(["listItem", "taskItem"]);
 const LIST_PARENT = new Set(["bulletList", "orderedList", "taskList"]);
+
+export type BlockSelRange = {
+  parentFrom: number;
+  start: number;
+  end: number;
+} | null;
+
+export const blockSelectionPluginKey = new PluginKey<BlockSelRange>("albireusBlockSelection");
+
+function buildBlockSelectionDecorations(doc: PmNode, range: BlockSelRange): DecorationSet {
+  if (!range || range.start > range.end) return DecorationSet.empty;
+  const decos: Decoration[] = [];
+  const { parentFrom, start, end } = range;
+
+  if (parentFrom < 0) {
+    let pos = 0;
+    for (let i = 0; i < doc.childCount; i++) {
+      const size = doc.child(i).nodeSize;
+      if (i >= start && i <= end) {
+        decos.push(Decoration.node(pos, pos + size, { class: "is-block-selected" }));
+      }
+      pos += size;
+    }
+  } else {
+    const parent = doc.nodeAt(parentFrom);
+    if (!parent) return DecorationSet.empty;
+    let pos = parentFrom + 1;
+    for (let i = 0; i < parent.childCount; i++) {
+      const size = parent.child(i).nodeSize;
+      if (i >= start && i <= end) {
+        decos.push(Decoration.node(pos, pos + size, { class: "is-block-selected" }));
+      }
+      pos += size;
+    }
+  }
+  return DecorationSet.create(doc, decos);
+}
+
+/** TipTap extension: persistent block multi-select highlight via PM decorations. */
+export const BlockSelectionHighlight = Extension.create({
+  name: "blockSelectionHighlight",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: blockSelectionPluginKey,
+        state: {
+          init: () => null as BlockSelRange,
+          apply(tr, prev) {
+            const meta = tr.getMeta(blockSelectionPluginKey);
+            if (meta !== undefined) return meta as BlockSelRange;
+            return prev;
+          },
+        },
+        props: {
+          decorations(state) {
+            const range = blockSelectionPluginKey.getState(state) ?? null;
+            return buildBlockSelectionDecorations(state.doc, range);
+          },
+        },
+      }),
+    ];
+  },
+});
 
 export type DragBlock = {
   from: number;
@@ -570,48 +635,26 @@ export function copySiblingRange(
   return true;
 }
 
-/** Apply/remove `.is-block-selected` on sibling nodes in a parent. */
+/** Apply/remove block selection highlight (ProseMirror decorations — survives React node views). */
 export function paintBlockSelection(
   editor: Editor,
   parentFrom: number,
   start: number,
   end: number
 ) {
-  const { doc } = editor.state;
-  const clearAll = () => {
-    doc.descendants((node, pos) => {
-      if (node.isBlock) {
-        const dom = editor.view.nodeDOM(pos);
-        if (dom instanceof HTMLElement) dom.classList.remove("is-block-selected");
-      }
-      return true;
-    });
-  };
-  clearAll();
-  if (start > end) return;
-
-  if (parentFrom < 0) {
-    let pos = 0;
-    for (let i = 0; i < doc.childCount; i++) {
-      const dom = editor.view.nodeDOM(pos);
-      if (dom instanceof HTMLElement) {
-        dom.classList.toggle("is-block-selected", i >= start && i <= end);
-      }
-      pos += doc.child(i).nodeSize;
-    }
-    return;
-  }
-
-  const parent = doc.nodeAt(parentFrom);
-  if (!parent) return;
-  let pos = parentFrom + 1;
-  for (let i = 0; i < parent.childCount; i++) {
-    const dom = editor.view.nodeDOM(pos);
-    if (dom instanceof HTMLElement) {
-      dom.classList.toggle("is-block-selected", i >= start && i <= end);
-    }
-    pos += parent.child(i).nodeSize;
-  }
+  if (editor.isDestroyed) return;
+  const range: BlockSelRange = start > end ? null : { parentFrom, start, end };
+  const prev = blockSelectionPluginKey.getState(editor.state) ?? null;
+  const same =
+    (prev === null && range === null) ||
+    (prev !== null &&
+      range !== null &&
+      prev.parentFrom === range.parentFrom &&
+      prev.start === range.start &&
+      prev.end === range.end);
+  if (same) return;
+  const tr = editor.state.tr.setMeta(blockSelectionPluginKey, range).setMeta("addToHistory", false);
+  editor.view.dispatch(tr);
 }
 
 /** Duplicate the top-level block under the cursor (Notion-style Ctrl/Cmd+D). */

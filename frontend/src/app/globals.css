@@ -8918,21 +8918,26 @@ body.is-split-resizing iframe {
   user-select: text !important;
   -webkit-user-select: text !important;
 }
-.ProseMirror > .is-block-selected {
+/* Block multi-select: faint wash + outline (decoration class from BlockSelectionHighlight) */
+.ProseMirror .is-block-selected {
   border-radius: 6px;
-  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  outline-offset: 1px;
+  box-shadow: none;
 }
 .ProseMirror li.is-block-selected,
 .ProseMirror [data-type="taskItem"].is-block-selected {
   border-radius: 6px;
-  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 48%, transparent);
+  outline-offset: 0;
 }
 .ProseMirror > .is-block-selected + .is-block-selected {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   margin-top: 0;
+  outline-offset: -1px;
 }
 .ProseMirror > .is-block-selected:has(+ .is-block-selected) {
   border-bottom-left-radius: 0;

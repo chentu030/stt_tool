@@ -55,7 +55,7 @@ import { resolveEmbedUrl, isYoutubeUrl } from "@/lib/embedUrls";
 import { uploadNoteMedia, detectMediaKind } from "@/lib/firebase";
 import type { TranscribableMedia } from "@/lib/noteMediaIngest";
 import MenuSelect from "@/components/MenuSelect";
-import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee, dropIndexAtClientY } from "@/lib/moveBlock";
+import { moveTopLevelBlock, moveSiblingRange, topLevelBlockAt, draggableBlockAt, draggableBlockAtClientY, siblingBlockPos, siblingCount, paintBlockSelection, duplicateTopLevelBlock, deleteSiblingRange, copySiblingRange, selectSiblingRange, topLevelIndicesInMarquee, dropIndexAtClientY, BlockSelectionHighlight } from "@/lib/moveBlock";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { suggestWikiTitles, findNoteByTitle, type NoteLite } from "@/lib/wiki";
 import { matchAtQuery, suggestAtMentions, type AtItem } from "@/lib/atMentions";
@@ -1180,6 +1180,7 @@ export default function RichNoteEditor({
       Bookmark,
       AppCard,
       TemplateBtn,
+      BlockSelectionHighlight,
     ],
     content: markdownToHtml(valueMd, (t) => resolveWikiRef.current(t)),
     editorProps: {
