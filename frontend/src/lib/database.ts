@@ -120,6 +120,8 @@ export type DbView = {
   cardDensity?: "comfy" | "compact";
   /** Table view: property id → column width (px) */
   columnWidths?: Record<string, number>;
+  /** Manual row order (note ids). Used when sorts are empty. */
+  rowOrder?: string[];
 };
 
 export type CadenceDatabase = {
@@ -409,11 +411,15 @@ function normalizeView(v: DbView): DbView {
             .map(([id, w]) => [id, Math.min(640, Math.max(72, Math.round(w as number)))])
         )
       : undefined;
+  const rowOrder = Array.isArray(v.rowOrder)
+    ? v.rowOrder.map(String).filter(Boolean)
+    : undefined;
   return {
     ...v,
     filters: Array.isArray(v.filters) ? v.filters : [],
     sorts: Array.isArray(v.sorts) ? v.sorts : [],
     columnWidths: widths && Object.keys(widths).length ? widths : undefined,
+    rowOrder: rowOrder?.length ? rowOrder : undefined,
   };
 }
 
@@ -691,6 +697,33 @@ export function scrubViewsAfterPropRemove(views: DbView[], propId: string): DbVi
   });
 }
 
+/** Move `fromId` to the position currently occupied by `toId`. */
+export function moveIdBefore(ids: string[], fromId: string, toId: string): string[] {
+  if (fromId === toId) return ids.slice();
+  const fromIdx = ids.indexOf(fromId);
+  const toIdx = ids.indexOf(toId);
+  if (fromIdx < 0 || toIdx < 0) return ids.slice();
+  const next = ids.slice();
+  next.splice(fromIdx, 1);
+  const insertAt = next.indexOf(toId);
+  next.splice(insertAt < 0 ? next.length : insertAt, 0, fromId);
+  return next;
+}
+
+export function reorderProperties(
+  properties: DbProperty[],
+  fromId: string,
+  toId: string
+): DbProperty[] {
+  const ids = moveIdBefore(
+    properties.map((p) => p.id),
+    fromId,
+    toId
+  );
+  const map = new Map(properties.map((p) => [p.id, p]));
+  return ids.map((id) => map.get(id)!).filter(Boolean);
+}
+
 function resolvePropToken(
   pid: string,
   row: Note,
@@ -879,6 +912,14 @@ export function applyViewPipeline(
         else cmp = String(ka).localeCompare(String(kb), "zh-TW", { numeric: true });
         if (cmp !== 0) return s.dir === "desc" ? -cmp : cmp;
       }
+      return 0;
+    });
+  } else if (view.rowOrder?.length) {
+    const rank = new Map(view.rowOrder.map((id, i) => [id, i]));
+    out = [...out].sort((a, b) => {
+      const ra = rank.has(a.id) ? (rank.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
+      const rb = rank.has(b.id) ? (rank.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+      if (ra !== rb) return ra - rb;
       return 0;
     });
   }

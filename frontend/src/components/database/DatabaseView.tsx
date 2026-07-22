@@ -16,8 +16,10 @@ import {
   getCellValue,
   listenDatabase,
   listenDatabaseRows,
+  moveIdBefore,
   patchView,
   removeProperty,
+  reorderProperties,
   scrubViewsAfterPropRemove,
   setCellValue,
   updateDatabase,
@@ -44,6 +46,7 @@ const SELECT_COL_W = 28;
 const ADD_COL_W = 40;
 const COL_W_MIN = 72;
 const COL_W_MAX = 640;
+const LONG_PRESS_MS = 380;
 const COL_W_DEFAULT: Partial<Record<DbPropType, number>> = {
   title: 220,
   text: 180,
@@ -246,6 +249,26 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [bulkPropId, setBulkPropId] = useState("");
   const [bulkValue, setBulkValue] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [reorder, setReorder] = useState<null | { kind: "col" | "row"; id: string; overId: string }>(
+    null
+  );
+  const reorderRef = useRef(reorder);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressArmedRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const pointerOriginRef = useRef<{ x: number; y: number; kind: "col" | "row"; id: string } | null>(
+    null
+  );
+
+  useEffect(() => {
+    reorderRef.current = reorder;
+  }, [reorder]);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
 
   useEffect(
     () =>
@@ -547,6 +570,10 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
 
   /** Click column header: none → asc → desc → clear (as primary sort). */
   const cycleColumnSort = (propId: string) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     if (!view) return;
     const sorts = view.sorts || [];
     const primary = sorts[0];
@@ -559,6 +586,132 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
       next = sorts.slice(1);
     }
     void patchActiveView({ sorts: next });
+  };
+
+  const commitColumnReorder = async (fromId: string, toId: string) => {
+    if (!db || fromId === toId) return;
+    const properties = reorderProperties(db.properties, fromId, toId);
+    let views = db.views;
+    if (view?.visiblePropIds?.length) {
+      const visiblePropIds = moveIdBefore(view.visiblePropIds, fromId, toId);
+      views = patchView(db.views, view.id, { visiblePropIds });
+    }
+    setDb({ ...db, properties, views });
+    await updateDatabase(db.id, { properties, views });
+  };
+
+  const commitRowReorder = async (fromId: string, toId: string) => {
+    if (!view || fromId === toId) return;
+    const known = new Set(rows.map((r) => r.id));
+    const base = view.rowOrder?.length
+      ? [
+          ...view.rowOrder.filter((id) => known.has(id)),
+          ...pipedRows.map((r) => r.id).filter((id) => !view.rowOrder!.includes(id)),
+        ]
+      : pipedRows.map((r) => r.id);
+    const rowOrder = moveIdBefore(base, fromId, toId);
+    await patchActiveView({ rowOrder, sorts: [] });
+  };
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current != null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const startReorderLongPress = (
+    kind: "col" | "row",
+    id: string,
+    e: ReactPointerEvent
+  ) => {
+    if (e.button !== 0) return;
+    const t = e.target as HTMLElement;
+    if (
+      t.closest(
+        ".cdb-col-resizer, .cdb-th-more, .cdb-add-prop, input, textarea, select, a, .cdb-files, .cdb-file-chip, .cdb-chip, .cdb-chip-add, .cdb-chip-menu"
+      )
+    ) {
+      return;
+    }
+    // Row drag: skip interactive controls, but allow title cell / plain cell long-press.
+    if (kind === "row") {
+      if (t.closest("button") && !t.closest(".cdb-title-cell")) return;
+    }
+
+    pointerOriginRef.current = { x: e.clientX, y: e.clientY, kind, id };
+    longPressArmedRef.current = false;
+    clearLongPressTimer();
+
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressArmedRef.current = true;
+      suppressClickRef.current = true;
+      setReorder({ kind, id, overId: id });
+      try {
+        navigator.vibrate?.(10);
+      } catch {
+        /* ignore */
+      }
+    }, LONG_PRESS_MS);
+
+    const onMove = (ev: PointerEvent) => {
+      const origin = pointerOriginRef.current;
+      if (!origin) return;
+      if (!longPressArmedRef.current) {
+        if (Math.hypot(ev.clientX - origin.x, ev.clientY - origin.y) > 10) {
+          clearLongPressTimer();
+        }
+        return;
+      }
+      ev.preventDefault();
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (kind === "col") {
+        const th = el?.closest?.("th[data-prop-id]") as HTMLElement | null;
+        const overId = th?.getAttribute("data-prop-id");
+        if (overId) {
+          setReorder((cur) =>
+            cur && cur.kind === "col" && cur.overId !== overId ? { ...cur, overId } : cur
+          );
+        }
+      } else {
+        const hit =
+          (el?.closest?.("tr[data-row-id]") as HTMLElement | null) ||
+          (el?.closest?.("[data-row-id]") as HTMLElement | null);
+        const overId = hit?.getAttribute("data-row-id");
+        if (overId) {
+          setReorder((cur) =>
+            cur && cur.kind === "row" && cur.overId !== overId ? { ...cur, overId } : cur
+          );
+        }
+      }
+    };
+
+    const onUp = () => {
+      clearLongPressTimer();
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      const cur = reorderRef.current;
+      const armed = longPressArmedRef.current;
+      longPressArmedRef.current = false;
+      pointerOriginRef.current = null;
+      setReorder(null);
+      if (!armed || !cur || cur.id === cur.overId) {
+        // Allow a brief window then clear suppress so accidental long-press without move still blocks one click.
+        if (armed) {
+          window.setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 0);
+        }
+        return;
+      }
+      if (cur.kind === "col") void commitColumnReorder(cur.id, cur.overId);
+      else void commitRowReorder(cur.id, cur.overId);
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const filterByColumn = (prop: DbProperty) => {
@@ -949,24 +1102,43 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           }}
         />
       ) : view?.type === "list" ? (
-        <div className="cdb-list">
-          {filteredRows.map((row) => (
-            <div key={row.id} className="cdb-list-row-wrap">
-              <Link href={`/notes/${row.id}`} className="cdb-list-row">
-                <strong>{row.title || "未命名"}</strong>
-                <span className="cdb-list-excerpt">
-                  {(row.body_md || "").replace(/[#>*`\[\]]/g, "").slice(0, 80) || "空白頁 — 點擊編輯任意內容"}
-                </span>
-                <span>{row.updated_at.toLocaleDateString("zh-TW")}</span>
-              </Link>
-            </div>
-          ))}
+        <div className={`cdb-list${reorder?.kind === "row" ? " is-reordering" : ""}`}>
+          {filteredRows.map((row) => {
+            const isDragging = reorder?.kind === "row" && reorder.id === row.id;
+            const isOver =
+              reorder?.kind === "row" && reorder.overId === row.id && reorder.id !== row.id;
+            return (
+              <div
+                key={row.id}
+                data-row-id={row.id}
+                className={`cdb-list-row-wrap${isDragging ? " is-dragging" : ""}${isOver ? " is-drag-over" : ""}`}
+                onPointerDown={(e) => startReorderLongPress("row", row.id, e)}
+                onClickCapture={(e) => {
+                  if (!suppressClickRef.current) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  suppressClickRef.current = false;
+                }}
+                title="長按拖曳調整列順序"
+              >
+                <Link href={`/notes/${row.id}`} className="cdb-list-row">
+                  <strong>{row.title || "未命名"}</strong>
+                  <span className="cdb-list-excerpt">
+                    {(row.body_md || "").replace(/[#>*`\[\]]/g, "").slice(0, 80) || "空白頁 — 點擊編輯任意內容"}
+                  </span>
+                  <span>{row.updated_at.toLocaleDateString("zh-TW")}</span>
+                </Link>
+              </div>
+            );
+          })}
           <button type="button" className="cdb-add-row" onClick={() => void addRow()}>
             + 新增
           </button>
         </div>
       ) : (
-        <div className={`cdb-table-wrap${resizingProp ? " is-resizing" : ""}`}>
+        <div
+          className={`cdb-table-wrap${resizingProp ? " is-resizing" : ""}${reorder ? " is-reordering" : ""}`}
+        >
           {selectedCount > 0 ? (
             <div className="cdb-bulk-bar" role="toolbar" aria-label="批次操作">
               <span className="cdb-bulk-count">已選 {selectedCount} 列</span>
@@ -1043,17 +1215,22 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                 {shownProps.map((p) => {
                   const w = widthOf(p);
                   const dir = sortDirOf(p.id);
+                  const isDragging = reorder?.kind === "col" && reorder.id === p.id;
+                  const isOver = reorder?.kind === "col" && reorder.overId === p.id && reorder.id !== p.id;
                   return (
                     <th
                       key={p.id}
+                      data-prop-id={p.id}
                       style={{ width: w, minWidth: w, maxWidth: w }}
-                      className={dir ? "is-sorted" : undefined}
+                      className={`${dir ? "is-sorted" : ""}${isDragging ? " is-dragging" : ""}${isOver ? " is-drag-over" : ""}`.trim() || undefined}
+                      title="點擊排序 · 長按拖曳調整欄位順序"
+                      onPointerDown={(e) => startReorderLongPress("col", p.id, e)}
                     >
                       <div className="cdb-th-inner">
                         <button
                           type="button"
                           className="cdb-th-btn"
-                          title={`點擊排序「${p.name}」（升冪 → 降冪 → 取消）`}
+                          title={`點擊排序「${p.name}」（升冪 → 降冪 → 取消）· 長按拖曳`}
                           onClick={() => cycleColumnSort(p.id)}
                         >
                           <span>
@@ -1119,35 +1296,46 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((row) => (
-                <tr key={row.id} className={selectedIds.has(row.id) ? "is-selected" : undefined}>
-                  <td
-                    className="cdb-td-select"
-                    style={{ width: SELECT_COL_W, minWidth: SELECT_COL_W, maxWidth: SELECT_COL_W }}
+              {filteredRows.map((row) => {
+                const isDragging = reorder?.kind === "row" && reorder.id === row.id;
+                const isOver =
+                  reorder?.kind === "row" && reorder.overId === row.id && reorder.id !== row.id;
+                return (
+                  <tr
+                    key={row.id}
+                    data-row-id={row.id}
+                    className={`${selectedIds.has(row.id) ? "is-selected" : ""}${isDragging ? " is-dragging" : ""}${isOver ? " is-drag-over" : ""}`.trim() || undefined}
+                    title="長按拖曳調整列順序"
+                    onPointerDown={(e) => startReorderLongPress("row", row.id, e)}
                   >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(row.id)}
-                      onChange={() => toggleSelectRow(row.id)}
-                      aria-label={`選取 ${row.title || "未命名"}`}
-                    />
-                  </td>
-                  {shownProps.map((p) => (
-                    <td key={p.id} style={{ width: widthOf(p), minWidth: widthOf(p), maxWidth: widthOf(p) }}>
-                      <PropertyCell
-                        row={row}
-                        prop={p}
-                        allProps={props}
-                        allRows={rows}
-                        userId={userId}
-                        databaseId={databaseId}
-                        onOpen={() => openRow(row.id)}
+                    <td
+                      className="cdb-td-select"
+                      style={{ width: SELECT_COL_W, minWidth: SELECT_COL_W, maxWidth: SELECT_COL_W }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => toggleSelectRow(row.id)}
+                        aria-label={`選取 ${row.title || "未命名"}`}
                       />
                     </td>
-                  ))}
-                  <td />
-                </tr>
-              ))}
+                    {shownProps.map((p) => (
+                      <td key={p.id} style={{ width: widthOf(p), minWidth: widthOf(p), maxWidth: widthOf(p) }}>
+                        <PropertyCell
+                          row={row}
+                          prop={p}
+                          allProps={props}
+                          allRows={rows}
+                          userId={userId}
+                          databaseId={databaseId}
+                          onOpen={() => openRow(row.id)}
+                        />
+                      </td>
+                    ))}
+                    <td />
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <CdbPortalMenu

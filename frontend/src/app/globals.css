@@ -711,6 +711,39 @@ button, input, textarea, select {
   cursor: col-resize;
   user-select: none;
 }
+.cdb-table-wrap.is-reordering,
+.cdb-list.is-reordering {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cdb-table th.is-dragging,
+.cdb-table tr.is-dragging td,
+.cdb-list-row-wrap.is-dragging {
+  opacity: 0.55;
+}
+.cdb-table th.is-drag-over {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--bg-muted));
+}
+.cdb-table tr.is-drag-over td {
+  box-shadow: inset 0 2px 0 var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 35%, transparent);
+}
+.cdb-list-row-wrap.is-drag-over {
+  box-shadow: inset 0 2px 0 var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 40%, transparent);
+}
+.cdb-table tbody tr {
+  touch-action: manipulation;
+}
+.cdb-table-wrap.is-reordering tbody tr,
+.cdb-table th[data-prop-id] {
+  touch-action: none;
+}
+.cdb-td-select {
+  cursor: grab;
+}
 .cdb-table {
   table-layout: fixed;
   width: max-content;
