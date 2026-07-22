@@ -118,6 +118,8 @@ export type DbView = {
   cardPropIds?: string[];
   /** Gallery density */
   cardDensity?: "comfy" | "compact";
+  /** Table view: property id → column width (px) */
+  columnWidths?: Record<string, number>;
 };
 
 export type CadenceDatabase = {
@@ -398,10 +400,19 @@ function schemaForTemplate(template: DbTemplateId): {
 }
 
 function normalizeView(v: DbView): DbView {
+  const widths =
+    v.columnWidths && typeof v.columnWidths === "object" && !Array.isArray(v.columnWidths)
+      ? Object.fromEntries(
+          Object.entries(v.columnWidths)
+            .filter(([, w]) => typeof w === "number" && Number.isFinite(w))
+            .map(([id, w]) => [id, Math.min(640, Math.max(72, Math.round(w as number)))])
+        )
+      : undefined;
   return {
     ...v,
     filters: Array.isArray(v.filters) ? v.filters : [],
     sorts: Array.isArray(v.sorts) ? v.sorts : [],
+    columnWidths: widths && Object.keys(widths).length ? widths : undefined,
   };
 }
 

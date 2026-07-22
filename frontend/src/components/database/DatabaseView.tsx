@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -34,6 +34,39 @@ import {
 import MenuSelect from "@/components/MenuSelect";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+
+const COL_W_MIN = 72;
+const COL_W_MAX = 640;
+const COL_W_DEFAULT: Partial<Record<DbPropType, number>> = {
+  title: 220,
+  text: 180,
+  number: 100,
+  select: 120,
+  multi_select: 160,
+  status: 120,
+  date: 140,
+  checkbox: 72,
+  url: 180,
+  email: 160,
+  phone: 130,
+  files: 140,
+  relation: 160,
+  formula: 140,
+  rollup: 120,
+  created_time: 140,
+  last_edited_time: 140,
+  created_by: 120,
+  last_edited_by: 120,
+  tags: 160,
+};
+
+function defaultColWidth(prop: DbProperty): number {
+  return COL_W_DEFAULT[prop.type] || 140;
+}
+
+function clampColWidth(n: number): number {
+  return Math.min(COL_W_MAX, Math.max(COL_W_MIN, Math.round(n)));
+}
 
 /** Fixed-position menu portaled to body so table overflow cannot clip it. */
 function CdbPortalMenu({
@@ -196,6 +229,10 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const [panel, setPanel] = useState<"filter" | "sort" | "props" | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  const [resizingProp, setResizingProp] = useState<string | null>(null);
+  const colWidthsRef = useRef<Record<string, number>>({});
+  const patchViewRef = useRef<(patch: Partial<DbView>) => Promise<void>>(async () => {});
 
   useEffect(
     () =>
@@ -218,6 +255,13 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     () => db?.views.find((v) => v.id === activeViewId) || db?.views[0],
     [db, activeViewId]
   );
+
+  useEffect(() => {
+    if (resizingProp) return;
+    const next = view?.columnWidths || {};
+    setColWidths(next);
+    colWidthsRef.current = next;
+  }, [view?.id, view?.columnWidths, resizingProp]);
 
   const props = db?.properties || [];
   const shownProps = useMemo(() => visibleProperties(props, view), [props, view]);
@@ -256,6 +300,41 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   const patchActiveView = async (patch: Partial<DbView>) => {
     if (!db || !view) return;
     await saveViews(patchView(db.views, view.id, patch));
+  };
+
+  useEffect(() => {
+    patchViewRef.current = patchActiveView;
+  });
+
+  const widthOf = (prop: DbProperty) => colWidths[prop.id] ?? defaultColWidth(prop);
+
+  const startColResize = (propId: string, startWidth: number, e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    setResizingProp(propId);
+    const onMove = (ev: PointerEvent) => {
+      const next = clampColWidth(startWidth + (ev.clientX - startX));
+      setColWidths((prev) => {
+        const merged = { ...prev, [propId]: next };
+        colWidthsRef.current = merged;
+        return merged;
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      setResizingProp(null);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      void patchViewRef.current({ columnWidths: { ...colWidthsRef.current } });
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const addRow = async () => {
@@ -616,17 +695,34 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           </button>
         </div>
       ) : (
-        <div className="cdb-table-wrap">
+        <div className={`cdb-table-wrap${resizingProp ? " is-resizing" : ""}`}>
           <table className="cdb-table">
+            <colgroup>
+              <col style={{ width: 36 }} />
+              {shownProps.map((p) => (
+                <col key={p.id} style={{ width: widthOf(p) }} />
+              ))}
+              <col style={{ width: 40 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th className="cdb-th-open" />
-                {shownProps.map((p) => (
-                  <th key={p.id}>
-                    <span>{p.name}</span>
-                    <em>{typeLabel(p.type)}</em>
-                  </th>
-                ))}
+                {shownProps.map((p) => {
+                  const w = widthOf(p);
+                  return (
+                    <th key={p.id} style={{ width: w, minWidth: w, maxWidth: w }}>
+                      <span>{p.name}</span>
+                      <em>{typeLabel(p.type)}</em>
+                      <i
+                        className={`cdb-col-resizer${resizingProp === p.id ? " is-on" : ""}`}
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={`調整「${p.name}」欄寬`}
+                        onPointerDown={(e) => startColResize(p.id, w, e)}
+                      />
+                    </th>
+                  );
+                })}
                 <th className="cdb-th-add">
                   <button
                     ref={addPropBtnRef}
@@ -674,7 +770,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
                     </button>
                   </td>
                   {shownProps.map((p) => (
-                    <td key={p.id}>
+                    <td key={p.id} style={{ width: widthOf(p), minWidth: widthOf(p), maxWidth: widthOf(p) }}>
                       <PropertyCell
                         row={row}
                         prop={p}

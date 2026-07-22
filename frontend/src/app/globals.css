@@ -643,10 +643,15 @@ button, input, textarea, select {
 }
 .cdb-view-tab.is-on { background: var(--accent-soft); color: var(--accent); }
 .cdb-table-wrap { overflow: auto; }
+.cdb-table-wrap.is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
 .cdb-table {
-  width: 100%;
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  min-width: 520px;
 }
 .cdb-table th, .cdb-table td {
   border-bottom: 1px solid var(--border);
@@ -654,8 +659,10 @@ button, input, textarea, select {
   padding: 0.35rem 0.45rem;
   text-align: left;
   vertical-align: middle;
+  overflow: hidden;
 }
 .cdb-table th {
+  position: relative;
   font-size: 0.72rem;
   color: var(--text-muted);
   background: var(--bg-muted);
@@ -668,6 +675,31 @@ button, input, textarea, select {
   opacity: 0.7;
   font-weight: 500;
   font-size: 0.65rem;
+}
+.cdb-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3;
+  touch-action: none;
+}
+.cdb-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+.cdb-table th:hover .cdb-col-resizer::after,
+.cdb-col-resizer.is-on::after,
+.cdb-col-resizer:hover::after {
+  background: var(--accent);
 }
 .cdb-th-add { position: relative; width: 2.2rem; }
 .cdb-add-prop {
