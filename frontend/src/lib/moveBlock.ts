@@ -484,6 +484,16 @@ export function selectSiblingRange(
         return true;
       }
     }
+    // Multi-block: do NOT create a spanning TextSelection — that paints the browser
+    // "copy text" blue highlight across blocks. Visuals come from .is-block-selected.
+    if (start !== end) {
+      editor.view.dispatch(
+        state.tr
+          .setSelection(TextSelection.near(state.doc.resolve(Math.min(bounds.from + 1, bounds.to))))
+          .scrollIntoView()
+      );
+      return true;
+    }
     editor.view.dispatch(
       state.tr
         .setSelection(TextSelection.create(state.doc, bounds.from, bounds.to))
