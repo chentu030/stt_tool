@@ -2018,7 +2018,7 @@ async def health():
     return {"status": "ok", "engine": "replicate", "model": "incredibly-fast-whisper"}
 
 
-# ─── Google Cloud Speech-to-Text (chunk / quick voice) ───────────────────────
+# ─── Google Cloud Speech-to-Text (V2 dynamic batch — cheap path) ─────────────
 def _google_stt_language(raw: Optional[str]) -> str:
     s = (raw or "").strip()
     if not s or s.lower() in ("auto", "none", "detect"):
@@ -2035,21 +2035,153 @@ def _google_stt_language(raw: Optional[str]) -> str:
     return s
 
 
-def _transcribe_google_bytes(content: bytes, language: str, mime: str = "") -> str:
-    """Sync recognize via Google STT v1. Supports WEBM_OPUS (browser MediaRecorder)."""
+def _google_project_id() -> str:
+    return (
+        os.environ.get("GCP_PROJECT")
+        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        or os.environ.get("GCLOUD_PROJECT")
+        or ""
+    ).strip()
+
+
+def _google_stt_v2_language(raw: Optional[str]) -> str:
+    """V2 Chirp prefers BCP-47 like cmn-Hant-TW."""
+    s = (raw or "").strip()
+    if not s or s.lower() in ("auto", "none", "detect"):
+        return "cmn-Hant-TW"
+    low = s.lower().replace("_", "-")
+    if low in ("zh", "zh-tw", "zh-hant", "cmn-hant-tw"):
+        return "cmn-Hant-TW"
+    if low in ("zh-cn", "zh-hans", "cmn-hans-cn"):
+        return "cmn-Hans-CN"
+    if low.startswith("en"):
+        return "en-US"
+    if low.startswith("ja"):
+        return "ja-JP"
+    if low.startswith("cmn-"):
+        return s
+    return s
+
+
+def _google_stt_location() -> str:
+    return (os.environ.get("GOOGLE_STT_LOCATION") or "asia-southeast1").strip()
+
+
+def _google_stt_model() -> str:
+    return (os.environ.get("GOOGLE_STT_MODEL") or "chirp_2").strip()
+
+
+def _upload_stt_batch_gcs(content: bytes, filename: str, mime: str) -> tuple:
+    """Upload clip to Firebase/GCS for BatchRecognize. Returns (gs_uri, blob)."""
+    safe = re.sub(r"[^\w.\-]+", "_", filename or "clip.webm")[:80]
+    path = f"stt-batch/{uuid.uuid4().hex}_{safe}"
+    blob = bucket.blob(path)
+    blob.upload_from_string(content, content_type=mime or "application/octet-stream")
+    gs_uri = f"gs://{bucket.name}/{path}"
+    return gs_uri, blob
+
+
+def _transcribe_google_v2_batch(content: bytes, language: str, mime: str = "") -> str:
+    """
+    V2 BatchRecognize with DYNAMIC_BATCHING (~$0.003/min).
+    Not realtime — suitable for paragraph clips / quick voice.
+    """
     if not content:
         raise ValueError("empty audio")
+    project = _google_project_id()
+    if not project:
+        raise RuntimeError("缺少 GCP_PROJECT / GOOGLE_CLOUD_PROJECT（V2 batch 需要）")
+
+    from google.api_core.client_options import ClientOptions
+    from google.cloud.speech_v2 import SpeechClient
+    from google.cloud.speech_v2.types import cloud_speech as cst
+
+    location = _google_stt_location()
+    model = _google_stt_model()
+    lang = _google_stt_v2_language(language)
+    recognizer = f"projects/{project}/locations/{location}/recognizers/_"
+
+    if location and location != "global":
+        client = SpeechClient(
+            client_options=ClientOptions(api_endpoint=f"{location}-speech.googleapis.com")
+        )
+    else:
+        client = SpeechClient()
+
+    gs_uri, blob = _upload_stt_batch_gcs(
+        content,
+        f"clip-{int(time.time())}.webm",
+        mime or "audio/webm",
+    )
     try:
-        from google.cloud import speech_v1 as speech
-    except ImportError as e:
-        raise RuntimeError(
-            "缺少 google-cloud-speech。請在後端安裝並啟用 Cloud Speech-to-Text API。"
-        ) from e
+        recognition_config = cst.RecognitionConfig(
+            auto_decoding_config=cst.AutoDetectDecodingConfig(),
+            language_codes=[lang],
+            model=model,
+            features=cst.RecognitionFeatures(enable_automatic_punctuation=True),
+        )
+        # Prefer DYNAMIC_BATCHING when the enum exists
+        strategy = getattr(
+            getattr(cst.BatchRecognizeRequest, "ProcessingStrategy", object),
+            "DYNAMIC_BATCHING",
+            None,
+        )
+        req_kwargs = {
+            "recognizer": recognizer,
+            "config": recognition_config,
+            "files": [cst.BatchRecognizeFileMetadata(uri=gs_uri)],
+            "recognition_output_config": cst.RecognitionOutputConfig(
+                inline_response_config=cst.InlineOutputConfig(),
+            ),
+        }
+        if strategy is not None:
+            req_kwargs["processing_strategy"] = strategy
+
+        request = cst.BatchRecognizeRequest(**req_kwargs)
+        timeout_s = float(os.environ.get("GOOGLE_STT_BATCH_TIMEOUT", "240") or "240")
+        operation = client.batch_recognize(request=request)
+        response = operation.result(timeout=timeout_s)
+
+        parts: List[str] = []
+        # response.results is a map uri -> BatchRecognizeFileResult
+        file_results = getattr(response, "results", None) or {}
+        values = list(file_results.values()) if hasattr(file_results, "values") else []
+        if not values and isinstance(file_results, dict):
+            values = list(file_results.values())
+        for file_result in values:
+            err = getattr(file_result, "error", None)
+            if err and getattr(err, "message", None):
+                raise RuntimeError(f"BatchRecognize 檔案錯誤：{err.message}")
+            transcript = getattr(file_result, "transcript", None)
+            if transcript is None:
+                continue
+            for result in getattr(transcript, "results", []) or []:
+                alts = getattr(result, "alternatives", None) or []
+                if not alts:
+                    continue
+                t = (alts[0].transcript or "").strip()
+                if t:
+                    parts.append(t)
+        text = "\n".join(parts).strip()
+        if not text:
+            raise ValueError("Google STT batch 未辨識到語音（可能太短或太安靜）")
+        return text
+    finally:
+        try:
+            blob.delete()
+        except Exception:
+            pass
+
+
+def _transcribe_google_bytes_v1(content: bytes, language: str, mime: str = "") -> str:
+    """V1 sync recognize fallback (standard rate — only if batch unavailable)."""
+    if not content:
+        raise ValueError("empty audio")
+    from google.cloud import speech_v1 as speech
 
     client = speech.SpeechClient()
     lang = _google_stt_language(language)
     mime_l = (mime or "").lower()
-    # Browser MediaRecorder typically produces audio/webm;codecs=opus at 48 kHz.
     if "webm" in mime_l or "opus" in mime_l or content[:4] == b"\x1aE\xdf\xa3":
         encoding = speech.RecognitionConfig.AudioEncoding.WEBM_OPUS
         rate = 48000
@@ -2072,7 +2204,6 @@ def _transcribe_google_bytes(content: bytes, language: str, mime: str = "") -> s
         alternative_language_codes=["zh-TW", "zh-CN", "en-US"] if lang.startswith("zh") else [],
     )
     audio = speech.RecognitionAudio(content=content)
-    # Sync recognize ≈ 1 minute max — keep live segments under ~55s.
     response = client.recognize(config=config, audio=audio)
     parts: List[str] = []
     for result in response.results:
@@ -2085,18 +2216,33 @@ def _transcribe_google_bytes(content: bytes, language: str, mime: str = "") -> s
     return text
 
 
+def _transcribe_google_bytes(content: bytes, language: str, mime: str = "") -> str:
+    """Prefer V2 dynamic batch (cheap); fall back to V1 sync only if batch cannot run."""
+    force = (os.environ.get("GOOGLE_STT_MODE") or "batch").strip().lower()
+    if force in ("batch", "dynamic", "dynamic_batch", "v2", ""):
+        try:
+            return _transcribe_google_v2_batch(content, language, mime)
+        except Exception as e:
+            # Optional escape hatch — default do NOT silently bill streaming/sync rates
+            if (os.environ.get("GOOGLE_STT_ALLOW_V1_FALLBACK") or "").strip() in ("1", "true", "yes"):
+                return _transcribe_google_bytes_v1(content, language, mime)
+            raise RuntimeError(f"V2 動態批次失敗（未啟用較貴的 V1 備援）：{e}") from e
+    if force in ("v1", "sync"):
+        return _transcribe_google_bytes_v1(content, language, mime)
+    return _transcribe_google_v2_batch(content, language, mime)
+
+
 @app.post("/api/stt/google")
 async def stt_google(
     file: UploadFile = File(...),
     language: Optional[str] = Form(None),
 ):
-    """Transcribe a short audio clip with Google Cloud Speech-to-Text (for live segments / quick voice)."""
+    """Transcribe a short audio clip via V2 dynamic batch (~$0.003/min)."""
     raw = await file.read()
     if not raw:
         raise HTTPException(400, "空音訊")
-    # Soft guard — sync recognize is not for long files
-    if len(raw) > 12 * 1024 * 1024:
-        raise HTTPException(400, "音訊過大，請縮短段落（建議 60 秒內）")
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(400, "音訊過大，請縮短段落")
     mime = file.content_type or ""
     lang = language or DEFAULT_LANGUAGE
 
@@ -2105,7 +2251,12 @@ async def stt_google(
 
     try:
         text = await asyncio.get_event_loop().run_in_executor(executor, run)
-        return {"text": text, "engine": "google-stt", "language": _google_stt_language(lang)}
+        return {
+            "text": text,
+            "engine": "google-stt-v2-batch",
+            "billing": "dynamic_batch",
+            "language": _google_stt_v2_language(lang),
+        }
     except Exception as e:
         msg = str(e)
         if "default credentials" in msg.lower() or "GOOGLE_APPLICATION_CREDENTIALS" in msg:
@@ -2137,40 +2288,15 @@ async def stt_google_health():
         "package": ok_pkg,
         "package_v2": ok_v2,
         "credentials_hint": creds,
-        "ready": ok_pkg or ok_v2,
-        "stream": True,
-        "location": os.environ.get("GOOGLE_STT_LOCATION", "asia-southeast1"),
-        "model": os.environ.get("GOOGLE_STT_MODEL", "chirp_2"),
-        "note": "Cloud Run 可用服務帳號 ADC；串流走 /api/stt/google/stream（WebSocket）。",
+        "ready": ok_v2 or ok_pkg,
+        "mode": os.environ.get("GOOGLE_STT_MODE", "batch"),
+        "billing": "dynamic_batch_approx_0.003_usd_per_min",
+        "stream_enabled": (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "").strip().lower()
+        in ("1", "true", "yes"),
+        "location": _google_stt_location(),
+        "model": _google_stt_model(),
+        "note": "預設 V2 動態批次（較便宜）。串流已預設關閉，避免 $0.016/min。",
     }
-
-
-def _google_project_id() -> str:
-    return (
-        os.environ.get("GCP_PROJECT")
-        or os.environ.get("GOOGLE_CLOUD_PROJECT")
-        or os.environ.get("GCLOUD_PROJECT")
-        or ""
-    ).strip()
-
-
-def _google_stt_v2_language(raw: Optional[str]) -> str:
-    """V2 Chirp prefers BCP-47 like cmn-Hant-TW."""
-    s = (raw or "").strip()
-    if not s or s.lower() in ("auto", "none", "detect"):
-        return "cmn-Hant-TW"
-    low = s.lower().replace("_", "-")
-    if low in ("zh", "zh-tw", "zh-hant", "cmn-hant-tw"):
-        return "cmn-Hant-TW"
-    if low in ("zh-cn", "zh-hans", "cmn-hans-cn"):
-        return "cmn-Hans-CN"
-    if low.startswith("en"):
-        return "en-US"
-    if low.startswith("ja"):
-        return "ja-JP"
-    if low.startswith("cmn-"):
-        return s
-    return s
 
 
 def _run_google_stream_v2(
@@ -2311,15 +2437,24 @@ def _run_google_stream_v1(
 @app.websocket("/api/stt/google/stream")
 async def stt_google_stream(websocket: WebSocket):
     """
-    Real-time StreamingRecognize bridge.
-    Client protocol:
-      1) text JSON: {"language":"zh-TW"}
-      2) binary frames: raw PCM s16le mono @ 16 kHz (≤ ~25KB / frame)
-      3) text JSON: {"type":"end"} to finish
-    Server events (JSON text):
-      ready | interim | final | error | closed
+    Real-time StreamingRecognize bridge — DISABLED by default (cost).
+    Set GOOGLE_STT_ENABLE_STREAM=1 to opt in (~$0.016/min).
     """
     await websocket.accept()
+    enabled = (os.environ.get("GOOGLE_STT_ENABLE_STREAM") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if not enabled:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "串流辨識已關閉（成本約 $0.016/分鐘）。請使用段落動態批次（約 $0.003/分鐘）。若要啟用請設 GOOGLE_STT_ENABLE_STREAM=1。",
+            }
+        )
+        await websocket.close()
+        return
     try:
         init_raw = await websocket.receive_text()
         init = json.loads(init_raw) if init_raw else {}
