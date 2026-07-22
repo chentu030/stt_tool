@@ -3751,6 +3751,54 @@ html[data-theme-transition="to-dark"]::view-transition-new(root) {
   line-height: 1.4;
   color: var(--text-muted);
 }
+.sidebar-anon-email {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.sidebar-anon-email-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.2rem 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sidebar-anon-email-row:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.sidebar-anon-email-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.sidebar-anon-email-note {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+.sidebar-anon-switch {
+  width: 34px;
+  height: 18px;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+.sidebar-anon-switch i {
+  width: 12px;
+  height: 12px;
+}
+.sidebar-anon-switch.is-on i {
+  transform: translateX(14px);
+}
 .sidebar-anon-ta {
   width: 100%;
   resize: vertical;

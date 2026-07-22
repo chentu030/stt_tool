@@ -193,7 +193,13 @@ service cloud.firestore {
             || request.resource.data.uid == null
             || request.resource.data.uid == request.auth.uid)
         && (!('path' in request.resource.data)
-            || request.resource.data.path is string);
+            || request.resource.data.path is string)
+        && (!('include_email' in request.resource.data)
+            || request.resource.data.include_email is bool)
+        && (!('email' in request.resource.data)
+            || request.resource.data.email == null
+            || (request.resource.data.email is string
+                && request.resource.data.email.size() <= 200));
       allow read, update, delete: if isAccessAllowlisted();
     }
 
