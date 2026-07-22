@@ -260,9 +260,8 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
 
   const addRow = async () => {
     try {
-      const id = await createDatabaseRow(userId, databaseId, "未命名");
-      toast("已新增列 — 可開啟頁面放入任意內容");
-      openRow(id);
+      await createDatabaseRow(userId, databaseId, "未命名");
+      toast("已新增列");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -592,7 +591,9 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           userId={userId}
           databaseId={databaseId}
           props={props}
-          onCreated={(id) => openRow(id)}
+          onCreated={() => {
+            toast("已新增列");
+          }}
         />
       ) : view?.type === "list" ? (
         <div className="cdb-list">
@@ -691,7 +692,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
             </tbody>
           </table>
           <button type="button" className="cdb-add-row" onClick={() => void addRow()}>
-            + 新增列（並開啟筆記頁）
+            + 新增列
           </button>
         </div>
       )}
@@ -1660,7 +1661,6 @@ function FormView({
       const id = await createDatabaseRow(userId, databaseId, title.trim() || "未命名", propsObj);
       setTitle("");
       setValues({});
-      toast("已建立 — 正在開啟筆記頁");
       onCreated(id);
     } catch (e) {
       toast(e instanceof Error ? e.message : "建立失敗");
@@ -1671,7 +1671,7 @@ function FormView({
 
   return (
     <div className="cdb-form">
-      <p className="cdb-hint">用表單快速建列；送出後會開啟完整筆記頁，可繼續塞入任意內容。</p>
+      <p className="cdb-hint">用表單快速建列；需要詳細內容時再點該列開啟筆記頁。</p>
       <label>
         標題
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="名稱" />
