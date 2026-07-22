@@ -7569,6 +7569,37 @@ body.is-split-resizing iframe {
   margin: 0 0 0.35rem;
 }
 .doc-title::placeholder { color: var(--text-muted); opacity: 0.45; }
+.doc-title--read {
+  margin: 0 0 0.35rem;
+  word-break: break-word;
+}
+.doc-read-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.85rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.doc-props--read {
+  pointer-events: none;
+  border-bottom-color: transparent;
+  margin-bottom: 1.25rem;
+}
+.doc-workspace.is-reading .doc-save-pill {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.doc-icon-btn:disabled {
+  cursor: default;
+  opacity: 1;
+}
 .doc-props {
   display: flex;
   flex-wrap: wrap;

@@ -149,7 +149,7 @@ function NotePageInner() {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreWrapRef = useRef<HTMLDivElement | null>(null);
   const exportWrapRef = useRef<HTMLDivElement | null>(null);
-  const [viewMode, setViewMode] = useState<"write" | "slides">("write");
+  const [viewMode, setViewMode] = useState<"write" | "read" | "slides">("write");
   const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [slideActions, setSlideActions] = useState<SlideStudioActions | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -960,7 +960,7 @@ function NotePageInner() {
     if (!id) return;
     try {
       const m = sessionStorage.getItem(`cadence_view_${id}`);
-      if (m === "slides" || m === "write") setViewMode(m);
+      if (m === "slides" || m === "write" || m === "read") setViewMode(m);
       if (m === "slides") {
         setAsideOpen(true);
         setAsideTab("outline");
@@ -971,7 +971,7 @@ function NotePageInner() {
   }, [id]);
 
   useEffect(() => {
-    if (!id || !note || viewMode !== "write") return;
+    if (!id || !note || (viewMode !== "write" && viewMode !== "read")) return;
     if (scrollRestored.current === id) return;
     if (typeof window !== "undefined" && window.location.hash) {
       scrollRestored.current = id;
@@ -1014,7 +1014,7 @@ function NotePageInner() {
     };
   }, [id, note]);
 
-  const setMode = (mode: "write" | "slides") => {
+  const setMode = (mode: "write" | "read" | "slides") => {
     setViewMode(mode);
     if (id) {
       try {
@@ -1076,6 +1076,17 @@ function NotePageInner() {
     setSlideFocusIndex(null);
   };
 
+  const enterRead = () => {
+    void (async () => {
+      if (dirty) await save(true);
+      setMode("read");
+      setSlideFocusIndex(null);
+      setFocusMode(false);
+      setIconOpen(false);
+      setMoreOpen(false);
+    })();
+  };
+
   const findSlideIndexForHeading = (heading: string): number => {
     const sections = splitMarkdownSections(title, body);
     let idx = sections.findIndex((s) => s.title.trim() === heading.trim());
@@ -1134,10 +1145,12 @@ function NotePageInner() {
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
+        if (viewMode === "read") return;
         void save(false);
       }
       if (mod && e.key.toLowerCase() === "f") {
         e.preventDefault();
+        if (viewMode === "read") return;
         setFindOpen(true);
       }
       if (mod && e.key === "\\") {
@@ -1153,11 +1166,18 @@ function NotePageInner() {
         e.preventDefault();
         setFocusMode((v) => !v);
       }
-      // Toggle write / slides
+      // Cycle write → read → slides
       if (mod && e.key === ".") {
         e.preventDefault();
-        if (viewMode === "slides") enterWrite();
-        else enterSlides();
+        if (viewMode === "write") enterRead();
+        else if (viewMode === "read") enterSlides();
+        else enterWrite();
+      }
+      // Toggle reading mode
+      if (mod && e.shiftKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        if (viewMode === "read") enterWrite();
+        else enterRead();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1301,7 +1321,8 @@ function NotePageInner() {
   if (note.user_id !== user.uid) return <p style={{ padding: "2rem" }}>無權限。</p>;
 
   const statusLabel =
-    status === "saving" ? "儲存中…"
+    viewMode === "read" ? "閱讀模式"
+    : status === "saving" ? "儲存中…"
       : status === "saved" ? "已自動儲存"
         : status === "offline" ? "已離線儲存，上線後同步"
         : status === "dirty" ? "未儲存變更"
@@ -1333,11 +1354,11 @@ function NotePageInner() {
 
   return (
     <div
-      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${splitId && splitId !== id ? " has-split" : ""}${isAppPage ? " is-app-page" : ""}${isAppPage && appFill ? " is-app-fill" : ""}`}
+      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${viewMode === "read" ? " is-reading" : ""}${splitId && splitId !== id ? " has-split" : ""}${isAppPage ? " is-app-page" : ""}${isAppPage && appFill ? " is-app-fill" : ""}`}
       style={{ ["--note-aside-w" as string]: `${asideWidth}px` }}
     >
       <div className="doc-chrome">
-      <div className={`doc-ribbon${viewMode === "slides" || isAppPage ? " is-hidden" : ""}`} ref={setRibbonHost} />
+      <div className={`doc-ribbon${viewMode === "slides" || viewMode === "read" || isAppPage ? " is-hidden" : ""}`} ref={setRibbonHost} />
 
       <div className="doc-command">
         <nav className="doc-command-path" aria-label="筆記路徑">
@@ -1398,6 +1419,16 @@ function NotePageInner() {
             <button
               type="button"
               role="tab"
+              aria-selected={viewMode === "read"}
+              className={viewMode === "read" ? "is-on" : ""}
+              onClick={enterRead}
+              title="閱讀 ⌘⇧R"
+            >
+              閱讀
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={viewMode === "slides"}
               className={viewMode === "slides" ? "is-on" : ""}
               onClick={enterSlides}
@@ -1407,7 +1438,7 @@ function NotePageInner() {
             </button>
           </div>
           ) : null}
-          {viewMode === "write" && !isAppPage && prefsCtx ? (
+          {(viewMode === "write" || viewMode === "read") && !isAppPage && prefsCtx ? (
             <div className="doc-view-switch doc-width-switch" role="tablist" aria-label="編輯區寬度">
               <button
                 type="button"
@@ -1568,6 +1599,10 @@ function NotePageInner() {
                           fn: () => setFocusMode((v) => !v),
                         },
                         {
+                          label: "閱讀模式 ⌘⇧R",
+                          fn: () => enterRead(),
+                        },
+                        {
                           label: pageMode ? "關閉頁面模式" : "頁面模式（A4）",
                           fn: () => {
                             setPageMode((v) => {
@@ -1583,27 +1618,47 @@ function NotePageInner() {
                         },
                       ]
                     : []),
-                  { label: "改寫", fn: () => runAi("rewrite") },
-                  { label: "擴寫", fn: () => runAi("expand") },
-                  { label: "產出大綱", fn: () => runAi("outline") },
-                  { label: "出測驗題", fn: () => runAi("quiz") },
-                  { label: "白話說明", fn: () => runAi("explain") },
-                  {
-                    label: "版本歷史",
-                    fn: async () => {
-                      setVersionsOpen(true);
-                      setVersions(await listNoteVersions(note.id));
-                    },
-                  },
+                  ...(viewMode === "read"
+                    ? [
+                        {
+                          label: "回到寫作",
+                          fn: () => enterWrite(),
+                        },
+                      ]
+                    : []),
+                  ...(viewMode === "write"
+                    ? [
+                        { label: "改寫", fn: () => runAi("rewrite") },
+                        { label: "擴寫", fn: () => runAi("expand") },
+                        { label: "產出大綱", fn: () => runAi("outline") },
+                        { label: "出測驗題", fn: () => runAi("quiz") },
+                        { label: "白話說明", fn: () => runAi("explain") },
+                        {
+                          label: "版本歷史",
+                          fn: async () => {
+                            setVersionsOpen(true);
+                            setVersions(await listNoteVersions(note.id));
+                          },
+                        },
+                      ]
+                    : []),
                   { label: "複製 Markdown", fn: () => copyMd() },
                   { label: "複製連結", fn: () => copyLink() },
-                  { label: "複製筆記", fn: () => duplicate() },
+                  ...(viewMode === "write"
+                    ? [
+                        { label: "複製筆記", fn: () => duplicate() },
+                      ]
+                    : []),
                   { label: "匯出 Markdown", fn: () => downloadMarkdown(title, body) },
                   { label: "匯出 PDF", fn: () => downloadPdfViaPrint(title, body) },
                   { label: "匯出 DOCX", fn: () => { void downloadDocx(title, body); } },
                   { label: "匯出簡報大綱", fn: () => downloadPptOutline(title, body) },
-                  { label: "手動儲存 ⌘S", fn: () => save(false) },
-                  { label: "刪除筆記", fn: () => remove(), danger: true },
+                  ...(viewMode === "write"
+                    ? [
+                        { label: "手動儲存 ⌘S", fn: () => save(false) },
+                        { label: "刪除筆記", fn: () => remove(), danger: true as const },
+                      ]
+                    : []),
                 ].map((item) => (
                   <button
                     key={item.label}
@@ -1651,7 +1706,16 @@ function NotePageInner() {
               <span>主頁</span>
             </button>
           ) : null}
-          {viewMode === "write" && <NotePageLog noteId={note.id} />}
+          {viewMode === "read" && (
+            <div className="doc-read-banner">
+              <span>閱讀模式 · 內容無法編輯</span>
+              <button type="button" className="doc-cmd" onClick={enterWrite}>
+                回到寫作
+              </button>
+            </div>
+          )}
+
+          {(viewMode === "write" || viewMode === "read") && <NotePageLog noteId={note.id} />}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
           {(ingestStatus || ingestError || ingestJobId) && viewMode === "write" && (
             <div className={`doc-banner-ingest${ingestError ? " is-error" : ""}`}>
@@ -1757,22 +1821,24 @@ function NotePageInner() {
             </div>
           )}
 
-          {viewMode === "write" && cover && (
+          {(viewMode === "write" || viewMode === "read") && cover && (
             <div
               className="doc-cover"
               style={{ backgroundImage: `url(${cover})` }}
               title="封面"
             >
-              <button
-                type="button"
-                className="doc-cover-clear"
-                onClick={() => {
-                  setCover("");
-                  markDirty();
-                }}
-              >
-                移除封面
-              </button>
+              {viewMode === "write" ? (
+                <button
+                  type="button"
+                  className="doc-cover-clear"
+                  onClick={() => {
+                    setCover("");
+                    markDirty();
+                  }}
+                >
+                  移除封面
+                </button>
+              ) : null}
             </div>
           )}
 
@@ -1782,7 +1848,8 @@ function NotePageInner() {
                 type="button"
                 className="doc-icon-btn"
                 onClick={() => viewMode === "write" && setIconOpen((v) => !v)}
-                title="頁面圖示與顏色"
+                title={viewMode === "read" ? "頁面圖示" : "頁面圖示與顏色"}
+                disabled={viewMode === "read"}
                 style={
                   color
                     ? {
@@ -1813,12 +1880,17 @@ function NotePageInner() {
                 />
               )}
             </div>
-            <input
-              className="doc-title"
-              value={title}
-              onChange={(e) => { setTitle(e.target.value); markDirty(); }}
-              placeholder="無標題"
-            />
+            {viewMode === "read" ? (
+              <h1 className="doc-title doc-title--read">{title || "無標題"}</h1>
+            ) : (
+              <input
+                className="doc-title"
+                value={title}
+                onChange={(e) => { setTitle(e.target.value); markDirty(); }}
+                placeholder="無標題"
+                readOnly={viewMode === "slides"}
+              />
+            )}
           </div>
 
           {viewMode === "write" && (
@@ -1888,6 +1960,18 @@ function NotePageInner() {
             </>
           )}
 
+          {viewMode === "read" && (tags.length > 0 || folder || stats.words > 0) && (
+            <div className="doc-props doc-props--read" aria-label="筆記資訊">
+              {folder ? <span className="doc-meta-chip">{folder}</span> : null}
+              {tags.map((t) => (
+                <span key={t} className="badge">
+                  #{t}
+                </span>
+              ))}
+              <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+            </div>
+          )}
+
           {viewMode === "slides" && (
             <div className="doc-slide-back">
               <button type="button" className="doc-cmd" onClick={enterWrite}>
@@ -1897,13 +1981,14 @@ function NotePageInner() {
             </div>
           )}
 
-          <div className={`doc-pane doc-pane--write${viewMode === "write" ? " is-active" : ""}`} aria-hidden={viewMode !== "write"}>
+          <div className={`doc-pane doc-pane--write${viewMode === "write" || viewMode === "read" ? " is-active" : ""}`} aria-hidden={viewMode !== "write" && viewMode !== "read"}>
           <div className="doc-editor-shell">
             {note.app_link?.type && note.app_link.id ? (
               <NoteAppSurface
                 note={note}
                 userId={user.uid}
                 onTitleHint={(t) => {
+                  if (viewMode === "read") return;
                   setTitle(t);
                   markDirty();
                 }}
@@ -1912,6 +1997,7 @@ function NotePageInner() {
             <RichNoteEditor
               valueMd={body}
               onChangeMd={(md) => {
+                if (viewMode === "read") return;
                 // Ignore spurious empty updates that would wipe a loaded note via autosave.
                 if (!md.trim() && body.trim()) return;
                 // Keep latest in sync immediately so captureDraft / ingest write-back
@@ -1931,6 +2017,7 @@ function NotePageInner() {
               noteTitle={title}
               aiContext={aiPack.context}
               insertMdRef={insertMdRef}
+              readOnly={viewMode === "read"}
               onOpenAiAssistant={() => {
                 setFocusMode(false);
                 openGlobalAiRail();
@@ -2038,9 +2125,9 @@ function NotePageInner() {
           onLinkPickerChange={setLinkPicker}
           linkCandidates={linkCandidates.map((n) => ({ id: n.id, title: n.title }))}
           onOpenWikiNote={(t) => void openWikiNote(t)}
-          onInsertWiki={insertWiki}
+          onInsertWiki={viewMode === "read" ? () => undefined : insertWiki}
           slidePreview={
-            viewMode === "write"
+            viewMode === "write" || viewMode === "read"
               ? {
                   slides: previewSlides,
                   countHint: slideCountHint,
