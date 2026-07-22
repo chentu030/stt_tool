@@ -8512,15 +8512,17 @@ body.is-split-resizing iframe {
   -webkit-user-select: none;
   caret-color: transparent;
 }
-/* Prefer block rubber-band over text highlight until a line is clicked */
-.rich-canvas.is-block-select-priority .ProseMirror {
-  user-select: none;
-  -webkit-user-select: none;
+/* Prefer block rubber-band over text highlight until a line is clicked.
+   Must beat global `.ProseMirror[contenteditable="true"] { user-select: text }`. */
+.rich-canvas.is-block-select-priority .ProseMirror,
+.rich-canvas.is-block-select-priority .ProseMirror[contenteditable="true"] {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 .rich-canvas.is-block-select-priority .ProseMirror > .is-text-edit-armed,
 .rich-canvas.is-block-select-priority .ProseMirror > .is-text-edit-armed * {
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 .ProseMirror > .is-block-selected {
   border-radius: 6px;

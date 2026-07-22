@@ -2712,7 +2712,27 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         return null;
       })();
 
+      const disarmTextEdit = () => {
+        textEditArmedRef.current = false;
+        const prev = textEditBlockRef.current;
+        if (prev) prev.classList.remove("is-text-edit-armed");
+        textEditBlockRef.current = null;
+        canvas.classList.add("is-block-select-priority");
+      };
+
+      const armTextEdit = (blockEl: HTMLElement | null) => {
+        const prev = textEditBlockRef.current;
+        if (prev && prev !== blockEl) prev.classList.remove("is-text-edit-armed");
+        textEditArmedRef.current = !!blockEl;
+        textEditBlockRef.current = blockEl;
+        // Keep block-select priority so siblings stay non-selectable;
+        // only the armed block opts into text drag-select via CSS.
+        canvas.classList.add("is-block-select-priority");
+        if (blockEl) blockEl.classList.add("is-text-edit-armed");
+      };
+
       // Text drag-select only after a prior click armed this same block.
+      // Alt / gutter / page margin always use block marquee instead.
       const allowNativeText =
         textEditArmedRef.current &&
         !!topBlockEl &&
@@ -2723,7 +2743,129 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         !outsideEditor &&
         !onAtomChrome;
 
-      if (allowNativeText) return;
+      // Inside an armed block: allow native text, but if the pointer leaves
+      // that block, convert the gesture into a Windows-style block marquee.
+      if (allowNativeText && topBlockEl) {
+        const armedEl = topBlockEl;
+        const textOriginX = e.clientX;
+        const textOriginY = e.clientY;
+        let converted = false;
+
+        const beginMarqueeFrom = (ox: number, oy: number, cx: number, cy: number) => {
+          if (marqueeActiveRef.current || dragRef.current) return;
+          marqueeActiveRef.current = true;
+          disarmTextEdit();
+          canvas.classList.add("is-block-marquee");
+          const prevUserSelect = document.body.style.userSelect;
+          document.body.style.userSelect = "none";
+          try {
+            window.getSelection()?.removeAllRanges();
+            editor.view.dom.blur();
+          } catch {
+            /* ignore */
+          }
+
+          const host = positionHost();
+          const hostLocal = (x: number, y: number) => {
+            const hr = host.getBoundingClientRect();
+            const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+            const scrollLeft =
+              host === canvas ? canvas.scrollLeft : (host as HTMLElement).scrollLeft || 0;
+            return { x: x - hr.left + scrollLeft, y: y - hr.top + scrollTop };
+          };
+          const applyBox = (x: number, y: number) => {
+            const box = {
+              left: Math.min(ox, x),
+              top: Math.min(oy, y),
+              right: Math.max(ox, x),
+              bottom: Math.max(oy, y),
+            };
+            const a = hostLocal(ox, oy);
+            const b = hostLocal(x, y);
+            setMarquee({
+              left: Math.min(a.x, b.x),
+              top: Math.min(a.y, b.y),
+              width: Math.abs(b.x - a.x),
+              height: Math.abs(b.y - a.y),
+            });
+            const hits = topLevelIndicesInMarquee(editor, box);
+            if (!hits.length) {
+              setBlockSel(null);
+              return;
+            }
+            const start = Math.min(...hits);
+            const end = Math.max(...hits);
+            setBlockSel({ parentFrom: -1, anchor: start, focus: end });
+            const mid = hits[Math.floor(hits.length / 2)] ?? start;
+            const pos = siblingBlockPos(editor, -1, mid);
+            if (pos) {
+              const dom = editor.view.nodeDOM(pos.from);
+              if (dom instanceof HTMLElement) {
+                const br = dom.getBoundingClientRect();
+                const hr = host.getBoundingClientRect();
+                const scrollTop = host === canvas ? canvas.scrollTop : host.scrollTop;
+                setGrip({
+                  top: br.top - hr.top + scrollTop + Math.min(4, br.height / 2 - 12),
+                  left: br.left - hr.left - 52,
+                  from: pos.from,
+                  to: pos.to,
+                  index: mid,
+                  parentFrom: -1,
+                });
+              }
+            }
+          };
+
+          applyBox(cx, cy);
+
+          const onDragMove = (ev: MouseEvent) => applyBox(ev.clientX, ev.clientY);
+          const onUp = () => {
+            document.removeEventListener("mousemove", onDragMove);
+            document.removeEventListener("mouseup", onUp);
+            marqueeActiveRef.current = false;
+            setMarquee(null);
+            canvas.classList.remove("is-block-marquee");
+            document.body.style.userSelect = prevUserSelect;
+            const sel = blockSelRef.current;
+            if (!sel) return;
+            const a = Math.min(sel.anchor, sel.focus);
+            const b = Math.max(sel.anchor, sel.focus);
+            selectSiblingRange(editor, sel.parentFrom, a, b);
+            editor.view.focus();
+            disarmTextEdit();
+          };
+          document.addEventListener("mousemove", onDragMove);
+          document.addEventListener("mouseup", onUp);
+        };
+
+        const onTextDragMove = (ev: MouseEvent) => {
+          if (converted || marqueeActiveRef.current) return;
+          if (Math.hypot(ev.clientX - textOriginX, ev.clientY - textOriginY) < 6) return;
+          const rect = armedEl.getBoundingClientRect();
+          const outside =
+            ev.clientY < rect.top - 6 ||
+            ev.clientY > rect.bottom + 6 ||
+            ev.clientX < rect.left - 24 ||
+            ev.clientX > rect.right + 24;
+          if (!outside) return;
+          converted = true;
+          document.removeEventListener("mousemove", onTextDragMove, true);
+          document.removeEventListener("mouseup", onTextDragUp, true);
+          try {
+            window.getSelection()?.removeAllRanges();
+          } catch {
+            /* ignore */
+          }
+          beginMarqueeFrom(textOriginX, textOriginY, ev.clientX, ev.clientY);
+        };
+        const onTextDragUp = () => {
+          document.removeEventListener("mousemove", onTextDragMove, true);
+          document.removeEventListener("mouseup", onTextDragUp, true);
+        };
+        document.addEventListener("mousemove", onTextDragMove, true);
+        document.addEventListener("mouseup", onTextDragUp, true);
+        return;
+      }
 
       // Block marquee is the default for any drag in the note surface.
       const inNoteSurface =
@@ -2795,27 +2937,6 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
               parentFrom: -1,
             });
           }
-        }
-      };
-
-      const disarmTextEdit = () => {
-        textEditArmedRef.current = false;
-        const prev = textEditBlockRef.current;
-        if (prev) prev.classList.remove("is-text-edit-armed");
-        textEditBlockRef.current = null;
-        canvas.classList.add("is-block-select-priority");
-      };
-
-      const armTextEdit = (blockEl: HTMLElement | null) => {
-        const prev = textEditBlockRef.current;
-        if (prev && prev !== blockEl) prev.classList.remove("is-text-edit-armed");
-        textEditArmedRef.current = !!blockEl;
-        textEditBlockRef.current = blockEl;
-        if (blockEl) {
-          blockEl.classList.add("is-text-edit-armed");
-          canvas.classList.remove("is-block-select-priority");
-        } else {
-          canvas.classList.add("is-block-select-priority");
         }
       };
 
