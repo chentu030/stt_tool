@@ -1048,9 +1048,9 @@ export default function SettingsPage() {
             {isAllowlistedEmail(user?.email) ? (
               <div className="st-tool-block">
                 <h3>開發者工具</h3>
-                <p>查看註冊問卷回覆（已改為完成問卷即開通，無需人工審核）。</p>
+                <p>審核內測申請，並以 support@albireus.com 寄出核准信。</p>
                 <Link className="btn btn-soft btn-sm" href="/admin/access">
-                  開啟註冊問卷
+                  開啟內測申請核准
                 </Link>
               </div>
             ) : null}

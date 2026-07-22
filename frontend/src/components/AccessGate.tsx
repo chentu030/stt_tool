@@ -1,7 +1,5 @@
 "use client";
 
-/** Onboarding gate: survey required once, then access is immediate (no manual review). */
-
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
@@ -26,7 +24,6 @@ import {
   isAllowlistedEmail,
   listenAccessRequest,
   fetchAccessRequest,
-  promotePendingAccess,
   resolveAccess,
   submitAccessApplication,
   type AccessApplicationInput,
@@ -61,7 +58,7 @@ export default function AccessGate({ children }: { children: ReactNode }) {
 
     const timeout = window.setTimeout(() => {
       if (cancelled) return;
-      console.warn("[AccessGate] access check timed out — showing onboarding");
+      console.warn("[AccessGate] access check timed out — showing apply form");
       setReqLoading(false);
     }, 4000);
 
@@ -70,9 +67,6 @@ export default function AccessGate({ children }: { children: ReactNode }) {
       window.clearTimeout(timeout);
       setRequest(req);
       setReqLoading(false);
-      if (req?.status === "pending") {
-        void promotePendingAccess(user).catch((e) => console.warn("[promotePendingAccess]", e));
-      }
     });
 
     const unsub = listenAccessRequest(user.uid, (req) => {
@@ -80,9 +74,6 @@ export default function AccessGate({ children }: { children: ReactNode }) {
       window.clearTimeout(timeout);
       setRequest(req);
       setReqLoading(false);
-      if (req?.status === "pending") {
-        void promotePendingAccess(user).catch((e) => console.warn("[promotePendingAccess]", e));
-      }
     });
 
     return () => {
@@ -96,11 +87,14 @@ export default function AccessGate({ children }: { children: ReactNode }) {
 
   if (bypass || !user) return <>{children}</>;
   if (allowlisted) return <>{children}</>;
-  if (loading || reqLoading) return <PageLoading label="載入中…" />;
+  if (loading || reqLoading) return <PageLoading label="確認使用權限…" />;
   if (status === "approved") return <>{children}</>;
   if (status === "pending") {
-    // Legacy waitlist: promote in background; show brief loading instead of review wait.
-    return <PageLoading label="開通帳號中…" />;
+    return (
+      <AccessShell>
+        <PendingPanel email={user.email || ""} name={request?.display_name || displayName} />
+      </AccessShell>
+    );
   }
   if (status === "rejected") {
     return (
@@ -122,7 +116,7 @@ export default function AccessGate({ children }: { children: ReactNode }) {
             username: payload.username,
           });
           await submitAccessApplication(user, payload);
-          toast("設定完成，歡迎使用 Albireus");
+          toast("申請已送出，我們會盡快審核");
         }}
       />
     </AccessShell>
@@ -147,12 +141,33 @@ function AccessShell({ children }: { children: ReactNode }) {
   );
 }
 
+function PendingPanel({ email, name }: { email: string; name: string }) {
+  return (
+    <div className="access-panel access-panel--status">
+      <p className="access-kicker">封閉測試中</p>
+      <ScrambleText
+        words="申請已送出"
+        as="h1"
+        className="font-display"
+        speed={22}
+        color="var(--text-main)"
+      />
+      <p className="access-lead">
+        {name ? `${name}，` : ""}
+        我們正在控制同時上線人數。通過後會以這個帳號開放：
+      </p>
+      <p className="access-email">{email}</p>
+      <p className="access-hint">通常幾天內處理。可先登出，之後用同一帳號回來查看。</p>
+    </div>
+  );
+}
+
 function RejectedPanel() {
   return (
     <div className="access-panel access-panel--status">
-      <p className="access-kicker">暫時無法使用</p>
+      <p className="access-kicker">封閉測試中</p>
       <ScrambleText words="這次暫時無法開放" as="h1" className="font-display" speed={22} />
-      <p className="access-lead">感謝你的興趣。若之後有新的開放方式，我們會再公告。</p>
+      <p className="access-lead">感謝申請。目前額度已滿或條件不符，之後若再開名額會再公告。</p>
     </div>
   );
 }
@@ -167,7 +182,7 @@ const STEPS: { id: StepId; title: string; optional?: boolean }[] = [
   { id: "frequency", title: "使用頻率", optional: true },
   { id: "wish", title: "希望功能", optional: true },
   { id: "referral", title: "從哪裡來", optional: true },
-  { id: "review", title: "確認開始" },
+  { id: "review", title: "確認送出" },
 ];
 
 function toggleId(list: string[], id: string): string[] {
@@ -355,16 +370,16 @@ function ApplyWizard({
                 force={3}
               />
               <div className="access-welcome-inner">
-                <p className="access-kicker">歡迎加入</p>
+                <p className="access-kicker">封閉測試中</p>
                 <ScrambleText
-                  words="先完成幾題設定"
+                  words="申請使用 Albireus"
                   as="h1"
                   className="font-display"
                   speed={20}
                   color="var(--text-main)"
                 />
                 <p className="access-lead access-welcome-lead">
-                  幫我們了解你怎麼使用，大約一分鐘。
+                  無論上課、開會或工作整理都歡迎申請。
                   <br />
                   目前登入：<strong>{email}</strong>
                 </p>
@@ -383,7 +398,7 @@ function ApplyWizard({
                     holdMs={1800}
                   />
                 </p>
-                <ShinyPill onClick={() => go(1)}>開始</ShinyPill>
+                <ShinyPill onClick={() => go(1)}>開始申請</ShinyPill>
               </div>
             </div>
           ) : null}
@@ -497,7 +512,7 @@ function ApplyWizard({
 
           {current.id === "review" ? (
             <>
-              <StepHead title="確認並開始使用" hint="完成後即可進入產品" />
+              <StepHead title="確認並送出" hint="通過後會用這個 Google 帳號開放" />
               <ul className="access-review">
                 <li>
                   <span>顯示名稱</span>
@@ -550,7 +565,7 @@ function ApplyWizard({
             ) : null}
             {current.id === "review" ? (
               <button type="button" className="btn access-submit" onClick={() => void submit()} disabled={busy}>
-                {busy ? "開通中…" : "完成並開始使用"}
+                {busy ? "送出中…" : "送出申請"}
               </button>
             ) : (
               <button type="button" className="btn access-submit" onClick={next} disabled={busy}>

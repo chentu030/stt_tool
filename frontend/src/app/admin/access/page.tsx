@@ -185,17 +185,17 @@ export default function AdminAccessPage() {
       <nav className="community-crumb">
         <Link href="/settings">設定</Link>
         <span>/</span>
-        <span>註冊問卷</span>
+        <span>內測申請</span>
       </nav>
-      <ScrambleText words="註冊問卷" as="h1" className="page-title font-display" />
+      <ScrambleText words="內測申請核准" as="h1" className="page-title font-display" />
       <p className="page-sub">
-        新用戶完成問卷後會自動開通。此頁可查看回覆；若仍有舊的待審核紀錄，也可在此手動處理。
+        核准後可自動以 <code>support@albireus.com</code> 寄出說明信（需設定 Resend）。也可先複製草稿手動寄。
       </p>
 
       <section className="admin-access-section">
-        <h2>待處理（舊審核佇列 · {pending.length}）</h2>
+        <h2>待審核（{pending.length}）</h2>
         {pending.length === 0 ? (
-          <p className="community-empty">沒有待處理項目。</p>
+          <p className="community-empty">目前沒有待審核申請。</p>
         ) : (
           <ul className="admin-access-list">
             {pending.map((row) => (
