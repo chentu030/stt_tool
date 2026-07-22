@@ -570,19 +570,17 @@ export default function LiveNoteRecorder({
   const pendingHint = pending > 0 ? ` · ${pending} 段處理中` : "";
   const orgHint = doOrganize && pendingOrg > 0 ? ` · 待整理 ${pendingOrg}` : "";
   const title =
-    mode === "audio"
-      ? "即時錄音"
-      : mode === "transcribe"
-        ? "即時錄音 · 轉錄"
-        : "即時錄音 · 轉錄整理";
+    mode === "audio" ? "錄音" : mode === "transcribe" ? "錄音 · 轉錄" : "錄音 · 轉錄整理";
   const booting = starting || (autoStart && !live && !stopping);
   const canPickSource = !live && !stopping && !booting;
+  const idle = !live && !stopping && !booting;
+  const showPreview = lines.length > 0 || live || stopping;
   const emptyHint =
     mode === "audio"
-      ? `純錄製（${liveAudioSourceLabel(audioSource)}）：講超過 ${minSecs} 秒且停頓後切段存音檔。結束時會附上整場錄音。`
+      ? `≥${minSecs}s 停頓切段存檔`
       : mode === "transcribe"
-        ? `轉錄（${liveAudioSourceLabel(audioSource)}）：講超過 ${minSecs} 秒且停頓後切段轉字並寫入筆記。結束時保留整場音檔。`
-        : `轉錄 + 整理（${liveAudioSourceLabel(audioSource)}）：講超過 ${minSecs} 秒且停頓後切段；每 ${organizeEvery} 段 AI 整理。也可改手動切段。設定可在「設定 → 捕捉」調整。`;
+        ? `≥${minSecs}s 停頓切段轉字`
+        : `≥${minSecs}s 切段 · 每 ${organizeEvery} 段整理`;
 
   return (
     <>
@@ -595,25 +593,54 @@ export default function LiveNoteRecorder({
           onClick={() => setDockHidden(false)}
         />
       ) : (
-        <div className="voice-live-dock" role="dialog" aria-label={title}>
+        <div
+          className={`voice-live-dock${idle || booting ? " is-compact" : ""}${showPreview ? "" : " is-bare"}`}
+          role="dialog"
+          aria-label={title}
+        >
           <div className="voice-live-dock-top">
             <div className="voice-live-dock-main">
               <div className={`voice-live-dock-pulse${live ? "" : " is-off"}`} aria-hidden />
               <div className="voice-live-dock-meta">
                 <strong>
                   {title}
-                  <span className="voice-live-source-badge">{liveAudioSourceLabel(audioSource)}</span>
+                  {live || stopping ? (
+                    <span className="voice-live-source-badge">{liveAudioSourceLabel(audioSource)}</span>
+                  ) : null}
                 </strong>
-                <span>
-                  {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
-                  {formatRecClock(segSecs)}
-                  {cutMode === "auto" ? `（≥${minSecs}s 停頓切段）` : "（手動）"}
-                  {pendingHint}
-                  {orgHint}
-                </span>
-                <em>{status}</em>
+                {live || stopping || booting ? (
+                  <span>
+                    {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
+                    {formatRecClock(segSecs)}
+                    {cutMode === "auto" ? ` · ≥${minSecs}s` : " · 手動"}
+                    {pendingHint}
+                    {orgHint}
+                  </span>
+                ) : null}
+                {(live || stopping || booting) && status ? <em title={status}>{status}</em> : null}
               </div>
             </div>
+
+            {(canPickSource || booting) && (
+              <div className="voice-live-source" role="group" aria-label="錄音來源">
+                {AUDIO_SOURCES.map((src) => (
+                  <button
+                    key={src}
+                    type="button"
+                    className={`voice-live-source-chip${audioSource === src ? " is-on" : ""}`}
+                    disabled={!canPickSource}
+                    title={liveAudioSourceHint(src)}
+                    onClick={() => {
+                      setAudioSource(src);
+                      setStatus(`目前：${liveAudioSourceLabel(src)}`);
+                    }}
+                  >
+                    {src === "mic" ? "麥克風" : src === "system" ? "裝置" : "兩者"}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="voice-live-dock-actions">
               {booting ? (
                 <>
@@ -629,6 +656,7 @@ export default function LiveNoteRecorder({
                   <button
                     type="button"
                     className="btn btn-sm"
+                    title={liveAudioSourceHint(audioSource)}
                     onClick={() =>
                       void start().catch((e) => {
                         toast(e instanceof Error ? e.message : "無法開始錄音");
@@ -647,7 +675,7 @@ export default function LiveNoteRecorder({
                     type="button"
                     className="btn btn-sm btn-ghost"
                     disabled={stopping}
-                    title={`隱藏錄製面板（${hideLabel}）`}
+                    title={`隱藏（${hideLabel}）`}
                     onClick={() => {
                       setDockHidden(true);
                       toast(`錄製面板已隱藏 · ${hideLabel} 可再顯示`);
@@ -665,14 +693,14 @@ export default function LiveNoteRecorder({
                         const next = m === "auto" ? "manual" : "auto";
                         setStatus(
                           next === "auto"
-                            ? `已改自動：超過 ${minSecs}s 且停頓後切段`
-                            : "已改手動：按「段落結束」切段"
+                            ? `自動：≥${minSecs}s 停頓切段`
+                            : "手動：按「切段」"
                         );
                         return next;
                       });
                     }}
                   >
-                    {cutMode === "auto" ? "自動切段" : "手動切段"}
+                    {cutMode === "auto" ? "自動" : "手動"}
                   </button>
                   <button
                     type="button"
@@ -680,17 +708,17 @@ export default function LiveNoteRecorder({
                     disabled={!live || stopping}
                     onClick={() => void cutParagraph(true, "manual")}
                   >
-                    段落結束
+                    切段
                   </button>
                   {doOrganize ? (
                     <button
                       type="button"
                       className="btn btn-sm btn-soft"
                       disabled={stopping || orgBusy || pendingOrg === 0}
-                      title="立即整理目前待整理段落（不受每 N 段限制）"
+                      title="立即整理目前待整理段落"
                       onClick={() => void flushOrganize(true)}
                     >
-                      {orgBusy ? "整理中…" : `AI 整理${pendingOrg ? ` (${pendingOrg})` : ""}`}
+                      {orgBusy ? "整理中…" : `整理${pendingOrg ? ` ${pendingOrg}` : ""}`}
                     </button>
                   ) : null}
                   <button
@@ -699,60 +727,38 @@ export default function LiveNoteRecorder({
                     disabled={stopping}
                     onClick={() => void stop()}
                   >
-                    {stopping ? "收尾中…" : "結束並存檔"}
+                    {stopping ? "收尾中…" : "結束"}
                   </button>
                 </>
               )}
             </div>
           </div>
 
-          {canPickSource || booting ? (
-            <div className="voice-live-source" role="group" aria-label="錄音來源">
-              <span className="voice-live-source-label">聲音來源</span>
-              <div className="voice-live-source-chips">
-                {AUDIO_SOURCES.map((src) => (
-                  <button
-                    key={src}
-                    type="button"
-                    className={`voice-live-source-chip${audioSource === src ? " is-on" : ""}`}
-                    disabled={!canPickSource}
-                    title={liveAudioSourceHint(src)}
-                    onClick={() => {
-                      setAudioSource(src);
-                      setStatus(`選擇來源後開始（目前：${liveAudioSourceLabel(src)}）`);
-                    }}
-                  >
-                    {liveAudioSourceLabel(src)}
-                  </button>
-                ))}
-              </div>
-              <p className="voice-live-source-hint">{liveAudioSourceHint(audioSource)}</p>
+          {showPreview ? (
+            <div className="voice-live-preview" ref={previewScrollRef} aria-label="預覽">
+              {lines.length === 0 ? (
+                <p className="voice-live-preview-empty">{emptyHint}</p>
+              ) : (
+                lines.map((line) => (
+                  <div key={line.id} className={`voice-live-line is-${line.state}`}>
+                    <header>
+                      <strong>{line.label}</strong>
+                      <span>
+                        {line.state === "pending"
+                          ? doStt
+                            ? "辨識中"
+                            : "儲存中"
+                          : line.state === "error"
+                            ? "失敗"
+                            : "完成"}
+                      </span>
+                    </header>
+                    <p>{line.text}</p>
+                  </div>
+                ))
+              )}
             </div>
           ) : null}
-
-          <div className="voice-live-preview" ref={previewScrollRef} aria-label="預覽">
-            {lines.length === 0 ? (
-              <p className="voice-live-preview-empty">{emptyHint}</p>
-            ) : (
-              lines.map((line) => (
-                <div key={line.id} className={`voice-live-line is-${line.state}`}>
-                  <header>
-                    <strong>{line.label}</strong>
-                    <span>
-                      {line.state === "pending"
-                        ? doStt
-                          ? "辨識中"
-                          : "儲存中"
-                        : line.state === "error"
-                          ? "失敗"
-                          : "完成"}
-                    </span>
-                  </header>
-                  <p>{line.text}</p>
-                </div>
-              ))
-            )}
-          </div>
         </div>
       )}
     </>
