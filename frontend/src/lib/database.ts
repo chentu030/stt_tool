@@ -634,6 +634,43 @@ export function removeProperty(properties: DbProperty[], propId: string): DbProp
   return properties.filter((p) => p.id !== propId);
 }
 
+/** Ensure created/edited time props exist on the schema (idempotent). */
+export function ensureSystemTimeProperties(properties: DbProperty[]): DbProperty[] {
+  let next = properties.slice();
+  if (!next.some((p) => p.type === "created_time")) {
+    next = [...next, { id: "created_time", name: "建立時間", type: "created_time" }];
+  }
+  if (!next.some((p) => p.type === "last_edited_time")) {
+    next = [...next, { id: "last_edited_time", name: "最後編輯", type: "last_edited_time" }];
+  }
+  return next;
+}
+
+export const ADDABLE_DB_PROPS: { type: DbPropType; label: string; group: string }[] = [
+  { type: "text", label: "文字", group: "基本" },
+  { type: "number", label: "數字", group: "基本" },
+  { type: "checkbox", label: "核取方塊", group: "基本" },
+  { type: "date", label: "日期", group: "基本" },
+  { type: "datetime", label: "日期時間", group: "基本" },
+  { type: "select", label: "單選", group: "選項" },
+  { type: "multi_select", label: "多選", group: "選項" },
+  { type: "status", label: "狀態", group: "選項" },
+  { type: "tags", label: "標籤", group: "選項" },
+  { type: "url", label: "網址", group: "聯絡" },
+  { type: "email", label: "Email", group: "聯絡" },
+  { type: "phone", label: "電話", group: "聯絡" },
+  { type: "person", label: "人員", group: "聯絡" },
+  { type: "files", label: "圖片／音訊／檔案", group: "進階" },
+  { type: "relation", label: "關聯", group: "進階" },
+  { type: "rollup", label: "彙總", group: "進階" },
+  { type: "formula", label: "公式", group: "進階" },
+  { type: "unique_id", label: "唯一 ID", group: "系統" },
+  { type: "created_time", label: "建立時間", group: "系統" },
+  { type: "last_edited_time", label: "最後編輯", group: "系統" },
+  { type: "created_by", label: "建立者", group: "系統" },
+  { type: "last_edited_by", label: "編輯者", group: "系統" },
+];
+
 /** Drop references to a deleted property from all views. */
 export function scrubViewsAfterPropRemove(views: DbView[], propId: string): DbView[] {
   return views.map((v) => {

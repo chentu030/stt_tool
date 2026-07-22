@@ -583,6 +583,19 @@ export async function getNote(noteId: string): Promise<Note | null> {
   return noteFromSnap(snap.id, snap.data() as Record<string, unknown>);
 }
 
+export function listenToNote(
+  noteId: string,
+  callback: (note: Note | null) => void
+): Unsubscribe {
+  return onSnapshot(doc(db, "notes", noteId), (snap) => {
+    if (!snap.exists()) {
+      callback(null);
+      return;
+    }
+    callback(noteFromSnap(snap.id, snap.data() as Record<string, unknown>));
+  });
+}
+
 export function listenToUserNotes(uid: string, callback: (notes: Note[]) => void): Unsubscribe {
   const q = query(collection(db, "notes"), where("user_id", "==", uid));
   return onSnapshot(q, (snap) => {

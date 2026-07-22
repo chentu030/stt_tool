@@ -103,6 +103,7 @@ import LiveNoteRecorder, {
 } from "@/components/voice/LiveNoteRecorder";
 import { liveAudioSourceHint, liveAudioSourceLabel } from "@/lib/voiceSession";
 import NotePageLog from "@/components/notes/NotePageLog";
+import NoteDbPropertiesPanel from "@/components/notes/NoteDbPropertiesPanel";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
 import ColorSwatchUtility from "@/components/ColorSwatchUtility";
@@ -2256,12 +2257,16 @@ function NotePageInner() {
                   }}
                 />
                 <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
-                <span className="doc-meta-chip" title="建立時間">
-                  建立 {note.created_at.toLocaleString("zh-TW")}
-                </span>
-                <span className="doc-meta-chip" title="最後編輯時間">
-                  編輯 {note.updated_at.toLocaleString("zh-TW")}
-                </span>
+                {!note.database_id ? (
+                  <>
+                    <span className="doc-meta-chip" title="建立時間">
+                      建立 {note.created_at.toLocaleString("zh-TW")}
+                    </span>
+                    <span className="doc-meta-chip" title="最後編輯時間">
+                      編輯 {note.updated_at.toLocaleString("zh-TW")}
+                    </span>
+                  </>
+                ) : null}
                 {note.source_job_id && (
                   <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
                     來源逐字稿
@@ -2269,10 +2274,33 @@ function NotePageInner() {
                 )}
               </div>
 
+              {note.database_id ? (
+                <NoteDbPropertiesPanel
+                  note={note}
+                  userId={user.uid}
+                  onNotePatch={(patch) => {
+                    setNote((n) => {
+                      if (!n) return n;
+                      const next: Note = { ...n, ...patch };
+                      if (patch.props) next.props = { ...(n.props || {}), ...patch.props };
+                      return next;
+                    });
+                    if (patch.title != null) {
+                      setTitle(patch.title);
+                      latest.current = { ...latest.current, title: patch.title };
+                    }
+                    if (patch.tags) {
+                      setTags(patch.tags);
+                      latest.current = { ...latest.current, tags: patch.tags };
+                    }
+                  }}
+                />
+              ) : null}
+
             </>
           )}
 
-          {viewMode === "read" && (tags.length > 0 || folder || stats.words > 0) && (
+          {viewMode === "read" && (tags.length > 0 || folder || stats.words > 0 || note.database_id) && (
             <div className="doc-props doc-props--read" aria-label="筆記資訊">
               {folder ? <span className="doc-meta-chip">{folder}</span> : null}
               {tags.map((t) => (
@@ -2281,14 +2309,27 @@ function NotePageInner() {
                 </span>
               ))}
               <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
-              <span className="doc-meta-chip" title="建立時間">
-                建立 {note.created_at.toLocaleString("zh-TW")}
-              </span>
-              <span className="doc-meta-chip" title="最後編輯時間">
-                編輯 {note.updated_at.toLocaleString("zh-TW")}
-              </span>
+              {!note.database_id ? (
+                <>
+                  <span className="doc-meta-chip" title="建立時間">
+                    建立 {note.created_at.toLocaleString("zh-TW")}
+                  </span>
+                  <span className="doc-meta-chip" title="最後編輯時間">
+                    編輯 {note.updated_at.toLocaleString("zh-TW")}
+                  </span>
+                </>
+              ) : null}
             </div>
           )}
+
+          {viewMode === "read" && note.database_id ? (
+            <NoteDbPropertiesPanel
+              note={note}
+              userId={user.uid}
+              readOnly
+              onNotePatch={() => {}}
+            />
+          ) : null}
 
           {viewMode === "slides" && (
             <div className="doc-slide-back">

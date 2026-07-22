@@ -8646,6 +8646,301 @@ body.is-split-resizing iframe {
   border-bottom: 1px solid transparent;
 }
 .doc-props:hover { border-bottom-color: var(--border); }
+
+/* Note page: compact database properties (space-efficient vs Notion) */
+.ndb-props {
+  margin: -0.85rem 0 1.35rem;
+  padding: 0.45rem 0 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+.ndb-props--loading {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.ndb-props-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+.ndb-props-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.ndb-props-head-main strong {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: 0.02em;
+}
+.ndb-props-db {
+  color: var(--accent);
+  text-decoration: none;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ndb-props-db:hover { text-decoration: underline; }
+.ndb-props-count {
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+.ndb-props-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ndb-props-toggle,
+.ndb-props-add,
+.ndb-props-more {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.35rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ndb-props-toggle:hover,
+.ndb-props-add:hover,
+.ndb-props-more:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.ndb-props-add-wrap { position: relative; }
+.ndb-props-add-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 40;
+  width: min(280px, 70vw);
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  padding: 0.35rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.5rem;
+}
+.ndb-props-add-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.ndb-props-add-group strong {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  padding: 0.2rem 0.35rem;
+}
+.ndb-props-add-group button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.32rem 0.4rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  color: inherit;
+}
+.ndb-props-add-group button:hover {
+  background: var(--bg-muted);
+}
+.ndb-props-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.05rem 1rem;
+}
+@media (min-width: 720px) {
+  .ndb-props.is-expanded .ndb-props-grid,
+  .ndb-props:not(.is-expanded) .ndb-props-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.ndb-prop-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 7.5rem) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.25rem 0.45rem;
+  min-height: 1.7rem;
+  padding: 0.08rem 0;
+}
+.ndb-prop-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+  color: var(--text-muted);
+}
+.ndb-prop-icon {
+  flex-shrink: 0;
+  width: 0.95rem;
+  text-align: center;
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+.ndb-prop-name {
+  font-size: 0.74rem;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ndb-prop-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.ndb-prop-row:hover .ndb-prop-menu-wrap,
+.ndb-prop-menu-wrap:focus-within {
+  opacity: 1;
+}
+.ndb-prop-menu-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ndb-prop-menu-btn:hover { background: var(--bg-muted); }
+.ndb-prop-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 2px);
+  z-index: 30;
+  min-width: 7.5rem;
+  padding: 0.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 8px 20px color-mix(in srgb, #000 14%, transparent);
+  display: flex;
+  flex-direction: column;
+}
+.ndb-prop-menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  color: inherit;
+}
+.ndb-prop-menu button:hover { background: var(--bg-muted); }
+.ndb-prop-menu button.is-danger { color: #b91c1c; }
+.ndb-prop-value {
+  min-width: 0;
+  font-size: 0.8rem;
+}
+.ndb-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.2rem;
+  border-radius: 5px;
+  outline: none;
+}
+.ndb-input:hover,
+.ndb-input:focus {
+  background: var(--bg-muted);
+}
+.ndb-input::placeholder,
+.ndb-empty {
+  color: var(--text-muted);
+  opacity: 0.65;
+  font-style: normal;
+}
+.ndb-readonly { color: var(--text-muted); font-size: 0.78rem; }
+.ndb-select { max-width: 100%; }
+.ndb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  align-items: center;
+}
+.ndb-chip {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.ndb-chip-add,
+.ndb-chip-input {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  border-radius: 6px;
+  padding: 0.08rem 0.3rem;
+  max-width: 4.5rem;
+}
+.ndb-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+}
+.ndb-file {
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-decoration: none;
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ndb-file-add {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+.ndb-rel {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.ndb-rel-chip {
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+.ndb-props-more {
+  margin-top: 0.25rem;
+  width: 100%;
+  text-align: left;
+}
+
 .doc-props .badge,
 .doc-props .doc-tag-chip {
   flex-shrink: 0;
