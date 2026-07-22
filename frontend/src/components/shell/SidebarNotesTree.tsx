@@ -167,6 +167,7 @@ export default function SidebarNotesTree() {
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
   const [hintDismissed, setHintDismissed] = useState(true);
   const [recentCollapsed, setRecentCollapsed] = useState(false);
+  const [allCollapsed, setAllCollapsed] = useState(false);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   const createMenuRef = useRef<HTMLDivElement>(null);
 
@@ -205,6 +206,7 @@ export default function SidebarNotesTree() {
   useEffect(() => {
     try {
       setRecentCollapsed(localStorage.getItem("cadence_sidebar_recent_collapsed") === "1");
+      setAllCollapsed(localStorage.getItem("cadence_sidebar_all_collapsed") === "1");
     } catch {
       /* ignore */
     }
@@ -215,6 +217,18 @@ export default function SidebarNotesTree() {
       const next = !prev;
       try {
         localStorage.setItem("cadence_sidebar_recent_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  const toggleAllCollapsed = () => {
+    setAllCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("cadence_sidebar_all_collapsed", next ? "1" : "0");
       } catch {
         /* ignore */
       }
@@ -1596,15 +1610,30 @@ export default function SidebarNotesTree() {
               ▸
             </span>
             <span className="sb-section-label">最近</span>
-            {recentCollapsed ? (
-              <em className="sb-section-count">{Math.min(5, recentNotes.length)}</em>
-            ) : null}
+            <em className="sb-section-count">{Math.min(5, recentNotes.length)}</em>
           </button>
           {!recentCollapsed &&
             recentNotes.slice(0, 5).map((n) => renderNoteLink(n, 0, { flat: true }))}
         </div>
       )}
 
+      <div className={`sb-section sb-section--all${!q && allCollapsed ? " is-collapsed" : ""}`}>
+        {!q ? (
+          <button
+            type="button"
+            className="sb-section-toggle"
+            aria-expanded={!allCollapsed}
+            onClick={toggleAllCollapsed}
+          >
+            <span className={`sb-section-chevron${allCollapsed ? "" : " is-open"}`} aria-hidden>
+              ▸
+            </span>
+            <span className="sb-section-label">全部</span>
+            <em className="sb-section-count">{tree.total}</em>
+          </button>
+        ) : null}
+
+        {q || !allCollapsed ? (
       <div className={`sb-tree-list${fileDropTarget === "" ? " is-file-drop-target" : ""}`}>
         {fileDropTarget !== null ? (
           <div className="sb-file-drop-banner" aria-live="polite">
@@ -1791,6 +1820,8 @@ export default function SidebarNotesTree() {
             return null;
           })
         )}
+      </div>
+        ) : null}
       </div>
 
       <div className="sb-tree-foot">
