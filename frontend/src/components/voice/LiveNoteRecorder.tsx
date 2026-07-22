@@ -12,6 +12,11 @@ import {
 } from "@/lib/voiceSession";
 import { toast } from "@/lib/toast";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import {
+  DEFAULT_LIVE_HIDE_DOCK_SHORTCUT,
+  eventMatchesShortcut,
+  formatShortcutLabel,
+} from "@/lib/shortcutSpec";
 
 /** audio = 純錄製；transcribe = 錄+轉字；organize = 轉字+AI 整理 */
 export type LiveRecordMode = "audio" | "transcribe" | "organize";
@@ -82,6 +87,7 @@ export default function LiveNoteRecorder({
   const [cutMode, setCutMode] = useState<CutMode>("auto");
   const [pendingOrg, setPendingOrg] = useState(0);
   const [orgBusy, setOrgBusy] = useState(false);
+  const [dockHidden, setDockHidden] = useState(false);
 
   const recRef = useRef<ContinuousDualRecorder | null>(null);
   const tickRef = useRef<number | null>(null);
@@ -506,7 +512,31 @@ export default function LiveNoteRecorder({
     el.scrollTop = el.scrollHeight;
   }, [lines]);
 
+  useEffect(() => {
+    if (!open) {
+      setDockHidden(false);
+      return;
+    }
+    const spec = prefs?.liveHideDockShortcut || DEFAULT_LIVE_HIDE_DOCK_SHORTCUT;
+    const onKey = (e: KeyboardEvent) => {
+      if (!eventMatchesShortcut(e, spec)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDockHidden((h) => {
+        const next = !h;
+        if (next) toast(`錄製面板已隱藏 · ${formatShortcutLabel(spec)} 可再顯示`);
+        return next;
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, prefs?.liveHideDockShortcut]);
+
   if (!open) return null;
+
+  const hideLabel = formatShortcutLabel(
+    prefs?.liveHideDockShortcut || DEFAULT_LIVE_HIDE_DOCK_SHORTCUT
+  );
 
   const pendingHint = pending > 0 ? ` · ${pending} 段處理中` : "";
   const orgHint = doOrganize && pendingOrg > 0 ? ` · 待整理 ${pendingOrg}` : "";
@@ -525,117 +555,141 @@ export default function LiveNoteRecorder({
         : `轉錄 + 整理：講超過 ${minSecs} 秒且停頓後切段；每 ${organizeEvery} 段 AI 整理。也可改手動切段。設定可在「設定 → 捕捉」調整。`;
 
   return (
-    <div className="voice-live-dock" role="dialog" aria-label={title}>
-      <div className="voice-live-dock-top">
-        <div className="voice-live-dock-main">
-          <div className={`voice-live-dock-pulse${live ? "" : " is-off"}`} aria-hidden />
-          <div className="voice-live-dock-meta">
-            <strong>{title}</strong>
-            <span>
-              {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
-              {formatRecClock(segSecs)}
-              {cutMode === "auto" ? `（≥${minSecs}s 停頓切段）` : "（手動）"}
-              {pendingHint}
-              {orgHint}
-            </span>
-            <em>{status}</em>
+    <>
+      {dockHidden ? (
+        <button
+          type="button"
+          className="voice-live-hidden-pill"
+          title={`錄音進行中 · ${hideLabel} 或點此顯示面板`}
+          aria-label="顯示錄製面板"
+          onClick={() => setDockHidden(false)}
+        />
+      ) : (
+        <div className="voice-live-dock" role="dialog" aria-label={title}>
+          <div className="voice-live-dock-top">
+            <div className="voice-live-dock-main">
+              <div className={`voice-live-dock-pulse${live ? "" : " is-off"}`} aria-hidden />
+              <div className="voice-live-dock-meta">
+                <strong>{title}</strong>
+                <span>
+                  {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
+                  {formatRecClock(segSecs)}
+                  {cutMode === "auto" ? `（≥${minSecs}s 停頓切段）` : "（手動）"}
+                  {pendingHint}
+                  {orgHint}
+                </span>
+                <em>{status}</em>
+              </div>
+            </div>
+            <div className="voice-live-dock-actions">
+              {booting ? (
+                <>
+                  <button type="button" className="btn btn-sm" disabled>
+                    啟動中…
+                  </button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={cancelBoot}>
+                    取消
+                  </button>
+                </>
+              ) : !live && !stopping ? (
+                <>
+                  <button type="button" className="btn btn-sm" onClick={() => void start()}>
+                    開始
+                  </button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
+                    關閉
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    disabled={stopping}
+                    title={`隱藏錄製面板（${hideLabel}）`}
+                    onClick={() => {
+                      setDockHidden(true);
+                      toast(`錄製面板已隱藏 · ${hideLabel} 可再顯示`);
+                    }}
+                  >
+                    隱藏
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm btn-ghost${cutMode === "manual" ? " is-on" : ""}`}
+                    disabled={stopping}
+                    title="切換自動／手動切段"
+                    onClick={() => {
+                      setCutMode((m) => {
+                        const next = m === "auto" ? "manual" : "auto";
+                        setStatus(
+                          next === "auto"
+                            ? `已改自動：超過 ${minSecs}s 且停頓後切段`
+                            : "已改手動：按「段落結束」切段"
+                        );
+                        return next;
+                      });
+                    }}
+                  >
+                    {cutMode === "auto" ? "自動切段" : "手動切段"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-soft"
+                    disabled={!live || stopping}
+                    onClick={() => void cutParagraph(true, "manual")}
+                  >
+                    段落結束
+                  </button>
+                  {doOrganize ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-soft"
+                      disabled={stopping || orgBusy || pendingOrg === 0}
+                      title="立即整理目前待整理段落（不受每 N 段限制）"
+                      onClick={() => void flushOrganize(true)}
+                    >
+                      {orgBusy ? "整理中…" : `AI 整理${pendingOrg ? ` (${pendingOrg})` : ""}`}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={stopping}
+                    onClick={() => void stop()}
+                  >
+                    {stopping ? "收尾中…" : "結束並存檔"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="voice-live-preview" ref={previewScrollRef} aria-label="預覽">
+            {lines.length === 0 ? (
+              <p className="voice-live-preview-empty">{emptyHint}</p>
+            ) : (
+              lines.map((line) => (
+                <div key={line.id} className={`voice-live-line is-${line.state}`}>
+                  <header>
+                    <strong>{line.label}</strong>
+                    <span>
+                      {line.state === "pending"
+                        ? doStt
+                          ? "辨識中"
+                          : "儲存中"
+                        : line.state === "error"
+                          ? "失敗"
+                          : "完成"}
+                    </span>
+                  </header>
+                  <p>{line.text}</p>
+                </div>
+              ))
+            )}
           </div>
         </div>
-        <div className="voice-live-dock-actions">
-          {booting ? (
-            <>
-              <button type="button" className="btn btn-sm" disabled>
-                啟動中…
-              </button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={cancelBoot}>
-                取消
-              </button>
-            </>
-          ) : !live && !stopping ? (
-            <>
-              <button type="button" className="btn btn-sm" onClick={() => void start()}>
-                開始
-              </button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-                關閉
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={`btn btn-sm btn-ghost${cutMode === "manual" ? " is-on" : ""}`}
-                disabled={stopping}
-                title="切換自動／手動切段"
-                onClick={() => {
-                  setCutMode((m) => {
-                    const next = m === "auto" ? "manual" : "auto";
-                    setStatus(
-                      next === "auto"
-                        ? `已改自動：超過 ${minSecs}s 且停頓後切段`
-                        : "已改手動：按「段落結束」切段"
-                    );
-                    return next;
-                  });
-                }}
-              >
-                {cutMode === "auto" ? "自動切段" : "手動切段"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-soft"
-                disabled={!live || stopping}
-                onClick={() => void cutParagraph(true, "manual")}
-              >
-                段落結束
-              </button>
-              {doOrganize ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-soft"
-                  disabled={stopping || orgBusy || pendingOrg === 0}
-                  title="立即整理目前待整理段落（不受每 N 段限制）"
-                  onClick={() => void flushOrganize(true)}
-                >
-                  {orgBusy ? "整理中…" : `AI 整理${pendingOrg ? ` (${pendingOrg})` : ""}`}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="btn btn-sm"
-                disabled={stopping}
-                onClick={() => void stop()}
-              >
-                {stopping ? "收尾中…" : "結束並存檔"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="voice-live-preview" ref={previewScrollRef} aria-label="預覽">
-        {lines.length === 0 ? (
-          <p className="voice-live-preview-empty">{emptyHint}</p>
-        ) : (
-          lines.map((line) => (
-            <div key={line.id} className={`voice-live-line is-${line.state}`}>
-              <header>
-                <strong>{line.label}</strong>
-                <span>
-                  {line.state === "pending"
-                    ? doStt
-                      ? "辨識中"
-                      : "儲存中"
-                    : line.state === "error"
-                      ? "失敗"
-                      : "完成"}
-                </span>
-              </header>
-              <p>{line.text}</p>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+      )}
+    </>
   );
 }

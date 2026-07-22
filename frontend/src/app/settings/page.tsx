@@ -25,6 +25,11 @@ import {
   importPrefsJson,
   resetPrefs,
 } from "@/lib/userPrefs";
+import {
+  DEFAULT_LIVE_HIDE_DOCK_SHORTCUT,
+  formatShortcutLabel,
+  shortcutFromEvent,
+} from "@/lib/shortcutSpec";
 import { AI_TEXT_MODELS } from "@/lib/aiPrefs";
 import { toast } from "@/lib/toast";
 import { isAllowlistedEmail } from "@/lib/accessGate";
@@ -471,8 +476,14 @@ export default function SettingsPage() {
             <div className="st-shortcuts">
               <h3>快捷鍵一覽</h3>
               <ul>
-                {SHORTCUT_HELP.map((s) => (
-                  <li key={s.keys}>
+                {[
+                  ...SHORTCUT_HELP.filter((s) => !s.action.includes("隱藏／顯示即時錄製")),
+                  {
+                    keys: formatShortcutLabel(prefs.liveHideDockShortcut),
+                    action: "隱藏／顯示即時錄製面板",
+                  },
+                ].map((s) => (
+                  <li key={`${s.keys}-${s.action}`}>
                     <kbd>{s.keys}</kbd>
                     <span>{s.action}</span>
                   </li>
@@ -804,6 +815,43 @@ export default function SettingsPage() {
                 value={prefs.liveSilenceMs}
                 onChange={(e) => patch({ liveSilenceMs: Number(e.target.value) })}
               />
+            </Row>
+            <Row
+              label="隱藏錄製面板快捷鍵"
+              hint="錄製中可隱藏底部面板，避免旁人注意；再按一次或點角落小點即可顯示。預設 ⌘/Ctrl + Shift + H"
+            >
+              <div className="st-shortcut-capture">
+                <input
+                  className="input st-input"
+                  readOnly
+                  value={formatShortcutLabel(prefs.liveHideDockShortcut)}
+                  aria-label="隱藏錄製面板快捷鍵"
+                  placeholder="在此按下新的快捷鍵"
+                  onKeyDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (e.key === "Escape" || e.key === "Backspace" || e.key === "Delete") {
+                      patch({ liveHideDockShortcut: DEFAULT_LIVE_HIDE_DOCK_SHORTCUT });
+                      toast("已重設為預設快捷鍵");
+                      return;
+                    }
+                    const next = shortcutFromEvent(e.nativeEvent);
+                    if (!next) return;
+                    patch({ liveHideDockShortcut: next });
+                    toast(`已設為 ${formatShortcutLabel(next)}`);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => {
+                    patch({ liveHideDockShortcut: DEFAULT_LIVE_HIDE_DOCK_SHORTCUT });
+                    toast("已重設為預設快捷鍵");
+                  }}
+                >
+                  重設
+                </button>
+              </div>
             </Row>
           </section>
 

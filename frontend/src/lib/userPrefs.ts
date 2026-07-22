@@ -1,5 +1,6 @@
 import type { FolderStyle } from "@/lib/pageChrome";
 import { sanitizeFolderStyles } from "@/lib/pageChrome";
+import { DEFAULT_LIVE_HIDE_DOCK_SHORTCUT, sanitizeShortcutSpec } from "@/lib/shortcutSpec";
 
 /** Cadence user preferences — local persistence + document theming */
 
@@ -77,6 +78,8 @@ export type UserPrefs = {
   liveOrganizeEveryChunks: number;
   /** Live note: silence duration (ms) treated as end of utterance */
   liveSilenceMs: number;
+  /** Live note: hide/show recording dock (e.g. mod+shift+h) */
+  liveHideDockShortcut: string;
   /** Journal */
   journalWeekStart: WeekStart;
   journalDefaultEnergy: number;
@@ -240,6 +243,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   liveChunkMinSecs: 30,
   liveOrganizeEveryChunks: 10,
   liveSilenceMs: 1200,
+  liveHideDockShortcut: DEFAULT_LIVE_HIDE_DOCK_SHORTCUT,
   journalWeekStart: "monday",
   journalDefaultEnergy: 3,
   journalShowHeatmap: true,
@@ -333,6 +337,7 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     liveChunkMinSecs: clamp(Number(p.liveChunkMinSecs) || 30, 15, 300),
     liveOrganizeEveryChunks: clamp(Number(p.liveOrganizeEveryChunks) || 10, 1, 50),
     liveSilenceMs: clamp(Number(p.liveSilenceMs) || 1200, 600, 4000),
+    liveHideDockShortcut: sanitizeShortcutSpec(p.liveHideDockShortcut, DEFAULT_LIVE_HIDE_DOCK_SHORTCUT),
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
     defaultFolder: String(p.defaultFolder || "").slice(0, 80),
     defaultTags: String(p.defaultTags || "").slice(0, 200),
@@ -514,6 +519,7 @@ export const SHORTCUT_HELP: { keys: string; action: string }[] = [
   { keys: "Space（圖譜／白板）", action: "暫時平移（可在節點上拖）" },
   { keys: "⌘/Ctrl + S（日誌）", action: "儲存當日快速寫入" },
   { keys: "⌘/Ctrl + S（逐字稿）", action: "儲存逐字稿編輯" },
+  { keys: "⌘/Ctrl + Shift + H", action: "隱藏／顯示即時錄製面板（可在設定更改）" },
   { keys: "⌘/Ctrl + Enter（捕捉）", action: "開始轉錄" },
   { keys: "貼上（捕捉）", action: "貼上影片連結" },
   { keys: "/（知識庫）", action: "聚焦搜尋" },
