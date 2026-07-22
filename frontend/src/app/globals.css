@@ -8504,6 +8504,38 @@ body.is-split-resizing iframe {
   border-bottom: 1px solid transparent;
 }
 .doc-props:hover { border-bottom-color: var(--border); }
+.doc-props .badge,
+.doc-props .doc-tag-chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: none;
+}
+.doc-tag-chip {
+  gap: 0.2rem;
+  font-weight: 500;
+  border: none;
+}
+.doc-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.05rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.doc-tag-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
 .doc-prop-input {
   border: none;
   background: transparent;

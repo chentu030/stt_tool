@@ -757,8 +757,24 @@ function NotePageInner() {
     await flushPendingSave({ silent, onlyNoteId: note.id });
   };
 
-  const markDirty = () => {
+  const markDirty = (
+    patch?: Partial<{
+      title: string;
+      body: string;
+      tags: string[];
+      folder: string;
+      icon: string;
+      color: string;
+      cover: string;
+      parent_id: string;
+    }>
+  ) => {
     if (!note) return;
+    // Apply patch before captureDraft — React setState is async, so callers that
+    // update state in the same tick must pass the new values or autosave snapshots stale data.
+    if (patch) {
+      latest.current = { ...latest.current, ...patch };
+    }
     dirtyRef.current = true;
     captureDraft(note.id);
     setDirty(true);
@@ -1037,13 +1053,16 @@ function NotePageInner() {
       const mode = catalog?.insertMode || meta?.mode || "append";
       if (mode === "replace" || meta?.mode === "replace") {
         setBody(text);
+        markDirty({ body: text });
       } else if (mode === "cursor" && insertMdRef.current) {
         insertMdRef.current(text);
+        markDirty();
       } else {
         const label = catalog?.label || meta?.label || action;
-        setBody((b) => `${b.trim()}\n\n---\n\n## AI ${label}\n\n${text}`);
+        const next = `${body.trim()}\n\n---\n\n## AI ${label}\n\n${text}`;
+        setBody(next);
+        markDirty({ body: next });
       }
-      markDirty();
       toast(`已套用：${catalog?.label || meta?.label || action}`);
     } catch (e) {
       setAiError(e instanceof Error ? e.message : "AI 失敗");
@@ -1318,8 +1337,9 @@ function NotePageInner() {
   const insertWiki = (noteTitle: string) => {
     const t = noteTitle.trim();
     if (!t) return;
-    setBody((b) => `${b.trim()}${b.trim() ? "\n\n" : ""}[[${t}]]\n`);
-    markDirty();
+    const next = `${body.trim()}${body.trim() ? "\n\n" : ""}[[${t}]]\n`;
+    setBody(next);
+    markDirty({ body: next });
     setLinkPicker("");
     toast(`已插入雙向連結 [[${t}]]`);
   };
@@ -1462,9 +1482,16 @@ function NotePageInner() {
   const addTag = () => {
     const t = tagInput.trim().replace(/^#/, "");
     if (!t || tags.includes(t)) return;
-    setTags([...tags, t]);
+    const next = [...tags, t];
+    setTags(next);
     setTagInput("");
-    markDirty();
+    markDirty({ tags: next });
+  };
+
+  const removeTag = (tag: string) => {
+    const next = tags.filter((x) => x !== tag);
+    setTags(next);
+    markDirty({ tags: next });
   };
 
   const editorWidth = prefsCtx?.prefs.editorWidth || "medium";
@@ -2035,7 +2062,7 @@ function NotePageInner() {
                       if (!(await askConfirm("還原此版本？"))) return;
                       setTitle(v.title);
                       setBody(v.body_md);
-                      markDirty();
+                      markDirty({ title: v.title, body: v.body_md });
                       setVersionsOpen(false);
                     })();
                   }}
@@ -2059,7 +2086,7 @@ function NotePageInner() {
                   className="doc-cover-clear"
                   onClick={() => {
                     setCover("");
-                    markDirty();
+                    markDirty({ cover: "" });
                   }}
                 >
                   移除封面
@@ -2098,9 +2125,11 @@ function NotePageInner() {
                   icon={icon}
                   color={color}
                   onChange={(next) => {
-                    setIcon(normalizePageIcon(next.icon));
-                    setColor(normalizePageColor(next.color));
-                    markDirty();
+                    const nextIcon = normalizePageIcon(next.icon);
+                    const nextColor = normalizePageColor(next.color);
+                    setIcon(nextIcon);
+                    setColor(nextColor);
+                    markDirty({ icon: nextIcon, color: nextColor });
                   }}
                   onClose={() => setIconOpen(false)}
                 />
@@ -2112,7 +2141,11 @@ function NotePageInner() {
               <input
                 className="doc-title"
                 value={title}
-                onChange={(e) => { setTitle(e.target.value); markDirty(); }}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTitle(v);
+                  markDirty({ title: v });
+                }}
                 placeholder="無標題"
                 readOnly={viewMode === "slides"}
               />
@@ -2130,8 +2163,9 @@ function NotePageInner() {
                       void (async () => {
                         const url = await askPrompt("封面圖片網址", "https://");
                         if (!url) return;
-                        setCover(url.trim());
-                        markDirty();
+                        const nextCover = url.trim();
+                        setCover(nextCover);
+                        markDirty({ cover: nextCover });
                       })();
                     }}
                   >
@@ -2145,18 +2179,25 @@ function NotePageInner() {
                   className="doc-prop-input"
                   placeholder="資料夾"
                   value={folder}
-                  onChange={(e) => { setFolder(e.target.value); markDirty(); }}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFolder(v);
+                    markDirty({ folder: v });
+                  }}
                 />
                 {tags.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className="badge"
-                    style={{ cursor: "pointer", border: "none", fontWeight: 500 }}
-                    onClick={() => { setTags(tags.filter((x) => x !== t)); markDirty(); }}
-                  >
+                  <span key={t} className="badge doc-tag-chip">
                     #{t}
-                  </button>
+                    <button
+                      type="button"
+                      className="doc-tag-remove"
+                      aria-label={`移除標籤 ${t}`}
+                      title="移除標籤"
+                      onClick={() => removeTag(t)}
+                    >
+                      ×
+                    </button>
+                  </span>
                 ))}
                 <input
                   className="doc-prop-input"
@@ -2228,7 +2269,7 @@ function NotePageInner() {
                 onTitleHint={(t) => {
                   if (viewMode === "read") return;
                   setTitle(t);
-                  markDirty();
+                  markDirty({ title: t });
                 }}
               />
             ) : (
@@ -2280,10 +2321,18 @@ function NotePageInner() {
               onEmptyTemplate={(tid) => {
                 const tpl = noteTemplates.find((t) => t.id === tid) || NOTE_TEMPLATES.find((t) => t.id === tid);
                 if (!tpl) return;
-                if (tpl.title && !title.trim()) setTitle(tpl.title);
+                const nextTitle = tpl.title && !title.trim() ? tpl.title : undefined;
+                const nextTags = tpl.tags.length
+                  ? Array.from(new Set([...tags, ...tpl.tags]))
+                  : undefined;
+                if (nextTitle) setTitle(nextTitle);
                 setBody(tpl.body);
-                if (tpl.tags.length) setTags(Array.from(new Set([...tags, ...tpl.tags])));
-                markDirty();
+                if (nextTags) setTags(nextTags);
+                markDirty({
+                  ...(nextTitle ? { title: nextTitle } : {}),
+                  body: tpl.body,
+                  ...(nextTags ? { tags: nextTags } : {}),
+                });
                 toast(`已套用範本：${tpl.label}`);
               }}
               onOpenThread={(selection) => setThreadSelection(selection)}
@@ -2397,8 +2446,9 @@ function NotePageInner() {
       {viewMode === "write" && !focusMode && !isAppPage && (
         <ColorSwatchUtility
           onApply={(hex) => {
-            setColor(normalizePageColor(hex));
-            markDirty();
+            const nextColor = normalizePageColor(hex);
+            setColor(nextColor);
+            markDirty({ color: nextColor });
           }}
         />
       )}
