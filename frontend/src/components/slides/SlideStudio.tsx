@@ -6,7 +6,7 @@ import { toast } from "@/lib/toast";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { saveAs } from "file-saver";
-import SlideStage from "./SlideStage";
+import SlideStage, { slideTextToDisplayHtml } from "./SlideStage";
 import {
   SlideDeck,
   SlideBlock,
@@ -295,8 +295,8 @@ export default function SlideStudio({
             const color =
               b.role === "caption" || b.role === "subtitle" ? themeTok.muted : themeTok.fg;
             const size = 16 * (b.scale || 1);
-            const text = escapeHtml(b.text || "").replace(/\n/g, "<br/>");
-            return `<div style="position:absolute;left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;text-align:${align};font-weight:${weight};color:${color};font-size:${size}pt;line-height:1.35;overflow:hidden">${text}</div>`;
+            const text = slideTextToDisplayHtml(b.text || "") || escapeHtml(b.text || "").replace(/\n/g, "<br/>");
+            return `<div class="slide-md" style="position:absolute;left:${b.x}%;top:${b.y}%;width:${b.w}%;height:${b.h}%;text-align:${align};font-weight:${weight};color:${color};font-size:${size}pt;line-height:1.35;overflow:hidden">${text}</div>`;
           })
           .join("");
         return `<section class="page" style="background:${themeTok.bg}"><div class="bar" style="background:${themeTok.accent}"></div>${blocks}<div class="num">${i + 1}</div></section>`;
@@ -304,12 +304,17 @@ export default function SlideStudio({
       .join("");
 
     const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeHtml(noteTitle)}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css" crossorigin="anonymous"/>
 <style>
 @page{size: landscape; margin: 0}
 html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif}
 .page{position:relative;width:100vw;height:100vh;page-break-after:always;overflow:hidden;box-sizing:border-box}
 .bar{position:absolute;left:0;top:0;width:8px;height:100%}
 .num{position:absolute;right:24px;bottom:16px;font-size:12px;opacity:.45;color:${themeTok.muted}}
+.slide-md p,.slide-md ul,.slide-md ol{margin:0.2em 0}
+.slide-md ul,.slide-md ol{padding-left:1.2em}
+.slide-md li{margin:0.15em 0}
+.slide-md .katex{font-size:1.05em}
 @media print{.page{width:100%;height:100vh}}
 </style></head><body>${pages}</body></html>`;
 

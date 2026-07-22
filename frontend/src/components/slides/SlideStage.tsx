@@ -1,7 +1,8 @@
 "use client";
 
-import type { CSSProperties, PointerEvent as ReactPointerEvent, RefObject } from "react";
+import { useMemo, type CSSProperties, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { Slide, SlideBlock, ThemeTokens } from "@/lib/slideDeck";
+import { markdownToDisplayHtml } from "@/lib/mdHtml";
 
 type Props = {
   slide: Slide;
@@ -19,6 +20,18 @@ type Props = {
 function fontSizeFor(block: SlideBlock, stageH: number) {
   const base = Math.max(14, stageH * 0.035);
   return `${base * (block.scale || 1)}px`;
+}
+
+/** Normalize slide bullets then render Markdown + KaTeX. */
+export function slideTextToDisplayHtml(text: string): string {
+  const raw = (text || "").replace(/\r\n/g, "\n");
+  if (!raw.trim()) return "";
+  // Slide decks often store "• item" lines — turn into GFM lists for marked.
+  const normalized = raw
+    .split("\n")
+    .map((line) => line.replace(/^[•]\s+/, "- ").replace(/^(\d+)[.)]\s+/, "$1. "))
+    .join("\n");
+  return markdownToDisplayHtml(normalized);
 }
 
 export default function SlideStage({
@@ -89,6 +102,10 @@ function SlideBlockView({
   onEditEnd?: () => void;
 }) {
   const dragRef = { sx: 0, sy: 0, ox: 0, oy: 0, mode: "" as "" | "move" | "resize" };
+  const html = useMemo(
+    () => (block.type === "text" ? slideTextToDisplayHtml(block.text || "") : ""),
+    [block.type, block.text]
+  );
 
   const onPointerDown = (e: ReactPointerEvent) => {
     if (!interactive || editing) return;
@@ -164,11 +181,15 @@ function SlideBlockView({
             }
           }}
         />
+      ) : html ? (
+        <div
+          className="slide-block-text slide-block-md note-ai-md"
+          style={{ fontSize: `calc(var(--slide-unit, 16px) * ${block.scale || 1})` }}
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
       ) : (
         <div className="slide-block-text" style={{ fontSize: `calc(var(--slide-unit, 16px) * ${block.scale || 1})` }}>
-          {(block.text || "").split("\n").map((line, i) => (
-            <div key={i}>{line || "\u00A0"}</div>
-          ))}
+          {"\u00A0"}
         </div>
       )}
       {interactive && selected && !editing && (
