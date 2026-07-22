@@ -1186,15 +1186,17 @@ export default function RichNoteEditor({
     editorProps: {
       attributes: { class: "rich-prose" },
       handleDOMEvents: {
-        // ProseMirror's own mouse drag creates cross-block TextSelection (blue highlight)
-        // even when CSS user-select is none. Block single-click drag; keep dbl/triple click.
+        // Inside a block: let ProseMirror do native text select (copy).
+        // Outside / Alt: document-capture marquee owns the gesture.
         mousedown: (_view, event) => {
           if (readOnlyRef.current) return false;
           if (event.button !== 0) return false;
           if (event.detail >= 2) return false;
           const t = event.target as HTMLElement | null;
           if (t?.closest?.("input, textarea, select, button, .block-controls")) return false;
-          return true;
+          // Alt = force block marquee (handled by capture listener).
+          if (event.altKey) return true;
+          return false;
         },
       },
       handleClick: (_view, _pos, event) => {
@@ -2704,8 +2706,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
-    /** Drag on text → in-block copy selection; drag out of the block / from gutter → marquee.
-     * ProseMirror native cross-block TextSelection stays blocked (handleDOMEvents + capture). */
+    /** 格子內拖曳 → 選文字複製；格子外（左側／空白／Alt）→ 框整塊。 */
     const onMarqueeDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       if ((e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee) return;
@@ -2781,15 +2782,20 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         if (blockEl) blockEl.classList.add('is-text-edit-armed');
       };
 
-      // Prefer text copy-select when the press starts on note content (no prior "arm" click).
-      // Marquee when starting from gutter / page margin / empty chrome, or Alt, or leaving the block.
-      const allowInBlockText =
+      // Inside a block's content: native text select for copy — do not hijack the gesture.
+      const insideBlock =
         !!topBlockEl &&
         !e.altKey &&
         !inGutter &&
         !inPageLeftMargin &&
         !outsideEditor &&
         !onAtomChrome;
+
+      if (insideBlock) {
+        armTextEdit(topBlockEl);
+        setBlockSel(null);
+        return;
+      }
 
       const inNoteSurface =
         e.altKey ||
@@ -2798,9 +2804,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         outsideEditor ||
         onAtomChrome ||
         !!t.closest?.('.ProseMirror');
-      if (!inNoteSurface && !allowInBlockText) return;
-
-      if (allowInBlockText) armTextEdit(topBlockEl);
+      if (!inNoteSurface) return;
 
       (e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee = true;
       e.preventDefault();
@@ -2809,26 +2813,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const host = positionHost();
       const originX = e.clientX;
       const originY = e.clientY;
-      let mode: 'pending' | 'marquee' | 'text' = 'pending';
+      let mode: 'pending' | 'marquee' = 'pending';
       const prevUserSelect = document.body.style.userSelect;
-
-      const originHit = (() => {
-        try {
-          return editor.view.posAtCoords({ left: originX, top: originY });
-        } catch {
-          return null;
-        }
-      })();
-      const originBlockRange = (() => {
-        if (!originHit) return null;
-        try {
-          const $p = editor.state.doc.resolve(originHit.pos);
-          if ($p.depth < 1) return null;
-          return { from: $p.before(1), to: $p.after(1), index: $p.index(0) };
-        } catch {
-          return null;
-        }
-      })();
 
       const hostLocal = (cx: number, cy: number) => {
         const hr = host.getBoundingClientRect();
@@ -2900,59 +2886,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const onDragMove = (ev: MouseEvent) => {
         if (mode === 'pending') {
           if (Math.hypot(ev.clientX - originX, ev.clientY - originY) < 5) return;
-          if (allowInBlockText && originHit && originBlockRange && topBlockEl) {
-            const rect = topBlockEl.getBoundingClientRect();
-            const outside =
-              ev.clientY < rect.top - 6 ||
-              ev.clientY > rect.bottom + 6 ||
-              ev.clientX < rect.left - 24 ||
-              ev.clientX > rect.right + 24;
-            let curPos: number | null = null;
-            try {
-              curPos = editor.view.posAtCoords({ left: ev.clientX, top: ev.clientY })?.pos ?? null;
-            } catch {
-              curPos = null;
-            }
-            const outsidePos =
-              curPos == null ||
-              curPos < originBlockRange.from ||
-              curPos > originBlockRange.to;
-            if (!outside && !outsidePos) {
-              mode = 'text';
-              const from = Math.min(originHit.pos, curPos!);
-              const to = Math.max(originHit.pos, curPos!);
-              editor.chain().focus().setTextSelection({ from, to }).run();
-              setBlockSel(null);
-              return;
-            }
-          }
           startMarqueeMode(ev.clientX, ev.clientY);
-          return;
-        }
-        if (mode === 'text' && originHit && originBlockRange && topBlockEl) {
-          const rect = topBlockEl.getBoundingClientRect();
-          const outside =
-            ev.clientY < rect.top - 6 ||
-            ev.clientY > rect.bottom + 6 ||
-            ev.clientX < rect.left - 24 ||
-            ev.clientX > rect.right + 24;
-          let curPos: number | null = null;
-          try {
-            curPos = editor.view.posAtCoords({ left: ev.clientX, top: ev.clientY })?.pos ?? null;
-          } catch {
-            curPos = null;
-          }
-          const outsidePos =
-            curPos == null ||
-            curPos < originBlockRange.from ||
-            curPos > originBlockRange.to;
-          if (outside || outsidePos) {
-            startMarqueeMode(ev.clientX, ev.clientY);
-            return;
-          }
-          const from = Math.min(originHit.pos, curPos!);
-          const to = Math.max(originHit.pos, curPos!);
-          editor.chain().focus().setTextSelection({ from, to }).run();
           return;
         }
         if (mode === 'marquee') applyMarqueeBox(ev.clientX, ev.clientY);
@@ -2965,8 +2899,6 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         setMarquee(null);
         canvas.classList.remove('is-block-marquee');
         document.body.style.userSelect = prevUserSelect;
-
-        if (mode === 'text') return;
 
         if (mode !== 'marquee') {
           if (inGutter || inPageLeftMargin || onAtomChrome) {
@@ -2991,29 +2923,6 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
               editor.view.focus();
               disarmTextEdit();
             }
-            return;
-          }
-
-          try {
-            const at = editor.view.posAtCoords({ left: originX, top: originY });
-            if (at) {
-              const $pos = editor.state.doc.resolve(at.pos);
-              const depth = $pos.depth >= 1 ? 1 : 0;
-              const blockStart = depth ? $pos.before(depth) : at.pos;
-              editor.chain().focus().setTextSelection(at.pos).run();
-              const dom = editor.view.nodeDOM(blockStart);
-              const blockEl =
-                dom instanceof HTMLElement && dom.parentElement === root
-                  ? dom
-                  : topBlockEl;
-              armTextEdit(blockEl);
-              setBlockSel(null);
-            } else if (topBlockEl) {
-              armTextEdit(topBlockEl);
-              editor.view.focus();
-            }
-          } catch {
-            if (topBlockEl) armTextEdit(topBlockEl);
           }
           return;
         }
