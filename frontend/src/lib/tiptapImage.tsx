@@ -22,15 +22,32 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
   const [draft, setDraft] = useState(src);
   const empty = !src.trim();
   const readOnly = !editor?.isEditable;
+  const [localActive, setLocalActive] = useState(false);
 
   useEffect(() => {
     setDraft(src);
   }, [src]);
 
+  useEffect(() => {
+    if (selected) setLocalActive(true);
+  }, [selected]);
+
+  useEffect(() => {
+    if (!localActive || selected) return;
+    const onDoc = (ev: PointerEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t?.closest?.(".rich-image-shell, .rich-media-toolbar, .rich-media-wrap-pop")) return;
+      setLocalActive(false);
+    };
+    document.addEventListener("pointerdown", onDoc, true);
+    return () => document.removeEventListener("pointerdown", onDoc, true);
+  }, [localActive, selected]);
+
   const selectSelf = () => {
     if (!editor || readOnly) return;
     const pos = typeof getPos === "function" ? getPos() : null;
     if (typeof pos !== "number") return;
+    setLocalActive(true);
     editor.commands.setNodeSelection(pos);
   };
 
@@ -42,6 +59,8 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
   const patchLayout = (patch: Partial<MediaLayout>) => {
     updateAttributes(patch);
   };
+
+  const showChrome = (!!selected || localActive) && !readOnly;
 
   const inner = empty ? (
     <>
@@ -56,6 +75,7 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
           value={draft}
           onMouseDown={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
+          onFocus={selectSelf}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             e.stopPropagation();
@@ -71,7 +91,7 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
     </>
   ) : (
     <>
-      <div className="rich-bookmark-bar">
+      <div className="rich-bookmark-bar" onPointerDown={() => selectSelf()}>
         <span className="rich-bookmark-label">圖片</span>
         <input
           className="rich-embed-url-input"
@@ -82,6 +102,7 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
           value={draft}
           onMouseDown={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
+          onFocus={selectSelf}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             e.stopPropagation();
@@ -107,20 +128,34 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
         </button>
       </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="rich-image" src={src} alt={alt} draggable={false} />
+      <img
+        className="rich-image"
+        src={src}
+        alt={alt}
+        draggable={false}
+        onPointerDown={(e) => {
+          // Select for layout chrome; don't start block-drag.
+          e.stopPropagation();
+          selectSelf();
+        }}
+      />
     </>
   );
 
   return (
     <NodeViewWrapper
-      className={`rich-image-shell${empty ? " is-empty" : ""}`}
-      data-drag-handle
+      className={`rich-image-shell${empty ? " is-empty" : ""}${showChrome ? " is-active" : ""}`}
+      onClick={(e: React.MouseEvent) => {
+        const t = e.target as HTMLElement;
+        if (t.closest("input, button, a, textarea")) return;
+        selectSelf();
+      }}
     >
       <MediaLayoutChrome
         attrs={node.attrs as Record<string, unknown>}
         updateAttributes={patchLayout}
         onRequestSelect={selectSelf}
-        selected={!!selected}
+        selected={showChrome}
         readOnly={!!readOnly}
       >
         {inner}
@@ -131,6 +166,8 @@ function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: Reac
 
 /** Image with in-note URL field + layout (size / align / wrap). */
 export const NoteImage = Image.extend({
+  selectable: true,
+  draggable: true,
   addAttributes() {
     return {
       ...this.parent?.(),

@@ -475,6 +475,16 @@ export default function RichNoteEditor({
 
       if (kind === "image") {
         ed.chain().focus().setImage({ src: url, alt: name }).run();
+        let imagePos: number | null = null;
+        ed.state.doc.descendants((node, pos) => {
+          if (imagePos != null) return false;
+          if (node.type.name === "image" && node.attrs.src === url) {
+            imagePos = pos;
+            return false;
+          }
+          return true;
+        });
+        if (imagePos != null) ed.commands.setNodeSelection(imagePos);
       } else if (kind === "audio") {
         ed.chain().focus().setNoteAudio({ src: url, title: name }).run();
         onTranscribableMediaRef.current?.({ kind: "file", file, label: name });
@@ -545,7 +555,22 @@ export default function RichNoteEditor({
       setUploadPct(40);
       const { url } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
       const alt = (caption || desc).trim().slice(0, 120);
-      editorRef.current?.chain().focus().setImage({ src: url, alt }).run();
+      const ed = editorRef.current;
+      if (!ed) throw new Error("編輯器尚未就緒");
+      ed.chain().focus().setImage({ src: url, alt }).run();
+      // Select the new image so wrap / resize chrome is immediately available.
+      let imagePos: number | null = null;
+      ed.state.doc.descendants((node, pos) => {
+        if (imagePos != null) return false;
+        if (node.type.name === "image" && node.attrs.src === url) {
+          imagePos = pos;
+          return false;
+        }
+        return true;
+      });
+      if (imagePos != null) {
+        ed.commands.setNodeSelection(imagePos);
+      }
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : "圖片生成失敗");
     } finally {

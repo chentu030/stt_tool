@@ -4,9 +4,12 @@ import katex from "katex";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import {
   formatEmbedToken,
+  formatImageToken,
   layoutDataAttrString,
   parseEmbedMid,
+  parseImageMid,
   readLayoutFromElement,
+  DEFAULT_MEDIA_LAYOUT,
 } from "@/lib/mediaLayout";
 import {
   decodeFormulaAttr,
@@ -266,11 +269,14 @@ turndown.addRule("richImageLayout", {
     const el = node as HTMLElement;
     const img = el.querySelector("img") as HTMLImageElement | null;
     if (!img?.getAttribute("src")) return "";
-    const layout = readLayoutFromElement(el);
+    const frame =
+      (el.classList.contains("rich-media-frame")
+        ? el
+        : (el.querySelector(".rich-media-frame") as HTMLElement | null)) || el;
+    const layout = readLayoutFromElement(frame);
     const src = img.getAttribute("src") || "";
     const alt = img.getAttribute("alt") || "";
-    const data = layoutDataAttrString(layout);
-    return `\n\n<div class="rich-image-shell rich-media-frame" ${data}><img class="rich-image" src="${src.replace(/"/g, "&quot;")}" alt="${alt.replace(/"/g, "&quot;")}" ${data} /></div>\n\n`;
+    return `\n\n${formatImageToken(src, alt, layout)}\n\n`;
   },
 });
 
@@ -287,8 +293,7 @@ turndown.addRule("richImageBare", {
     const src = img.getAttribute("src") || "";
     if (!src) return "";
     const alt = img.getAttribute("alt") || "";
-    const data = layoutDataAttrString(layout);
-    return `\n\n<div class="rich-image-shell rich-media-frame" ${data}><img class="rich-image" src="${src.replace(/"/g, "&quot;")}" alt="${alt.replace(/"/g, "&quot;")}" ${data} /></div>\n\n`;
+    return `\n\n${formatImageToken(src, alt, layout)}\n\n`;
   },
 });
 
@@ -596,7 +601,7 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     /\[(?:database|board|canvas|graph|web|embed|file|bookmark|app|template)[^\]]*\]\([^)]*\)/g,
     (m) => parkEmb(m)
   );
-  s = s.replace(/!\[(?:video|audio)[^\]]*\]\([^)]*\)/g, (m) => parkEmb(m));
+  s = s.replace(/!\[(?:video|audio|image)[^\]]*\]\([^)]*\)/g, (m) => parkEmb(m));
 
   s = s.replace(/\$\$([\s\S]+?)\$\$/g, (full, formula) => {
     const raw = String(formula).trim();
@@ -634,6 +639,14 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   s = s.replace(/!\[audio(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, title, src) => {
     const t = title ? ` title="${escapeAttr(title)}"` : "";
     return `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${escapeAttr(src)}"${t}></audio>`;
+  });
+
+  s = s.replace(/!\[image(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, mid, src) => {
+    const parsed = parseImageMid(String(mid || ""));
+    const layout = { ...DEFAULT_MEDIA_LAYOUT, ...parsed.layout };
+    const data = layoutDataAttrString(layout);
+    const alt = parsed.alt || "";
+    return `<div class="rich-image-shell rich-media-frame" ${data}><img class="rich-image" src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" ${data} /></div>`;
   });
 
   s = s.replace(/\[file\|([^\]|]+)(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, name, size, href) => {
@@ -1052,6 +1065,40 @@ export function htmlToMarkdown(html: string): string {
           return;
         }
         el.replaceWith(doc.createTextNode(park(`\n\n![audio|${title}](${src})\n\n`)));
+      });
+      // Park images before Turndown (Firebase URLs with & break raw HTML round-trips)
+      const parkImageEl = (el: Element) => {
+        const host = el as HTMLElement;
+        const img =
+          host.nodeName === "IMG"
+            ? (host as HTMLImageElement)
+            : (host.querySelector("img.rich-image, img[src]") as HTMLImageElement | null);
+        if (!img?.getAttribute("src")) {
+          host.remove();
+          return;
+        }
+        if (img.closest("[data-note-embed]")) return;
+        const frame =
+          (host.classList.contains("rich-media-frame")
+            ? host
+            : (host.querySelector(".rich-media-frame") as HTMLElement | null)) ||
+          (img.closest(".rich-media-frame, .rich-image-shell") as HTMLElement | null) ||
+          host;
+        const layout = readLayoutFromElement(frame);
+        const token = formatImageToken(img.getAttribute("src") || "", img.getAttribute("alt") || "", layout);
+        const target =
+          (host.closest(".rich-image-shell") as HTMLElement | null) ||
+          (host.classList.contains("rich-media-frame") && host.querySelector("img.rich-image")
+            ? host
+            : null) ||
+          host;
+        target.replaceWith(doc.createTextNode(park(`\n\n${token}\n\n`)));
+      };
+      doc.querySelectorAll(".rich-image-shell").forEach(parkImageEl);
+      doc.querySelectorAll(".rich-media-frame > img.rich-image, img.rich-image").forEach((el) => {
+        if ((el as HTMLElement).closest(".rich-image-shell")) return;
+        if ((el as HTMLElement).closest("[data-note-embed]")) return;
+        parkImageEl(el);
       });
       doc.querySelectorAll("a[data-note-file]").forEach((el) => {
         const href = el.getAttribute("href") || "";

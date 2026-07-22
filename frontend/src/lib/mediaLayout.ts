@@ -151,6 +151,39 @@ export function mediaLayoutTipTapAttributes() {
   };
 }
 
+/** Encode note image into a markdown token that survives round-trips. */
+export function formatImageToken(
+  src: string,
+  alt: string,
+  layout?: Partial<MediaLayout> | null
+): string {
+  const full = { ...DEFAULT_MEDIA_LAYOUT, ...(layout || {}) };
+  const safeAlt = String(alt || "").replace(/\|/g, " ").replace(/\n/g, " ").trim();
+  const extras = layoutToTokenParts(full);
+  const mid = ["image", safeAlt, ...extras].join("|");
+  return `![${mid}](${src || ""})`;
+}
+
+export function parseImageMid(mid: string): { alt: string; layout: Partial<MediaLayout> } {
+  const segs = String(mid || "")
+    .split("|")
+    .map((s) => s.trim());
+  let i = 0;
+  if (segs[0]?.toLowerCase() === "image") i = 1;
+  const layoutParts: string[] = [];
+  const altParts: string[] = [];
+  for (; i < segs.length; i++) {
+    const p = segs[i];
+    if (!p) continue;
+    if (/^(w|width|align|wrap|ox|oy)=/i.test(p)) layoutParts.push(p);
+    else altParts.push(p);
+  }
+  return {
+    alt: altParts.join(" ").trim(),
+    layout: parseLayoutTokenParts(layoutParts),
+  };
+}
+
 /** Encode layout into embed token segments after title. */
 export function layoutToTokenParts(layout: MediaLayout): string[] {
   const parts: string[] = [];
