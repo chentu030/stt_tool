@@ -2704,9 +2704,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
-    /** Windows Explorer-style rubber-band: drag a box over blocks to multi-select.
-     * ProseMirror native drag TextSelection is blocked (handleDOMEvents + capture).
-     * Drag = block marquee (or controlled in-block text when armed); click = caret. */
+    /** Drag on text → in-block copy selection; drag out of the block / from gutter → marquee.
+     * ProseMirror native cross-block TextSelection stays blocked (handleDOMEvents + capture). */
     const onMarqueeDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       if ((e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee) return;
@@ -2782,10 +2781,10 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         if (blockEl) blockEl.classList.add('is-text-edit-armed');
       };
 
+      // Prefer text copy-select when the press starts on note content (no prior "arm" click).
+      // Marquee when starting from gutter / page margin / empty chrome, or Alt, or leaving the block.
       const allowInBlockText =
-        textEditArmedRef.current &&
         !!topBlockEl &&
-        textEditBlockRef.current === topBlockEl &&
         !e.altKey &&
         !inGutter &&
         !inPageLeftMargin &&
@@ -2800,6 +2799,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         onAtomChrome ||
         !!t.closest?.('.ProseMirror');
       if (!inNoteSurface && !allowInBlockText) return;
+
+      if (allowInBlockText) armTextEdit(topBlockEl);
 
       (e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee = true;
       e.preventDefault();
