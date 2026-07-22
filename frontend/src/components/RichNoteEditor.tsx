@@ -2706,12 +2706,11 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
-    /** 格子內拖曳 → 選文字複製；格子外（左側／空白／Alt）→ 框整塊。 */
+    /** 格子內：完全交給 ProseMirror 放游標／選字。左側空白或 Alt：框選整塊。 */
     const onMarqueeDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       if ((e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee) return;
       if (dragRef.current || marqueeActiveRef.current) return;
-      // Let double/triple-click word & paragraph select through to ProseMirror.
       if (e.detail >= 2) return;
 
       const t = e.target as HTMLElement | null;
@@ -2740,71 +2739,40 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         e.clientX < rootRect.left + Math.max(contentPad, 52) &&
         e.clientY >= canvasRect.top - 12 &&
         e.clientY <= canvasRect.bottom + 12;
-      const outsideEditor =
-        !t.closest?.('.ProseMirror') ||
-        t === root ||
-        t.classList?.contains('ProseMirror') === true ||
-        t === shell ||
-        t === canvas ||
-        !!t.classList?.contains('rich-canvas') ||
-        !!t.classList?.contains('rich-page-sheet') ||
-        !!t.classList?.contains('rich-canvas-inner') ||
-        !!t.classList?.contains('doc-page') ||
-        !!t.classList?.contains('doc-editor-shell');
       const onAtomChrome = !!t.closest?.(
         '[data-note-embed], .rich-embed, .rich-embed-bar, .rich-embed-frame, hr, img, video, .ProseMirror-selectednode'
       );
 
-      const topBlockEl = (() => {
-        if (!root.contains(t)) return null;
-        let el: HTMLElement | null = t;
-        while (el && el !== root) {
-          if (el.parentElement === root) return el;
-          el = el.parentElement;
+      let hitPos: number | null = null;
+      try {
+        hitPos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY })?.pos ?? null;
+      } catch {
+        hitPos = null;
+      }
+      const inTextblock = (() => {
+        if (hitPos == null) return false;
+        try {
+          const $p = editor.state.doc.resolve(hitPos);
+          return $p.parent.inlineContent || $p.parent.isTextblock;
+        } catch {
+          return false;
         }
-        return null;
       })();
 
-      const disarmTextEdit = () => {
-        textEditArmedRef.current = false;
-        const prev = textEditBlockRef.current;
-        if (prev) prev.classList.remove('is-text-edit-armed');
-        textEditBlockRef.current = null;
-        canvas.classList.add('is-block-select-priority');
-      };
+      // Block marquee only from explicit "outside" gestures.
+      const forceMarquee = e.altKey || inGutter || inPageLeftMargin || onAtomChrome;
 
-      const armTextEdit = (blockEl: HTMLElement | null) => {
-        const prev = textEditBlockRef.current;
-        if (prev && prev !== blockEl) prev.classList.remove('is-text-edit-armed');
-        textEditArmedRef.current = !!blockEl;
-        textEditBlockRef.current = blockEl;
-        canvas.classList.add('is-block-select-priority');
-        if (blockEl) blockEl.classList.add('is-text-edit-armed');
-      };
-
-      // Inside a block's content: native text select for copy — do not hijack the gesture.
-      const insideBlock =
-        !!topBlockEl &&
-        !e.altKey &&
-        !inGutter &&
-        !inPageLeftMargin &&
-        !outsideEditor &&
-        !onAtomChrome;
-
-      if (insideBlock) {
-        armTextEdit(topBlockEl);
-        setBlockSel(null);
+      // Inside editable text/content: never preventDefault / setState here — that races the caret.
+      if (!forceMarquee && (inTextblock || !!t.closest?.('.ProseMirror'))) {
+        if (blockSelRef.current) {
+          queueMicrotask(() => {
+            if (blockSelRef.current) setBlockSel(null);
+          });
+        }
         return;
       }
 
-      const inNoteSurface =
-        e.altKey ||
-        inGutter ||
-        inPageLeftMargin ||
-        outsideEditor ||
-        onAtomChrome ||
-        !!t.closest?.('.ProseMirror');
-      if (!inNoteSurface) return;
+      if (!forceMarquee) return;
 
       (e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee = true;
       e.preventDefault();
@@ -2815,6 +2783,14 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const originY = e.clientY;
       let mode: 'pending' | 'marquee' = 'pending';
       const prevUserSelect = document.body.style.userSelect;
+
+      const disarmTextEdit = () => {
+        textEditArmedRef.current = false;
+        const prev = textEditBlockRef.current;
+        if (prev) prev.classList.remove('is-text-edit-armed');
+        textEditBlockRef.current = null;
+        canvas.classList.add('is-block-select-priority');
+      };
 
       const hostLocal = (cx: number, cy: number) => {
         const hr = host.getBoundingClientRect();
