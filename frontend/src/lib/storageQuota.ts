@@ -7,7 +7,14 @@ import {
   setDoc,
   type Unsubscribe,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import {
+  deleteObject,
+  getMetadata,
+  listAll,
+  ref,
+  type StorageReference,
+} from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
 
 /** Soft cap per account during beta. */
 export const USER_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024; // 500 MB
@@ -16,6 +23,14 @@ export type StorageQuota = {
   usedBytes: number;
   limitBytes: number;
   updatedAt: number;
+};
+
+export type UserStorageFile = {
+  path: string;
+  name: string;
+  size: number;
+  updated: number | null;
+  category: string;
 };
 
 function quotaRef(uid: string) {
@@ -130,4 +145,102 @@ export async function releaseStorageUsage(uid: string, removeBytes: number): Pro
 export function uidFromUploadPath(path: string): string | null {
   const m = /^uploads\/([^/]+)\//.exec(path || "");
   return m?.[1] || null;
+}
+
+function categoryForUploadPath(path: string, uid: string): string {
+  const rest = path.replace(`uploads/${uid}/`, "");
+  const top = rest.split("/")[0] || "";
+  if (top === "notes") return "筆記附件";
+  if (top === "canvases") return "白板";
+  if (top === "community") return "社群擴充";
+  if (top === "profile") return "個人資料";
+  return "語音任務";
+}
+
+async function collectStorageItems(folder: StorageReference): Promise<StorageReference[]> {
+  const out: StorageReference[] = [];
+  const res = await listAll(folder);
+  out.push(...res.items);
+  for (const prefix of res.prefixes) {
+    out.push(...(await collectStorageItems(prefix)));
+  }
+  return out;
+}
+
+/** List every object under `uploads/{uid}/` with size metadata. */
+export async function listUserUploadFiles(uid: string): Promise<UserStorageFile[]> {
+  if (!uid) return [];
+  let items: StorageReference[] = [];
+  try {
+    items = await collectStorageItems(ref(storage, `uploads/${uid}`));
+  } catch {
+    return [];
+  }
+  const files = await Promise.all(
+    items.map(async (item) => {
+      try {
+        const meta = await getMetadata(item);
+        return {
+          path: item.fullPath,
+          name: item.name,
+          size: Math.max(0, Number(meta.size) || 0),
+          updated: meta.updated ? Date.parse(meta.updated) : null,
+          category: categoryForUploadPath(item.fullPath, uid),
+        } satisfies UserStorageFile;
+      } catch {
+        return {
+          path: item.fullPath,
+          name: item.name,
+          size: 0,
+          updated: null,
+          category: categoryForUploadPath(item.fullPath, uid),
+        } satisfies UserStorageFile;
+      }
+    })
+  );
+  files.sort((a, b) => b.size - a.size || a.name.localeCompare(b.name, "zh-Hant"));
+  return files;
+}
+
+/** Align the Firestore counter with the actual listed total. */
+export async function syncStorageQuotaFromFiles(
+  uid: string,
+  files: Pick<UserStorageFile, "size">[]
+): Promise<number> {
+  const used = files.reduce((sum, f) => sum + Math.max(0, Number(f.size) || 0), 0);
+  if (!uid) return used;
+  try {
+    await setDoc(
+      quotaRef(uid),
+      { used_bytes: used, updated_at: Date.now() },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("[storageQuota] sync failed", e);
+  }
+  return used;
+}
+
+/** Delete one object owned by the user and release quota. */
+export async function deleteUserUploadFile(
+  uid: string,
+  path: string,
+  sizeHint?: number
+): Promise<number> {
+  if (!uid || !path.startsWith(`uploads/${uid}/`)) {
+    throw new Error("無權限刪除此檔案");
+  }
+  const storageRef = ref(storage, path);
+  let size = Math.max(0, Math.floor(sizeHint || 0));
+  if (!size) {
+    try {
+      const meta = await getMetadata(storageRef);
+      size = Math.max(0, Number(meta.size) || 0);
+    } catch {
+      /* missing metadata — still try delete */
+    }
+  }
+  await deleteObject(storageRef);
+  await releaseStorageUsage(uid, size);
+  return size;
 }

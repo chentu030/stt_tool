@@ -3812,9 +3812,25 @@ html[data-theme-transition="to-dark"]::view-transition-new(root) {
   gap: 0.4rem;
 }
 .sidebar-storage-tip {
+  display: block;
+  width: 100%;
+  margin: 0;
   padding: 0.45rem 0.5rem 0.35rem;
+  border: 0;
   border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
   background: color-mix(in srgb, var(--bg-muted) 70%, transparent);
+  transition: background 0.15s ease;
+}
+.sidebar-storage-tip:hover {
+  background: color-mix(in srgb, var(--bg-muted) 92%, var(--accent));
+}
+.sidebar-storage-tip:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 .sidebar-storage-tip-head {
   display: flex;
@@ -3855,6 +3871,63 @@ html[data-theme-transition="to-dark"]::view-transition-new(root) {
   font-size: 0.64rem;
   line-height: 1.45;
   color: var(--text-muted);
+}
+.storage-manager-dialog {
+  width: min(440px, calc(100vw - 2rem));
+  max-height: min(78vh, 640px);
+  display: flex;
+  flex-direction: column;
+}
+.storage-manager-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  overflow: auto;
+  max-height: min(48vh, 420px);
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 10px;
+}
+.storage-manager-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.storage-manager-row:last-child {
+  border-bottom: 0;
+}
+.storage-manager-meta {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.storage-manager-name {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.storage-manager-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.storage-manager-del {
+  flex-shrink: 0;
+  color: #b91c1c;
+}
+.storage-manager-empty {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+}
+.storage-manager-error {
+  color: #b91c1c;
 }
 .admin-access-section {
   margin-top: 1.25rem;

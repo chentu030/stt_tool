@@ -29,6 +29,7 @@ import { AI_TEXT_MODELS } from "@/lib/aiPrefs";
 import { toast } from "@/lib/toast";
 import { isAllowlistedEmail } from "@/lib/accessGate";
 import { formatBytes, USER_STORAGE_LIMIT_BYTES } from "@/lib/storageQuota";
+import StorageManagerDialog from "@/components/shell/StorageManagerDialog";
 
 function Row({
   label,
@@ -270,6 +271,7 @@ export default function SettingsPage() {
   const { prefs, setPrefs, replacePrefs } = usePrefs();
   const [section, setSection] = useState<SettingsSectionId>("appearance");
   const [importText, setImportText] = useState("");
+  const [storageOpen, setStorageOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -944,7 +946,19 @@ export default function SettingsPage() {
               <p>
                 測試期間每位使用者上限約 {formatBytes(USER_STORAGE_LIMIT_BYTES)}。請自行備份重要資料，不要把重要檔案只保存在這裡。
               </p>
+              {user ? (
+                <button type="button" className="btn btn-soft btn-sm" onClick={() => setStorageOpen(true)}>
+                  管理檔案
+                </button>
+              ) : null}
             </div>
+            {user ? (
+              <StorageManagerDialog
+                uid={user.uid}
+                open={storageOpen}
+                onClose={() => setStorageOpen(false)}
+              />
+            ) : null}
             {isAllowlistedEmail(user?.email) ? (
               <div className="st-tool-block">
                 <h3>開發者工具</h3>

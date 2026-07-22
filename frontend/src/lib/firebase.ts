@@ -11,7 +11,7 @@ import {
 } from "firebase/firestore";
 import {
   getStorage, ref, uploadBytesResumable, getDownloadURL, getBytes, deleteObject,
-  UploadTaskSnapshot, uploadBytes
+  UploadTaskSnapshot, uploadBytes, getMetadata
 } from "firebase/storage";
 
 import { firebaseConfig } from "@/lib/firebasePublic";
@@ -226,12 +226,32 @@ export function listenToUserJobs(
 }
 
 export async function deleteJob(jobId: string, storagePaths: string[], resultPaths: string[]) {
-  // Delete files from storage
   const allPaths = [...storagePaths, ...resultPaths];
+  let released = 0;
+  let ownerUid: string | null = null;
+  const { uidFromUploadPath, releaseStorageUsage } = await import("@/lib/storageQuota");
   for (const p of allPaths) {
-    try { await deleteObject(ref(storage, p)); } catch { /* ignore */ }
+    try {
+      if (!ownerUid) ownerUid = uidFromUploadPath(p);
+      const fileRef = ref(storage, p);
+      try {
+        const meta = await getMetadata(fileRef);
+        released += Math.max(0, Number(meta.size) || 0);
+      } catch {
+        /* ignore */
+      }
+      await deleteObject(fileRef);
+    } catch {
+      /* ignore */
+    }
   }
-  // Delete Firestore document
+  if (ownerUid && released > 0) {
+    try {
+      await releaseStorageUsage(ownerUid, released);
+    } catch {
+      /* ignore */
+    }
+  }
   await deleteDoc(doc(db, "jobs", jobId));
 }
 
