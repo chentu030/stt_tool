@@ -413,8 +413,8 @@ export default function CapturePage() {
               onAppendJournal={() => {
                 /* capture page: note already created under 日誌/快速錄音 */
               }}
-              onCreatedNote={(noteId) => {
-                router.push(`/notes/${noteId}`);
+              onCreatedNote={() => {
+                /* stay on capture so bursts of ideas can keep recording */
               }}
             />
             <Link href="/journal" className="capture-mode-link">

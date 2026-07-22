@@ -27,9 +27,15 @@ export default function QuickVoiceButton({
   const language = prefs?.captureLanguage || "zh-TW";
   const [recording, setRecording] = useState(false);
   const [secs, setSecs] = useState(0);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(0);
   const recRef = useRef<SimpleVoiceRecorder | null>(null);
   const tickRef = useRef<number | null>(null);
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const languageRef = useRef(language);
+  const cbRef = useRef({ uid, onAppendJournal, onCreatedNote });
+
+  languageRef.current = language;
+  cbRef.current = { uid, onAppendJournal, onCreatedNote };
 
   useEffect(() => {
     return () => {
@@ -38,39 +44,13 @@ export default function QuickVoiceButton({
     };
   }, []);
 
-  const start = async () => {
+  const processClip = async (blob: Blob, ext: string) => {
+    setPending((n) => n + 1);
     try {
-      const rec = new SimpleVoiceRecorder();
-      await rec.start();
-      recRef.current = rec;
-      setRecording(true);
-      setSecs(0);
-      tickRef.current = window.setInterval(() => setSecs((s) => s + 1), 1000);
-    } catch {
-      toast("無法使用麥克風，請檢查權限");
-    }
-  };
-
-  const stop = async () => {
-    if (tickRef.current) {
-      window.clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-    setRecording(false);
-    const rec = recRef.current;
-    recRef.current = null;
-    if (!rec) return;
-    setBusy(true);
-    try {
-      const blob = await rec.stop();
-      if (!blob) {
-        toast("錄音太短，請再試一次");
-        return;
-      }
-      toast("辨識中…");
+      const { uid: id, onAppendJournal: append, onCreatedNote: created } = cbRef.current;
       const transcript = await transcribeWithGoogle(blob, {
-        language,
-        filename: `quick-${Date.now()}.${rec.extension}`,
+        language: languageRef.current,
+        filename: `quick-${Date.now()}.${ext}`,
       });
       let title = "快速想法";
       let body = transcript;
@@ -82,15 +62,15 @@ export default function QuickVoiceButton({
         /* keep raw */
       }
       const dateKey = journalTitle();
-      const noteId = await createNote(uid, title, "", undefined, ["quick-voice", "journal"], {
+      const noteId = await createNote(id, title, "", undefined, ["quick-voice", "journal"], {
         folder: "日誌/快速錄音",
         journal_date: dateKey,
         icon: "mic",
       });
-      const file = new File([blob], `quick-${Date.now()}.${rec.extension}`, {
+      const file = new File([blob], `quick-${Date.now()}.${ext}`, {
         type: blob.type || "audio/webm",
       });
-      const up = await uploadNoteMedia(uid, noteId, file);
+      const up = await uploadNoteMedia(id, noteId, file);
       const md = [
         body,
         ``,
@@ -110,27 +90,78 @@ export default function QuickVoiceButton({
         `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${up.url}"></audio>`,
         ``,
       ].join("\n");
-      onAppendJournal?.(journalBlock);
-      onCreatedNote?.(noteId);
-      toast("已整理成快速筆記");
+      append?.(journalBlock);
+      created?.(noteId);
+      toast(`已整理「${title}」`);
     } catch (e) {
       toast(e instanceof Error ? e.message : "快速錄音失敗");
     } finally {
-      setBusy(false);
-      setSecs(0);
+      setPending((n) => Math.max(0, n - 1));
     }
   };
+
+  const enqueueClip = (blob: Blob, ext: string) => {
+    queueRef.current = queueRef.current
+      .then(() => processClip(blob, ext))
+      .catch(() => {
+        /* errors toasted inside processClip */
+      });
+  };
+
+  const start = async () => {
+    if (recording) return;
+    try {
+      const rec = new SimpleVoiceRecorder();
+      await rec.start();
+      recRef.current = rec;
+      setRecording(true);
+      setSecs(0);
+      tickRef.current = window.setInterval(() => setSecs((s) => s + 1), 1000);
+    } catch {
+      toast("無法使用麥克風，請檢查權限");
+    }
+  };
+
+  const stop = async () => {
+    if (tickRef.current) {
+      window.clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+    setRecording(false);
+    setSecs(0);
+    const rec = recRef.current;
+    recRef.current = null;
+    if (!rec) return;
+    try {
+      const blob = await rec.stop();
+      if (!blob) {
+        toast("錄音太短，請再試一次");
+        return;
+      }
+      toast("已收下 · 可立刻接下一段");
+      enqueueClip(blob, rec.extension || "webm");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "錄音失敗");
+    }
+  };
+
+  const pendingHint = pending > 0 ? ` · 整理中 ${pending}` : "";
 
   if (compact) {
     return (
       <button
         type="button"
-        className={`voice-quick-btn${recording ? " is-live" : ""}`}
-        disabled={busy}
-        title="快速錄音想法"
+        className={`voice-quick-btn${recording ? " is-live" : ""}${pending ? " is-pending" : ""}`}
+        title={
+          recording
+            ? "停止並送出這段"
+            : pending
+              ? `背景整理 ${pending} 段 · 可繼續錄`
+              : "快速錄音想法（停下後可立刻再錄）"
+        }
         onClick={() => void (recording ? stop() : start())}
       >
-        {busy ? "整理中…" : recording ? `停止 ${formatRecClock(secs)}` : "快速錄音"}
+        {recording ? `停止 ${formatRecClock(secs)}` : `快速錄音${pending ? ` · ${pending}` : ""}`}
       </button>
     );
   }
@@ -139,15 +170,21 @@ export default function QuickVoiceButton({
     <div className="voice-quick-card">
       <div>
         <strong>快速錄音想法</strong>
-        <p>想到什麼就說；停下來後會自動整理進日誌，並保留音檔。</p>
+        <p>
+          想到什麼就說；停下後可立刻接下一段，背景會自動整理進日誌並保留音檔
+          {pendingHint}。
+        </p>
       </div>
       <button
         type="button"
         className={`btn${recording ? " voice-quick-stop" : ""}`}
-        disabled={busy}
         onClick={() => void (recording ? stop() : start())}
       >
-        {busy ? "整理中…" : recording ? `停止 ${formatRecClock(secs)}` : "按住想法 · 開始錄"}
+        {recording
+          ? `停止 ${formatRecClock(secs)}`
+          : pending
+            ? `再錄一段（整理中 ${pending}）`
+            : "按住想法 · 開始錄"}
       </button>
     </div>
   );
