@@ -16,7 +16,7 @@ import {
   type MediaLayout,
 } from "@/lib/mediaLayout";
 
-function ImageUrlView({ node, updateAttributes, selected, editor }: ReactNodeViewProps) {
+function ImageUrlView({ node, updateAttributes, selected, editor, getPos }: ReactNodeViewProps) {
   const src = String(node.attrs.src || "");
   const alt = String(node.attrs.alt || "");
   const [draft, setDraft] = useState(src);
@@ -26,6 +26,13 @@ function ImageUrlView({ node, updateAttributes, selected, editor }: ReactNodeVie
   useEffect(() => {
     setDraft(src);
   }, [src]);
+
+  const selectSelf = () => {
+    if (!editor || readOnly) return;
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return;
+    editor.commands.setNodeSelection(pos);
+  };
 
   const commit = (raw: string) => {
     const url = raw.trim();
@@ -112,6 +119,7 @@ function ImageUrlView({ node, updateAttributes, selected, editor }: ReactNodeVie
       <MediaLayoutChrome
         attrs={node.attrs as Record<string, unknown>}
         updateAttributes={patchLayout}
+        onRequestSelect={selectSelf}
         selected={!!selected}
         readOnly={!!readOnly}
       >

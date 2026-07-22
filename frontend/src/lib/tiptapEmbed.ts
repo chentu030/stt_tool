@@ -630,22 +630,26 @@ export const NoteEmbed = Node.create({
       let selected = false;
       let current = node;
 
-      const patchAttrs = (patch: Record<string, unknown>) => {
+      const patchAttrs = (patch: Record<string, unknown>, keepSelection = true) => {
         const pos = typeof getPos === "function" ? getPos() : null;
         if (typeof pos !== "number") return;
         const cur = editor.state.doc.nodeAt(pos);
         if (!cur || cur.type.name !== "noteEmbed") return;
-        editor
-          .chain()
-          .command(({ tr }) => {
-            tr.setNodeMarkup(pos, undefined, { ...cur.attrs, ...patch });
-            return true;
-          })
-          .run();
+        const chain = editor.chain().command(({ tr }) => {
+          tr.setNodeMarkup(pos, undefined, { ...cur.attrs, ...patch });
+          return true;
+        });
+        if (keepSelection) chain.setNodeSelection(pos);
+        chain.run();
       };
 
       const chrome = mountLayoutChrome({
-        updateAttributes: (patch) => patchAttrs(patch),
+        updateAttributes: (patch) => patchAttrs(patch, false),
+        onRequestSelect: () => {
+          const pos = typeof getPos === "function" ? getPos() : null;
+          if (typeof pos !== "number") return;
+          editor.commands.setNodeSelection(pos);
+        },
         getReadOnly: () => !editor.isEditable,
       });
 

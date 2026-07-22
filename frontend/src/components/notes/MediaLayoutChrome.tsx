@@ -16,6 +16,8 @@ import {
 type Props = {
   attrs: Record<string, unknown>;
   updateAttributes: (patch: Partial<MediaLayout>) => void;
+  /** Keep NodeSelection after layout edits so chrome stays usable. */
+  onRequestSelect?: () => void;
   selected?: boolean;
   readOnly?: boolean;
   className?: string;
@@ -25,6 +27,7 @@ type Props = {
 export default function MediaLayoutChrome({
   attrs,
   updateAttributes,
+  onRequestSelect,
   selected = false,
   readOnly = false,
   className = "",
@@ -40,11 +43,21 @@ export default function MediaLayoutChrome({
     if (!selected) setMenuOpen(false);
   }, [selected]);
 
+  const commitLayout = useCallback(
+    (patch: Partial<MediaLayout>) => {
+      updateAttributes(patch);
+      // Attribute transactions often drop NodeSelection — re-select so wrap/resize stay available.
+      queueMicrotask(() => onRequestSelect?.());
+    },
+    [onRequestSelect, updateAttributes]
+  );
+
   const onResizePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (readOnly) return;
       e.preventDefault();
       e.stopPropagation();
+      onRequestSelect?.();
       const frame = frameRef.current;
       const prose = frame?.closest(".rich-prose") as HTMLElement | null;
       if (!frame || !prose) return;
@@ -64,27 +77,38 @@ export default function MediaLayoutChrome({
         resizing.current = false;
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        queueMicrotask(() => onRequestSelect?.());
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [layout.align, layout.widthPct, readOnly, updateAttributes]
+    [layout.align, layout.widthPct, onRequestSelect, readOnly, updateAttributes]
   );
 
   const onFloatPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (readOnly) return;
-      if (layout.wrap !== "front" && layout.wrap !== "behind") return;
       const t = e.target as HTMLElement;
       if (t.closest(".rich-media-toolbar, .rich-media-resize, input, button, a, textarea")) return;
-      e.preventDefault();
-      e.stopPropagation();
+      // Always try to select first so chrome (環繞 / 縮放) can appear again.
+      onRequestSelect?.();
+      if (layout.wrap !== "front" && layout.wrap !== "behind") return;
+      // Do not preventDefault on click — that blocked TipTap NodeSelection and trapped overlay images.
       const prose = frameRef.current?.closest(".rich-prose") as HTMLElement | null;
       if (!prose) return;
-      floating.current = true;
+      const startX = e.clientX;
+      const startY = e.clientY;
       const rect = prose.getBoundingClientRect();
+      let dragging = false;
       const onMove = (ev: PointerEvent) => {
+        const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+        if (!dragging) {
+          if (dist < 5) return;
+          dragging = true;
+          floating.current = true;
+        }
         if (!floating.current) return;
+        ev.preventDefault();
         const x = ((ev.clientX - rect.left) / rect.width) * 100;
         const y = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * 100;
         updateAttributes({
@@ -96,11 +120,12 @@ export default function MediaLayoutChrome({
         floating.current = false;
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        if (dragging) queueMicrotask(() => onRequestSelect?.());
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [layout.offsetX, layout.offsetY, layout.widthPct, layout.wrap, readOnly, updateAttributes]
+    [layout.offsetX, layout.offsetY, layout.widthPct, layout.wrap, onRequestSelect, readOnly, updateAttributes]
   );
 
   const showChrome = selected && !readOnly;
@@ -143,7 +168,7 @@ export default function MediaLayoutChrome({
               type="button"
               className={layout.align === a ? "is-on" : ""}
               title={a === "left" ? "靠左" : a === "right" ? "靠右" : "置中"}
-              onClick={() => updateAttributes({ align: normalizeAlign(a) })}
+              onClick={() => commitLayout({ align: normalizeAlign(a) })}
             >
               {a === "left" ? "左" : a === "right" ? "右" : "中"}
             </button>
@@ -152,7 +177,7 @@ export default function MediaLayoutChrome({
           <div className="rich-media-wrap-menu">
             <button
               type="button"
-              className={menuOpen ? "is-on" : ""}
+              className={menuOpen || layout.wrap !== "inline" ? "is-on" : ""}
               title="文字環繞"
               onClick={() => setMenuOpen((v) => !v)}
             >
@@ -167,7 +192,7 @@ export default function MediaLayoutChrome({
                     role="menuitem"
                     className={layout.wrap === o.id ? "is-on" : ""}
                     onClick={() => {
-                      updateAttributes({ wrap: normalizeWrap(o.id) as MediaWrap });
+                      commitLayout({ wrap: normalizeWrap(o.id) as MediaWrap });
                       setMenuOpen(false);
                     }}
                   >

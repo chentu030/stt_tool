@@ -9295,8 +9295,13 @@ body.is-split-resizing iframe {
   z-index: 6;
 }
 .rich-media-frame[data-wrap="behind"] {
-  z-index: 0;
+  /* Keep clickable so wrap/resize chrome can be recovered; dim to feel “behind”. */
+  z-index: 2;
   opacity: 0.92;
+}
+.rich-media-frame[data-wrap="behind"][data-selected="1"],
+.rich-media-frame[data-wrap="front"][data-selected="1"] {
+  z-index: 8;
 }
 .rich-media-frame[data-selected="1"] {
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);

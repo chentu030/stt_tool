@@ -20,6 +20,7 @@ export type LayoutChromeControls = {
 
 export function mountLayoutChrome(opts: {
   updateAttributes: (patch: Partial<MediaLayout>) => void;
+  onRequestSelect?: () => void;
   getReadOnly?: () => boolean;
 }): LayoutChromeControls {
   const root = document.createElement("div");
@@ -53,6 +54,13 @@ export function mountLayoutChrome(opts: {
   toolbar.addEventListener("mousedown", stop);
   toolbar.addEventListener("pointerdown", stop);
 
+  const applyLayout = (patch: Partial<MediaLayout>, opts2?: { reselect?: boolean }) => {
+    opts.updateAttributes(patch);
+    if (opts2?.reselect !== false) {
+      queueMicrotask(() => opts.onRequestSelect?.());
+    }
+  };
+
   const rebuildToolbar = () => {
     toolbar.innerHTML = "";
     toolbar.hidden = !(selected && !readOnly);
@@ -76,7 +84,7 @@ export function mountLayoutChrome(opts: {
     (["left", "center", "right"] as const).forEach((a) => {
       toolbar.appendChild(
         mkBtn(a === "left" ? "左" : a === "right" ? "右" : "中", a, layout.align === a, () => {
-          opts.updateAttributes({ align: normalizeAlign(a) });
+          applyLayout({ align: normalizeAlign(a) });
         })
       );
     });
@@ -87,10 +95,15 @@ export function mountLayoutChrome(opts: {
 
     const wrapWrap = document.createElement("div");
     wrapWrap.className = "rich-media-wrap-menu";
-    const wrapBtn = mkBtn("環繞", "文字環繞", menuOpen, () => {
-      menuOpen = !menuOpen;
-      rebuildToolbar();
-    });
+    const wrapBtn = mkBtn(
+      "環繞",
+      "文字環繞",
+      menuOpen || layout.wrap !== "inline",
+      () => {
+        menuOpen = !menuOpen;
+        rebuildToolbar();
+      }
+    );
     wrapWrap.appendChild(wrapBtn);
     if (menuOpen) {
       const pop = document.createElement("div");
@@ -106,7 +119,7 @@ export function mountLayoutChrome(opts: {
           e.preventDefault();
           e.stopPropagation();
           menuOpen = false;
-          opts.updateAttributes({ wrap: normalizeWrap(o.id) });
+          applyLayout({ wrap: normalizeWrap(o.id) });
         });
         pop.appendChild(b);
       });
@@ -125,6 +138,7 @@ export function mountLayoutChrome(opts: {
     if (readOnly || opts.getReadOnly?.()) return;
     e.preventDefault();
     e.stopPropagation();
+    opts.onRequestSelect?.();
     const prose = root.closest(".rich-prose") as HTMLElement | null;
     if (!prose) return;
     resizing = true;
@@ -135,12 +149,16 @@ export function mountLayoutChrome(opts: {
       if (!resizing) return;
       const dx = ev.clientX - startX;
       const sign = layout.align === "right" ? -1 : 1;
-      opts.updateAttributes({ widthPct: clampWidthPct(startW + sign * (dx / proseW) * 100) });
+      applyLayout(
+        { widthPct: clampWidthPct(startW + sign * (dx / proseW) * 100) },
+        { reselect: false }
+      );
     };
     const onUp = () => {
       resizing = false;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      queueMicrotask(() => opts.onRequestSelect?.());
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -149,28 +167,41 @@ export function mountLayoutChrome(opts: {
   let floating = false;
   root.addEventListener("pointerdown", (e) => {
     if (readOnly || opts.getReadOnly?.()) return;
-    if (layout.wrap !== "front" && layout.wrap !== "behind") return;
     const t = e.target as HTMLElement;
     if (t.closest(".rich-media-toolbar, .rich-media-resize, input, button, a, textarea")) return;
-    e.preventDefault();
-    e.stopPropagation();
+    opts.onRequestSelect?.();
+    if (layout.wrap !== "front" && layout.wrap !== "behind") return;
+    // Click must still select; only drag after a small move threshold.
     const prose = root.closest(".rich-prose") as HTMLElement | null;
     if (!prose) return;
-    floating = true;
+    const startX = e.clientX;
+    const startY = e.clientY;
     const rect = prose.getBoundingClientRect();
+    let dragging = false;
     const onMove = (ev: PointerEvent) => {
+      const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+      if (!dragging) {
+        if (dist < 5) return;
+        dragging = true;
+        floating = true;
+      }
       if (!floating) return;
+      ev.preventDefault();
       const x = ((ev.clientX - rect.left) / rect.width) * 100;
       const y = ((ev.clientY - rect.top) / Math.max(rect.height, 1)) * 100;
-      opts.updateAttributes({
-        offsetX: clampOffset(x - layout.widthPct / 2, layout.offsetX),
-        offsetY: clampOffset(y - 4, layout.offsetY),
-      });
+      applyLayout(
+        {
+          offsetX: clampOffset(x - layout.widthPct / 2, layout.offsetX),
+          offsetY: clampOffset(y - 4, layout.offsetY),
+        },
+        { reselect: false }
+      );
     };
     const onUp = () => {
       floating = false;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      if (dragging) queueMicrotask(() => opts.onRequestSelect?.());
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -182,6 +213,7 @@ export function mountLayoutChrome(opts: {
     selected = isSelected;
     readOnly = isReadOnly;
     applyLayoutToElement(root, layout);
+    root.setAttribute("data-selected", selected && !readOnly ? "1" : "0");
     rebuildToolbar();
   };
 
