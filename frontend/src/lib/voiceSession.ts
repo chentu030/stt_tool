@@ -25,6 +25,7 @@ export function formatRecClock(secs: number): string {
 
 export class ContinuousDualRecorder {
   private stream: MediaStream | null = null;
+  private ownsStream = true;
   private fullRec: MediaRecorder | null = null;
   private segRec: MediaRecorder | null = null;
   private fullChunks: Blob[] = [];
@@ -32,14 +33,17 @@ export class ContinuousDualRecorder {
   private mime: VoiceMime = pickRecorderMime();
   private rotating = false;
 
-  async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+  async start(existingStream?: MediaStream): Promise<void> {
+    this.stream =
+      existingStream ||
+      (await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      }));
+    this.ownsStream = !existingStream;
     this.mime = pickRecorderMime();
     const opts = this.mime.mimeType ? { mimeType: this.mime.mimeType } : undefined;
 
@@ -97,7 +101,9 @@ export class ContinuousDualRecorder {
     if (this.fullRec && this.fullRec.state !== "inactive") {
       full = await this.stopRecorder(this.fullRec, this.fullChunks);
     }
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream?.getTracks().forEach((t) => {
+      if (this.ownsStream) t.stop();
+    });
     this.stream = null;
     this.fullRec = null;
     this.segRec = null;

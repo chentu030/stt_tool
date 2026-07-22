@@ -18308,6 +18308,13 @@ body.is-sidebar-resizing iframe {
   color: var(--muted);
   font-style: italic;
 }
+.voice-live-line.is-live p {
+  color: var(--fg);
+  opacity: 0.72;
+  font-style: italic;
+  border-left: 2px solid color-mix(in srgb, #e25555 55%, transparent);
+  padding-left: 0.45rem;
+}
 .voice-live-line.is-error p {
   color: #c44;
 }

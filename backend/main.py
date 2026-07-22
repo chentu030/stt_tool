@@ -12,9 +12,10 @@ import random
 import requests
 from typing import Optional, Dict, List, Callable
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import queue as thread_queue
 import yt_dlp
 import replicate
 import httpx
@@ -2124,15 +2125,297 @@ async def stt_google_health():
         ok_pkg = True
     except Exception:
         ok_pkg = False
+    try:
+        from google.cloud.speech_v2 import SpeechClient as SpeechClientV2  # noqa: F401
+        ok_v2 = True
+    except Exception:
+        ok_v2 = False
     creds = bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")) or bool(
-        os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCLOUD_PROJECT")
+        os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCLOUD_PROJECT") or os.environ.get("GCP_PROJECT")
     )
     return {
         "package": ok_pkg,
+        "package_v2": ok_v2,
         "credentials_hint": creds,
-        "ready": ok_pkg,
-        "note": "Cloud Run 可用服務帳號 ADC；本機請設 GOOGLE_APPLICATION_CREDENTIALS。",
+        "ready": ok_pkg or ok_v2,
+        "stream": True,
+        "location": os.environ.get("GOOGLE_STT_LOCATION", "asia-southeast1"),
+        "model": os.environ.get("GOOGLE_STT_MODEL", "chirp_2"),
+        "note": "Cloud Run 可用服務帳號 ADC；串流走 /api/stt/google/stream（WebSocket）。",
     }
+
+
+def _google_project_id() -> str:
+    return (
+        os.environ.get("GCP_PROJECT")
+        or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        or os.environ.get("GCLOUD_PROJECT")
+        or ""
+    ).strip()
+
+
+def _google_stt_v2_language(raw: Optional[str]) -> str:
+    """V2 Chirp prefers BCP-47 like cmn-Hant-TW."""
+    s = (raw or "").strip()
+    if not s or s.lower() in ("auto", "none", "detect"):
+        return "cmn-Hant-TW"
+    low = s.lower().replace("_", "-")
+    if low in ("zh", "zh-tw", "zh-hant", "cmn-hant-tw"):
+        return "cmn-Hant-TW"
+    if low in ("zh-cn", "zh-hans", "cmn-hans-cn"):
+        return "cmn-Hans-CN"
+    if low.startswith("en"):
+        return "en-US"
+    if low.startswith("ja"):
+        return "ja-JP"
+    if low.startswith("cmn-"):
+        return s
+    return s
+
+
+def _run_google_stream_v2(
+    audio_q: "thread_queue.Queue[Optional[bytes]]",
+    on_event: Callable[[dict], None],
+    language: str,
+) -> None:
+    """Blocking V2 StreamingRecognize with interim results. PCM LINEAR16 @ 16 kHz mono."""
+    from google.api_core.client_options import ClientOptions
+    from google.cloud.speech_v2 import SpeechClient
+    from google.cloud.speech_v2.types import cloud_speech as cst
+
+    project = _google_project_id()
+    if not project:
+        raise RuntimeError("缺少 GCP_PROJECT / GOOGLE_CLOUD_PROJECT")
+
+    location = (os.environ.get("GOOGLE_STT_LOCATION") or "asia-southeast1").strip()
+    model = (os.environ.get("GOOGLE_STT_MODEL") or "chirp_2").strip()
+    lang = _google_stt_v2_language(language)
+    recognizer = f"projects/{project}/locations/{location}/recognizers/_"
+
+    if location and location != "global":
+        client = SpeechClient(
+            client_options=ClientOptions(api_endpoint=f"{location}-speech.googleapis.com")
+        )
+    else:
+        client = SpeechClient()
+
+    # Prefer explicit LINEAR16 PCM (browser sends s16le @ 16kHz mono).
+    enc = getattr(cst.ExplicitDecodingConfig.AudioEncoding, "LINEAR16", None)
+    if enc is None:
+        enc = getattr(cst, "AudioEncoding", None)
+        enc = getattr(enc, "LINEAR16", 1) if enc else 1
+    recognition_config = cst.RecognitionConfig(
+        explicit_decoding_config=cst.ExplicitDecodingConfig(
+            encoding=enc,
+            sample_rate_hertz=16000,
+            audio_channel_count=1,
+        ),
+        language_codes=[lang],
+        model=model,
+        features=cst.RecognitionFeatures(enable_automatic_punctuation=True),
+    )
+    streaming_config = cst.StreamingRecognitionConfig(
+        config=recognition_config,
+        streaming_features=cst.StreamingRecognitionFeatures(interim_results=True),
+    )
+    config_request = cst.StreamingRecognizeRequest(
+        recognizer=recognizer,
+        streaming_config=streaming_config,
+    )
+
+    def requests():
+        yield config_request
+        while True:
+            chunk = audio_q.get()
+            if chunk is None:
+                break
+            if not chunk:
+                continue
+            # gRPC message limit ~25KB
+            view = memoryview(chunk)
+            step = 24000
+            for i in range(0, len(view), step):
+                yield cst.StreamingRecognizeRequest(audio=bytes(view[i : i + step]))
+
+    metadata = [("x-goog-request-params", f"recognizer={recognizer}")]
+    on_event({"type": "ready", "engine": "google-stt-v2", "model": model, "language": lang, "location": location})
+    for response in client.streaming_recognize(requests=requests(), metadata=metadata):
+        for result in response.results:
+            if not result.alternatives:
+                continue
+            text = (result.alternatives[0].transcript or "").strip()
+            if not text:
+                continue
+            on_event(
+                {
+                    "type": "final" if result.is_final else "interim",
+                    "text": text,
+                    "stability": float(getattr(result, "stability", 0) or 0),
+                }
+            )
+
+
+def _run_google_stream_v1(
+    audio_q: "thread_queue.Queue[Optional[bytes]]",
+    on_event: Callable[[dict], None],
+    language: str,
+) -> None:
+    """V1 streaming fallback — strong interim results for zh-TW."""
+    from google.cloud import speech_v1 as speech
+
+    lang = _google_stt_language(language)
+    client = speech.SpeechClient()
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=16000,
+        language_code=lang,
+        enable_automatic_punctuation=True,
+        model="latest_long",
+        alternative_language_codes=["zh-TW", "zh-CN", "en-US"] if lang.startswith("zh") else [],
+    )
+    streaming_config = speech.StreamingRecognitionConfig(
+        config=config,
+        interim_results=True,
+    )
+
+    def requests():
+        yield speech.StreamingRecognizeRequest(streaming_config=streaming_config)
+        while True:
+            chunk = audio_q.get()
+            if chunk is None:
+                break
+            if not chunk:
+                continue
+            view = memoryview(chunk)
+            step = 24000
+            for i in range(0, len(view), step):
+                yield speech.StreamingRecognizeRequest(audio_content=bytes(view[i : i + step]))
+
+    on_event({"type": "ready", "engine": "google-stt-v1", "model": "latest_long", "language": lang})
+    for response in client.streaming_recognize(requests()):
+        for result in response.results:
+            if not result.alternatives:
+                continue
+            text = (result.alternatives[0].transcript or "").strip()
+            if not text:
+                continue
+            on_event(
+                {
+                    "type": "final" if result.is_final else "interim",
+                    "text": text,
+                    "stability": float(getattr(result, "stability", 0) or 0),
+                }
+            )
+
+
+@app.websocket("/api/stt/google/stream")
+async def stt_google_stream(websocket: WebSocket):
+    """
+    Real-time StreamingRecognize bridge.
+    Client protocol:
+      1) text JSON: {"language":"zh-TW"}
+      2) binary frames: raw PCM s16le mono @ 16 kHz (≤ ~25KB / frame)
+      3) text JSON: {"type":"end"} to finish
+    Server events (JSON text):
+      ready | interim | final | error | closed
+    """
+    await websocket.accept()
+    try:
+        init_raw = await websocket.receive_text()
+        init = json.loads(init_raw) if init_raw else {}
+    except Exception:
+        await websocket.send_json({"type": "error", "message": "請先傳送 JSON 設定 {language}"})
+        await websocket.close()
+        return
+
+    language = str(init.get("language") or DEFAULT_LANGUAGE or "zh-TW")
+    prefer_v2 = str(init.get("engine") or "v2").lower() != "v1"
+    audio_q: thread_queue.Queue = thread_queue.Queue(maxsize=250)
+    loop = asyncio.get_running_loop()
+    out_q: asyncio.Queue = asyncio.Queue()
+    stop_flag = threading.Event()
+
+    def emit(ev: dict):
+        if stop_flag.is_set():
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(out_q.put(ev), loop)
+        except Exception:
+            pass
+
+    def worker():
+        try:
+            if prefer_v2 and _google_project_id():
+                try:
+                    _run_google_stream_v2(audio_q, emit, language)
+                    return
+                except Exception as e:
+                    emit({"type": "info", "message": f"V2 串流改走 V1：{e}"})
+                    # drain leftover? start fresh — client keeps sending
+            _run_google_stream_v1(audio_q, emit, language)
+        except Exception as e:
+            emit({"type": "error", "message": str(e)})
+        finally:
+            emit({"type": "closed"})
+
+    t = threading.Thread(target=worker, daemon=True, name="google-stt-stream")
+    t.start()
+
+    async def pump_out():
+        while True:
+            ev = await out_q.get()
+            try:
+                await websocket.send_json(ev)
+            except Exception:
+                break
+            if ev.get("type") == "closed":
+                break
+
+    out_task = asyncio.create_task(pump_out())
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
+            if "bytes" in msg and msg["bytes"] is not None:
+                data = msg["bytes"]
+                try:
+                    audio_q.put(data, timeout=1.0)
+                except thread_queue.Full:
+                    try:
+                        audio_q.get_nowait()
+                    except Exception:
+                        pass
+                    try:
+                        audio_q.put_nowait(data)
+                    except Exception:
+                        pass
+            elif "text" in msg and msg["text"] is not None:
+                try:
+                    payload = json.loads(msg["text"])
+                except Exception:
+                    continue
+                if payload.get("type") == "end":
+                    audio_q.put(None)
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        emit({"type": "error", "message": str(e)})
+    finally:
+        stop_flag.set()
+        try:
+            audio_q.put_nowait(None)
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(asyncio.shield(out_task), timeout=3.0)
+        except Exception:
+            out_task.cancel()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

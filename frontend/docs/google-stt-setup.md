@@ -1,20 +1,33 @@
-# Google Speech-to-Text（即時轉錄／快速錄音）
+# Google Speech-to-Text（即時串流／快速錄音）
 
-即時段落與快速錄音走後端 `POST /api/stt/google`（同步辨識，單段建議 ≤ 55 秒）。
+## 即時轉錄（StreamingRecognize）
 
-## 啟用
+會議／課堂「即時轉錄」走後端 **WebSocket** ` /api/stt/google/stream`：
 
-1. 在 GCP 專案啟用 **Cloud Speech-to-Text API**。
-2. **Cloud Run**：服務帳號需有 `roles/speech.client`（或同等）；通常用 ADC 即可。
-3. **本機**：設定 `GOOGLE_APPLICATION_CREDENTIALS` 指向服務帳號 JSON。
-4. 後端依賴：`google-cloud-speech`（見 `backend/requirements.txt`）。
+1. 瀏覽器以 **PCM s16le / 16 kHz / mono** 持續送音訊  
+2. 後端以 **Speech-to-Text V2**（預設 `chirp_2` @ `asia-southeast1`）做雙向串流  
+3. 回傳 **interim**（暫定、會跳動修正）與 **final**（停頓後鎖定）  
+4. 若 V2 不可用，自動退回 **V1** `latest_long`（interim 較穩）  
+5. 串流約 **5 分鐘**上限：前端每 **4 分鐘**自動續接  
+6. 音檔仍用 `MediaRecorder` 另存；「段落結束」附加音檔到筆記
 
-## 健康檢查
+計費（約）：V2 標準即時／Chirp **$0.016／分鐘**（另有每月免費額度，以 GCP 帳單為準）。
 
-`GET /api/stt/google/health` — 確認套件是否安裝。
+### 環境變數（後端）
 
-## 產品入口
+| 變數 | 說明 |
+|------|------|
+| `GCP_PROJECT` / `GOOGLE_CLOUD_PROJECT` | 專案 ID（V2 recognizer 需要） |
+| `GOOGLE_STT_LOCATION` | 預設 `asia-southeast1` |
+| `GOOGLE_STT_MODEL` | 預設 `chirp_2` |
+| ADC / `GOOGLE_APPLICATION_CREDENTIALS` | Cloud Run 服務帳號或本機金鑰 |
 
-- 捕捉頁 →「即時轉錄整理」→ 新建筆記並帶 `?live=1`
-- 筆記工具列 →「即時轉錄」
-- 捕捉頁／日誌 →「快速錄音」→ 筆記存於 `日誌/快速錄音`，並可寫入當日日誌
+啟用 **Cloud Speech-to-Text API**，服務帳號需 `roles/speech.client`。
+
+### 健康檢查
+
+`GET /api/stt/google/health`
+
+## 快速錄音（短片同步辨識）
+
+`POST /api/stt/google` — 短音訊同步 Recognize（日誌／快速想法），與串流路徑分開。
