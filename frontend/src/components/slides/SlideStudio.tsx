@@ -304,7 +304,7 @@ export default function SlideStudio({
       .join("");
 
     const html = `<!doctype html><html><head><meta charset="utf-8"/><title>${escapeHtml(noteTitle)}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css" crossorigin="anonymous"/>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.18.0/dist/katex.min.css" crossorigin="anonymous"/>
 <style>
 @page{size: landscape; margin: 0}
 html,body{margin:0;padding:0;font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif}
