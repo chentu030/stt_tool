@@ -486,46 +486,82 @@ turndown.addRule("alignedParagraph", {
 turndown.addRule("table", {
   filter: "table",
   replacement: (_content, node) => {
+    // Prefer HTML so TipTap colgroup / colwidth survives refresh.
+    // (GFM pipes drop column widths.)
     const table = node as HTMLTableElement;
-    const rows = Array.from(table.querySelectorAll("tr"));
-    if (!rows.length) return "";
-    const lines: string[] = [];
-    rows.forEach((tr, i) => {
-      const cells = Array.from(tr.querySelectorAll("th,td")).map((c) => {
-        const el = c as HTMLElement;
-        // Preserve inline math / marks inside cells
-        let inner = "";
-        el.childNodes.forEach((child) => {
-          if (child.nodeType === 3) {
-            inner += child.textContent || "";
-          } else if (child.nodeType === 1) {
-            const he = child as HTMLElement;
-            if (he.getAttribute("data-math-inline") === "1") {
-              const f = normalizeLatexFormula(
-                decodeFormulaAttr(he.getAttribute("data-formula") || "")
-              );
-              inner += `$${f}$`;
-            } else if (he.getAttribute("data-math-block") === "1") {
-              const f = normalizeLatexFormula(
-                decodeFormulaAttr(he.getAttribute("data-formula") || "")
-              );
-              inner += `$$${f}$$`;
-            } else {
-              inner += he.textContent || "";
-            }
-          }
-        });
-        if (!inner.trim()) inner = el.textContent || "";
-        return inner.replace(/\|/g, "\\|").replace(/\n+/g, " ").trim();
-      });
-      lines.push(`| ${cells.join(" | ")} |`);
-      if (i === 0) {
-        lines.push(`| ${cells.map(() => "---").join(" | ")} |`);
-      }
-    });
-    return `\n\n${lines.join("\n")}\n\n`;
+    return `\n\n${serializeRichTableHtml(table)}\n\n`;
   },
 });
+
+/** Keep TipTap column widths (colgroup / colwidth) in markdown HTML. */
+function serializeRichTableHtml(table: HTMLTableElement): string {
+  const clone = table.cloneNode(true) as HTMLTableElement;
+  clone.classList.add("rich-table");
+
+  const readPx = (el: Element | null): number | null => {
+    if (!el) return null;
+    const attr = el.getAttribute("width") || el.getAttribute("colwidth");
+    if (attr) {
+      const n = parseInt(attr.split(",")[0], 10);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const style = el.getAttribute("style") || "";
+    const m = style.match(/(?:^|;)\s*width:\s*(\d+(?:\.\d+)?)px/i);
+    if (m) {
+      const n = Math.round(parseFloat(m[1]));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  };
+
+  // TipTap renderHTML writes <col style="width:Npx"> but parseHTML only reads
+  // the width / colwidth attributes — normalize so refresh keeps sizes.
+  const cols = Array.from(clone.querySelectorAll("colgroup > col"));
+  cols.forEach((col) => {
+    const w = readPx(col);
+    if (w != null) {
+      col.setAttribute("width", String(w));
+      const style = (col.getAttribute("style") || "").replace(/(?:^|;)\s*width:\s*[^;]+;?/gi, "").trim();
+      col.setAttribute("style", style ? `${style}; width: ${w}px` : `width: ${w}px`);
+    }
+  });
+
+  const firstRow = clone.querySelector("tr");
+  if (firstRow) {
+    Array.from(firstRow.children).forEach((cell, i) => {
+      if (!(cell instanceof HTMLElement)) return;
+      if (cell.tagName !== "TH" && cell.tagName !== "TD") return;
+      const w = readPx(cols[i] || null) || readPx(cell);
+      if (w != null) {
+        cell.setAttribute("colwidth", String(w));
+      }
+    });
+  }
+
+  // No colgroup yet — build one from first-row colwidth / width styles
+  if (!clone.querySelector("colgroup") && firstRow) {
+    const widths = Array.from(firstRow.children).map((cell) =>
+      cell instanceof HTMLElement ? readPx(cell) : null
+    );
+    if (widths.some((w) => w != null && w > 0)) {
+      const cg = clone.ownerDocument!.createElement("colgroup");
+      widths.forEach((w) => {
+        const col = clone.ownerDocument!.createElement("col");
+        if (w != null && w > 0) {
+          col.setAttribute("width", String(w));
+          col.setAttribute("style", `width: ${w}px`);
+        }
+        cg.appendChild(col);
+      });
+      const tbody = clone.querySelector("tbody");
+      clone.insertBefore(cg, tbody || clone.firstChild);
+      const total = widths.reduce<number>((s, w) => s + (w || 0), 0);
+      if (total > 0) clone.style.width = `${total}px`;
+    }
+  }
+
+  return clone.outerHTML;
+}
 
 function normalizeCssColor(c: string): string {
   const s = c.trim();
@@ -822,7 +858,35 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   );
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
-  return wrapBareTablesHtml(normalizeTaskListHtml(html));
+  return wrapBareTablesHtml(normalizeTableColWidths(normalizeTaskListHtml(html)));
+}
+
+/** TipTap parseColwidth reads col[width] / td[colwidth], not style="width:…px". */
+function normalizeTableColWidths(html: string): string {
+  if (!html || !/<table\b/i.test(html) || typeof DOMParser === "undefined") return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("table").forEach((table) => {
+      const cols = Array.from(table.querySelectorAll("colgroup > col"));
+      cols.forEach((col) => {
+        if (col.getAttribute("width")) return;
+        const m = (col.getAttribute("style") || "").match(/width:\s*(\d+(?:\.\d+)?)px/i);
+        if (m) col.setAttribute("width", String(Math.round(parseFloat(m[1]))));
+      });
+      const firstRow = table.querySelector("tr");
+      if (!firstRow) return;
+      Array.from(firstRow.children).forEach((cell, i) => {
+        if (!(cell instanceof HTMLElement)) return;
+        if (cell.tagName !== "TH" && cell.tagName !== "TD") return;
+        if (cell.getAttribute("colwidth")) return;
+        const colW = cols[i]?.getAttribute("width");
+        if (colW) cell.setAttribute("colwidth", colW);
+      });
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
 }
 
 /** Ensure GFM tables get a horizontal scroll shell (TipTap also uses .tableWrapper). */
@@ -1065,6 +1129,18 @@ export function htmlToMarkdown(html: string): string {
           return;
         }
         el.replaceWith(doc.createTextNode(park(`\n\n![audio|${title}](${src})\n\n`)));
+      });
+      // Park tables as HTML so TipTap colgroup / colwidth survive refresh
+      // (GFM pipe tables cannot store column widths).
+      doc.querySelectorAll("table").forEach((el) => {
+        const table = el as HTMLTableElement;
+        // Skip empty shells
+        if (!table.querySelector("tr")) {
+          table.remove();
+          return;
+        }
+        const html = serializeRichTableHtml(table);
+        table.replaceWith(doc.createTextNode(park(`\n\n${html}\n\n`)));
       });
       // Park images before Turndown (Firebase URLs with & break raw HTML round-trips)
       const parkImageEl = (el: Element) => {
