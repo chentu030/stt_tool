@@ -14,8 +14,22 @@ import {
   type JobAiContext,
 } from "@/lib/jobAiContext";
 import AiMarkdown from "@/components/AiMarkdown";
+import {
+  dispatchNoteAiEdit,
+  parseNoteAiEdit,
+  readNoteLiveDraft,
+  type NoteAiEdit,
+} from "@/lib/noteAiEdit";
+import { toast } from "@/lib/toast";
 
-type Msg = { id: string; role: "user" | "assistant"; text: string };
+type Msg = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  edit?: NoteAiEdit | null;
+  editNoteId?: string;
+  editApplied?: boolean;
+};
 type RailMode = "dock" | "float";
 type ChatThread = {
   id: string;
@@ -32,11 +46,21 @@ const ACTIVE_KEY = "cadence_ai_active_thread";
 
 const DOCK_SUGGESTIONS = [
   { label: "總結此頁面", prompt: "請總結目前對焦或知識庫裡最相關的筆記重點" },
+  { label: "修改本篇", prompt: "請改寫並整理目前這篇筆記，讓結構更清楚、重點更突出，並直接更新筆記內容" },
   { label: "本週重點", prompt: "根據我的知識庫，整理本週最值得關注的 5 件事" },
   { label: "找相關筆記", prompt: "幫我找出彼此相關的筆記主題，並說明可如何串起來" },
   { label: "靈感草稿", prompt: "從最近筆記抽出靈感，寫一段可發展的草稿開頭" },
   { label: "待辦催收", prompt: "從筆記裡找出未完成待辦，按緊急程度排序" },
   { label: "會議準備", prompt: "幫我準備一場會議的議程與要帶的問題" },
+];
+
+const NOTE_PAGE_SUGGESTIONS = [
+  { label: "總結此頁", prompt: "請總結目前這篇筆記的重點" },
+  { label: "改寫本篇", prompt: "請改寫目前這篇筆記，讓文字更清楚，並直接更新筆記內容" },
+  { label: "整理結構", prompt: "請把目前這篇筆記重新整理成清楚的標題與條列，並直接更新筆記" },
+  { label: "抽出待辦", prompt: "請從目前這篇筆記抽出待辦清單，追加到筆記文末" },
+  { label: "補細節", prompt: "請擴寫目前這篇筆記不足的地方，並直接更新筆記內容" },
+  { label: "只問不改", prompt: "先不要改筆記，只說明這篇在講什麼" },
 ];
 
 const LIBRARY_SUGGESTIONS = AI_SUGGESTIONS;
@@ -191,17 +215,20 @@ export default function GlobalAiDock() {
   const onLibraryPage = pathname === "/library" || pathname?.startsWith("/library/");
   const onCanvasPage = pathname?.startsWith("/canvas/");
   const onJobPage = pathname?.startsWith("/job/");
-  const dockSuggestions = onJobPage && jobCtx
-    ? JOB_AI_SUGGESTIONS
-    : onLibraryPage
-      ? LIBRARY_SUGGESTIONS
-      : onCanvasPage
-        ? CANVAS_SUGGESTIONS
-        : DOCK_SUGGESTIONS;
+  const allowNoteEdit = prefsCtx?.prefs.aiAllowNoteEdit !== false;
   const focusNote = useMemo(
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
     [focusNoteId, notes]
   );
+  const dockSuggestions = onJobPage && jobCtx
+    ? JOB_AI_SUGGESTIONS
+    : onNotePage && focusNote
+      ? NOTE_PAGE_SUGGESTIONS
+      : onLibraryPage
+        ? LIBRARY_SUGGESTIONS
+        : onCanvasPage
+          ? CANVAS_SUGGESTIONS
+          : DOCK_SUGGESTIONS;
   const assistantName = prefsCtx?.prefs.aiAssistantName || "Albireus AI";
 
   const active = useMemo(
@@ -460,6 +487,23 @@ export default function GlobalAiDock() {
     }));
   };
 
+  const applyEdit = (msgId: string, edit: NoteAiEdit, noteId: string) => {
+    dispatchNoteAiEdit({
+      noteId,
+      mode: edit.mode,
+      bodyMd: edit.bodyMd,
+      title: edit.title,
+      source: "global-ai",
+    });
+    patchActive((t) => ({
+      ...t,
+      msgs: t.msgs.map((m) =>
+        m.id === msgId ? { ...m, editApplied: true } : m
+      ),
+    }));
+    toast(edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
+  };
+
   const send = async (text: string) => {
     const prompt = text.trim();
     if (!prompt || busy) return;
@@ -496,6 +540,8 @@ export default function GlobalAiDock() {
       };
 
       let body: Record<string, unknown>;
+      const canEditHere = allowNoteEdit && !!focusNote && onNotePage;
+
       if (onJobPage && jobCtx) {
         const packed = packTranscriptForAi(jobCtx.transcript);
         if (!packed.trim()) throw new Error("尚無逐字稿內容可詢問");
@@ -506,6 +552,32 @@ export default function GlobalAiDock() {
           context: `來源：逐字稿\n檔名：${jobCtx.filename || "—"}\n\n${packed}`,
           messages: history,
           assistant,
+          allowNoteEdit: false,
+        };
+      } else if (focusNote && onNotePage) {
+        const live = readNoteLiveDraft(focusNote.id);
+        const noteTitle = live?.title || focusNote.title || "未命名";
+        const noteBody = live?.body ?? focusNote.body_md ?? "";
+        const pinExtra = snapshotPins
+          .filter((id) => id !== focusNote.id)
+          .map((id) => notes.find((n) => n.id === id))
+          .filter(Boolean) as Note[];
+        const extraCtx =
+          pinExtra.length > 0
+            ? `\n\n—— 額外釘選參考 ——\n${pinExtra
+                .map((n) => `### ${n.title}\n${(n.body_md || "").slice(0, 2500)}`)
+                .join("\n\n")}\n—— 結束 ——`
+            : "";
+        body = {
+          action: "note",
+          title: noteTitle,
+          body: noteBody,
+          prompt,
+          context: `—— 目前筆記（可編輯目標）——\nID：${focusNote.id}\n標題：${noteTitle}\n路徑：${focusNote.folder || "（根目錄）"}\n\n${noteBody}\n—— 結束 ——${extraCtx}`,
+          messages: history,
+          assistant,
+          allowNoteEdit: canEditHere,
+          focusNoteId: focusNote.id,
         };
       } else {
         const libNotes = notes.map((n) => ({
@@ -528,6 +600,7 @@ export default function GlobalAiDock() {
           context: packed.context,
           assistant,
           messages: history,
+          allowNoteEdit: false,
         };
       }
 
@@ -538,9 +611,31 @@ export default function GlobalAiDock() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "失敗");
+      const rawText = String(data.text || "（無回覆）");
+      const parsed = canEditHere ? parseNoteAiEdit(rawText) : { edit: null, displayText: rawText };
+      let editApplied = false;
+      if (parsed.edit && focusNote && canEditHere) {
+        dispatchNoteAiEdit({
+          noteId: focusNote.id,
+          mode: parsed.edit.mode,
+          bodyMd: parsed.edit.bodyMd,
+          title: parsed.edit.title,
+          source: "global-ai",
+        });
+        editApplied = true;
+        toast(parsed.edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
+      }
+      const assistantMsg: Msg = {
+        id: uid(),
+        role: "assistant",
+        text: parsed.displayText,
+        edit: parsed.edit,
+        editNoteId: parsed.edit && focusNote ? focusNote.id : undefined,
+        editApplied,
+      };
       patchActive((t) => ({
         ...t,
-        msgs: [...t.msgs, { id: uid(), role: "assistant", text: data.text || "（無回覆）" }],
+        msgs: [...t.msgs, assistantMsg],
       }), tid);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -824,6 +919,24 @@ export default function GlobalAiDock() {
                   ) : (
                     <p>{m.text}</p>
                   )}
+                  {m.role === "assistant" && m.edit && m.editNoteId ? (
+                    <div className="cadence-ai-edit-bar">
+                      <span>
+                        {m.editApplied
+                          ? m.edit.mode === "append"
+                            ? "已追加到筆記"
+                            : "已寫入筆記"
+                          : "建議修改筆記"}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => applyEdit(m.id, m.edit!, m.editNoteId!)}
+                      >
+                        {m.editApplied ? "再次套用" : "套用到筆記"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ))}
               {busy && <p className="note-aside-hint">思考中…</p>}
@@ -872,6 +985,28 @@ export default function GlobalAiDock() {
                 >
                   {webSearch ? "上網 · 開" : "上網"}
                 </button>
+                {onNotePage ? (
+                  <button
+                    type="button"
+                    className={`doc-cmd${allowNoteEdit ? " is-on" : ""}`}
+                    title={
+                      allowNoteEdit
+                        ? "已允許 AI 在你要求時修改本篇筆記"
+                        : "目前不允許 AI 修改筆記"
+                    }
+                    aria-pressed={allowNoteEdit}
+                    onClick={() => {
+                      prefsCtx?.setPrefs({ aiAllowNoteEdit: !allowNoteEdit });
+                      toast(
+                        !allowNoteEdit
+                          ? "已允許 AI 修改筆記（需在對話中明確要求）"
+                          : "已關閉 AI 修改筆記權限"
+                      );
+                    }}
+                  >
+                    {allowNoteEdit ? "可改筆記" : "禁改筆記"}
+                  </button>
+                ) : null}
                 <button type="button" className="doc-cmd" onClick={() => router.push("/library")}>
                   知識庫
                 </button>

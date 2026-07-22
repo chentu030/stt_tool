@@ -721,6 +721,15 @@ export default function SettingsPage() {
                 onChange={(aiGrounding) => patch({ aiGrounding })}
               />
             </Row>
+            <Row
+              label="允許 AI 修改筆記"
+              hint="右側 AI 欄在你明確要求改寫／整理本篇時，可直接寫入筆記內容"
+            >
+              <Toggle
+                checked={prefs.aiAllowNoteEdit}
+                onChange={(aiAllowNoteEdit) => patch({ aiAllowNoteEdit })}
+              />
+            </Row>
             <Row label="預設脈絡範圍">
               <Seg
                 value={prefs.aiDefaultScope}

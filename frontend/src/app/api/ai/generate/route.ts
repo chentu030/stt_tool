@@ -6,6 +6,7 @@ import {
   AI_TEXT_MODELS,
   appendGroundingSources,
 } from "@/lib/aiPrefs";
+import { NOTE_EDIT_SYSTEM_RULES } from "@/lib/noteAiEdit";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,10 @@ type Body = {
   messages?: VertexChatMessage[];
   model?: string;
   grounding?: boolean;
+  /** When true, system prompt allows albireus-note-edit fences for the open note. */
+  allowNoteEdit?: boolean;
+  /** Focus note id (for edit targeting hints). */
+  focusNoteId?: string;
   assistant?: {
     name?: string;
     style?: "concise" | "balanced" | "detailed";
@@ -235,13 +240,17 @@ ops 可用：
 
   if (action === "chat" || action === "library" || action === "note") {
     const history = (data.messages || []).slice(-12);
+    const allowEdit = !!data.allowNoteEdit;
     const system = [
       asst,
       "優先根據提供的筆記／知識庫脈絡作答；不要捏造沒有的事實。",
       "若使用者要求改寫／插入內容，用 Markdown 清楚標出建議文字。",
       "可用標題、清單、粗體、表格。",
       "提到具體筆記時，盡量附上路徑如 /notes/ID。",
-    ].join("");
+      allowEdit
+        ? `使用者已授權你在「明確要求修改筆記」時直接產出可套用的編輯區塊。目前對焦筆記 ID：${data.focusNoteId || "（未知）"}。\n${NOTE_EDIT_SYSTEM_RULES}`
+        : "你目前沒有寫入筆記的權限；只能在對話中給出建議，不要假裝已修改筆記。",
+    ].join("\n");
 
     const ctxBlock = context || note
       ? `\n\n${context || `—— 目前筆記 ——\n標題：${title}\n\n${note}\n—— 結束 ——`}\n`

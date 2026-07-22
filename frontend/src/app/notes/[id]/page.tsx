@@ -48,6 +48,13 @@ import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
 import NoteAside from "@/components/notes/NoteAside";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import {
+  NOTE_AI_EDIT_EVENT,
+  applyNoteAiEditToBody,
+  clearNoteLiveDraft,
+  publishNoteLiveDraft,
+  type NoteAiEditEventDetail,
+} from "@/lib/noteAiEdit";
 import NoteSplitPane from "@/components/notes/NoteSplitPane";
 import NoteSplitResizer, { useNoteSplitLayout } from "@/components/notes/NoteSplitResizer";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
@@ -443,6 +450,39 @@ function NotePageInner() {
   useEffect(() => {
     latest.current = { title, body, tags, folder, icon, color, cover, parent_id: parentId };
   }, [title, body, tags, folder, icon, color, cover, parentId]);
+
+  useEffect(() => {
+    if (!id) return;
+    publishNoteLiveDraft(id, title, body);
+    return () => clearNoteLiveDraft(id);
+  }, [id, title, body]);
+
+  useEffect(() => {
+    if (!id) return;
+    const onEdit = (ev: Event) => {
+      const detail = (ev as CustomEvent<NoteAiEditEventDetail>).detail;
+      if (!detail || detail.noteId !== id) return;
+      if (detail.title != null && detail.title.trim()) {
+        const nextTitle = detail.title.trim();
+        setTitle(nextTitle);
+        latest.current = { ...latest.current, title: nextTitle };
+      }
+      if (detail.bodyMd != null) {
+        const nextBody = applyNoteAiEditToBody(latest.current.body || body, {
+          mode: detail.mode || "replace",
+          bodyMd: detail.bodyMd,
+          title: detail.title,
+        });
+        latest.current = { ...latest.current, body: nextBody };
+        setBody(nextBody);
+        publishNoteLiveDraft(id, latest.current.title, nextBody);
+      }
+      markDirty();
+    };
+    window.addEventListener(NOTE_AI_EDIT_EVENT, onEdit as EventListener);
+    return () => window.removeEventListener(NOTE_AI_EDIT_EVENT, onEdit as EventListener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, body]);
 
   useEffect(() => {
     teamFocus.setFocusMode(focusMode);

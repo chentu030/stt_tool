@@ -7335,10 +7335,16 @@ a.sidebar-user-name:hover {
     width: 100%;
     max-width: 100%;
   }
+  .doc-save-pill {
+    order: 2;
+    width: fit-content;
+    max-width: 100%;
+  }
   .doc-crumb-current {
     max-width: min(12rem, 46vw);
   }
   .doc-command-bar {
+    order: 3;
     width: 100%;
     justify-content: space-between;
     gap: 0.35rem;
@@ -14716,6 +14722,21 @@ body.is-sidebar-resizing iframe {
   flex-direction: column;
   gap: 0.45rem;
   padding-right: 0.15rem;
+}
+.cadence-ai-edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.cadence-ai-edit-bar .btn {
+  flex-shrink: 0;
 }
 .cadence-ai-dock-compose {
   flex-shrink: 0;
