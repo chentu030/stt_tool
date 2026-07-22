@@ -32,6 +32,7 @@ import {
   type DbViewType,
 } from "@/lib/database";
 import MenuSelect from "@/components/MenuSelect";
+import CadenceDateField from "@/components/CadenceDateField";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/components/AuthProvider";
@@ -1155,20 +1156,31 @@ function PropertyCell({
     );
   }
 
+  if (prop.type === "date" || prop.type === "datetime") {
+    return (
+      <CadenceDateField
+        value={draft}
+        mode={prop.type === "datetime" ? "datetime" : "date"}
+        ariaLabel={prop.name || "日期"}
+        placeholder={prop.type === "datetime" ? "選擇日期時間" : "選擇日期"}
+        onChange={(next) => {
+          setDraft(next);
+          void setCellValue(row, prop, next || null);
+        }}
+      />
+    );
+  }
+
   const inputType =
     prop.type === "number"
       ? "number"
-      : prop.type === "date"
-        ? "date"
-        : prop.type === "datetime"
-          ? "datetime-local"
-          : prop.type === "email"
-            ? "email"
-            : prop.type === "url"
-              ? "url"
-              : prop.type === "phone"
-                ? "tel"
-                : "text";
+      : prop.type === "email"
+        ? "email"
+        : prop.type === "url"
+          ? "url"
+          : prop.type === "phone"
+            ? "tel"
+            : "text";
 
   return (
     <input
@@ -1911,9 +1923,16 @@ function FormView({
                 </option>
               ))}
             </select>
+          ) : p.type === "date" || p.type === "datetime" ? (
+            <CadenceDateField
+              value={values[p.id] || ""}
+              mode={p.type === "datetime" ? "datetime" : "date"}
+              ariaLabel={p.name}
+              onChange={(next) => setValues((v) => ({ ...v, [p.id]: next }))}
+            />
           ) : (
             <input
-              type={p.type === "number" ? "number" : p.type === "date" ? "date" : "text"}
+              type={p.type === "number" ? "number" : "text"}
               value={values[p.id] || ""}
               onChange={(e) => setValues((v) => ({ ...v, [p.id]: e.target.value }))}
             />
