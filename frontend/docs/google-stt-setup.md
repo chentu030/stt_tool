@@ -1,6 +1,8 @@
 # Google Speech-to-Text（動態批次／經濟模式）
 
-產品預設走 **V2 Dynamic Batch**（約 **$0.003／分鐘**）。若 Cloud Run 尚未部署 `/api/stt/google`（會回 `404 Not Found`），前端會自動改走既有 **Whisper**（`/api/beidanzi/upload`），避免錄音全部失敗。
+產品預設走 **V2 Dynamic Batch**（約 **$0.003／分鐘**）。即時錄音與快速錄音 **只使用 Google STT**，不會改走 Whisper。
+
+若 Cloud Run 尚未部署 `/api/stt/google`，會回 `404 Not Found`，需重新部署後端後才能使用。
 
 ## 為什麼會看到「Not Found」？
 
