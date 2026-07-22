@@ -7940,6 +7940,15 @@ a.sidebar-user-name:hover {
   border-radius: 12px;
   box-shadow: 0 12px 36px rgba(15, 23, 42, 0.14);
 }
+.doc-more-menu--portal {
+  position: fixed;
+  right: auto;
+  top: auto;
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  z-index: 6000;
+}
 .doc-more-item {
   display: block;
   width: 100%;

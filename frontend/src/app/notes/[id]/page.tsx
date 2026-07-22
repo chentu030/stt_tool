@@ -21,7 +21,8 @@ import {
   type PendingIngest,
 } from "@/lib/noteMediaIngest";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
@@ -161,7 +162,11 @@ function NotePageInner() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [morePos, setMorePos] = useState<{ top: number; left: number; minWidth: number } | null>(
+    null
+  );
   const moreWrapRef = useRef<HTMLDivElement | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const exportWrapRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<"write" | "read" | "slides">("write");
   const [deck, setDeck] = useState<SlideDeck | null>(null);
@@ -511,12 +516,39 @@ function NotePageInner() {
     }
   }, [note?.id, note?.app_link]);
 
+  const placeMoreMenu = useCallback(() => {
+    const el = moreWrapRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const menuW = Math.max(180, r.width);
+    const menuH = moreMenuRef.current?.offsetHeight || 320;
+    const spaceBelow = window.innerHeight - r.bottom;
+    const openUp = spaceBelow < menuH + 12 && r.top > spaceBelow;
+    const top = openUp ? Math.max(8, r.top - menuH - 6) : r.bottom + 6;
+    const left = Math.max(8, Math.min(r.right - menuW, window.innerWidth - menuW - 8));
+    setMorePos({ top, left, minWidth: menuW });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!moreOpen) {
+      setMorePos(null);
+      return;
+    }
+    placeMoreMenu();
+    const id = window.requestAnimationFrame(() => placeMoreMenu());
+    return () => window.cancelAnimationFrame(id);
+  }, [moreOpen, placeMoreMenu, viewMode]);
+
   useEffect(() => {
     if (!moreOpen && !exportMenuOpen) return;
     const onPointerDown = (e: PointerEvent) => {
       const t = e.target as Node | null;
       if (!t) return;
-      if (moreOpen && moreWrapRef.current && !moreWrapRef.current.contains(t)) {
+      if (
+        moreOpen &&
+        !moreWrapRef.current?.contains(t) &&
+        !moreMenuRef.current?.contains(t)
+      ) {
         setMoreOpen(false);
       }
       if (exportMenuOpen && exportWrapRef.current && !exportWrapRef.current.contains(t)) {
@@ -529,14 +561,21 @@ function NotePageInner() {
         setExportMenuOpen(false);
       }
     };
+    const onReposition = () => {
+      if (moreOpen) placeMoreMenu();
+    };
     // capture so editor/stopPropagation inside main can't block dismiss
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
     };
-  }, [moreOpen, exportMenuOpen]);
+  }, [moreOpen, exportMenuOpen, placeMoreMenu]);
 
   useEffect(() => {
     const { total, checked } = countTaskCheckboxes(body);
@@ -1790,8 +1829,21 @@ function NotePageInner() {
             <button type="button" className="doc-cmd doc-cmd--keep" onClick={() => setMoreOpen((v) => !v)}>
               更多
             </button>
-            {moreOpen && (
-              <div className="doc-more-menu">
+            {moreOpen && morePos && typeof document !== "undefined"
+              ? createPortal(
+                  <div
+                    ref={moreMenuRef}
+                    className="doc-more-menu doc-more-menu--portal"
+                    role="menu"
+                    style={{
+                      position: "fixed",
+                      top: morePos.top,
+                      left: morePos.left,
+                      minWidth: morePos.minWidth,
+                      zIndex: 6000,
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
                 {[
                   ...(viewMode === "write"
                     ? [
@@ -1965,8 +2017,10 @@ function NotePageInner() {
                     {item.label}
                   </button>
                 ))}
-              </div>
-            )}
+                  </div>,
+                  document.body
+                )
+              : null}
           </div>
         </div>
         </div>
