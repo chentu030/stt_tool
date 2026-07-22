@@ -34,6 +34,8 @@ import {
 import MenuSelect from "@/components/MenuSelect";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import { useAuth } from "@/components/AuthProvider";
+import { resolvePersonLabel } from "@/lib/userProfile";
 
 const COL_W_MIN = 72;
 const COL_W_MAX = 640;
@@ -49,7 +51,7 @@ const COL_W_DEFAULT: Partial<Record<DbPropType, number>> = {
   url: 180,
   email: 160,
   phone: 130,
-  files: 140,
+  files: 200,
   relation: 160,
   formula: 140,
   rollup: 120,
@@ -175,7 +177,7 @@ const ADDABLE: { type: DbPropType; label: string; group: string }[] = [
   { type: "email", label: "Email", group: "聯絡" },
   { type: "phone", label: "電話", group: "聯絡" },
   { type: "person", label: "人員", group: "聯絡" },
-  { type: "files", label: "檔案／媒體", group: "進階" },
+  { type: "files", label: "圖片／音訊／檔案", group: "進階" },
   { type: "relation", label: "關聯", group: "進階" },
   { type: "rollup", label: "彙總（Rollup）", group: "進階" },
   { type: "formula", label: "公式", group: "進階" },
@@ -304,6 +306,17 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   useEffect(() => {
     patchViewRef.current = patchActiveView;
   });
+
+  // Existing databases created before media column: add once if missing.
+  useEffect(() => {
+    if (!db) return;
+    if (db.properties.some((p) => p.type === "files")) return;
+    const next = [...db.properties, { id: "media", name: "媒體", type: "files" as const }];
+    setDb({ ...db, properties: next });
+    void updateDatabase(db.id, { properties: next }).catch(() => {
+      /* ignore; listener will resync */
+    });
+  }, [db]);
 
   const widthOf = (prop: DbProperty) => colWidths[prop.id] ?? defaultColWidth(prop);
 
@@ -1010,7 +1023,7 @@ function typeLabel(t: DbPropType) {
     url: "URL",
     email: "Email",
     phone: "電話",
-    files: "檔案",
+    files: "媒體",
     person: "人員",
     relation: "關聯",
     rollup: "彙總",
@@ -1112,6 +1125,9 @@ function PropertyCell({
     if (prop.type.includes("time")) {
       const d = raw ? new Date(String(raw)) : null;
       return <span className="cdb-readonly">{d ? d.toLocaleString("zh-TW") : "—"}</span>;
+    }
+    if (prop.type === "created_by" || prop.type === "last_edited_by") {
+      return <PersonLabel uid={String(raw || "")} />;
     }
     return <span className="cdb-readonly">{String(raw || "—")}</span>;
   }
@@ -1240,6 +1256,46 @@ function ChipSelect({
   );
 }
 
+function PersonLabel({ uid }: { uid: string }) {
+  const { user, displayName } = useAuth();
+  const [label, setLabel] = useState("");
+
+  useEffect(() => {
+    if (!uid) {
+      setLabel("—");
+      return;
+    }
+    let cancelled = false;
+    void resolvePersonLabel(uid, user ? { uid: user.uid, name: displayName } : null).then((name) => {
+      if (!cancelled) setLabel(name);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, user, displayName]);
+
+  return (
+    <span className="cdb-readonly cdb-person" title={uid || undefined}>
+      {label || "…"}
+    </span>
+  );
+}
+
+function isImageFile(f: DbFileValue): boolean {
+  const name = f.name || f.url;
+  return looksLikeImageUrl(f.url) || /\.(png|jpe?g|gif|webp|svg|avif|bmp|heic)(\?|$)/i.test(name);
+}
+
+function isAudioFile(f: DbFileValue): boolean {
+  const name = f.name || f.url;
+  return /\.(mp3|wav|m4a|aac|ogg|flac|webm)(\?|$)/i.test(name) || /audio\//i.test(f.url);
+}
+
+function isVideoFile(f: DbFileValue): boolean {
+  const name = f.name || f.url;
+  return /\.(mp4|webm|mov|m4v|mkv)(\?|$)/i.test(name);
+}
+
 function FilesCell({
   row,
   prop,
@@ -1256,14 +1312,20 @@ function FilesCell({
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
 
-  const upload = async (file: File) => {
+  const uploadMany = async (list: FileList | File[]) => {
+    const arr = Array.from(list);
+    if (!arr.length) return;
     setBusy(true);
     try {
-      const safe = file.name.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
-      const path = `users/${userId}/db/${databaseId}/${row.id}/${Date.now()}_${safe}`;
-      const url = await uploadFile(path, file);
-      await setCellValue(row, prop, [...files, { url, name: file.name }]);
-      toast("已上傳檔案");
+      const next = [...files];
+      for (const file of arr) {
+        const safe = file.name.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
+        const path = `users/${userId}/db/${databaseId}/${row.id}/${Date.now()}_${safe}`;
+        const url = await uploadFile(path, file);
+        next.push({ url, name: file.name });
+      }
+      await setCellValue(row, prop, next);
+      toast(arr.length > 1 ? `已上傳 ${arr.length} 個檔案` : "已上傳");
     } catch (e) {
       toast(e instanceof Error ? e.message : "上傳失敗");
     } finally {
@@ -1271,24 +1333,81 @@ function FilesCell({
     }
   };
 
+  const removeAt = async (url: string) => {
+    await setCellValue(
+      row,
+      prop,
+      files.filter((f) => f.url !== url)
+    );
+  };
+
   return (
     <div className="cdb-files-cell">
-      {files.map((f) => (
-        <a key={f.url} href={f.url} target="_blank" rel="noreferrer" className="cdb-file-chip">
-          {f.name || "檔案"}
-        </a>
-      ))}
+      {files.map((f) => {
+        if (isImageFile(f)) {
+          return (
+            <div key={f.url} className="cdb-media-item cdb-media-item--image">
+              <a href={f.url} target="_blank" rel="noreferrer" title={f.name || "圖片"}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={f.url} alt={f.name || "圖片"} />
+              </a>
+              <button type="button" className="cdb-media-rm" title="移除" onClick={() => void removeAt(f.url)}>
+                ×
+              </button>
+            </div>
+          );
+        }
+        if (isAudioFile(f)) {
+          return (
+            <div key={f.url} className="cdb-media-item cdb-media-item--audio">
+              <span className="cdb-media-name">{f.name || "音訊"}</span>
+              <audio controls preload="metadata" src={f.url} />
+              <button type="button" className="cdb-media-rm" title="移除" onClick={() => void removeAt(f.url)}>
+                ×
+              </button>
+            </div>
+          );
+        }
+        if (isVideoFile(f)) {
+          return (
+            <div key={f.url} className="cdb-media-item cdb-media-item--video">
+              <video controls preload="metadata" src={f.url} />
+              <button type="button" className="cdb-media-rm" title="移除" onClick={() => void removeAt(f.url)}>
+                ×
+              </button>
+            </div>
+          );
+        }
+        return (
+          <div key={f.url} className="cdb-media-item cdb-media-item--file">
+            <a href={f.url} target="_blank" rel="noreferrer" className="cdb-file-chip">
+              {f.name || "檔案"}
+            </a>
+            <button type="button" className="cdb-media-rm" title="移除" onClick={() => void removeAt(f.url)}>
+              ×
+            </button>
+          </div>
+        );
+      })}
       <div className="cdb-files-actions">
-        <button type="button" className="cdb-file-btn" disabled={busy} onClick={() => inputRef.current?.click()}>
-          {busy ? "上傳中…" : "上傳"}
+        <button
+          type="button"
+          className="cdb-file-btn"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          title="上傳圖片、音訊、影片或其他檔案"
+        >
+          {busy ? "上傳中…" : files.length ? "+ 媒體" : "+ 圖片／音訊"}
         </button>
         <input
           ref={inputRef}
           type="file"
           hidden
+          multiple
+          accept="image/*,audio/*,video/*,.pdf,.txt,.md,.doc,.docx"
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void upload(f);
+            const list = e.target.files;
+            if (list?.length) void uploadMany(list);
             e.target.value = "";
           }}
         />

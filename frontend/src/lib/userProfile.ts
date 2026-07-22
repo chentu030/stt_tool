@@ -117,6 +117,52 @@ export function listenUserProfile(uid: string, cb: (p: UserProfile | null) => vo
   );
 }
 
+export async function fetchUserProfile(uid: string): Promise<UserProfile | null> {
+  if (!uid) return null;
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    if (!snap.exists()) return null;
+    return profileFromData(uid, snap.data() as Record<string, unknown>);
+  } catch (e) {
+    console.warn("[fetchUserProfile]", e);
+    return null;
+  }
+}
+
+/** Prefer display name, then @username, then a short uid stub (never the full raw id). */
+export function formatProfileLabel(profile: UserProfile | null | undefined, uid: string): string {
+  const name = profile?.display_name?.trim();
+  if (name) return name;
+  const un = profile?.username?.trim();
+  if (un) return `@${un}`;
+  if (!uid) return "—";
+  return uid.length > 8 ? `${uid.slice(0, 6)}…` : uid;
+}
+
+const personLabelCache = new Map<string, string>();
+const personLabelInflight = new Map<string, Promise<string>>();
+
+export async function resolvePersonLabel(
+  uid: string,
+  self?: { uid: string; name: string } | null
+): Promise<string> {
+  if (!uid) return "—";
+  if (self?.uid && uid === self.uid && self.name.trim()) return self.name.trim();
+  const cached = personLabelCache.get(uid);
+  if (cached) return cached;
+  let pending = personLabelInflight.get(uid);
+  if (!pending) {
+    pending = fetchUserProfile(uid).then((p) => {
+      const label = formatProfileLabel(p, uid);
+      personLabelCache.set(uid, label);
+      personLabelInflight.delete(uid);
+      return label;
+    });
+    personLabelInflight.set(uid, pending);
+  }
+  return pending;
+}
+
 /** Seed a profile doc from Google Auth on first visit (no overwrite of custom fields). */
 export async function ensureUserProfile(user: User): Promise<void> {
   const ref = doc(db, "users", user.uid);

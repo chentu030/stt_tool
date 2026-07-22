@@ -166,6 +166,7 @@ export function defaultTaskProperties(): DbProperty[] {
     { id: "due", name: "截止日期", type: "date" },
     { id: "priority", name: "優先級", type: "select", options: priorityOpts },
     { id: "tags", name: "標籤", type: "tags" },
+    { id: "media", name: "媒體", type: "files" },
   ];
 }
 
