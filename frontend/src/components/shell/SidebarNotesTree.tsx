@@ -1051,6 +1051,11 @@ export default function SidebarNotesTree() {
           label: "圖示與顏色…",
           action: () => openStylePicker({ kind: "note", noteId: note.id }, menuX, menuY),
         },
+        {
+          type: "item",
+          label: "還原圖示與顏色",
+          action: () => void resetIconColor({ kind: "note", noteId: note.id }),
+        },
         { type: "item", label: "移動至…", action: () => moveNotes([note.id]) },
         {
           type: "item",
@@ -1085,11 +1090,18 @@ export default function SidebarNotesTree() {
 
     if (target.kind === "folder") {
       const isVirtual = target.path === UNCATEGORIZED;
-      items.push({
-        type: "item",
-        label: "圖示與顏色…",
-        action: () => openStylePicker({ kind: "folder", path: target.path }, menuX, menuY),
-      });
+      items.push(
+        {
+          type: "item",
+          label: "圖示與顏色…",
+          action: () => openStylePicker({ kind: "folder", path: target.path }, menuX, menuY),
+        },
+        {
+          type: "item",
+          label: "還原圖示與顏色",
+          action: () => void resetIconColor({ kind: "folder", path: target.path }),
+        }
+      );
       if (!isVirtual) {
         items.push(
           { type: "item", label: "重新命名", action: () => renameFolder(target.path) },
