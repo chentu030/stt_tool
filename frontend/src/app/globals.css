@@ -9665,6 +9665,7 @@ body.is-split-resizing iframe {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
+  cursor: pointer;
 }
 .rich-prose .rich-image {
   max-width: 100%;

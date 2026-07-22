@@ -2,7 +2,7 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { askPrompt } from "@/lib/dialogs";
+import { askConfirm, askPrompt } from "@/lib/dialogs";
 
 import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo, type ReactNode, type MutableRefObject, type RefObject } from "react";
 import { createPortal } from "react-dom";
@@ -1141,7 +1141,7 @@ export default function RichNoteEditor({
       }).configure({
         openOnClick: false,
         autolink: true,
-        HTMLAttributes: { class: "rich-link" },
+        HTMLAttributes: { class: "rich-link", title: "雙擊開啟連結" },
       }),
       WikiLink,
       NoteImage.configure({
@@ -1215,43 +1215,81 @@ export default function RichNoteEditor({
           window.location.href = h;
         };
 
+        const confirmAndOpen = (href: string, externalPreferred: boolean, label?: string) => {
+          const h = href.trim();
+          if (!h) return;
+          const preview =
+            label?.trim() && label.trim() !== h
+              ? `${label.trim()}\n${h}`
+              : h.length > 120
+                ? `${h.slice(0, 117)}…`
+                : h;
+          void (async () => {
+            const ok = await askConfirm({
+              title: "前往連結？",
+              message: preview,
+              confirmLabel: "前往",
+              cancelLabel: "取消",
+            });
+            if (ok) openHref(h, externalPreferred);
+          })();
+        };
+
+        // Single click: never navigate (easy to mis-tap among dense links).
+        // Double-click: ask before opening.
+        const isDouble = event.detail >= 2;
+
         const app = target?.closest?.("a[data-note-app]") as HTMLAnchorElement | null;
         if (app) {
           event.preventDefault();
           const href = app.getAttribute("href");
-          if (href) openHref(href, false);
+          if (!href) return true;
+          if (!isDouble) return false;
+          confirmAndOpen(href, false, app.textContent || undefined);
           return true;
         }
         const el = target?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
         if (el) {
           event.preventDefault();
+          if (!isDouble) return false;
           const title = (el.getAttribute("data-wiki") || "").trim();
           const href = el.getAttribute("href");
-          const open = onOpenWikiNoteRef.current;
-          if (open && title) {
-            void open(title);
-            return true;
-          }
-          if (href && href.startsWith("/notes/")) {
-            window.location.href = href;
-            return true;
-          }
-          if (title) {
-            const id = resolveWikiRef.current(title);
-            if (id) window.location.href = `/notes/${id}`;
-          }
+          const label = title || el.textContent || href || "Wiki 連結";
+          void (async () => {
+            const ok = await askConfirm({
+              title: "開啟筆記連結？",
+              message: label,
+              confirmLabel: "開啟",
+              cancelLabel: "取消",
+            });
+            if (!ok) return;
+            const open = onOpenWikiNoteRef.current;
+            if (open && title) {
+              void open(title);
+              return;
+            }
+            if (href && href.startsWith("/notes/")) {
+              window.location.href = href;
+              return;
+            }
+            if (title) {
+              const id = resolveWikiRef.current(title);
+              if (id) window.location.href = `/notes/${id}`;
+            }
+          })();
           return true;
         }
         // TipTap Link uses openOnClick: false so contenteditable won't follow <a> —
-        // open URL / bookmark / file links ourselves.
+        // open URL / bookmark / file links ourselves (double-click + confirm).
         const link = target?.closest?.(
-          "a.rich-link, a.rich-file, a.rich-bookmark-body, a[data-note-bookmark]"
+          "a.rich-link, a.rich-file, a.rich-bookmark-body, a[data-note-bookmark], a[href]:not([data-wiki]):not([data-note-app])"
         ) as HTMLAnchorElement | null;
         if (link) {
           const href = link.getAttribute("href");
           if (!href) return false;
           event.preventDefault();
-          openHref(href, true);
+          if (!isDouble) return false;
+          confirmAndOpen(href, true, link.textContent || undefined);
           return true;
         }
         return false;
