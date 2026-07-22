@@ -3863,7 +3863,7 @@ html[data-theme-transition="to-dark"]::view-transition-new(root) {
   display: block;
   width: 100%;
   margin: 0;
-  padding: 0.45rem 0.5rem 0.35rem;
+  padding: 0.45rem 0.5rem 0.4rem;
   border: 0;
   border-radius: 10px;
   text-align: left;
@@ -3882,21 +3882,77 @@ html[data-theme-transition="to-dark"]::view-transition-new(root) {
 }
 .sidebar-storage-tip-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.35rem;
   font-size: 0.72rem;
+}
+.sidebar-storage-tip-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
 }
 .sidebar-storage-tip-head strong {
   font-weight: 700;
   color: var(--text-main);
 }
-.sidebar-storage-tip-head span {
+.sidebar-storage-tip-head > span:last-child {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.sidebar-storage-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  cursor: help;
+}
+.sidebar-storage-info:hover,
+.sidebar-storage-info:focus-visible {
+  color: var(--accent);
+}
+.sidebar-storage-info:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+.sidebar-storage-info-pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 60;
+  width: min(220px, 70vw);
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+}
+.sidebar-storage-info:hover .sidebar-storage-info-pop,
+.sidebar-storage-info:focus-visible .sidebar-storage-info-pop {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
 }
 .sidebar-storage-bar {
-  margin: 0.35rem 0 0.4rem;
+  margin: 0.35rem 0 0;
   height: 4px;
   border-radius: 99px;
   background: color-mix(in srgb, var(--border) 80%, transparent);
