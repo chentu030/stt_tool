@@ -260,11 +260,18 @@ export class GoogleLiveSttSession {
     const old = this.ws;
     this.ws = null;
     safeSend(old, JSON.stringify({ type: "end" }));
-    try {
-      old?.onclose = null;
-      old?.close();
-    } catch {
-      /* ignore */
+    if (old) {
+      try {
+        old.onopen = null;
+        old.onerror = null;
+        old.onmessage = null;
+        old.onclose = null;
+        if (old.readyState === WebSocket.OPEN || old.readyState === WebSocket.CONNECTING) {
+          old.close();
+        }
+      } catch {
+        /* ignore */
+      }
     }
     if (this.stopped || this.openFailed) return;
     this.suppressReconnect = false;
