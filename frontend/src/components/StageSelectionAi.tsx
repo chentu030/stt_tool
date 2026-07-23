@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import { useEffect, useRef, useState } from "react";
 import { usePrefsOptional } from "@/components/PrefsProvider";
@@ -122,7 +123,7 @@ export default function StageSelectionAi({
       if (action === "expand" || action === "explain") {
         payload.body = context?.slice(0, 8000) || sel;
       }
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

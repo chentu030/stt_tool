@@ -9,6 +9,7 @@ import {
 import { NOTE_EDIT_SYSTEM_RULES } from "@/lib/noteAiEdit";
 import { DB_EDIT_SYSTEM_RULES } from "@/lib/dbAiEdit";
 import { SCHEDULE_EDIT_SYSTEM_RULES } from "@/lib/scheduleAiEdit";
+import { requireAiUser } from "@/lib/aiApiGuard";
 
 export const runtime = "nodejs";
 
@@ -309,6 +310,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireAiUser(req);
+    if (gate instanceof NextResponse) return gate;
+
     const data = (await req.json()) as Body;
     const built = buildPrompt(data);
     if (!built.prompt.trim()) {

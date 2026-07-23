@@ -5,6 +5,7 @@ import {
   segmentsToPlainText,
   segmentsToTimestampedText,
 } from "@/lib/transcript";
+import { aiFetch } from "@/lib/aiFetch";
 
 /** Default instruction for turning a transcript into study notes. */
 export const TRANSCRIPT_STUDY_PROMPT =
@@ -71,7 +72,7 @@ export async function createAiStudyNoteFromTranscript(opts: {
   if (!source.trim()) throw new Error("沒有可整理的逐字稿內容");
 
   const prompt = (opts.prompt || TRANSCRIPT_STUDY_PROMPT).trim();
-  const res = await fetch("/api/ai/generate", {
+  const res = await aiFetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

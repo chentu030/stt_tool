@@ -11,6 +11,7 @@ import {
   readLayoutFromElement,
   DEFAULT_MEDIA_LAYOUT,
 } from "@/lib/mediaLayout";
+import DOMPurify from "isomorphic-dompurify";
 import {
   decodeFormulaAttr,
   encodeFormulaAttr,
@@ -998,9 +999,48 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   );
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
-  return wrapBareTablesHtml(
+  const normalized = wrapBareTablesHtml(
     normalizeTableColWidths(normalizeTaskListHtml(normalizeBlockMediaHtml(html)))
   );
+  return sanitizeNoteHtml(normalized);
+}
+
+/** Strip XSS vectors while keeping TipTap / media data-* attributes. */
+function sanitizeNoteHtml(html: string): string {
+  if (!html) return html;
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    ADD_TAGS: ["iframe", "video", "audio", "source", "colgroup", "col", "mark"],
+    ADD_ATTR: [
+      "target",
+      "allow",
+      "allowfullscreen",
+      "frameborder",
+      "referrerpolicy",
+      "loading",
+      "controls",
+      "colwidth",
+      "width",
+      "height",
+      "srcset",
+      "sizes",
+      "poster",
+      "playsinline",
+      "type",
+      "style",
+      "class",
+      "id",
+      "role",
+      "aria-label",
+      "aria-hidden",
+      "tabindex",
+      "contenteditable",
+      "draggable",
+      "spellcheck",
+    ],
+    ALLOW_DATA_ATTR: true,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+  });
 }
 
 /** TipTap parseColwidth reads col[width] / td[colwidth], not style="width:…px". */

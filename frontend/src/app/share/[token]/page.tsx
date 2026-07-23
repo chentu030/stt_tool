@@ -11,6 +11,8 @@ import {
   copySharedNoteToUser,
   getNoteById,
   listenToNote,
+  listenToShareToken,
+  noteFromShareToken,
   resolveShareToken,
   type ShareMode,
 } from "@/lib/share";
@@ -60,29 +62,52 @@ export default function ShareNotePage() {
         if (!link?.note_id) throw new Error("分享連結不存在或已關閉");
         if (cancelled) return;
         setMode(link.mode);
-        const n = await getNoteById(link.note_id);
-        if (!n) throw new Error("筆記不存在或無法讀取");
-        if (cancelled) return;
-        setNote(n);
-        setTitle(n.title);
-        setBody(n.body_md);
-        unsub = listenToNote(link.note_id, (live) => {
-          if (!live) {
-            setError("筆記已刪除或分享已關閉");
-            setNote(null);
-            return;
+
+        // Edit mode (signed in): live note + collab. View/copy: public token snapshot only.
+        const useLiveNote = link.mode === "edit" && !!user;
+        if (useLiveNote) {
+          const n = await getNoteById(link.note_id);
+          if (!n) throw new Error("筆記不存在或無法讀取");
+          if (cancelled) return;
+          setNote(n);
+          setTitle(n.title);
+          setBody(n.body_md);
+          unsub = listenToNote(link.note_id, (live) => {
+            if (!live) {
+              setError("筆記已刪除或分享已關閉");
+              setNote(null);
+              return;
+            }
+            if (!live.share?.enabled) {
+              setError("擁有者已停止分享");
+              return;
+            }
+            setNote(live);
+            if (collabReadyRef.current) return;
+            setTitle(live.title);
+            setBody(live.body_md);
+          });
+        } else {
+          const snapNote = noteFromShareToken(token, link);
+          if (!snapNote.title && !snapNote.body_md) {
+            throw new Error("此分享連結需擁有者重新開啟一次分享後才能檢視");
           }
-          if (!live.share?.enabled) {
-            setError("擁有者已停止分享");
-            return;
-          }
-          setNote(live);
-          // Do not LWW-overwrite body/title while collab owns the doc.
-          if (collabReadyRef.current) return;
-          if (link.mode === "edit" && userRef.current) return;
-          setTitle(live.title);
-          setBody(live.body_md);
-        });
+          if (cancelled) return;
+          setNote(snapNote);
+          setTitle(snapNote.title);
+          setBody(snapNote.body_md);
+          unsub = listenToShareToken(token, (live) => {
+            if (!live) {
+              setError("筆記已刪除或分享已關閉");
+              setNote(null);
+              return;
+            }
+            const next = noteFromShareToken(token, live);
+            setNote(next);
+            setTitle(next.title);
+            setBody(next.body_md);
+          });
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -93,12 +118,10 @@ export default function ShareNotePage() {
       cancelled = true;
       unsub?.();
     };
-  }, [token]);
+  }, [token, user?.uid]);
 
   const collabReadyRef = useRef(false);
   collabReadyRef.current = collabReady;
-  const userRef = useRef(user);
-  userRef.current = user;
 
   const onCopy = async () => {
     if (!user) {

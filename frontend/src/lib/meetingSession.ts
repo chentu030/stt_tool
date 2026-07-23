@@ -1,3 +1,4 @@
+import { aiFetch } from "@/lib/aiFetch";
 /**
  * Meeting session façade: bind schedule event ↔ note, live capture, post-meeting AI pack.
  */
@@ -328,7 +329,7 @@ export async function runMeetingPackOnNote(noteId: string, title: string): Promi
   const bodyForAi = liveTx.trim()
     ? `${note.body_md || ""}\n\n—— 即時逐字稿緩衝 ——\n${liveTx}`
     : note.body_md || "";
-  const res = await fetch("/api/ai/generate", {
+  const res = await aiFetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -355,7 +356,7 @@ export async function runMeetingAiAction(
 ): Promise<string> {
   const note = await getNote(noteId);
   if (!note) throw new Error("找不到會議筆記");
-  const res = await fetch("/api/ai/generate", {
+  const res = await aiFetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

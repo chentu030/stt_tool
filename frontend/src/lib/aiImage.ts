@@ -1,3 +1,4 @@
+import { aiFetch } from "@/lib/aiFetch";
 /** Shared AI image generation → File for upload. */
 
 export type AiImageAspect =
@@ -19,7 +20,7 @@ export async function generateAiImageFile(opts: {
   const prompt = opts.prompt.trim();
   if (!prompt) throw new Error("請輸入要生成的圖片描述");
 
-  const res = await fetch("/api/ai/image", {
+  const res = await aiFetch("/api/ai/image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

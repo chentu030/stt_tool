@@ -574,6 +574,17 @@ export async function updateNote(
 
   if (!useConflictCheck) {
     await updateDoc(doc(db, "notes", noteId), payload);
+    if (
+      updates.title !== undefined ||
+      updates.body_md !== undefined ||
+      updates.icon !== undefined ||
+      updates.cover !== undefined ||
+      updates.share !== undefined
+    ) {
+      void import("@/lib/share")
+        .then(({ syncShareTokenSnapshot }) => syncShareTokenSnapshot(noteId))
+        .catch(() => {});
+    }
     return { updatedAt: updatedAtMs };
   }
 
@@ -600,6 +611,17 @@ export async function updateNote(
     adoptedRemoteMs = null;
     tx.update(ref, payload);
   });
+  if (
+    updates.title !== undefined ||
+    updates.body_md !== undefined ||
+    updates.icon !== undefined ||
+    updates.cover !== undefined ||
+    updates.share !== undefined
+  ) {
+    void import("@/lib/share")
+      .then(({ syncShareTokenSnapshot }) => syncShareTokenSnapshot(noteId))
+      .catch(() => {});
+  }
   return { updatedAt: adoptedRemoteMs ?? updatedAtMs };
 }
 
@@ -617,6 +639,9 @@ export async function appendNoteMarkdown(noteId: string, md: string): Promise<vo
       updated_at: Timestamp.now(),
     });
   });
+  void import("@/lib/share")
+    .then(({ syncShareTokenSnapshot }) => syncShareTokenSnapshot(noteId))
+    .catch(() => {});
 }
 
 export async function getNote(noteId: string): Promise<Note | null> {

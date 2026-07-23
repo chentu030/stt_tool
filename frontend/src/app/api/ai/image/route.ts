@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { vertexConfigStatus, vertexGenerateImage } from "@/lib/vertex";
+import { requireAiUser } from "@/lib/aiApiGuard";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -27,6 +28,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireAiUser(req);
+    if (gate instanceof NextResponse) return gate;
+
     const data = (await req.json()) as {
       prompt?: string;
       aspectRatio?: string;

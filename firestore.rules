@@ -73,7 +73,9 @@ service cloud.firestore {
     match /notes/{noteId} {
       allow create: if signedIn()
                     && request.resource.data.user_id == request.auth.uid;
-      allow read: if noteOwner() || noteSharedRead() || noteAclViewer(noteId);
+      // Shared notes are not world-readable by note id; public viewers use share_tokens snapshot.
+      // Signed-in users may still open edit-mode shares via noteSharedRead().
+      allow read: if noteOwner() || noteAclViewer(noteId) || (signedIn() && noteSharedRead());
       allow update: if noteOwner()
         || noteAclEditor(noteId)
         || (noteSharedEdit()
@@ -131,7 +133,9 @@ service cloud.firestore {
     }
 
     match /share_tokens/{token} {
-      allow read: if true;
+      // Token id is the secret; allow get by id, never list the collection.
+      allow get: if resource.data.enabled != false;
+      allow list: if false;
       allow create, update: if signedIn()
         && request.resource.data.owner_id == request.auth.uid;
       allow delete: if signedIn()
@@ -150,6 +154,7 @@ service cloud.firestore {
         request.auth.token.email == 'lcy101120@gmail.com'
         || request.auth.token.email == 'lingyu1122@gmail.com'
         || request.auth.token.email == 'ljc123@gmail.com'
+        || request.auth.token.email == 'a.meowalien@gmail.com'
       );
     }
 
@@ -410,7 +415,8 @@ service cloud.firestore {
     }
 
     match /invites/{token} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if false;
       allow create: if signedIn()
         && request.resource.data.created_by == request.auth.uid
         && isTeamAdmin(request.resource.data.team_id);
@@ -445,18 +451,50 @@ service cloud.firestore {
 
     match /users/{uid}/notifications/{notifId} {
       allow read, update, delete: if signedIn() && request.auth.uid == uid;
-      allow create: if signedIn();
+      // Only the actor may create a notification, and only as unread.
+      allow create: if signedIn()
+        && request.resource.data.from_uid == request.auth.uid
+        && request.resource.data.read == false;
     }
 
     // ─── Live cursor presence on note pages ──────────────────
     match /note_presence/{noteId}/users/{uid} {
-      allow read: if signedIn();
-      allow write: if signedIn() && request.auth.uid == uid;
+      allow read: if signedIn() && (
+        noteDoc(noteId).user_id == request.auth.uid
+        || noteAclViewer(noteId)
+        || (
+          noteDoc(noteId).keys().hasAll(['share'])
+          && noteDoc(noteId).share.enabled == true
+          && noteDoc(noteId).share.token is string
+          && noteDoc(noteId).share.token.size() > 0
+        )
+      );
+      allow write: if signedIn()
+        && request.auth.uid == uid
+        && (
+          noteDoc(noteId).user_id == request.auth.uid
+          || noteAclViewer(noteId)
+          || (
+            noteDoc(noteId).keys().hasAll(['share'])
+            && noteDoc(noteId).share.enabled == true
+            && noteDoc(noteId).share.token is string
+            && noteDoc(noteId).share.token.size() > 0
+          )
+        );
     }
 
     // ─── Huddle signaling (offer/answer/candidates) ──────────
     match /huddles/{noteId}/signals/{signalId} {
-      allow read, create: if signedIn();
+      allow read, create: if signedIn() && (
+        noteDoc(noteId).user_id == request.auth.uid
+        || noteAclViewer(noteId)
+        || (
+          noteDoc(noteId).keys().hasAll(['share'])
+          && noteDoc(noteId).share.enabled == true
+          && noteDoc(noteId).share.token is string
+          && noteDoc(noteId).share.token.size() > 0
+        )
+      );
       allow update, delete: if signedIn() && resource.data.from_uid == request.auth.uid;
     }
   }

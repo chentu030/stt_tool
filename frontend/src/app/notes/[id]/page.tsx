@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
@@ -1222,7 +1223,7 @@ function NotePageInner() {
         tags,
         relatedTitles: related.map((r) => r.title),
       });
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

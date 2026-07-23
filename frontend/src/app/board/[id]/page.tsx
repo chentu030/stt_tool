@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
@@ -577,7 +578,7 @@ export default function BoardByIdPage() {
       const summary = backlog
         .map((c) => `- ${c.title}（優先 ${c.meta.priority}${c.meta.due ? `，截止 ${c.meta.due}` : ""}）`)
         .join("\n");
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -610,7 +611,7 @@ export default function BoardByIdPage() {
     setAiError("");
     setAiText("");
     try {
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
@@ -987,7 +988,7 @@ function TeamRoomInner() {
       const text = recent
         .map((m) => `${m.author_name || "匿名"}: ${m.text}`)
         .join("\n");
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

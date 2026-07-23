@@ -1,3 +1,4 @@
+import { aiFetch } from "@/lib/aiFetch";
 /** Note media → transcription → optional summary (resumable). */
 
 import {
@@ -255,7 +256,7 @@ export async function summarizeTranscript(opts: {
     grounding?: boolean;
   };
 }): Promise<string> {
-  const res = await fetch("/api/ai/generate", {
+  const res = await aiFetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

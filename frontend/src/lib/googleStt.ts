@@ -1,3 +1,4 @@
+import { aiFetch } from "@/lib/aiFetch";
 /** Client helpers for Google Cloud STT via backend `/api/stt/google` (no Whisper). */
 
 function apiBase(): string {
@@ -72,7 +73,7 @@ export async function transcribeWithGoogle(
 }
 
 export async function organizeLiveSegment(transcript: string): Promise<string> {
-  const res = await fetch("/api/ai/generate", {
+  const res = await aiFetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -87,7 +88,7 @@ export async function organizeLiveSegment(transcript: string): Promise<string> {
 }
 
 export async function organizeQuickVoice(transcript: string): Promise<{ title: string; body: string }> {
-  const res = await fetch("/api/ai/generate", {
+  const res = await aiFetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

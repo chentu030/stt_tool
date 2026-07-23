@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -719,7 +720,7 @@ export default function GlobalAiDock() {
       // Rolling memory: every 15 turns → condense; afterward API gets summary + last 5.
       const batchInfo = nextSummaryBatch(snapshotMsgs, memory);
       if (batchInfo) {
-        const sumRes = await fetch("/api/ai/generate", {
+        const sumRes = await aiFetch("/api/ai/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -876,7 +877,7 @@ export default function GlobalAiDock() {
         };
       }
 
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

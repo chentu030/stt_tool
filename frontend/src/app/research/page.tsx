@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
@@ -526,7 +527,7 @@ function DeepResearchPageInner() {
     if (!text || !id || guidanceBusy) return;
     setGuidanceBusy(true);
     try {
-      const res = await fetch("/api/ai/research/guidance", {
+      const res = await aiFetch("/api/ai/research/guidance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ runId: id, text }),
@@ -835,7 +836,7 @@ function DeepResearchPageInner() {
     abortRef.current = ac;
 
     try {
-      const res = await fetch("/api/ai/research", {
+      const res = await aiFetch("/api/ai/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ac.signal,
@@ -897,7 +898,7 @@ function DeepResearchPageInner() {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      const res = await fetch("/api/ai/research", {
+      const res = await aiFetch("/api/ai/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ac.signal,
@@ -1032,7 +1033,7 @@ function DeepResearchPageInner() {
     const nextChat = [...chat, userMsg];
     setChat(nextChat);
     try {
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1091,7 +1092,7 @@ function DeepResearchPageInner() {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      const res = await fetch("/api/ai/research", {
+      const res = await aiFetch("/api/ai/research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ac.signal,
@@ -1161,7 +1162,7 @@ function DeepResearchPageInner() {
     setTransformBusy(t.id);
     setTransformOut("");
     try {
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

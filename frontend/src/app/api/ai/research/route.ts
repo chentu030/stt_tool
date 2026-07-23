@@ -19,6 +19,7 @@ import {
   ensureResearchRun,
   endResearchRun,
 } from "@/lib/researchRunStore";
+import { requireAiUser } from "@/lib/aiApiGuard";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -85,6 +86,9 @@ function normalizeFindings(raw?: ResearchFinding[] | null): ResearchFinding[] {
 
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireAiUser(req);
+    if (gate instanceof NextResponse) return gate;
+
     const data = (await req.json()) as {
       topic?: string;
       context?: string;

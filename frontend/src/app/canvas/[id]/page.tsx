@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
@@ -1177,7 +1178,7 @@ function CanvasIdPageInner() {
 
   const askCanvasAi = async (prompt: string) => {
     const selectedIds = selected.map((s) => (s.type === "note" ? `note:${s.id}` : s.id));
-    const res = await fetch("/api/ai/generate", {
+    const res = await aiFetch("/api/ai/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

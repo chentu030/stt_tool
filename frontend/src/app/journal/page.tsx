@@ -1,4 +1,5 @@
 "use client";
+import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
@@ -541,7 +542,7 @@ export default function JournalPage() {
 
   const askAi = async (prompt: string) => {
     const entry = selectedEntry;
-    const res = await fetch("/api/ai/generate", {
+    const res = await aiFetch("/api/ai/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -581,7 +582,7 @@ export default function JournalPage() {
         return;
       }
       const label = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}`;
-      const res = await fetch("/api/ai/generate", {
+      const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -5,12 +5,16 @@ import {
   endResearchRun,
   pushResearchGuidance,
 } from "@/lib/researchRunStore";
+import { requireAiUser } from "@/lib/aiApiGuard";
 
 export const runtime = "nodejs";
 
 /** Inject mid-run guidance into an active deep research SSE run */
 export async function POST(req: NextRequest) {
   try {
+    const gate = await requireAiUser(req);
+    if (gate instanceof NextResponse) return gate;
+
     const data = (await req.json()) as { runId?: string; text?: string };
     const runId = (data.runId || "").trim();
     const text = (data.text || "").trim();
