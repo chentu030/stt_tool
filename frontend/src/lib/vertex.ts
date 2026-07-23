@@ -23,6 +23,11 @@ function getKeys(): string[] {
     .filter(Boolean);
 }
 
+/** Exported for vocab AI proxy and other server routes. */
+export function getVertexApiKeys(): string[] {
+  return getKeys();
+}
+
 function endpoint(model: string): string {
   const location = process.env.VERTEX_LOCATION || DEFAULT_LOCATION;
   const project = process.env.VERTEX_PROJECT_ID?.trim();

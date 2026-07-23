@@ -14,6 +14,7 @@ import {
   buildExtensionFrameUrl,
   mergeExtensionSettings,
 } from "@/lib/community/extensionSettings";
+import { useAuth } from "@/components/AuthProvider";
 
 type Props = {
   note: Note;
@@ -22,9 +23,17 @@ type Props = {
   onTitleHint?: (title: string) => void;
 };
 
+function vocabListenBackend(): string {
+  const raw =
+    (process.env.NEXT_PUBLIC_VOCAB_LISTEN_BACKEND || "").trim() ||
+    (process.env.NEXT_PUBLIC_API_BASE || "").trim();
+  return raw.replace(/^http:\/\//i, "https://").replace(/\/$/, "");
+}
+
 /** Renders specialty workspace surfaces inside a note page / embed. */
 export default function NoteAppSurface({ note, userId, compact, onTitleHint }: Props) {
   const community = useCommunityOptional();
+  const { user } = useAuth();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const link = note.app_link as NoteAppLink | undefined;
 
@@ -65,6 +74,40 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
     return () => window.clearTimeout(t);
   }, [frameSrc, installed, note.id, settings]);
 
+  useEffect(() => {
+    if (!frameSrc || !installed) return;
+    let cancelled = false;
+    const postAuth = async () => {
+      try {
+        const token = user ? await user.getIdToken() : "";
+        if (cancelled) return;
+        frameRef.current?.contentWindow?.postMessage(
+          {
+            type: "albireus:auth",
+            token,
+            email: user?.email || "",
+            uid: user?.uid || "",
+            apiBase: (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, ""),
+            listenBackend: vocabListenBackend(),
+          },
+          "*"
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    const t = window.setTimeout(() => void postAuth(), 500);
+    const onMsg = (e: MessageEvent) => {
+      if (e.data?.type === "albireus:auth-request") void postAuth();
+    };
+    window.addEventListener("message", onMsg);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+      window.removeEventListener("message", onMsg);
+    };
+  }, [frameSrc, installed, user]);
+
   if (!link?.type || !link.id) return null;
 
   if (link.type === "web") {
@@ -101,6 +144,10 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
                   extensionId: installed?.id,
                   settings,
                 },
+                "*"
+              );
+              frameRef.current?.contentWindow?.postMessage(
+                { type: "albireus:auth-request" },
                 "*"
               );
             } catch {

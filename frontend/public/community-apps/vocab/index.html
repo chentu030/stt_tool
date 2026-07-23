@@ -338,10 +338,14 @@
     <!-- ===================== 設定 ===================== -->
     <section id="view-settings" class="view">
       <h2>設定</h2>
+      <div class="field" id="quotaField">
+        <span class="field-label">免費額度</span>
+        <p class="field-help" id="quotaStatusText">登入後顯示剩餘點數（整理單字 50／影片 5／AI 語音 30）。用完請填自備 Gemini 金鑰。</p>
+      </div>
       <label class="field">
-        <span class="field-label">API 金鑰（每行一組，會自動輪詢；亦可在 Albireus 擴充設定填入）</span>
-        <textarea id="apiKeysInput" rows="4" placeholder="每行一組 Vertex AI Express 金鑰（AQ. 開頭）；預設空白" autocomplete="off" spellcheck="false"></textarea>
-        <span class="field-help">金鑰預設空白；可在本頁填寫，或由 Albireus 擴充設定（<code>gemini_api_keys</code>）經 query / postMessage 帶入。只存在此瀏覽器的 localStorage，不會寫入 Albireus 倉庫。請填 <code>AQ.</code> 開頭的 Vertex AI Express 金鑰（走 <code>aiplatform.googleapis.com</code>）。</span>
+        <span class="field-label">自備 Gemini API 金鑰（選填；每行一組）</span>
+        <textarea id="apiKeysInput" rows="3" placeholder="Google AI Studio 金鑰（通常 AIza 開頭）；預設空白＝使用平台免費額度" autocomplete="off" spellcheck="false"></textarea>
+        <span class="field-help">只存在此瀏覽器的 localStorage。填入後：AI 問答／整理／語音改走 Gemini（generativelanguage）；聽力檔案轉錄改用 Google STT；不再扣除平台點數。平台預設走 Vertex（伺服端環境變數），無需在此填 AQ. 金鑰。</span>
       </label>
       <label class="field" id="accentField">
         <span class="field-label">單詞發音口音（僅英文）</span>
@@ -360,11 +364,6 @@
           <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
           <option value="gemini-2.0-flash">gemini-2.0-flash</option>
         </select>
-      </label>
-      <label class="field">
-        <span class="field-label">雲端轉錄後端網址（聽力頁用）</span>
-        <input type="text" id="listenBackendInput" placeholder="https://whisper-api-1016448029865.asia-east1.run.app/api" autocomplete="off" spellcheck="false" />
-        <span class="field-help">聽力頁的逐字稿由雲端 Whisper（Replicate，Cloud Run）產生，音檔／影片存到 Firebase Storage，跨裝置皆可重看。預設已指向你的後端 <code>whisper-api-…run.app/api</code>，一般不需修改。</span>
       </label>
       <label class="field">
         <span class="field-label">每日複習目標（張，以中英與克漏字為主）</span>

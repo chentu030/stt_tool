@@ -426,7 +426,7 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
       kind: "extension",
       id: "vocab-srs",
       name: "背單字",
-      version: "1.0.0",
+      version: "1.1.0",
       description:
         "間隔重複背單字：AI 整理詞典內容、多模式複習、閱讀與聽力精讀，嵌在知識庫頁面中使用。",
       author: "Albireus",
@@ -444,6 +444,11 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
       permissions: ["iframe", "network", "settings", "storage", "clipboard"],
       changelog: [
         {
+          version: "1.1.0",
+          date: "2026-07-23",
+          notes: "共用 Vertex／聽力後端改由伺服端環境變數；免費點數＋可選自備 Gemini／Google STT。",
+        },
+        {
           version: "1.0.0",
           date: "2026-07-21",
           notes: "初版：自背單字移植為 Albireus 社群擴充。",
@@ -458,10 +463,11 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
       settings: [
         {
           key: "gemini_api_keys",
-          label: "Gemini / Vertex API 金鑰",
+          label: "自備 Gemini API 金鑰（選填）",
           type: "string",
           default: "",
-          description: "每行或逗號分隔多組；請填 AQ. 開頭的 Vertex AI Express 金鑰。",
+          description:
+            "免費額度用完後可填自己的 Google AI Studio 金鑰（通常 AIza 開頭）；填入後 AI／語音／聽力轉錄改走 Gemini／Google STT，不再扣共用點數。",
           group: "AI",
           secret: true,
           wide: true,
@@ -495,15 +501,6 @@ Yahoo 日 K 看盤：約 720 日蠟燭圖、成交量、均線與 KD／MACD／RS
           default: 20,
           description: "達成後會簽到並累計連續天數",
           group: "學習",
-        },
-        {
-          key: "listen_backend",
-          label: "聽力後端網址",
-          type: "string",
-          default: "https://whisper-api-1016448029865.asia-east1.run.app/api",
-          description: "Whisper／詞典抓取雲端後端（可留預設）",
-          group: "進階",
-          wide: true,
         },
         {
           key: "theme",

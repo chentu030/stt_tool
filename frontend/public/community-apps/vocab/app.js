@@ -119,15 +119,37 @@ function cardHasDueToday(card) {
   return STUDY_MODES.some(m => m.has(card.data) && modeUnlocked(card, m.id) && isDue(card.srs[m.id]));
 }
 
-// 金鑰不寫死。請在本頁設定或 Albireus 擴充設定（gemini_api_keys）填入。
-const DEFAULT_KEYS = []; // Albireus: never bake keys; use settings UI / host settings
+// 平台共用 Vertex 金鑰在伺服端（VERTEX_API_KEYS）；此處僅存使用者自備 Gemini 金鑰。
+const DEFAULT_KEYS = [];
+const DEFAULT_LISTEN_BACKEND = 'https://whisper-api-1016448029865.asia-east1.run.app/api';
 const DEFAULT_SETTINGS = {
   apiKeys: DEFAULT_KEYS.slice(),
   model: 'gemini-3-flash-preview',
   accent: 'us', // us | uk
   dailyGoal: 20,
-  listenBackend: 'https://whisper-api-1016448029865.asia-east1.run.app/api', // 雲端轉錄後端（Cloud Run + Replicate）
+  listenBackend: DEFAULT_LISTEN_BACKEND,
 };
+
+/** Host Cadence auth + env (postMessage). */
+let albireusAuth = { token: '', email: '', uid: '' };
+let hostApiBase = '';
+
+function isOwnGeminiKey(k) {
+  const s = String(k || '').trim();
+  if (!s) return false;
+  // Platform Vertex Express keys must not be used client-side / as BYOK.
+  if (s.startsWith('AQ.')) return false;
+  return true;
+}
+function ownGeminiKeys() {
+  return (settings.apiKeys || []).map(k => String(k).trim()).filter(isOwnGeminiKey);
+}
+function hasOwnGeminiKey() {
+  return ownGeminiKeys().length > 0;
+}
+function ownGeminiKey() {
+  return ownGeminiKeys()[0] || '';
+}
 
 
 /* ---------------------- Albireus host settings bridge ---------------------- */
@@ -158,14 +180,12 @@ function applyAlbireusHostSettings(host) {
   if (!host || typeof host !== 'object') return;
   const keysRaw = host.gemini_api_keys ?? host.apiKeys ?? host.api_keys;
   if (keysRaw != null && String(keysRaw).trim()) {
-    const keys = splitKeys(keysRaw);
+    const keys = splitKeys(keysRaw).filter(isOwnGeminiKey);
     if (keys.length) settings.apiKeys = keys;
   }
   if (host.model) settings.model = String(host.model);
   if (host.accent) settings.accent = String(host.accent);
-  if (host.listen_backend != null && String(host.listen_backend).trim()) {
-    settings.listenBackend = String(host.listen_backend).trim().replace(/\/$/, '');
-  }
+  // listen_backend from user settings is ignored — host injects env only via albireus:auth
   if (host.daily_goal != null && host.daily_goal !== '') {
     const n = Number(host.daily_goal);
     if (Number.isFinite(n) && n > 0) settings.dailyGoal = n;
@@ -179,15 +199,29 @@ function applyAlbireusHostSettings(host) {
     try { applyTheme(dark ? 'dark' : 'light', { fromHost: true }); } catch { /* ignore */ }
   }
   const apiEl = document.getElementById('apiKeysInput');
-  if (apiEl) apiEl.value = (settings.apiKeys || []).join('\n');
+  if (apiEl) apiEl.value = (settings.apiKeys || []).filter(isOwnGeminiKey).join('\n');
   const modelEl = document.getElementById('modelSelect');
   if (modelEl && settings.model) modelEl.value = settings.model;
   const accentEl = document.getElementById('accentSelect');
   if (accentEl && settings.accent) accentEl.value = settings.accent;
   const goalEl = document.getElementById('dailyGoalInput');
   if (goalEl && settings.dailyGoal) goalEl.value = settings.dailyGoal;
-  const beEl = document.getElementById('listenBackendInput');
-  if (beEl && settings.listenBackend) beEl.value = settings.listenBackend;
+}
+
+function applyAlbireusAuth(payload) {
+  if (!payload || typeof payload !== 'object') return;
+  albireusAuth = {
+    token: String(payload.token || ''),
+    email: String(payload.email || ''),
+    uid: String(payload.uid || ''),
+  };
+  if (payload.apiBase) hostApiBase = String(payload.apiBase).replace(/\/$/, '');
+  if (payload.listenBackend && String(payload.listenBackend).trim()) {
+    settings.listenBackend = String(payload.listenBackend).trim().replace(/\/$/, '');
+  } else if (hostApiBase) {
+    settings.listenBackend = hostApiBase;
+  }
+  try { refreshQuotaStatus(); } catch { /* ignore */ }
 }
 
 function bindAlbireusHost() {
@@ -199,11 +233,18 @@ function bindAlbireusHost() {
   }
   applyAlbireusHostSettings(parseAlbireusSettingsFromQuery());
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'albireus:settings') {
+    if (!e.data || typeof e.data !== 'object') return;
+    if (e.data.type === 'albireus:settings') {
       applyAlbireusHostSettings(e.data.settings || {});
       try { saveSettings(); } catch { /* ignore */ }
     }
+    if (e.data.type === 'albireus:auth') {
+      applyAlbireusAuth(e.data);
+    }
   });
+  try {
+    window.parent.postMessage({ type: 'albireus:auth-request' }, '*');
+  } catch { /* ignore */ }
   if (ALBIREUS_NOTE) {
     try { document.documentElement.dataset.albireusNote = ALBIREUS_NOTE; } catch { /* ignore */ }
   }
@@ -219,21 +260,83 @@ function bindAlbireusHost() {
   } catch { /* ignore */ }
 }
 
-let keyIndex = 0;          // 金鑰輪詢游標
+let keyIndex = 0;          // 金鑰輪詢游標（自備多把時）
 
-// 環境變數金鑰（部署時由 Vercel Serverless /api/keys 提供）；設定頁手動輸入者優先
-let envKeys = [];
 function activeKeys() {
-  const s = (settings.apiKeys || []).filter(Boolean);
-  return s.length ? s : envKeys.filter(Boolean);
+  return ownGeminiKeys();
 }
 async function loadEnvKeys() {
+  // Platform keys stay on the server; no client /api/keys for vocab.
+  envKeys = [];
+}
+let envKeys = [];
+
+async function ensureAlbireusToken() {
+  if (albireusAuth.token) return albireusAuth.token;
+  try { window.parent.postMessage({ type: 'albireus:auth-request' }, '*'); } catch { /* ignore */ }
+  await new Promise(r => setTimeout(r, 400));
+  return albireusAuth.token;
+}
+
+async function consumeVocabQuota(kind, amount = 1) {
+  if (hasOwnGeminiKey()) return { ok: true, skipped: true };
+  const token = await ensureAlbireusToken();
+  if (!token) throw new Error('請先登入 Cadence 後再使用（或填入自備 Gemini API 金鑰）');
+  const res = await fetch('/api/vocab/quota', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ kind, amount }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 402) {
+    const err = new Error(data.hint || '免費額度已用完，請在設定填入自己的 Gemini API 金鑰後繼續使用');
+    err.code = 'QUOTA_EXCEEDED';
+    err.kind = kind;
+    throw err;
+  }
+  if (!res.ok) throw new Error(data.error || `配額錯誤 (${res.status})`);
+  try { refreshQuotaStatus(data); } catch { /* ignore */ }
+  return data;
+}
+
+async function refreshQuotaStatus(prefetched) {
+  const el = document.getElementById('quotaStatusText');
+  if (!el) return;
+  if (hasOwnGeminiKey()) {
+    el.textContent = '已填自備 Gemini 金鑰：AI／語音／聽力轉錄走你的額度（Gemini／Google STT），不扣平台點數。';
+    return;
+  }
+  if (prefetched?.unlimited || (albireusAuth.email || '').toLowerCase() === 'lcy101120@gmail.com') {
+    el.textContent = '此帳號不受免費點數限制。';
+    return;
+  }
   try {
-    const res = await fetch('/api/keys', { cache: 'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (Array.isArray(data.keys)) envKeys = data.keys.filter(Boolean);
-  } catch { /* 本機或未部署時忽略 */ }
+    const token = await ensureAlbireusToken();
+    if (!token) {
+      el.textContent = '登入後顯示剩餘點數（整理單字 50／影片 5／AI 語音 30）。用完請填自備 Gemini 金鑰。';
+      return;
+    }
+    let data = prefetched;
+    if (!data || !data.remaining) {
+      const res = await fetch('/api/vocab/quota', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || '讀取失敗');
+    }
+    if (data.unlimited) {
+      el.textContent = '此帳號不受免費點數限制。';
+      return;
+    }
+    const r = data.remaining || {};
+    el.textContent = `剩餘：整理單字 ${r.words ?? '—'}／50 · 影片 ${r.videos ?? '—'}／5 · AI 語音 ${r.voice ?? '—'}／30。用完請填自備 Gemini 金鑰。`;
+  } catch (e) {
+    el.textContent = '無法讀取點數：' + (e.message || '請稍後再試');
+  }
 }
 
 /* ---------------------- 狀態 ---------------------- */
@@ -377,11 +480,8 @@ function pcmB64ToWavUrl(b64, sampleRate) {
 // 生成單段 AI 語音，回傳 { b64, rate } 或 null（不播放）
 // preferredKey：並行時指定先用哪一把金鑰，避免多請求搶同一把
 async function geminiTTSChunk(text, preferredKey) {
-  const all = activeKeys();
-  if (!all.length || !text) return null;
-  const keys = preferredKey
-    ? [preferredKey, ...all.filter(k => k !== preferredKey)]
-    : all;
+  if (!text) return null;
+  if (!hasOwnGeminiKey() && !(await ensureAlbireusToken())) return null;
   const body = {
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
@@ -390,22 +490,13 @@ async function geminiTTSChunk(text, preferredKey) {
     },
   };
   for (const model of TTS_MODELS) {
-    for (let attempt = 0; attempt < keys.length; attempt++) {
-      const key = keys[attempt];
-      try {
-        const url = `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!res.ok) {
-          if ([429, 500, 502, 503, 504].includes(res.status)) continue; // 換金鑰
-          break; // 這個模型不行（如 400/404），換下一個模型
-        }
-        const data = await res.json();
-        const part = data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        if (!part) break;
-        const rate = parseInt((part.inlineData.mimeType || '').match(/rate=(\d+)/)?.[1] || '24000', 10);
-        return { b64: part.inlineData.data, rate };
-      } catch (e) { /* 換下一把金鑰 */ }
-    }
+    try {
+      const data = await requestGemini(preferredKey || null, body, model);
+      const part = data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+      if (!part) continue;
+      const rate = parseInt((part.inlineData.mimeType || '').match(/rate=(\d+)/)?.[1] || '24000', 10);
+      return { b64: part.inlineData.data, rate };
+    } catch (e) { /* try next model */ }
   }
   return null;
 }
@@ -612,7 +703,12 @@ async function speakGeminiTTS(text, el) {
     }
   }
 
-  if (!activeKeys().length) { toast('尚未設定 API 金鑰', true); return; }
+  if (!hasOwnGeminiKey() && !(await ensureAlbireusToken())) {
+    toast('請先登入 Cadence，或在設定填入自備 Gemini API 金鑰', true);
+    return;
+  }
+  try { await consumeVocabQuota('voice', 1); }
+  catch (e) { toast(e.message || '點數不足', true); return; }
   if (ttsBusy) return;
   ttsBusy = true;
   toast('🤖 AI 生成語音中…');
@@ -850,11 +946,11 @@ function init() {
   applyHideZh();
 
   // 回填設定畫面
-  $('#apiKeysInput').value = (settings.apiKeys || []).join('\n');
+  $('#apiKeysInput').value = ownGeminiKeys().join('\n');
   $('#modelSelect').value = settings.model;
   $('#accentSelect').value = settings.accent || 'us';
   $('#dailyGoalInput').value = settings.dailyGoal || 20;
-  $('#listenBackendInput').value = settings.listenBackend || 'https://whisper-api-1016448029865.asia-east1.run.app/api';
+  try { refreshQuotaStatus(); } catch { /* ignore */ }
 
   bindDeckControls();
   updateLangUI();
@@ -1168,8 +1264,10 @@ function migrateSettings() {
     if (!settings.apiKeys.includes(settings.apiKey)) settings.apiKeys.unshift(settings.apiKey);
     delete settings.apiKey;
   }
-  settings.apiKeys = settings.apiKeys.map(k => k.trim()).filter(Boolean);
-  delete settings.provider; // 一律 Vertex，不再需要
+  // Drop legacy platform Vertex (AQ.) keys from client storage — those belong in Vercel env.
+  settings.apiKeys = settings.apiKeys.map(k => k.trim()).filter(isOwnGeminiKey);
+  delete settings.provider;
+  if (!settings.listenBackend) settings.listenBackend = DEFAULT_LISTEN_BACKEND;
 }
 
 // 確保每張卡都有 srs 結構
@@ -1805,26 +1903,28 @@ ${rawBlock(raw)}
   },
 ];
 
-// 一律使用 Vertex AI 通道（aiplatform.googleapis.com）。
-// 嚴禁使用 Gemini 通道（generativelanguage.googleapis.com），因無法使用 GCP 抵免額。
-function endpointFor(key, model) {
-  return `https://aiplatform.googleapis.com/v1/publishers/google/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-}
-
-// 單次請求（指定金鑰）
-async function requestGemini(key, body, model) {
-  const url = endpointFor(key, model || settings.model);
-  const res = await fetch(url, {
+// 透過 Cadence /api/vocab/ai：無自備金鑰 → Vertex；有自備 → generativeai
+async function requestGemini(_keyIgnored, body, model) {
+  const token = await ensureAlbireusToken();
+  if (!token && !hasOwnGeminiKey()) {
+    const err = new Error('請先登入 Cadence，或在設定填入自備 Gemini API 金鑰');
+    err.retryable = false;
+    throw err;
+  }
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const own = ownGeminiKey();
+  if (own) headers['X-User-Gemini-Key'] = own;
+  const res = await fetch('/api/vocab/ai', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    headers,
+    body: JSON.stringify({ model: model || settings.model, body }),
   });
   if (!res.ok) {
     let detail = '';
-    try { const j = await res.json(); detail = j.error?.message || ''; } catch {}
+    try { const j = await res.json(); detail = j.error || j.error?.message || ''; } catch {}
     const err = new Error(`回應錯誤 (${res.status})${detail ? '：' + detail : ''}`);
     err.status = res.status;
-    // 額度/限流/伺服器錯誤 → 可換下一把金鑰重試
     err.retryable = [429, 500, 502, 503, 504].includes(res.status);
     throw err;
   }
@@ -1834,7 +1934,7 @@ async function requestGemini(key, body, model) {
 // ---- 全域併發限制器（避免同時打太多請求）----
 let inFlight = 0;
 const waitQueue = [];
-function globalLimit() { return Math.max(1, activeKeys().length || 1); }
+function globalLimit() { return Math.max(1, hasOwnGeminiKey() ? Math.min(3, ownGeminiKeys().length || 1) : 2); }
 function acquireSlot() {
   return new Promise(resolve => {
     if (inFlight < globalLimit()) { inFlight++; resolve(); }
@@ -1846,10 +1946,11 @@ function releaseSlot() {
   if (waitQueue.length && inFlight < globalLimit()) { inFlight++; waitQueue.shift()(); }
 }
 
-// 產生單一段落的 JSON（含金鑰輪詢、重試、併發限制）
+// 產生單一段落的 JSON（經代理；自備多金鑰時仍可輪詢標頭）
 async function generateJSON(promptText, schema, opts = {}) {
-  const keys = activeKeys();
-  if (keys.length === 0) throw new Error('尚未設定 API 金鑰，請到「設定」填入。');
+  if (!hasOwnGeminiKey() && !(await ensureAlbireusToken())) {
+    throw new Error('請先登入 Cadence，或在設定填入自備 Gemini API 金鑰');
+  }
   const body = {
     contents: [{ role: 'user', parts: [{ text: promptText }] }],
     generationConfig: {
@@ -1863,12 +1964,10 @@ async function generateJSON(promptText, schema, opts = {}) {
   await acquireSlot();
   try {
     let lastErr;
-    for (let attempt = 0; attempt < keys.length; attempt++) {
-      const idx = keyIndex % keys.length;
-      const key = keys[idx];
-      keyIndex = (keyIndex + 1) % keys.length;
+    const attempts = Math.max(1, ownGeminiKeys().length || 1);
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        const data = await requestGemini(key, body);
+        const data = await requestGemini(null, body);
         const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
         if (!text) throw new Error('沒有回傳內容（可能被安全機制擋下或模型名稱錯誤）。');
         try { return JSON.parse(text); }
@@ -1876,11 +1975,11 @@ async function generateJSON(promptText, schema, opts = {}) {
       } catch (err) {
         lastErr = err;
         if (err.retryable === false || (err.status && ![429, 500, 502, 503, 504].includes(err.status))) {
-          throw new Error(`第 ${idx + 1} 把金鑰${err.message}`);
+          throw err;
         }
       }
     }
-    throw new Error(`所有金鑰都失敗了：${lastErr ? lastErr.message : '未知錯誤'}`);
+    throw new Error(`請求失敗：${lastErr ? lastErr.message : '未知錯誤'}`);
   } finally {
     releaseSlot();
   }
@@ -2039,6 +2138,7 @@ async function onGenerate() {
   $('#saveCardBtn').hidden = true;
 
   try {
+    await consumeVocabQuota('words', 1);
     if (!raw) {
       raw = await resolveCardRaw(word, '', msg => {
         status.innerHTML = `<span class="spinner"></span> ${esc(msg)}`;
@@ -2114,7 +2214,7 @@ function bindBatch() {
 }
 
 function batchConcurrency() {
-  return Math.max(1, activeKeys().length || 1);
+  return Math.max(1, hasOwnGeminiKey() ? (ownGeminiKeys().length || 1) : 2);
 }
 
 function addBatchItem() {
@@ -2164,6 +2264,7 @@ async function runBatchItem(it) {
   batchActive++;
   renderBatch();
   try {
+    await consumeVocabQuota('words', 1);
     if (!(it.raw || '').trim()) {
       it.prog = '詞典';
       renderBatch();
@@ -3527,44 +3628,42 @@ function endStudy() {
    ========================================================================= */
 function bindSettings() {
   $('#saveSettingsBtn').addEventListener('click', () => {
-    settings.apiKeys = $('#apiKeysInput').value.split('\n').map(k => k.trim()).filter(Boolean);
+    settings.apiKeys = $('#apiKeysInput').value.split('\n').map(k => k.trim()).filter(isOwnGeminiKey);
+    const rawAll = $('#apiKeysInput').value.split('\n').map(k => k.trim()).filter(Boolean);
+    const dropped = rawAll.filter(k => k.startsWith('AQ.')).length;
     settings.model = $('#modelSelect').value;
     settings.accent = $('#accentSelect').value;
     settings.dailyGoal = Math.max(1, parseInt($('#dailyGoalInput').value, 10) || 20);
-    settings.listenBackend = ($('#listenBackendInput').value || '').trim().replace(/\/$/, '') || 'https://whisper-api-1016448029865.asia-east1.run.app/api';
     keyIndex = 0;
     saveSettings();
     renderDailyPanel();
+    refreshQuotaStatus();
     $('#settingsStatus').textContent = settings.apiKeys.length
-      ? `✅ 已儲存（${settings.apiKeys.length} 組金鑰）`
-      : (envKeys.length ? `✅ 已儲存（使用環境變數 ${envKeys.length} 組）` : '✅ 已儲存（尚無金鑰，請到擴充設定或本頁填入）');
-    toast('設定已儲存');
+      ? `✅ 已儲存（自備 ${settings.apiKeys.length} 組 Gemini 金鑰）`
+      : '✅ 已儲存（使用平台免費額度／Vertex）';
+    if (dropped) toast('已忽略 AQ. 開頭金鑰（平台金鑰請設在 Vercel 環境變數）', true);
+    else toast('設定已儲存');
     setTimeout(() => $('#settingsStatus').textContent = '', 2500);
   });
 
   $('#testKeyBtn').addEventListener('click', async () => {
-    const keys = $('#apiKeysInput').value.split('\n').map(k => k.trim()).filter(Boolean);
-    if (keys.length === 0) { toast('請先填入金鑰', true); return; }
-    // 測試時先套用目前選擇的模型
+    settings.apiKeys = $('#apiKeysInput').value.split('\n').map(k => k.trim()).filter(isOwnGeminiKey);
     settings.model = $('#modelSelect').value;
     const status = $('#settingsStatus');
-    status.textContent = '逐一測試金鑰中…';
-    const results = [];
-    for (let i = 0; i < keys.length; i++) {
-      try {
-        const url = endpointFor(keys[i], settings.model);
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: '回覆 ok' }] }] }),
-        });
-        results.push(`#${i + 1} ${res.ok ? '✅' : '❌' + res.status}`);
-      } catch (e) {
-        results.push(`#${i + 1} ❌`);
-      }
+    status.textContent = '測試連線中…';
+    try {
+      const data = await requestGemini(null, {
+        contents: [{ role: 'user', parts: [{ text: '回覆 ok' }] }],
+      });
+      const ok = !!(data?.candidates?.[0]);
+      status.textContent = ok
+        ? (hasOwnGeminiKey() ? '✅ 自備 Gemini 通道正常' : '✅ 平台 Vertex 通道正常')
+        : '❌ 無回傳內容';
+      toast(ok ? '測試完成' : '測試失敗', !ok);
+    } catch (e) {
+      status.textContent = '❌ ' + (e.message || '失敗');
+      toast('測試失敗', true);
     }
-    status.textContent = results.join('　');
-    toast('測試完成');
   });
 
   $('#exportBtn').addEventListener('click', () => {
@@ -4321,7 +4420,12 @@ async function readerPlayAI(book, a) {
   const src = readerAudioSrc(a);
   if (src) { readerPlayUrl(src, a.audioCues); return; }
   if (readerTtsBusy) { toast('AI 語音生成中，請稍候…'); return; }
-  if (!activeKeys().length) { toast('尚未設定 API 金鑰', true); return; }
+  if (!hasOwnGeminiKey() && !(await ensureAlbireusToken())) {
+    toast('請先登入 Cadence，或在設定填入自備 Gemini API 金鑰', true);
+    return;
+  }
+  try { await consumeVocabQuota('voice', 1); }
+  catch (e) { toast(e.message || '點數不足', true); return; }
   const jobs = ttsJobsFromArticle(a);
   if (!jobs.length) { toast('沒有內容可朗讀', true); return; }
 
@@ -4330,8 +4434,8 @@ async function readerPlayAI(book, a) {
   const streamGen = readerSpeakGen;
   const btn = $('#rdReadAi');
   const setLabel = t => { if (btn) btn.textContent = t; };
-  const keys = activeKeys();
-  const concurrency = Math.max(1, keys.length);
+  const keys = ownGeminiKeys();
+  const concurrency = Math.max(1, keys.length || 2);
   const results = new Array(jobs.length).fill(null);
   const resolvers = [];
   const ready = jobs.map((_, i) => new Promise(r => { resolvers[i] = r; }));
@@ -4343,7 +4447,7 @@ async function readerPlayAI(book, a) {
   // 並行生成；每完成一段立刻通知播放佇列
   const genPromise = mapPool(jobs, concurrency, async (job, jobIdx) => {
     if (streamGen !== readerSpeakGen) return null;
-    const key = keys[jobIdx % keys.length];
+    const key = keys.length ? keys[jobIdx % keys.length] : null;
     const r = await geminiTTSChunk(job.text, key);
     results[jobIdx] = r;
     done++;
@@ -5212,6 +5316,7 @@ async function readerDoAdd() {
   status.innerHTML = '<span class="spinner"></span> 整理中…';
   btn.disabled = true;
   try {
+    await consumeVocabQuota('words', 1);
     if (!raw) {
       raw = await resolveCardRaw(word, '', msg => {
         status.innerHTML = `<span class="spinner"></span> ${esc(msg)}`;
@@ -5247,8 +5352,9 @@ function fileToBase64(file) {
 }
 // 泛用 Gemini 請求（支援圖片；含金鑰輪詢與併發限制）
 async function geminiGenerate(parts, cfg = {}) {
-  const keys = activeKeys();
-  if (!keys.length) throw new Error('尚未設定 API 金鑰，請到「設定」填入。');
+  if (!hasOwnGeminiKey() && !(await ensureAlbireusToken())) {
+    throw new Error('請先登入 Cadence，或在設定填入自備 Gemini API 金鑰');
+  }
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
@@ -5260,21 +5366,22 @@ async function geminiGenerate(parts, cfg = {}) {
   await acquireSlot();
   try {
     let lastErr;
-    for (let attempt = 0; attempt < keys.length; attempt++) {
-      const idx = keyIndex % keys.length; const key = keys[idx];
-      keyIndex = (keyIndex + 1) % keys.length;
+    const attempts = Math.max(1, ownGeminiKeys().length || 2);
+    for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        const data = await requestGemini(key, body, cfg.model);
+        const data = await requestGemini(null, body, cfg.model);
         const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
         if (!text) throw new Error('沒有回傳內容。');
         return text;
       } catch (err) {
         lastErr = err;
-        if (err.status && ![429, 500, 502, 503, 504].includes(err.status)) throw new Error(`第 ${idx + 1} 把金鑰${err.message}`);
+        if (err.retryable === false || (err.status && ![429, 500, 502, 503, 504].includes(err.status))) throw err;
       }
     }
-    throw new Error(`所有金鑰都失敗了：${lastErr ? lastErr.message : '未知錯誤'}`);
-  } finally { releaseSlot(); }
+    throw lastErr || new Error('請求失敗');
+  } finally {
+    releaseSlot();
+  }
 }
 // 盡量從模型回傳的字串救出 JSON：去除 ```json 圍欄、擷取最外層物件/陣列、修補被截斷的結尾
 function parseLooseJSON(text) {
@@ -5597,7 +5704,53 @@ let listenPollTimer = null;
 let listenActiveIdx = -1;
 let listenPlayerId = null; // 目前播放器對應的 item id，避免重複重建
 
-function listenBackend() { return (settings.listenBackend || 'https://whisper-api-1016448029865.asia-east1.run.app/api').replace(/\/$/, ''); }
+function listenBackend() { return (settings.listenBackend || DEFAULT_LISTEN_BACKEND).replace(/\/$/, ''); }
+
+/** Split plain STT text into rough timed segments for listen UI. */
+function textToRoughListenSegments(text) {
+  const parts = String(text || '')
+    .split(/(?<=[.!?。！？\n])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+  let t = 0;
+  return parts.map(p => {
+    const words = p.split(/\s+/).filter(Boolean).length || 1;
+    const dur = Math.max(1.2, Math.min(12, words * 0.45));
+    const seg = { start: t, end: t + dur, en: p, zh: '' };
+    t += dur;
+    return seg;
+  });
+}
+
+function listenGoogleSttLang() {
+  const code = listenLangCode();
+  if (code === 'en') return 'en-US';
+  if (code === 'ja') return 'ja-JP';
+  if (code === 'de') return 'de-DE';
+  if (code === 'fr') return 'fr-FR';
+  if (code === 'ko') return 'ko-KR';
+  if (code === 'es') return 'es-ES';
+  if (code === 'zh') return 'zh-TW';
+  return code || 'en-US';
+}
+
+async function transcribeFileWithGoogleStt(file) {
+  const token = await ensureAlbireusToken();
+  if (!token) throw new Error('請先登入 Cadence');
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('language', listenGoogleSttLang());
+  const res = await fetch('/api/vocab/stt', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Google STT 失敗 (${res.status})`);
+  const text = String(data.text || '').trim();
+  if (!text) throw new Error('未辨識到語音');
+  return text;
+}
 function listenLangCode() {
   const d = (L().dictLang || '').slice(0, 2);
   if (d) return d;
@@ -6318,6 +6471,9 @@ async function listenForceWhisper(item) {
   saveListen({ item, immediate: true });
   if (listenCurrentId === item.id) renderListenItem(item);
   try {
+    if (hasOwnGeminiKey()) {
+      throw new Error('已填自備 Gemini 金鑰時請改上傳音檔使用 Google STT，或改回 CC 字幕');
+    }
     showStage('下載音訊並 Whisper 掃描中…');
     const fd = new FormData();
     fd.append('url', 'https://www.youtube.com/watch?v=' + item.videoId);
@@ -6375,6 +6531,21 @@ async function listenUploadFile(file, opts = {}) {
   if (open) { listenCurrentId = item.id; renderListen(); }
   else renderListenList();
   try {
+    await consumeVocabQuota('videos', 1);
+    if (hasOwnGeminiKey()) {
+      setHint('上傳並以 Google STT 轉錄中…');
+      item.mediaUrl = URL.createObjectURL(file);
+      item.captionSource = 'google-stt';
+      const text = await transcribeFileWithGoogleStt(file);
+      item.segments = mapListenCaptionSegments(textToRoughListenSegments(text), { dedupe: false });
+      item.captionsDeduped = true;
+      item.updatedAt = now();
+      saveListen({ item, immediate: true });
+      setHint('');
+      await listenAfterTranscribe(item, { quiet });
+      if (!quiet) toast('已用 Google STT 轉錄（自備 Gemini 模式）');
+      return;
+    }
     setHint('上傳並雲端轉錄中…（長音檔可能需要數分鐘，請勿關閉此頁）');
     const fd = new FormData();
     fd.append('file', file);
@@ -6421,13 +6592,20 @@ async function listenAddYoutube(url, opts = {}) {
   if (open) { listenCurrentId = item.id; renderListen(); }
   else renderListenList();
   try {
+    await consumeVocabQuota('videos', 1);
+    if (hasOwnGeminiKey() && forceWhisper) {
+      throw new Error('已填自備 Gemini 金鑰時，請改上傳音檔／影片用 Google STT，或改用 YouTube CC 字幕');
+    }
     setHint(forceWhisper
       ? '強制 Whisper：下載音訊並掃描中…（較久）'
-      : '讀取 YouTube（優先 CC 字幕，沒有才雲端轉錄）…');
+      : (hasOwnGeminiKey()
+        ? '讀取 YouTube（自備金鑰模式：僅使用 CC 字幕）…'
+        : '讀取 YouTube（優先 CC 字幕，沒有才雲端轉錄）…'));
     const fd = new FormData();
     fd.append('url', url);
     fd.append('language', listenWhisperLang());
     if (forceWhisper) fd.append('force_whisper', '1');
+    // BYOK: ask backend for CC only — if it still whispers, warn user
     const res = await fetch(listenBackend() + '/beidanzi/youtube', { method: 'POST', body: fd });
     if (!res.ok) throw new Error('後端回應錯誤 ' + res.status);
     const j = await res.json();
@@ -6443,6 +6621,9 @@ async function listenAddYoutube(url, opts = {}) {
       item.title = 'YouTube ' + (item.videoId || '');
     }
     item.captionSource = j.captionSource;
+    if (hasOwnGeminiKey() && (item.captionSource === 'whisper' || j.usedWhisper)) {
+      throw new Error('此影片沒有可用 CC 字幕。自備金鑰模式請改上傳音檔，改用 Google STT');
+    }
     const isCc = item.captionSource === 'manual' || item.captionSource === 'auto';
     item.segments = mapListenCaptionSegments(j.segments || [], { dedupe: isCc || !forceWhisper });
     item.captionsDeduped = true;
