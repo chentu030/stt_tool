@@ -31,6 +31,13 @@ import {
 } from "@/lib/dbAiEdit";
 import { getDatabase, listDatabaseRowsOnce } from "@/lib/database";
 import { toast } from "@/lib/toast";
+import {
+  buildChatApiHistory,
+  buildSummaryPrompt,
+  nextSummaryBatch,
+  withChatSummaryContext,
+  type ChatMemoryState,
+} from "@/lib/aiChatMemory";
 
 type Msg = {
   id: string;
@@ -48,6 +55,8 @@ type ChatThread = {
   updatedAt: number;
   msgs: Msg[];
   pinnedIds: string[];
+  contextSummary?: string;
+  summaryCovered?: number;
 };
 
 const OPEN_KEY = "cadence_ai_rail_open";
@@ -164,6 +173,10 @@ function loadThreads(): { threads: ChatThread[]; activeId: string } {
             updatedAt: t.updatedAt || Date.now(),
             msgs: t.msgs.slice(-60),
             pinnedIds: Array.isArray(t.pinnedIds) ? t.pinnedIds.slice(0, 8) : [],
+            contextSummary:
+              typeof t.contextSummary === "string" ? t.contextSummary : undefined,
+            summaryCovered:
+              typeof t.summaryCovered === "number" ? t.summaryCovered : undefined,
           }));
       }
     }
@@ -595,9 +608,14 @@ export default function GlobalAiDock() {
     const userMsg: Msg = { id: uid(), role: "user", text: prompt };
     let snapshotMsgs: Msg[] = [];
     let snapshotPins: string[] = [];
+    let memory: ChatMemoryState = { contextSummary: "", summaryCovered: 0 };
     patchActive((t) => {
       snapshotPins = t.pinnedIds;
       snapshotMsgs = [...t.msgs, userMsg];
+      memory = {
+        contextSummary: t.contextSummary || "",
+        summaryCovered: t.summaryCovered || 0,
+      };
       return {
         ...t,
         msgs: snapshotMsgs,
@@ -605,19 +623,46 @@ export default function GlobalAiDock() {
       };
     }, tid);
     try {
-      const history = snapshotMsgs
-        .slice(-8)
-        .map((m) => ({
-          role: m.role === "assistant" ? "model" : "user",
-          text: m.text,
-        }))
-        .slice(0, -1);
       const assistant = {
         name: prefsCtx?.prefs.aiAssistantName,
         style: prefsCtx?.prefs.aiStyle,
         model: prefsCtx?.prefs.aiModel,
         grounding: webSearch,
       };
+
+      // Rolling memory: every 15 turns → condense; afterward API gets summary + last 5.
+      const batchInfo = nextSummaryBatch(snapshotMsgs, memory);
+      if (batchInfo) {
+        const sumRes = await fetch("/api/ai/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "chat",
+            prompt: buildSummaryPrompt(memory.contextSummary, batchInfo.batch),
+            context: "（內部任務：只輸出對話摘要，不要回答使用者）",
+            messages: [],
+            assistant: { ...assistant, grounding: false },
+            allowNoteEdit: false,
+          }),
+        });
+        const sumData = await sumRes.json();
+        if (sumRes.ok && typeof sumData.text === "string" && sumData.text.trim()) {
+          memory = {
+            contextSummary: sumData.text.trim(),
+            summaryCovered: batchInfo.nextCovered,
+          };
+          patchActive(
+            (t) => ({
+              ...t,
+              contextSummary: memory.contextSummary,
+              summaryCovered: memory.summaryCovered,
+            }),
+            tid
+          );
+        }
+      }
+
+      const history = buildChatApiHistory(snapshotMsgs, memory);
 
       let body: Record<string, unknown>;
       const dbSnap =
@@ -634,7 +679,7 @@ export default function GlobalAiDock() {
           action: "note",
           title: dbSnap.name,
           prompt,
-          context: packDbContextForAi(dbSnap),
+          context: withChatSummaryContext(packDbContextForAi(dbSnap), memory),
           messages: history,
           assistant,
           allowNoteEdit: false,
@@ -648,7 +693,10 @@ export default function GlobalAiDock() {
           action: "note",
           title: jobCtx.filename || jobCtx.title || "逐字稿",
           prompt,
-          context: `來源：逐字稿\n檔名：${jobCtx.filename || "—"}\n\n${packed}`,
+          context: withChatSummaryContext(
+            `來源：逐字稿\n檔名：${jobCtx.filename || "—"}\n\n${packed}`,
+            memory
+          ),
           messages: history,
           assistant,
           allowNoteEdit: false,
@@ -672,7 +720,10 @@ export default function GlobalAiDock() {
           title: noteTitle,
           body: noteBody,
           prompt,
-          context: `—— 目前筆記（可編輯目標）——\nID：${focusNote.id}\n標題：${noteTitle}\n路徑：${focusNote.folder || "（根目錄）"}\n\n${noteBody}\n—— 結束 ——${extraCtx}`,
+          context: withChatSummaryContext(
+            `—— 目前筆記（可編輯目標）——\nID：${focusNote.id}\n標題：${noteTitle}\n路徑：${focusNote.folder || "（根目錄）"}\n\n${noteBody}\n—— 結束 ——${extraCtx}`,
+            memory
+          ),
           messages: history,
           assistant,
           allowNoteEdit: canEditHere,
@@ -696,7 +747,7 @@ export default function GlobalAiDock() {
         body = {
           action: "library",
           prompt,
-          context: packed.context,
+          context: withChatSummaryContext(packed.context, memory),
           assistant,
           messages: history,
           allowNoteEdit: false,

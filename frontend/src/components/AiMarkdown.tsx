@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { markdownToDisplayHtml } from "@/lib/mdHtml";
+import { compactGroundingSourcesInText } from "@/lib/aiPrefs";
 
 /** Renders assistant/user chat text with Markdown + KaTeX. */
 export default function AiMarkdown({
@@ -11,7 +12,10 @@ export default function AiMarkdown({
   text: string;
   className?: string;
 }) {
-  const html = useMemo(() => markdownToDisplayHtml(text || ""), [text]);
+  const html = useMemo(
+    () => markdownToDisplayHtml(compactGroundingSourcesInText(text || "")),
+    [text]
+  );
   if (!text?.trim()) return null;
   return (
     <div

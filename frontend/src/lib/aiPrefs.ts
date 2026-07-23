@@ -88,7 +88,8 @@ export function assistantPayloadFromPrefs(prefs?: {
   };
 }
 
-/** Append web sources to assistant text when grounding was used */
+/** Append web sources to assistant text when grounding was used.
+ * Use short markdown links — never dump Vertex redirect URLs into the body. */
 export function appendGroundingSources(
   text: string,
   sources?: Array<{ title?: string; uri?: string }> | null
@@ -96,13 +97,83 @@ export function appendGroundingSources(
   if (!sources?.length) return text;
   const lines = sources
     .map((s, i) => {
-      const title = (s.title || s.uri || "").trim();
       const uri = (s.uri || "").trim();
-      if (!title && !uri) return null;
-      if (uri && title !== uri) return `${i + 1}. ${title} — ${uri}`;
-      return `${i + 1}. ${title || uri}`;
+      const rawTitle = (s.title || "").trim();
+      const label = groundingSourceLabel(rawTitle, uri);
+      if (!label && !uri) return null;
+      if (uri) return `${i + 1}. [${label}](${uri})`;
+      return `${i + 1}. ${label}`;
     })
     .filter(Boolean);
   if (!lines.length) return text;
   return `${text.trim()}\n\n—— 網路來源 ——\n${lines.join("\n")}`;
+}
+
+/** Prefer a short human label (domain / title), never a raw redirect URL. */
+export function groundingSourceLabel(title?: string, uri?: string): string {
+  const t = (title || "").trim();
+  const u = (uri || "").trim();
+  if (t && !looksLikeRawUrl(t) && !isVertexGroundingRedirect(t)) {
+    // Title is sometimes just the hostname already (e.g. ettoday.net)
+    return t.length > 60 ? `${t.slice(0, 57)}…` : t;
+  }
+  const host = hostnameFromUrl(u) || hostnameFromUrl(t);
+  if (host) return host;
+  if (isVertexGroundingRedirect(u) || isVertexGroundingRedirect(t)) return "網頁來源";
+  return t || u || "來源";
+}
+
+function looksLikeRawUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s) || s.length > 120;
+}
+
+export function isVertexGroundingRedirect(s: string): boolean {
+  return /vertexaisearch\.cloud\.google\.com\/grounding-api-redirect/i.test(s);
+}
+
+function hostnameFromUrl(s: string): string | null {
+  if (!s) return null;
+  try {
+    const host = new URL(s).hostname.replace(/^www\./, "");
+    if (!host || host.includes("vertexaisearch.cloud.google.com")) return null;
+    return host;
+  } catch {
+    // Bare hostname like "ettoday.net"
+    if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(s) && !s.includes("/")) return s.replace(/^www\./, "");
+    return null;
+  }
+}
+
+/**
+ * Compact long grounding URLs already stored in chat markdown
+ * (older messages / plain-text dumps).
+ */
+export function compactGroundingSourcesInText(text: string): string {
+  if (!text?.includes("—— 網路來源 ——") && !isVertexGroundingRedirect(text)) {
+    return text;
+  }
+  let out = text;
+  // "1. title — https://…" or "1. https://…"
+  out = out.replace(
+    /^(\s*\d+\.\s+)(.+)$/gm,
+    (full, prefix: string, rest: string) => {
+      const m = rest.match(/^(.*?)\s+[—–-]\s+(https?:\/\/\S+)\s*$/);
+      if (m) {
+        const label = groundingSourceLabel(m[1].trim(), m[2].trim());
+        return `${prefix}[${label}](${m[2].trim()})`;
+      }
+      const onlyUrl = rest.trim().match(/^(https?:\/\/\S+)$/);
+      if (onlyUrl) {
+        const label = groundingSourceLabel("", onlyUrl[1]);
+        return `${prefix}[${label}](${onlyUrl[1]})`;
+      }
+      return full;
+    }
+  );
+  // Any remaining bare Vertex redirect URLs
+  out = out.replace(
+    /(?<!\]\()https:\/\/vertexaisearch\.cloud\.google\.com\/grounding-api-redirect\/[A-Za-z0-9_\-]+/g,
+    (url) => `[網頁來源](${url})`
+  );
+  return out;
 }
