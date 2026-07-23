@@ -827,7 +827,7 @@ export default function SettingsPage() {
             </Row>
             <Row
               label="即時串流轉錄"
-              hint="預設關閉（切段批次較省）。開啟後邊講邊出字；目前先提供 5 小時額度，用完會自動改回切段且不中斷錄音。"
+              hint="預設關閉（切段批次較省）。目前雲端後端尚未開放即時串流時，開啟也會自動改回切段。stadium.js／Receiving end 等 console 錯誤多半是瀏覽器擴充，與錄音無關。"
             >
               <Toggle
                 checked={prefs.liveStreamStt}

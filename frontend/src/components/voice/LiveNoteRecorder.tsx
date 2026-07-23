@@ -103,6 +103,8 @@ export default function LiveNoteRecorder({
   const [audioSource, setAudioSource] = useState<LiveAudioSource>(audioSourceProp);
   /** Session opt-in; seeded from prefs (default off = batch). */
   const [streamOn, setStreamOn] = useState(() => Boolean(prefs?.liveStreamStt));
+  /** null = probing; false = Cloud Run has streaming off. */
+  const [streamServerOk, setStreamServerOk] = useState<boolean | null>(null);
   const [streamUsedSecs, setStreamUsedSecs] = useState(() => getStreamUsedSecs());
   const [streamLive, setStreamLive] = useState(false);
   const [live, setLive] = useState(false);
@@ -170,11 +172,32 @@ export default function LiveNoteRecorder({
   }, [streamOn]);
 
   useEffect(() => {
+    if (!open || !doStt) return;
+    let cancelled = false;
+    void fetchGoogleSttHealth().then((h) => {
+      if (cancelled) return;
+      const ok = h?.stream_enabled !== false;
+      setStreamServerOk(ok);
+      if (!ok) {
+        streamOnRef.current = false;
+        setStreamOn(false);
+        forceBatchSttRef.current = true;
+        if (prefs?.liveStreamStt) prefsCtx?.setPrefs({ liveStreamStt: false });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, doStt]);
+
+  useEffect(() => {
     if (!live && !stopping) {
-      setStreamOn(Boolean(prefs?.liveStreamStt) && streamRemainingSecs() > 0);
+      const want = Boolean(prefs?.liveStreamStt) && streamRemainingSecs() > 0;
+      setStreamOn(want && streamServerOk !== false);
       setStreamUsedSecs(getStreamUsedSecs());
     }
-  }, [prefs?.liveStreamStt, live, stopping]);
+  }, [prefs?.liveStreamStt, live, stopping, streamServerOk]);
 
   useEffect(() => {
     if (audioSourceProp && !live && !stopping) setAudioSource(audioSourceProp);
@@ -979,15 +1002,25 @@ export default function LiveNoteRecorder({
                   <button
                     type="button"
                     className={`voice-live-source-chip${streamOn ? " is-on" : ""}`}
-                    disabled={!canPickSource || streamRemainingSecs() <= 0}
+                    disabled={
+                      !canPickSource ||
+                      streamRemainingSecs() <= 0 ||
+                      streamServerOk === false
+                    }
                     title={
-                      streamRemainingSecs() <= 0
-                        ? "即時額度已用完，目前僅切段批次"
-                        : streamOn
-                          ? `即時串流（${quotaLabel}，目前先提供 5 小時）。再按改回切段批次。`
-                          : `開啟即時串流（${quotaLabel}，目前先提供 5 小時）`
+                      streamServerOk === false
+                        ? "伺服器尚未開放即時串流（Cloud Run stream_enabled=false），請用切段批次"
+                        : streamRemainingSecs() <= 0
+                          ? "即時額度已用完，目前僅切段批次"
+                          : streamOn
+                            ? `即時串流（${quotaLabel}，目前先提供 5 小時）。再按改回切段批次。`
+                            : `開啟即時串流（${quotaLabel}，目前先提供 5 小時）`
                     }
                     onClick={() => {
+                      if (streamServerOk === false) {
+                        toast("伺服器尚未開放即時串流，請用切段批次");
+                        return;
+                      }
                       if (streamRemainingSecs() <= 0) {
                         toast("即時額度已用完");
                         return;
@@ -996,6 +1029,7 @@ export default function LiveNoteRecorder({
                       if (next) {
                         void fetchGoogleSttHealth().then((h) => {
                           if (h && h.stream_enabled === false) {
+                            setStreamServerOk(false);
                             toast("伺服器尚未開放即時串流，請先用切段批次");
                             setStreamOn(false);
                             streamOnRef.current = false;
@@ -1003,6 +1037,7 @@ export default function LiveNoteRecorder({
                             prefsCtx?.setPrefs({ liveStreamStt: false });
                             return;
                           }
+                          setStreamServerOk(true);
                           setStreamOn(true);
                           streamOnRef.current = true;
                           forceBatchSttRef.current = false;
@@ -1018,7 +1053,11 @@ export default function LiveNoteRecorder({
                       setStatus("已改用切段批次（較省）");
                     }}
                   >
-                    {streamOn ? `即時 ${quotaLabel}` : "切段批次"}
+                    {streamServerOk === false
+                      ? "切段（伺服器未開即時）"
+                      : streamOn
+                        ? `即時 ${quotaLabel}`
+                        : "切段批次"}
                   </button>
                 ) : null}
               </div>

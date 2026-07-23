@@ -389,7 +389,7 @@ export default function CapturePage() {
                   const id = await createNote(
                     user.uid,
                     `即時轉錄 · ${stamp}`,
-                    `# 即時轉錄\n\n> 開會／上課可錄麥克風、裝置聲音（線上課程、Drive 播放等），或兩者混音。停頓後自動切段並轉字，每若干段 AI 整理進本篇，音檔一併保留。\n\n`,
+                    "",
                     undefined,
                     ["live-stt"],
                     { folder: "即時轉錄", icon: "mic" }

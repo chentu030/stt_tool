@@ -242,7 +242,7 @@ function NotePageInner() {
   } | null>(null);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRestored = useRef<string | null>(null);
-  const insertMdRef = useRef<((md: string) => void) | null>(null);
+  const insertMdRef = useRef<((md: string, opts?: { at?: "cursor" | "end" }) => void) | null>(null);
   const [liveOpen, setLiveOpen] = useState(false);
   const [liveAutoStart, setLiveAutoStart] = useState(false);
   const [liveMode, setLiveMode] = useState<LiveRecordMode>("organize");
@@ -2616,7 +2616,7 @@ function NotePageInner() {
             setLiveAutoStart(false);
           }}
           insertMd={(md) => {
-            if (insertMdRef.current) insertMdRef.current(md);
+            if (insertMdRef.current) insertMdRef.current(md, { at: "end" });
             else {
               const next = `${latest.current.body || ""}${md}`;
               latest.current = { ...latest.current, body: next };

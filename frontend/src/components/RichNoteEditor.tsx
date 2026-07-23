@@ -91,8 +91,10 @@ type Props = {
   onRunAiAction?: (apiAction: string, prompt?: string) => void;
   /** After inserting audio/video/YouTube — parent may offer transcription */
   onTranscribableMedia?: (media: TranscribableMedia) => void;
-  /** Parent registers insert-at-cursor */
-  insertMdRef?: MutableRefObject<((md: string) => void) | null>;
+  /** Parent registers insert helper. Default = cursor; pass `{ at: "end" }` to append. */
+  insertMdRef?: MutableRefObject<
+    ((md: string, opts?: { at?: "cursor" | "end" }) => void) | null
+  >;
   aiContext?: string;
   /** Read-only shared / preview mode */
   readOnly?: boolean;
@@ -1658,10 +1660,16 @@ export default function RichNoteEditor({
 
   useEffect(() => {
     if (!insertMdRef) return;
-    insertMdRef.current = (md: string) => {
+    insertMdRef.current = (md: string, opts?: { at?: "cursor" | "end" }) => {
       const ed = editorRef.current;
       if (!ed) return;
       const html = markdownToHtml(md, (t) => resolveWikiRef.current(t));
+      if (opts?.at === "end") {
+        // Live STT / organize / audio: always append, ignore where the user clicked.
+        const endPos = ed.state.doc.content.size;
+        ed.chain().insertContentAt(endPos, html).run();
+        return;
+      }
       ed.chain().focus().insertContent(html).run();
     };
     return () => {
