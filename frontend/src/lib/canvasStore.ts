@@ -1,3 +1,5 @@
+import { hexToRgb, normalizeHexColor, rgbToHex } from "@/lib/colorPick";
+
 /** Spatial canvas document model + local persistence */
 
 export type Point = { x: number; y: number };
@@ -12,7 +14,8 @@ export type CanvasSticky = {
   w: number;
   h: number;
   text: string;
-  color: StickyColor;
+  /** Preset id (StickyColor) or custom #rrggbb */
+  color: string;
   z: number;
   /** Plain canvas text (no sticky chrome). */
   variant?: "sticky" | "text";
@@ -126,6 +129,35 @@ export const STICKY_COLORS: { id: StickyColor; label: string; bg: string; border
 ];
 
 export const SHAPE_COLORS = ["#0D9488", "#0369A1", "#7C3AED", "#E11D48", "#CA8A04", "#64748B"];
+
+/** Mix hex toward white for a pastel sticky fill. */
+function lightenHex(hex: string, amount: number): string {
+  const { r, g, b } = hexToRgb(hex);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  return rgbToHex(mix(r), mix(g), mix(b));
+}
+
+/** Resolve sticky display colors from preset id or custom hex. */
+export function resolveStickyStyle(color: string): { bg: string; border: string } {
+  const preset = STICKY_COLORS.find((c) => c.id === color);
+  if (preset) return { bg: preset.bg, border: preset.border };
+  const hex = normalizeHexColor(color);
+  if (hex) return { bg: lightenHex(hex, 0.72), border: hex };
+  return { bg: STICKY_COLORS[0].bg, border: STICKY_COLORS[0].border };
+}
+
+/** Map toolbar color (preset or hex) → shape stroke/fill hex. */
+export function colorToShapeHex(color: string): string {
+  const preset = STICKY_COLORS.find((c) => c.id === color);
+  if (preset) return preset.border;
+  return normalizeHexColor(color) || SHAPE_COLORS[0];
+}
+
+export function isCanvasColorValue(color: string | undefined | null): color is string {
+  if (!color) return false;
+  if (STICKY_COLORS.some((c) => c.id === color)) return true;
+  return !!normalizeHexColor(color);
+}
 
 const KEY_PREFIX = "cadence_canvas_v2_";
 
@@ -271,7 +303,7 @@ export function edgePath(a: Point, b: Point, _radius = 12): string {
 
 /** AI canvas ops */
 export type CanvasAiOp =
-  | { op: "add_sticky"; text?: string; x?: number; y?: number; w?: number; h?: number; color?: StickyColor }
+  | { op: "add_sticky"; text?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
   | { op: "add_shape"; shape?: ShapeKind; label?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
   | { op: "update"; id: string; text?: string; label?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
   | { op: "delete"; id: string }
@@ -386,7 +418,7 @@ export function applyCanvasOps(
         w: op.w ?? 180,
         h: op.h ?? 140,
         text: op.text || "",
-        color: op.color && STICKY_COLORS.some((c) => c.id === op.color) ? op.color : "yellow",
+        color: isCanvasColorValue(op.color) ? op.color : "yellow",
         z: z++,
       };
       next.stickies.push(s);
@@ -414,10 +446,7 @@ export function applyCanvasOps(
           y: op.y ?? s.y,
           w: op.w ?? s.w,
           h: op.h ?? s.h,
-          color:
-            op.color && STICKY_COLORS.some((c) => c.id === op.color)
-              ? (op.color as StickyColor)
-              : s.color,
+          color: isCanvasColorValue(op.color) ? op.color : s.color,
         };
       });
       next.shapes = next.shapes.map((s) => {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
-import { STICKY_COLORS, StickyColor, ToolId } from "@/lib/canvasStore";
+import { useRef, useState } from "react";
+import { STICKY_COLORS, ToolId, colorToShapeHex, resolveStickyStyle } from "@/lib/canvasStore";
+import CanvasColorPicker from "@/components/canvas/CanvasColorPicker";
 
 const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "select", label: "選取", hint: "V" },
@@ -17,8 +18,8 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
 type Props = {
   tool: ToolId;
   onTool: (t: ToolId) => void;
-  stickyColor: StickyColor;
-  onStickyColor: (c: StickyColor) => void;
+  stickyColor: string;
+  onStickyColor: (c: string) => void;
   scale: number;
   grid: boolean;
   snap: boolean;
@@ -69,10 +70,15 @@ export default function CanvasToolbar({
   const pdfRef = useRef<HTMLInputElement>(null);
   const pptRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const customBtnRef = useRef<HTMLButtonElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const pick = (files: FileList | null) => {
     if (files?.length) onInsertFiles?.(files);
   };
+
+  const customStyle = resolveStickyStyle(stickyColor);
+  const isCustom = !STICKY_COLORS.some((c) => c.id === stickyColor);
 
   return (
     <div className="cv-toolbar">
@@ -90,17 +96,35 @@ export default function CanvasToolbar({
         ))}
       </div>
 
-      <div className="cv-tool-group">
+      <div className="cv-tool-group cv-tool-group--colors">
         {STICKY_COLORS.map((c) => (
           <button
             key={c.id}
             type="button"
             className={`cv-swatch${stickyColor === c.id ? " is-on" : ""}`}
             style={{ background: c.bg, borderColor: c.border }}
-            title={c.label}
+            title={`${c.label}（套用到選取物件）`}
             onClick={() => onStickyColor(c.id)}
           />
         ))}
+        <button
+          ref={customBtnRef}
+          type="button"
+          className={`cv-swatch cv-swatch--custom${isCustom || pickerOpen ? " is-on" : ""}`}
+          style={{
+            background: `conic-gradient(from 180deg, ${customStyle.border}, ${customStyle.bg}, ${colorToShapeHex(stickyColor)})`,
+            borderColor: customStyle.border,
+          }}
+          title="自訂顏色（色盤／RGB）"
+          onClick={() => setPickerOpen((v) => !v)}
+        />
+        <CanvasColorPicker
+          color={stickyColor}
+          onChange={onStickyColor}
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          anchorRef={customBtnRef}
+        />
       </div>
 
       <div className="cv-tool-group">

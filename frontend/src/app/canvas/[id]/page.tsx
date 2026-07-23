@@ -31,12 +31,9 @@ import {
   type CanvasMedia,
   type CanvasMediaKind,
   type Selectable,
-  type StickyColor,
   type ToolId,
   type ClipboardPayload,
   type CanvasAiOp,
-  STICKY_COLORS,
-  SHAPE_COLORS,
   MEDIA_DEFAULT_SIZE,
   autoLayoutNotes,
   clampScale,
@@ -57,6 +54,8 @@ import {
   applyCanvasOps,
   mediaKindFromFile,
   createMediaItem,
+  colorToShapeHex,
+  resolveStickyStyle,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
@@ -90,7 +89,7 @@ export default function CanvasIdPage() {
   const [doc, setDoc] = useState<CanvasDoc>(() => emptyDoc());
   const [ready, setReady] = useState(false);
   const [tool, setTool] = useState<ToolId>(prefs.canvasDefaultTool);
-  const [stickyColor, setStickyColor] = useState<StickyColor>("yellow");
+  const [stickyColor, setStickyColor] = useState<string>("yellow");
   const [selected, setSelected] = useState<Selectable[]>([]);
   const focusApplied = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -190,6 +189,36 @@ export default function CanvasIdPage() {
     },
     [pushHistory]
   );
+
+  /** Set color preference + apply to selected stickies / shapes. */
+  const applyCanvasColor = useCallback(
+    (color: string) => {
+      setStickyColor(color);
+      const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
+      const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
+      if (!stickyIds.size && !shapeIds.size) return;
+      const shapeHex = colorToShapeHex(color);
+      updateDoc((d) => ({
+        ...d,
+        stickies: d.stickies.map((s) => (stickyIds.has(s.id) ? { ...s, color } : s)),
+        shapes: d.shapes.map((s) => (shapeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
+      }));
+    },
+    [selected, updateDoc]
+  );
+
+  // Mirror selection color into the toolbar swatches.
+  useEffect(() => {
+    if (selected.length !== 1) return;
+    const hit = selected[0];
+    if (hit.type === "sticky") {
+      const st = doc.stickies.find((s) => s.id === hit.id);
+      if (st?.color) setStickyColor(st.color);
+    } else if (hit.type === "shape") {
+      const sh = doc.shapes.find((s) => s.id === hit.id);
+      if (sh?.color) setStickyColor(sh.color);
+    }
+  }, [selected, doc.stickies, doc.shapes]);
 
   const undo = () => {
     setHistory((h) => {
@@ -571,7 +600,7 @@ export default function CanvasIdPage() {
         w: 160,
         h: 110,
         label: tool === "frame" ? "區塊" : "",
-        color: SHAPE_COLORS[Math.floor(Math.random() * SHAPE_COLORS.length)],
+        color: colorToShapeHex(stickyColor),
         z,
       };
       updateDoc((d) => ({ ...d, shapes: [...d.shapes, shape] }));
@@ -1148,7 +1177,7 @@ export default function CanvasIdPage() {
           tool={tool}
           onTool={setTool}
           stickyColor={stickyColor}
-          onStickyColor={setStickyColor}
+          onStickyColor={applyCanvasColor}
           scale={doc.scale}
           grid={doc.grid}
           snap={doc.snap}
@@ -1342,7 +1371,7 @@ export default function CanvasIdPage() {
             ))}
 
             {doc.stickies.map((s) => {
-              const pal = STICKY_COLORS.find((c) => c.id === s.color)!;
+              const pal = resolveStickyStyle(s.color);
               const isText = s.variant === "text";
               const connectOn = connectFrom === s.id;
               return (
