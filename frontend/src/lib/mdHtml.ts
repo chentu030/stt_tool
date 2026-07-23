@@ -8,6 +8,7 @@ import {
   layoutDataAttrString,
   parseEmbedMid,
   parseImageMid,
+  readHideUrlBarFromElement,
   readLayoutFromElement,
   DEFAULT_MEDIA_LAYOUT,
 } from "@/lib/mediaLayout";
@@ -276,7 +277,11 @@ turndown.addRule("richImageLayout", {
     const layout = readLayoutFromElement(frame);
     const src = img.getAttribute("src") || "";
     const alt = img.getAttribute("alt") || "";
-    return `\n\n${formatImageToken(src, alt, layout)}\n\n`;
+    const hideUrlBar =
+      readHideUrlBarFromElement(el) ||
+      readHideUrlBarFromElement(frame) ||
+      readHideUrlBarFromElement(img);
+    return `\n\n${formatImageToken(src, alt, layout, { hideUrlBar })}\n\n`;
   },
 });
 
@@ -293,7 +298,8 @@ turndown.addRule("richImageBare", {
     const src = img.getAttribute("src") || "";
     if (!src) return "";
     const alt = img.getAttribute("alt") || "";
-    return `\n\n${formatImageToken(src, alt, layout)}\n\n`;
+    const hideUrlBar = readHideUrlBarFromElement(img);
+    return `\n\n${formatImageToken(src, alt, layout, { hideUrlBar })}\n\n`;
   },
 });
 
@@ -682,7 +688,8 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     const layout = { ...DEFAULT_MEDIA_LAYOUT, ...parsed.layout };
     const data = layoutDataAttrString(layout);
     const alt = parsed.alt || "";
-    return `<div class="rich-image-shell rich-media-frame" ${data}><img class="rich-image" src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" ${data} /></div>`;
+    const hideAttr = parsed.hideUrlBar ? ` data-hide-url-bar="1"` : "";
+    return `<div class="rich-image-shell rich-media-frame" ${data}${hideAttr}><img class="rich-image" src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" ${data}${hideAttr} /></div>`;
   });
 
   s = s.replace(/\[file\|([^\]|]+)(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, name, size, href) => {
@@ -1166,7 +1173,16 @@ export function htmlToMarkdown(html: string): string {
           (img.closest(".rich-media-frame, .rich-image-shell") as HTMLElement | null) ||
           host;
         const layout = readLayoutFromElement(frame);
-        const token = formatImageToken(img.getAttribute("src") || "", img.getAttribute("alt") || "", layout);
+        const hideUrlBar =
+          readHideUrlBarFromElement(host) ||
+          readHideUrlBarFromElement(frame) ||
+          readHideUrlBarFromElement(img);
+        const token = formatImageToken(
+          img.getAttribute("src") || "",
+          img.getAttribute("alt") || "",
+          layout,
+          { hideUrlBar }
+        );
         const target =
           (host.closest(".rich-image-shell") as HTMLElement | null) ||
           (host.classList.contains("rich-media-frame") && host.querySelector("img.rich-image")

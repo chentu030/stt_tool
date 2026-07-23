@@ -10985,6 +10985,32 @@ body.rich-media-float-dragging * {
   height: auto;
   margin: 0;
 }
+.rich-image-ctx {
+  position: fixed;
+  z-index: 80;
+  min-width: 140px;
+  padding: 0.25rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
+}
+.rich-image-ctx button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.45rem 0.65rem;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-main);
+  font-size: 0.82rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+.rich-image-ctx button:hover {
+  background: var(--accent-soft, color-mix(in srgb, var(--accent) 14%, transparent));
+}
 .rich-embed-label {
   font-size: 0.72rem;
   font-weight: 650;

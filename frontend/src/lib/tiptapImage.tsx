@@ -12,6 +12,7 @@ import MediaLayoutChrome from "@/components/notes/MediaLayoutChrome";
 import {
   layoutToDataAttrs,
   mediaLayoutTipTapAttributes,
+  readHideUrlBarFromElement,
   readLayoutFromAttrs,
   type MediaLayout,
 } from "@/lib/mediaLayout";
@@ -26,10 +27,12 @@ function ImageUrlView({
 }: ReactNodeViewProps) {
   const src = String(node.attrs.src || "");
   const alt = String(node.attrs.alt || "");
+  const hideUrlBar = !!node.attrs.hideUrlBar;
   const [draft, setDraft] = useState(src);
   const empty = !src.trim();
   const readOnly = !editor?.isEditable;
   const [localActive, setLocalActive] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     setDraft(src);
@@ -43,12 +46,34 @@ function ImageUrlView({
     if (!localActive || selected) return;
     const onDoc = (ev: PointerEvent) => {
       const t = ev.target as HTMLElement | null;
-      if (t?.closest?.(".rich-image-shell, .rich-media-toolbar, .rich-media-wrap-pop")) return;
+      if (t?.closest?.(".rich-image-shell, .rich-media-toolbar, .rich-media-wrap-pop, .rich-image-ctx"))
+        return;
       setLocalActive(false);
     };
     document.addEventListener("pointerdown", onDoc, true);
     return () => document.removeEventListener("pointerdown", onDoc, true);
   }, [localActive, selected]);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (ev?: Event) => {
+      const t = (ev as Event & { target?: EventTarget | null })?.target as HTMLElement | null;
+      if (t?.closest?.(".rich-image-ctx")) return;
+      setCtxMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtxMenu(null);
+    };
+    const onScroll = () => setCtxMenu(null);
+    window.addEventListener("pointerdown", close, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("pointerdown", close, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [ctxMenu]);
 
   const selectSelf = () => {
     if (!editor || readOnly) return;
@@ -68,98 +93,105 @@ function ImageUrlView({
   };
 
   const showChrome = (!!selected || localActive) && !readOnly;
+  const showUrlBar = empty || !hideUrlBar;
+
+  const openCtxMenu = (e: React.MouseEvent) => {
+    if (readOnly || empty) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectSelf();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const urlBar = (
+    <div className="rich-bookmark-bar" onPointerDown={() => selectSelf()}>
+      <span className="rich-bookmark-label">{empty ? "圖片網址" : "圖片"}</span>
+      <input
+        className="rich-embed-url-input"
+        type="url"
+        inputMode="url"
+        spellCheck={false}
+        placeholder={empty ? "貼上圖片網址…" : "圖片網址…"}
+        value={draft}
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        onFocus={selectSelf}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit(draft);
+          }
+        }}
+        aria-label="圖片網址"
+      />
+      {!empty && (
+        <>
+          <button
+            type="button"
+            className="rich-embed-clear"
+            title="隱藏網址列"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              updateAttributes({ hideUrlBar: true });
+            }}
+          >
+            隱藏
+          </button>
+          <button
+            type="button"
+            className="rich-embed-clear"
+            title="清除網址"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              setDraft("");
+              updateAttributes({ src: null });
+            }}
+          >
+            清除
+          </button>
+          <button
+            type="button"
+            className="rich-embed-clear"
+            title="移除圖片"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              try {
+                deleteNode();
+              } catch {
+                const pos = typeof getPos === "function" ? getPos() : null;
+                if (typeof pos !== "number" || !editor) return;
+                editor
+                  .chain()
+                  .focus()
+                  .command(({ tr, dispatch }) => {
+                    tr.delete(pos, pos + node.nodeSize);
+                    dispatch?.(tr);
+                    return true;
+                  })
+                  .run();
+              }
+            }}
+          >
+            刪除
+          </button>
+        </>
+      )}
+    </div>
+  );
 
   const inner = empty ? (
     <>
-      <div className="rich-bookmark-bar">
-        <span className="rich-bookmark-label">圖片網址</span>
-        <input
-          className="rich-embed-url-input"
-          type="url"
-          inputMode="url"
-          spellCheck={false}
-          placeholder="貼上圖片網址…"
-          value={draft}
-          onMouseDown={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-          onFocus={selectSelf}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") {
-              e.preventDefault();
-              commit(draft);
-            }
-          }}
-          aria-label="圖片網址"
-        />
-      </div>
+      {urlBar}
       <p className="rich-embed-empty-hint">可貼上網址後按 Enter；也可先留空。</p>
     </>
   ) : (
     <>
-      <div className="rich-bookmark-bar" onPointerDown={() => selectSelf()}>
-        <span className="rich-bookmark-label">圖片</span>
-        <input
-          className="rich-embed-url-input"
-          type="url"
-          inputMode="url"
-          spellCheck={false}
-          placeholder="圖片網址…"
-          value={draft}
-          onMouseDown={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-          onFocus={selectSelf}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-            if (e.key === "Enter") {
-              e.preventDefault();
-              commit(draft);
-            }
-          }}
-          aria-label="圖片網址"
-        />
-        <button
-          type="button"
-          className="rich-embed-clear"
-          title="清除網址"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.preventDefault();
-            setDraft("");
-            updateAttributes({ src: null });
-          }}
-        >
-          清除
-        </button>
-        <button
-          type="button"
-          className="rich-embed-clear"
-          title="移除圖片"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.preventDefault();
-            try {
-              deleteNode();
-            } catch {
-              const pos = typeof getPos === "function" ? getPos() : null;
-              if (typeof pos !== "number" || !editor) return;
-              editor
-                .chain()
-                .focus()
-                .command(({ tr, dispatch }) => {
-                  tr.delete(pos, pos + node.nodeSize);
-                  dispatch?.(tr);
-                  return true;
-                })
-                .run();
-            }
-          }}
-        >
-          刪除
-        </button>
-      </div>
+      {showUrlBar ? urlBar : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         className="rich-image"
@@ -171,17 +203,25 @@ function ImageUrlView({
           e.stopPropagation();
           selectSelf();
         }}
+        onContextMenu={openCtxMenu}
       />
     </>
   );
 
   return (
     <NodeViewWrapper
-      className={`rich-image-shell${empty ? " is-empty" : ""}${showChrome ? " is-active" : ""}`}
+      className={`rich-image-shell${empty ? " is-empty" : ""}${showChrome ? " is-active" : ""}${
+        hideUrlBar && !empty ? " is-urlbar-hidden" : ""
+      }`}
       onClick={(e: React.MouseEvent) => {
         const t = e.target as HTMLElement;
-        if (t.closest("input, button, a, textarea")) return;
+        if (t.closest("input, button, a, textarea, .rich-image-ctx")) return;
         selectSelf();
+      }}
+      onContextMenu={(e: React.MouseEvent) => {
+        const t = e.target as HTMLElement;
+        if (t.closest("input, button, a, textarea")) return;
+        openCtxMenu(e);
       }}
     >
       <MediaLayoutChrome
@@ -214,6 +254,28 @@ function ImageUrlView({
       >
         {inner}
       </MediaLayoutChrome>
+      {ctxMenu && !readOnly && !empty ? (
+        <div
+          className="rich-image-ctx"
+          role="menu"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              updateAttributes({ hideUrlBar: !hideUrlBar });
+              setCtxMenu(null);
+            }}
+          >
+            {hideUrlBar ? "顯示網址列" : "隱藏網址列"}
+          </button>
+        </div>
+      ) : null}
     </NodeViewWrapper>
   );
 }
@@ -227,6 +289,15 @@ export const NoteImage = Image.extend({
       ...this.parent?.(),
       src: {
         default: null,
+      },
+      hideUrlBar: {
+        default: false,
+        parseHTML: (el: HTMLElement) => {
+          const shell = el.closest(".rich-image-shell, .rich-media-frame") as HTMLElement | null;
+          return readHideUrlBarFromElement(shell) || readHideUrlBarFromElement(el);
+        },
+        renderHTML: (attrs: Record<string, unknown>) =>
+          attrs.hideUrlBar ? { "data-hide-url-bar": "1" } : {},
       },
       ...mediaLayoutTipTapAttributes(),
     };
@@ -248,6 +319,7 @@ export const NoteImage = Image.extend({
           return {
             src: img.getAttribute("src"),
             alt: img.getAttribute("alt"),
+            hideUrlBar: readHideUrlBarFromElement(shell) || readHideUrlBarFromElement(img),
             ...layout,
           };
         },
@@ -260,6 +332,7 @@ export const NoteImage = Image.extend({
           return {
             src: img.getAttribute("src"),
             alt: img.getAttribute("alt"),
+            hideUrlBar: readHideUrlBarFromElement(img),
             ...layout,
           };
         },
@@ -273,6 +346,7 @@ export const NoteImage = Image.extend({
           return {
             src: img.getAttribute("src"),
             alt: img.getAttribute("alt"),
+            hideUrlBar: readHideUrlBarFromElement(img),
             ...layout,
           };
         },
@@ -283,11 +357,13 @@ export const NoteImage = Image.extend({
     const layout = readLayoutFromAttrs(HTMLAttributes);
     const src = HTMLAttributes.src;
     const alt = HTMLAttributes.alt || "";
+    const hideUrlBar = !!HTMLAttributes.hideUrlBar;
     return [
       "div",
       mergeAttributes({
         class: "rich-image-shell rich-media-frame",
         ...layoutToDataAttrs(layout),
+        ...(hideUrlBar ? { "data-hide-url-bar": "1" } : {}),
       }),
       [
         "img",
@@ -296,6 +372,7 @@ export const NoteImage = Image.extend({
           src,
           alt,
           ...layoutToDataAttrs(layout),
+          ...(hideUrlBar ? { "data-hide-url-bar": "1" } : {}),
         }),
       ],
     ];

@@ -163,16 +163,22 @@ export function mediaLayoutTipTapAttributes() {
 export function formatImageToken(
   src: string,
   alt: string,
-  layout?: Partial<MediaLayout> | null
+  layout?: Partial<MediaLayout> | null,
+  opts?: { hideUrlBar?: boolean }
 ): string {
   const full = { ...DEFAULT_MEDIA_LAYOUT, ...(layout || {}) };
   const safeAlt = String(alt || "").replace(/\|/g, " ").replace(/\n/g, " ").trim();
   const extras = layoutToTokenParts(full);
+  if (opts?.hideUrlBar) extras.push("urlbar=0");
   const mid = ["image", safeAlt, ...extras].join("|");
   return `![${mid}](${src || ""})`;
 }
 
-export function parseImageMid(mid: string): { alt: string; layout: Partial<MediaLayout> } {
+export function parseImageMid(mid: string): {
+  alt: string;
+  layout: Partial<MediaLayout>;
+  hideUrlBar: boolean;
+} {
   const segs = String(mid || "")
     .split("|")
     .map((s) => s.trim());
@@ -180,16 +186,32 @@ export function parseImageMid(mid: string): { alt: string; layout: Partial<Media
   if (segs[0]?.toLowerCase() === "image") i = 1;
   const layoutParts: string[] = [];
   const altParts: string[] = [];
+  let hideUrlBar = false;
   for (; i < segs.length; i++) {
     const p = segs[i];
     if (!p) continue;
+    if (/^urlbar=/i.test(p)) {
+      const val = p.slice(p.indexOf("=") + 1).trim().toLowerCase();
+      hideUrlBar = val === "0" || val === "hide" || val === "false" || val === "off";
+      continue;
+    }
     if (/^(w|width|align|wrap|ox|oy)=/i.test(p)) layoutParts.push(p);
     else altParts.push(p);
   }
   return {
     alt: altParts.join(" ").trim(),
     layout: parseLayoutTokenParts(layoutParts),
+    hideUrlBar,
   };
+}
+
+export function readHideUrlBarFromElement(el: Element | null | undefined): boolean {
+  if (!el) return false;
+  const d = el as HTMLElement;
+  return (
+    d.getAttribute("data-hide-url-bar") === "1" ||
+    d.getAttribute("data-urlbar") === "0"
+  );
 }
 
 /** Encode layout into embed token segments after title. */
