@@ -18,6 +18,12 @@ import {
 export type QuickVoiceCallbacks = {
   onAppendJournal?: (md: string) => void;
   onCreatedNote?: (noteId: string) => void;
+  /** Fired after note is saved — UI can offer keep / open / mark meeting. */
+  onOrganized?: (info: {
+    noteId: string;
+    title: string;
+    journalBlock: string;
+  }) => void;
 };
 
 type Job = {
@@ -100,6 +106,11 @@ async function runJob(job: Job) {
   }
   try {
     callbacks.onCreatedNote?.(noteId);
+  } catch {
+    /* ignore */
+  }
+  try {
+    callbacks.onOrganized?.({ noteId, title, journalBlock });
   } catch {
     /* ignore */
   }

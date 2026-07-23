@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   JournalStats,
   type JournalTagDef,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/journalMeta";
 import { formatClock, type ScheduleEvent } from "@/lib/scheduleEvents";
 import JournalHeatmap from "@/components/journal/JournalHeatmap";
+import { toast } from "@/lib/toast";
 
 type Props = {
   stats: JournalStats;
@@ -26,6 +27,27 @@ type Props = {
   onSelectDay?: (dateKey: string) => void;
 };
 
+const AI_CHIPS = [
+  {
+    id: "summary",
+    label: "今日摘要",
+    prompt:
+      "根據我今天的日誌內容，用繁體中文寫一段 3–5 句的今日摘要，條列重點即可，不要前言。",
+  },
+  {
+    id: "todos",
+    label: "抽出待辦",
+    prompt:
+      "根據我今天的日誌，抽出未完成待辦，用 Markdown 核取方塊列表（- [ ]）輸出，不要其他說明。",
+  },
+  {
+    id: "continue",
+    label: "延續昨日",
+    prompt:
+      "根據我最近的日誌節奏，建議今天可以延續的 3 件事（簡短條列），用繁體中文。",
+  },
+] as const;
+
 export default function JournalAside({
   stats,
   dateKey,
@@ -33,6 +55,7 @@ export default function JournalAside({
   agenda = [],
   wordsByDate,
   mode = "all",
+  onAskAi,
   onMeetingMode,
   onOpenNote,
   onJoin,
@@ -40,6 +63,8 @@ export default function JournalAside({
 }: Props) {
   const showAgenda = mode === "agenda" || mode === "all";
   const showSecondary = mode === "secondary" || mode === "all";
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
+  const [aiOut, setAiOut] = useState("");
 
   const sortedAgenda = useMemo(
     () =>
@@ -70,8 +95,52 @@ export default function JournalAside({
     return rows.sort((a, b) => b.count - a.count).slice(0, 8);
   })();
 
+  const runAi = async (chip: (typeof AI_CHIPS)[number]) => {
+    if (!onAskAi) {
+      toast("此處尚未接上 AI，請改用右側 AI 面板（⌘J）");
+      return;
+    }
+    if (aiBusy) return;
+    setAiBusy(chip.id);
+    setAiOut("");
+    try {
+      const text = await onAskAi(chip.prompt);
+      setAiOut((text || "").trim() || "（沒有回傳內容）");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "AI 失敗");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
   return (
     <aside className={`jn-aside${mode !== "all" ? ` is-${mode}` : ""}`}>
+      {showSecondary && onAskAi && (
+        <section className="jn-aside-block">
+          <h3>今日助手</h3>
+          <div className="jn-aside-ai-chips">
+            {AI_CHIPS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="btn btn-soft btn-sm"
+                disabled={!!aiBusy}
+                onClick={() => void runAi(c)}
+              >
+                {aiBusy === c.id ? "思考中…" : c.label}
+              </button>
+            ))}
+          </div>
+          {aiOut ? (
+            <div className="jn-aside-ai-out">
+              <pre>{aiOut}</pre>
+            </div>
+          ) : (
+            <p className="jn-muted">一鍵整理今日日誌：摘要、待辦或延續方向。</p>
+          )}
+        </section>
+      )}
+
       {showAgenda && (
         <section className="jn-aside-block">
           <h3>今日議程</h3>
@@ -170,7 +239,7 @@ export default function JournalAside({
 
           {tagRows.length > 0 && (
             <section className="jn-aside-block">
-              <h3>標籤</h3>
+              <h3>當日標記</h3>
               <ul className="jn-mood-stats">
                 {tagRows.map((m) => (
                   <li key={m.id}>

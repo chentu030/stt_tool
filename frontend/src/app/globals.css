@@ -7857,6 +7857,119 @@ button.jn-heat-cell:disabled {
   overflow: auto;
 }
 .jn-muted { font-size: 0.8rem; color: var(--text-muted); }
+
+.jn-aside-ai-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+.jn-aside-ai-out {
+  margin-top: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  max-height: 220px;
+  overflow: auto;
+}
+.jn-aside-ai-out pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.voice-done-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: end center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.35);
+}
+.voice-done-sheet-card {
+  width: min(420px, 100%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.1rem 1.15rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  margin-bottom: 1.5rem;
+}
+.voice-done-sheet-card strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+.voice-done-sheet-card p {
+  margin: 0 0 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.voice-done-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.home-rhythm-steps {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.home-rhythm-steps li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+.home-rhythm-steps li.is-done {
+  border-color: color-mix(in srgb, var(--accent-2) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 8%, var(--bg-primary));
+}
+.home-rhythm-check {
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.home-rhythm-steps li.is-done .home-rhythm-check {
+  background: var(--accent-2);
+  border-color: transparent;
+  color: #fff;
+}
+.home-rhythm-steps strong {
+  display: block;
+  font-size: 0.92rem;
+}
+.home-rhythm-steps p {
+  margin: 0.15rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.cadence-ai-welcome-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0 0 0.55rem;
+  line-height: 1.4;
+}
 .jn-error { font-size: 0.78rem; color: var(--danger); }
 .jn-toast {
   position: fixed;

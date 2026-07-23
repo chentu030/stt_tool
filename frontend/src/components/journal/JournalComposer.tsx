@@ -53,10 +53,14 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
 
   const [text, setText] = useState(initialText);
   const [selected, setSelected] = useState<string[]>(initialTags);
-  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  // Empty day → start writing immediately (capture-first UX).
+  const [mode, setMode] = useState<"preview" | "edit">(
+    () => (initialText.trim() ? "preview" : "edit")
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const seedRef = useRef({ text: initialText, tags: initialTags });
   const prompt = promptForDate(dateKey);
+  const focusedEmptyEdit = useRef(false);
 
   const enterEdit = () => {
     setMode("edit");
@@ -65,6 +69,14 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
       textareaRef.current?.focus({ preventScroll: true });
     });
   };
+
+  useEffect(() => {
+    if (mode !== "edit" || text.trim() || focusedEmptyEdit.current) return;
+    focusedEmptyEdit.current = true;
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  }, [mode, text]);
 
   const dirty = text !== initialText || !sameIds(selected, initialTags);
 
@@ -98,11 +110,15 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
 
   const addTagDef = async () => {
     if (!prefsCtx) return;
-    const label = await askPrompt({ title: "新增標籤名稱", placeholder: "例如：專注、外出、會議", defaultValue: "" });
+    const label = await askPrompt({
+      title: "新增當日標記名稱",
+      placeholder: "例如：專注、外出、會議",
+      defaultValue: "",
+    });
     if (!label) return;
     const existing = prefsCtx.prefs.journalTags || [];
     if (existing.some((t) => t.label === label)) {
-      toast("已有同名標籤");
+      toast("已有同名標記");
       return;
     }
     const next: JournalTagDef = {
@@ -112,14 +128,14 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
     };
     prefsCtx.setPrefs({ journalTags: [...existing, next] });
     setSelected((prev) => [...prev, next.id]);
-    toast("已新增標籤");
+    toast("已新增當日標記");
   };
 
   const removeTagDef = async (tag: JournalTagDef) => {
     if (!prefsCtx) return;
     if (
       !(await askConfirm({
-        title: `刪除標籤「${tag.label}」？`,
+        title: `刪除當日標記「${tag.label}」？`,
         message: "之後不會再出現在清單；已寫入日誌的紀錄仍保留。",
         danger: true,
         confirmLabel: "刪除",
@@ -131,7 +147,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
       journalTags: (prefsCtx.prefs.journalTags || []).filter((t) => t.id !== tag.id),
     });
     setSelected((prev) => prev.filter((id) => id !== tag.id));
-    toast("已刪除標籤");
+    toast("已刪除當日標記");
   };
 
   const addTemplateFromDraft = async () => {
@@ -210,7 +226,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
       </div>
 
       <div className="jn-mood-row">
-        <span>標籤</span>
+        <span>當日標記</span>
         <div className="jn-moods">
           {tagDefs.map((x) => {
             const on = selected.includes(x.id);
@@ -227,7 +243,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
                 <button
                   type="button"
                   className="jn-tag-x"
-                  title={`刪除標籤「${x.label}」`}
+                  title={`刪除當日標記「${x.label}」`}
                   aria-label={`刪除 ${x.label}`}
                   onClick={(ev) => {
                     ev.preventDefault();
@@ -241,7 +257,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
             );
           })}
           <button type="button" className="jn-mood jn-mood-add" onClick={() => void addTagDef()}>
-            + 標籤
+            + 標記
           </button>
         </div>
       </div>
@@ -304,7 +320,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           {text.trim() ? (
             <AiMarkdown text={text} className="jn-preview-md" />
           ) : (
-            <p className="jn-preview-empty">還沒有內容 · 點此開始寫</p>
+            <p className="jn-preview-empty">還沒有內容 · 直接開始寫，或用語音捕捉</p>
           )}
         </button>
       ) : (

@@ -79,6 +79,13 @@ const OPEN_KEY = "cadence_ai_rail_open";
 const MODE_KEY = "cadence_ai_rail_mode";
 const THREADS_KEY = "cadence_ai_threads_v1";
 const ACTIVE_KEY = "cadence_ai_active_thread";
+const FIRST_VISIT_KEY = "cadence_ai_rail_welcome_seen_v1";
+
+const WELCOME_CHIPS = [
+  { label: "整理結構", prompt: "請把目前這篇或對焦內容重新整理成清楚的標題與條列" },
+  { label: "抽出待辦", prompt: "請從目前內容抽出待辦清單" },
+  { label: "今日摘要", prompt: "請用繁體中文給我一段今日重點摘要" },
+] as const;
 
 const DOCK_SUGGESTIONS = [
   { label: "總結此頁面", prompt: "請總結目前對焦或知識庫裡最相關的筆記重點" },
@@ -295,6 +302,7 @@ export default function GlobalAiDock() {
   const [scheduleLiveTick, setScheduleLiveTick] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
+  const [showWelcome, setShowWelcome] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
@@ -454,6 +462,24 @@ export default function GlobalAiDock() {
     window.addEventListener("cadence-ai-rail", onEvt);
     return () => window.removeEventListener("cadence-ai-rail", onEvt);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    try {
+      setShowWelcome(localStorage.getItem(FIRST_VISIT_KEY) !== "1");
+    } catch {
+      setShowWelcome(false);
+    }
+  }, [open]);
+
+  const dismissWelcome = () => {
+    setShowWelcome(false);
+    try {
+      localStorage.setItem(FIRST_VISIT_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  };
 
   // Float mode: no full-screen backdrop and no document-level outside closer.
   // Both previously swallowed clicks (mousedown race / invisible hit layer).
@@ -1229,20 +1255,55 @@ export default function GlobalAiDock() {
 
             {msgs.length === 0 && !historyOpen && (
               <div className="cadence-ai-dock-empty">
-                <p className="cadence-ai-greet">想做些什麼？</p>
-                <div className="cadence-ai-dock-suggest">
-                  {dockSuggestions.map((s) => (
+                {showWelcome ? (
+                  <>
+                    <p className="cadence-ai-greet">先從這三件事開始</p>
+                    <p className="cadence-ai-welcome-hint">
+                      整理結構、抽出待辦、或要一段摘要。之後可用 ⌘K 捕捉、⌘J 再開此面板。
+                    </p>
+                    <div className="cadence-ai-dock-suggest">
+                      {WELCOME_CHIPS.map((s) => (
+                        <button
+                          key={s.label}
+                          type="button"
+                          className="note-ai-chip"
+                          disabled={busy}
+                          onClick={() => {
+                            dismissWelcome();
+                            void send(s.prompt);
+                          }}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
                     <button
-                      key={s.label}
                       type="button"
-                      className="note-ai-chip"
-                      disabled={busy}
-                      onClick={() => void send(s.prompt)}
+                      className="btn btn-ghost btn-sm"
+                      style={{ marginTop: "0.5rem" }}
+                      onClick={dismissWelcome}
                     >
-                      {s.label}
+                      看全部建議
                     </button>
-                  ))}
-                </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="cadence-ai-greet">想做些什麼？</p>
+                    <div className="cadence-ai-dock-suggest">
+                      {dockSuggestions.map((s) => (
+                        <button
+                          key={s.label}
+                          type="button"
+                          className="note-ai-chip"
+                          disabled={busy}
+                          onClick={() => void send(s.prompt)}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

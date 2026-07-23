@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createNote, deleteNote, updateNote, Note, Job, jobDisplayTitle } from "@/lib/firebase";
-import { NOTE_TEMPLATES } from "@/lib/templates";
+import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
 import {
@@ -16,6 +16,9 @@ import { buildResearchUrl } from "@/lib/researchBridge";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { normalizeFolderPath } from "@/lib/noteTree";
+import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { appendToTodayJournal } from "@/lib/journalCapture";
+import { markDailyRhythmStep } from "@/lib/dailyRhythm";
 
 type Props = {
   open: boolean;
@@ -209,6 +212,28 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     };
 
     if (!s) {
+      if (userId) {
+        out.push({
+          kind: "action",
+          id: "quick-capture-hint",
+          label: "快速捕捉到今日日誌",
+          hint: "捕捉",
+          run: () => {
+            toast("先輸入一句話，再按 Enter 即可寫入今日日誌");
+          },
+        });
+        out.push({
+          kind: "action",
+          id: "organize-page",
+          label: "整理本頁（開啟 AI）",
+          hint: "AI",
+          run: () => {
+            markDailyRhythmStep("organize");
+            onClose();
+            openGlobalAiRail();
+          },
+        });
+      }
       if (contextNote) {
         out.push({
           kind: "note",
@@ -308,6 +333,25 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
 
     if (userId && q.trim()) {
       const title = q.trim();
+      out.unshift({
+        kind: "action",
+        id: "capture-today",
+        label: `寫入今日日誌「${title.slice(0, 40)}${title.length > 40 ? "…" : ""}」`,
+        hint: "捕捉",
+        run: () => {
+          void (async () => {
+            try {
+              await appendToTodayJournal(userId, notes, title);
+              markDailyRhythmStep("capture");
+              toast("已寫入今日日誌");
+              onClose();
+              router.push(`/journal?date=${encodeURIComponent(journalTitle())}`);
+            } catch (e) {
+              toast(e instanceof Error ? e.message : "寫入失敗");
+            }
+          })();
+        },
+      });
       out.push({
         kind: "action",
         id: "create-from-q",
@@ -330,6 +374,17 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
             onClose();
             router.push(`/notes/${id}`);
           })();
+        },
+      });
+      out.push({
+        kind: "action",
+        id: "organize-page-q",
+        label: "整理本頁（開啟 AI）",
+        hint: "AI",
+        run: () => {
+          markDailyRhythmStep("organize");
+          onClose();
+          openGlobalAiRail();
         },
       });
     }
@@ -392,7 +447,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         <input
           className="cmdk-input"
           autoFocus
-          placeholder="搜尋筆記、逐字稿、頁面…"
+          placeholder="輸入一句話可寫入今日日誌，或搜尋筆記…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -427,7 +482,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
             ))
           )}
         </div>
-        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 隨時開啟</p>
+        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 隨時開啟 · 輸入後優先寫入日誌</p>
       </div>
     </div>
   );
