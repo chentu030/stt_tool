@@ -284,6 +284,9 @@ export default function RichNoteEditor({
   const prefsCtx = usePrefsOptional();
   const { user, displayName } = useAuth();
   const community = useCommunityOptional();
+  /** Prefer props; fall back to signed-in user (share / ACL editors). */
+  const uploadUserId = userId || user?.uid || "";
+  const uploadNoteId = noteId || "";
   const templateList = useMemo(
     () => allNoteTemplates(community?.enabledTemplates),
     [community?.enabledTemplates]
@@ -470,7 +473,7 @@ export default function RichNoteEditor({
   onTranscribableMediaRef.current = onTranscribableMedia;
 
   const insertUploaded = useCallback(async (file: File, pos?: number) => {
-    if (!userId || !noteId) {
+    if (!uploadUserId || !uploadNoteId) {
       setUploadError("無法上傳：缺少登入或筆記編號");
       return;
     }
@@ -485,7 +488,7 @@ export default function RichNoteEditor({
       editorRef.current?.chain().setTextSelection(pos).run();
     }
     try {
-      const { url, name } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
+      const { url, name } = await uploadNoteMedia(uploadUserId, uploadNoteId, file, setUploadPct);
       const ed = editorRef.current;
       if (!ed) return;
       const kind = detectMediaKind(file);
@@ -543,10 +546,10 @@ export default function RichNoteEditor({
     } finally {
       setUploadPct(null);
     }
-  }, [userId, noteId]);
+  }, [uploadUserId, uploadNoteId]);
 
   const createAiPhoto = useCallback(async () => {
-    if (!userId || !noteId) {
+    if (!uploadUserId || !uploadNoteId) {
       setUploadError("請先開啟已儲存的筆記再生成圖片");
       return;
     }
@@ -571,7 +574,7 @@ export default function RichNoteEditor({
         aspectRatio: ratio.trim() || "1:1",
       });
       setUploadPct(40);
-      const { url } = await uploadNoteMedia(userId, noteId, file, setUploadPct);
+      const { url } = await uploadNoteMedia(uploadUserId, uploadNoteId, file, setUploadPct);
       const alt = (caption || desc).trim().slice(0, 120);
       const ed = editorRef.current;
       if (!ed) throw new Error("編輯器尚未就緒");

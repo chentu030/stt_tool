@@ -198,6 +198,8 @@ export default function ShareNotePage() {
               }}
               readOnly={!canEdit}
               placeholder={canEdit ? "開始編輯…" : ""}
+              userId={user?.uid}
+              noteId={note.id}
               collab={collabReady && collab.provider ? { provider: collab.provider } : undefined}
             />
           )}
