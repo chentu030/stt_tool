@@ -53,7 +53,7 @@ import {
 } from "@/lib/meetingSession";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
-import { getNoteAclRole, type NoteAclRole } from "@/lib/noteAcl";
+import { getNoteAclRole, listenNoteAcl, type NoteAclRole } from "@/lib/noteAcl";
 import { useNoteCollab } from "@/hooks/useNoteCollab";
 import NoteAside from "@/components/notes/NoteAside";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
@@ -233,6 +233,7 @@ function NotePageInner() {
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
   /** undefined = still resolving for non-owners */
   const [aclRole, setAclRole] = useState<NoteAclRole | null | undefined>(undefined);
+  const [aclPeerCount, setAclPeerCount] = useState(0);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Serialize autosaves so overlapping writes don't share a stale baseUpdatedAt. */
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -281,8 +282,19 @@ function NotePageInner() {
   const canEditNote = isOwner || aclRole === "editor";
   const canViewNote = isOwner || aclRole === "editor" || aclRole === "viewer";
   const isAppSurface = !!(note?.app_link?.type && note.app_link.id);
+  /** Only open Yjs when this note is actually shared / co-edited — not every private note. */
+  const isSharedCollab =
+    aclRole === "editor" ||
+    aclRole === "viewer" ||
+    aclPeerCount > 0 ||
+    (noteShare?.enabled === true && noteShare.mode === "edit");
   const collabEnabled =
-    !!note && !!user && canViewNote && !isAppSurface && viewMode !== "slides";
+    !!note &&
+    !!user &&
+    canViewNote &&
+    !isAppSurface &&
+    viewMode !== "slides" &&
+    isSharedCollab;
 
   const collab = useNoteCollab({
     noteId: note?.id,
@@ -315,6 +327,16 @@ function NotePageInner() {
       cancelled = true;
     };
   }, [id, user]);
+
+  useEffect(() => {
+    if (!id) {
+      setAclPeerCount(0);
+      return;
+    }
+    return listenNoteAcl(id, (entries) => {
+      setAclPeerCount(entries.length);
+    });
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
@@ -1728,12 +1750,12 @@ function NotePageInner() {
           })()}
           <span className="doc-crumb-sep">/</span>
           <span className="doc-crumb-current">{title || "未命名"}</span>
+          {statusLabel ? (
+            <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>
+              {statusLabel}
+            </span>
+          ) : null}
         </nav>
-        {statusLabel ? (
-          <span className={`doc-save-pill${status === "error" ? " is-error" : ""}`}>
-            {statusLabel}
-          </span>
-        ) : null}
         <div className="doc-command-bar">
           {!isAppPage ? (
           <div className="doc-view-switch" role="tablist" aria-label="檢視模式">

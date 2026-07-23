@@ -9676,6 +9676,10 @@ button.jn-heat-cell:disabled {
 .doc-command-path::-webkit-scrollbar {
   display: none;
 }
+.doc-command-path .doc-save-pill {
+  flex-shrink: 0;
+  margin-left: 0.1rem;
+}
 .doc-command-bar {
   display: flex;
   align-items: center;
@@ -9862,16 +9866,11 @@ button.jn-heat-cell:disabled {
     width: 100%;
     max-width: 100%;
   }
-  .doc-save-pill {
-    order: 2;
-    width: fit-content;
-    max-width: 100%;
-  }
   .doc-crumb-current {
     max-width: min(12rem, 46vw);
   }
   .doc-command-bar {
-    order: 3;
+    order: 2;
     width: 100%;
     justify-content: space-between;
     gap: 0.35rem;
