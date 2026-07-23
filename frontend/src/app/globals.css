@@ -9498,13 +9498,21 @@ button.jn-heat-cell:disabled {
 }
 .cv-sel-chrome-align {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0.1rem;
-  max-width: 220px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.08rem;
+  flex-shrink: 0;
+  padding: 0 0.12rem;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  margin: 0 0.08rem;
 }
 .cv-sel-chrome-btn.is-tiny {
-  padding: 0.2rem 0.32rem;
+  padding: 0.2rem 0.3rem;
   font-size: 0.64rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .cv-section {
   position: absolute;
