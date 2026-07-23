@@ -16242,10 +16242,10 @@ body.is-sidebar-resizing iframe {
 }
 @keyframes ai-orb-orbit {
   from {
-    transform: rotate(0deg) translateX(12px) rotate(0deg);
+    transform: rotate(0deg) translateX(14px) rotate(0deg);
   }
   to {
-    transform: rotate(360deg) translateX(12px) rotate(-360deg);
+    transform: rotate(360deg) translateX(14px) rotate(-360deg);
   }
 }
 .ai-thinking-morph-stage {
