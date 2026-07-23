@@ -146,6 +146,16 @@ export default function CanvasMinimap({ doc, viewport, onPan, onFit }: Props) {
         {doc.shapes.map((sh) => (
           <div key={sh.id} className="cv-minimap-dot is-shape" style={toMap(sh.x, sh.y, sh.w, sh.h)} />
         ))}
+        {(doc.strokes || []).map((sk) => {
+          const xs = sk.points.map((p) => p.x);
+          const ys = sk.points.map((p) => p.y);
+          if (!xs.length) return null;
+          const x = Math.min(...xs);
+          const y = Math.min(...ys);
+          const w = Math.max(4, Math.max(...xs) - x);
+          const h = Math.max(4, Math.max(...ys) - y);
+          return <div key={sk.id} className="cv-minimap-dot is-ink" style={toMap(x, y, w, h)} />;
+        })}
         {doc.notes.map((n) => (
           <div
             key={n.noteId}

@@ -14,8 +14,12 @@ export type CanvasSticky = {
   w: number;
   h: number;
   text: string;
-  /** Preset id (StickyColor) or custom #rrggbb */
+  /** Preset id (StickyColor) or custom #rrggbb (fill for sticky; font for text variant) */
   color: string;
+  /** Optional font color for sticky cards (preset/hex). */
+  textColor?: string;
+  /** Fill opacity 0–1 (default 1). */
+  opacity?: number;
   z: number;
   /** Plain canvas text (no sticky chrome). */
   variant?: "sticky" | "text";
@@ -33,6 +37,8 @@ export type CanvasShape = {
   h: number;
   label: string;
   color: string;
+  /** Stroke/fill opacity 0–1 (default 1). */
+  opacity?: number;
   z: number;
 };
 
@@ -119,6 +125,18 @@ export type CanvasSection = {
   h: number;
   title: string;
   color: string;
+  opacity?: number;
+  z: number;
+};
+
+/** Freehand ink stroke (world coordinates). */
+export type CanvasStroke = {
+  id: string;
+  kind: "stroke";
+  points: Point[];
+  color: string;
+  width: number;
+  opacity?: number;
   z: number;
 };
 
@@ -133,6 +151,7 @@ export type CanvasDoc = {
   notes: NotePin[];
   media: CanvasMedia[];
   sections: CanvasSection[];
+  strokes: CanvasStroke[];
   grid: boolean;
   snap: boolean;
 };
@@ -145,7 +164,8 @@ export type ToolId =
   | "ellipse"
   | "frame"
   | "connect"
-  | "text";
+  | "text"
+  | "pen";
 
 /** World-pixel defaults sized for ~100% zoom readability (avoid CSS upscale blur). */
 export const MEDIA_DEFAULT_SIZE: Record<CanvasMediaKind, { w: number; h: number }> = {
@@ -178,12 +198,35 @@ function lightenHex(hex: string, amount: number): string {
   return rgbToHex(mix(r), mix(g), mix(b));
 }
 
+export function clampOpacity(n: number | undefined | null, fallback = 1): number {
+  if (typeof n !== "number" || Number.isNaN(n)) return fallback;
+  return Math.min(1, Math.max(0, n));
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const n = normalizeHexColor(hex);
+  if (!n) return `rgba(15,23,42,${clampOpacity(alpha)})`;
+  const { r, g, b } = hexToRgb(n);
+  return `rgba(${r},${g},${b},${clampOpacity(alpha)})`;
+}
+
 /** Resolve sticky display colors from preset id or custom hex. */
-export function resolveStickyStyle(color: string): { bg: string; border: string } {
+export function resolveStickyStyle(
+  color: string,
+  opacity = 1
+): { bg: string; border: string } {
   const preset = STICKY_COLORS.find((c) => c.id === color);
-  if (preset) return { bg: preset.bg, border: preset.border };
+  const a = clampOpacity(opacity);
+  if (preset) {
+    if (a >= 0.999) return { bg: preset.bg, border: preset.border };
+    return { bg: hexToRgba(preset.bg, a), border: hexToRgba(preset.border, Math.min(1, a + 0.12)) };
+  }
   const hex = normalizeHexColor(color);
-  if (hex) return { bg: lightenHex(hex, 0.72), border: hex };
+  if (hex) {
+    const bg = lightenHex(hex, 0.72);
+    if (a >= 0.999) return { bg, border: hex };
+    return { bg: hexToRgba(bg, a), border: hexToRgba(hex, Math.min(1, a + 0.12)) };
+  }
   return { bg: STICKY_COLORS[0].bg, border: STICKY_COLORS[0].border };
 }
 
@@ -218,6 +261,7 @@ export function emptyDoc(name = "主白板"): CanvasDoc {
     notes: [],
     media: [],
     sections: [],
+    strokes: [],
     grid: true,
     snap: true,
   };
@@ -250,6 +294,7 @@ export function loadDoc(uid: string): CanvasDoc {
       version: 2,
       media: Array.isArray(parsed.media) ? parsed.media : [],
       sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+      strokes: Array.isArray((parsed as CanvasDoc).strokes) ? (parsed as CanvasDoc).strokes : [],
     };
   } catch {
     return emptyDoc();
@@ -279,7 +324,8 @@ export type Selectable =
   | { type: "note"; id: string }
   | { type: "edge"; id: string }
   | { type: "media"; id: string }
-  | { type: "section"; id: string };
+  | { type: "section"; id: string }
+  | { type: "stroke"; id: string };
 
 export function nodeBox(
   doc: CanvasDoc,
@@ -598,6 +644,7 @@ export type ClipboardPayload = {
   notes: NotePin[];
   media: CanvasMedia[];
   edges: CanvasEdge[];
+  strokes: CanvasStroke[];
 };
 
 export function copySelection(doc: CanvasDoc, selected: Selectable[]): ClipboardPayload {
@@ -605,10 +652,12 @@ export function copySelection(doc: CanvasDoc, selected: Selectable[]): Clipboard
   const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
   const noteIds = new Set(selected.filter((s) => s.type === "note").map((s) => s.id));
   const mediaIds = new Set(selected.filter((s) => s.type === "media").map((s) => s.id));
+  const strokeIds = new Set(selected.filter((s) => s.type === "stroke").map((s) => s.id));
   const stickies = doc.stickies.filter((s) => stickyIds.has(s.id));
   const shapes = doc.shapes.filter((s) => shapeIds.has(s.id));
   const notes = doc.notes.filter((n) => noteIds.has(n.noteId));
   const media = (doc.media || []).filter((m) => mediaIds.has(m.id));
+  const strokes = (doc.strokes || []).filter((s) => strokeIds.has(s.id));
   const refs = new Set<string>([
     ...stickies.map((s) => s.id),
     ...shapes.map((s) => s.id),
@@ -616,7 +665,7 @@ export function copySelection(doc: CanvasDoc, selected: Selectable[]): Clipboard
     ...notes.map((n) => `note:${n.noteId}`),
   ]);
   const edges = doc.edges.filter((e) => refs.has(e.from) && refs.has(e.to));
-  return { stickies, shapes, notes, media, edges };
+  return { stickies, shapes, notes, media, edges, strokes };
 }
 
 export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 28): { doc: CanvasDoc; selected: Selectable[] } {
@@ -654,11 +703,23 @@ export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 
     })
     .filter(Boolean) as CanvasEdge[];
 
+  const strokes = (clip.strokes || []).map((s) => {
+    const id = uid("sk");
+    idMap.set(s.id, id);
+    return {
+      ...s,
+      id,
+      z: Date.now(),
+      points: s.points.map((p) => ({ x: p.x + offset, y: p.y + offset })),
+    };
+  });
+
   const selected: Selectable[] = [
     ...stickies.map((s) => ({ type: "sticky" as const, id: s.id })),
     ...shapes.map((s) => ({ type: "shape" as const, id: s.id })),
     ...media.map((m) => ({ type: "media" as const, id: m.id })),
     ...notes.map((n) => ({ type: "note" as const, id: n.noteId })),
+    ...strokes.map((s) => ({ type: "stroke" as const, id: s.id })),
   ];
   return {
     doc: {
@@ -668,6 +729,7 @@ export function pasteClipboard(doc: CanvasDoc, clip: ClipboardPayload, offset = 
       media: [...(doc.media || []), ...media],
       notes: [...doc.notes, ...notes],
       edges: [...doc.edges, ...edges],
+      strokes: [...(doc.strokes || []), ...strokes],
     },
     selected,
   };
@@ -708,9 +770,81 @@ export function createSticky(
     h: partial.h ?? (partial.variant === "text" ? 56 : 200),
     text: partial.text ?? "",
     color: partial.color ?? "yellow",
+    textColor: partial.textColor,
+    opacity: partial.opacity,
     z: partial.z ?? Date.now(),
     variant: partial.variant ?? "sticky",
   };
+}
+
+export function createStroke(
+  partial: Partial<Omit<CanvasStroke, "id" | "kind">> & { points: Point[] }
+): CanvasStroke {
+  return {
+    id: uid("sk"),
+    kind: "stroke",
+    points: partial.points,
+    color: partial.color ?? "#1f2937",
+    width: partial.width ?? 3,
+    opacity: partial.opacity,
+    z: partial.z ?? Date.now(),
+  };
+}
+
+export function strokeBounds(stroke: CanvasStroke): { x: number; y: number; w: number; h: number } | null {
+  if (!stroke.points.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of stroke.points) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  const pad = Math.max(4, stroke.width);
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    w: Math.max(1, maxX - minX + pad * 2),
+    h: Math.max(1, maxY - minY + pad * 2),
+  };
+}
+
+export function strokeToPath(points: Point[]): string {
+  if (!points.length) return "";
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+  return d;
+}
+
+/** Point-to-segment distance for stroke hit-testing. */
+export function hitTestStroke(stroke: CanvasStroke, world: Point, pad = 6): boolean {
+  const pts = stroke.points;
+  if (pts.length < 2) {
+    if (!pts.length) return false;
+    const dx = pts[0].x - world.x;
+    const dy = pts[0].y - world.y;
+    return dx * dx + dy * dy <= (stroke.width + pad) ** 2;
+  }
+  const thresh = stroke.width / 2 + pad;
+  const thresh2 = thresh * thresh;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const len2 = abx * abx + aby * aby;
+    let t = len2 < 1e-6 ? 0 : ((world.x - a.x) * abx + (world.y - a.y) * aby) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const px = a.x + abx * t - world.x;
+    const py = a.y + aby * t - world.y;
+    if (px * px + py * py <= thresh2) return true;
+  }
+  return false;
 }
 
 export function autoLayoutNotes(pins: NotePin[], cols = 4, gapX = 240, gapY = 170, origin: Point = { x: 40, y: 40 }): NotePin[] {
@@ -859,6 +993,10 @@ export function boundsOf(doc: CanvasDoc): { minX: number; minY: number; maxX: nu
     ...(doc.sections || []),
     ...doc.notes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
   ];
+  for (const sk of doc.strokes || []) {
+    const b = strokeBounds(sk);
+    if (b) boxes.push(b);
+  }
   if (!boxes.length) return null;
   let minX = Infinity;
   let minY = Infinity;
@@ -906,6 +1044,7 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
       version: 2,
       media: Array.isArray(parsed.media) ? parsed.media : [],
       sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+      strokes: Array.isArray(parsed.strokes) ? parsed.strokes : [],
     };
   } catch {
     return null;
@@ -917,6 +1056,7 @@ export const CANVAS_TIPS = [
   "右鍵或中鍵拖曳、空白鍵拖曳皆可平移。",
   "Shift+1 看全部；Shift+0 恢復 100%。",
   "工具列可插入圖片／語音／影片／網址／PDF／PPT／檔案；拖放檔案會直接放在滑鼠所在位置。",
+  "畫筆（P）可在白板上書寫；顏色面板可調色盤、RGB 與透明度。",
   "雙擊編輯便利貼；Ctrl+C/V/X/Z；右側 AI 可讀寫白板。",
   "選取物件後點擊附近的「AI」鈕，可改寫、延伸文字或生成圖片並插入畫布。",
 ];

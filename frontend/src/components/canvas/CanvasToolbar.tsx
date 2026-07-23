@@ -9,6 +9,7 @@ type DockPanel = "insert" | "color" | "view" | "more" | null;
 const TOOLS: { id: ToolId; label: string; hint: string; icon: string }[] = [
   { id: "select", label: "選取", hint: "V", icon: "arrow_selector_tool" },
   { id: "pan", label: "平移", hint: "H · Space", icon: "pan_tool" },
+  { id: "pen", label: "畫筆", hint: "P", icon: "edit" },
   { id: "sticky", label: "便利貼", hint: "S", icon: "sticky_note_2" },
   { id: "text", label: "文字", hint: "T", icon: "title" },
   { id: "rect", label: "矩形", hint: "R", icon: "rectangle" },
@@ -22,6 +23,10 @@ type Props = {
   onTool: (t: ToolId) => void;
   stickyColor: string;
   onStickyColor: (c: string) => void;
+  brushOpacity: number;
+  onBrushOpacity: (o: number) => void;
+  penWidth: number;
+  onPenWidth: (w: number) => void;
   scale: number;
   grid: boolean;
   snap: boolean;
@@ -109,6 +114,10 @@ export default function CanvasToolbar({
   onTool,
   stickyColor,
   onStickyColor,
+  brushOpacity,
+  onBrushOpacity,
+  penWidth,
+  onPenWidth,
   scale,
   grid,
   snap,
@@ -210,7 +219,9 @@ export default function CanvasToolbar({
 
   const colorPanel = panel === "color" && (
     <div className="cv-dock-panel cv-dock-panel--colors" role="menu">
-      <p className="cv-dock-panel-title">顏色{editMode ? " · 套用到選取" : ""}</p>
+      <p className="cv-dock-panel-title">
+        顏色{editMode ? " · 套用到選取" : tool === "pen" ? " · 畫筆" : ""}
+      </p>
       <div className="cv-dock-swatches">
         {STICKY_COLORS.map((c) => (
           <button
@@ -230,16 +241,34 @@ export default function CanvasToolbar({
             background: `conic-gradient(from 180deg, ${customStyle.border}, ${customStyle.bg}, ${colorToShapeHex(stickyColor)})`,
             borderColor: customStyle.border,
           }}
-          title="自訂顏色"
+          title="自訂顏色／透明度"
           onClick={() => setPickerOpen((v) => !v)}
         />
       </div>
+      {tool === "pen" ? (
+        <div className="cv-dock-pen-widths" role="group" aria-label="筆刷粗細">
+          {[2, 3.5, 6, 10].map((w) => (
+            <button
+              key={w}
+              type="button"
+              className={`cv-dock-pen-w${penWidth === w ? " is-on" : ""}`}
+              title={`粗細 ${w}`}
+              onClick={() => onPenWidth(w)}
+            >
+              <span style={{ height: Math.min(14, w), width: 18 }} />
+            </button>
+          ))}
+        </div>
+      ) : null}
       <CanvasColorPicker
         color={stickyColor}
         onChange={onStickyColor}
+        opacity={brushOpacity}
+        onOpacityChange={onBrushOpacity}
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         anchorRef={customBtnRef}
+        title={tool === "pen" ? "畫筆顏色" : "填色／筆色"}
       />
     </div>
   );

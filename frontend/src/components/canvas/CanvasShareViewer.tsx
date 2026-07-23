@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CanvasDoc } from "@/lib/canvasStore";
 import {
+  clampOpacity,
   clampScale,
   edgeEndpoint,
   edgePath,
   fitView,
+  hexToRgba,
   nodeCenter,
   resolveStickyStyle,
+  strokeToPath,
 } from "@/lib/canvasStore";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 
@@ -91,7 +94,8 @@ export default function CanvasShareViewer({ doc }: Props) {
     !doc.stickies.length &&
     !doc.shapes.length &&
     !doc.notes.length &&
-    !(doc.media || []).length;
+    !(doc.media || []).length &&
+    !(doc.strokes || []).length;
 
   const edgeEls = useMemo(
     () =>
@@ -149,8 +153,27 @@ export default function CanvasShareViewer({ doc }: Props) {
         ))}
         <svg className="cv-edges" width="8000" height="6000">
           {edgeEls}
+          {(doc.strokes || []).map((sk) => {
+            const d = strokeToPath(sk.points);
+            if (!d) return null;
+            return (
+              <path
+                key={sk.id}
+                d={d}
+                className="cv-ink"
+                fill="none"
+                stroke={sk.color}
+                strokeWidth={sk.width}
+                strokeOpacity={clampOpacity(sk.opacity)}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            );
+          })}
         </svg>
-        {doc.shapes.map((s) => (
+        {doc.shapes.map((s) => {
+          const op = clampOpacity(s.opacity);
+          return (
           <div
             key={s.id}
             className={`cv-shape cv-shape--${s.shape}`}
@@ -160,15 +183,20 @@ export default function CanvasShareViewer({ doc }: Props) {
               width: s.w,
               height: s.h,
               zIndex: s.z,
-              borderColor: s.color,
+              borderColor: hexToRgba(s.color, op),
+              background: s.shape === "frame" ? "transparent" : hexToRgba(s.color, op * 0.13),
             }}
           >
             {s.label ? <span className="cv-shape-label">{s.label}</span> : null}
           </div>
-        ))}
+          );
+        })}
         {doc.stickies.map((s) => {
-          const pal = resolveStickyStyle(s.color);
+          const pal = resolveStickyStyle(s.color, s.opacity);
           const isText = s.variant === "text";
+          const fontColor = isText
+            ? s.color
+            : s.textColor || undefined;
           return (
             <div
               key={s.id}
@@ -180,8 +208,8 @@ export default function CanvasShareViewer({ doc }: Props) {
                 height: s.h,
                 zIndex: s.z,
                 ...(isText
-                  ? { background: "transparent", border: "none", boxShadow: "none" }
-                  : { background: pal.bg, borderColor: pal.border }),
+                  ? { background: "transparent", border: "none", boxShadow: "none", color: fontColor }
+                  : { background: pal.bg, borderColor: pal.border, ...(fontColor ? { color: fontColor } : {}) }),
               }}
             >
               <p>{s.text}</p>

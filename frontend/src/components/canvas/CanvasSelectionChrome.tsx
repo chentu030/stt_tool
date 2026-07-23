@@ -1,14 +1,24 @@
 "use client";
 
-import { STICKY_COLORS, type AlignMode, type Selectable } from "@/lib/canvasStore";
+import { useRef, useState } from "react";
+import {
+  STICKY_COLORS,
+  colorToShapeHex,
+  resolveStickyStyle,
+  type AlignMode,
+  type Selectable,
+} from "@/lib/canvasStore";
+import CanvasColorPicker from "@/components/canvas/CanvasColorPicker";
 
-export type SelectionKind = "sticky" | "shape" | "media" | "note" | "section" | "mixed" | "empty";
+export type SelectionKind = "sticky" | "shape" | "media" | "note" | "section" | "stroke" | "mixed" | "empty";
 
 type Props = {
   box: { x: number; y: number; w: number; h: number };
   count: number;
   kind: SelectionKind;
   color?: string;
+  opacity?: number;
+  textColor?: string;
   canTranscribe?: boolean;
   hasTranscript?: boolean;
   /** Allow 摘要／心智圖／拆卡 without transcript (YouTube multimodal / PDF text). */
@@ -17,6 +27,8 @@ type Props = {
   onDelete: () => void;
   onAi: () => void;
   onColor?: (c: string) => void;
+  onOpacity?: (o: number) => void;
+  onTextColor?: (c: string) => void;
   onAlign?: (mode: AlignMode) => void;
   onTranscribe?: () => void;
   onSummarize?: () => void;
@@ -37,6 +49,8 @@ export default function CanvasSelectionChrome({
   count,
   kind,
   color,
+  opacity = 1,
+  textColor,
   canTranscribe,
   hasTranscript,
   canOrganize,
@@ -44,6 +58,8 @@ export default function CanvasSelectionChrome({
   onDelete,
   onAi,
   onColor,
+  onOpacity,
+  onTextColor,
   onAlign,
   onTranscribe,
   onSummarize,
@@ -51,6 +67,15 @@ export default function CanvasSelectionChrome({
   onSplitCards,
 }: Props) {
   const multi = count > 1;
+  const [fillOpen, setFillOpen] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
+  const fillBtnRef = useRef<HTMLButtonElement>(null);
+  const textBtnRef = useRef<HTMLButtonElement>(null);
+  const showFill =
+    (kind === "sticky" || kind === "shape" || kind === "section" || kind === "stroke") && onColor;
+  const showText = kind === "sticky" && onTextColor;
+  const fillStyle = color ? resolveStickyStyle(color, opacity) : null;
+  const textHex = textColor ? colorToShapeHex(textColor) : "#1f2937";
 
   return (
     <div
@@ -63,8 +88,8 @@ export default function CanvasSelectionChrome({
     >
       <span className="cv-sel-chrome-count">{multi ? `已選 ${count}` : "已選"}</span>
 
-      {(kind === "sticky" || kind === "shape" || kind === "section") && onColor && (
-        <span className="cv-sel-chrome-swatches" title="顏色">
+      {showFill && (
+        <span className="cv-sel-chrome-swatches" title="填色">
           {STICKY_COLORS.map((c) => (
             <button
               key={c.id}
@@ -75,6 +100,58 @@ export default function CanvasSelectionChrome({
               onClick={() => onColor(c.id)}
             />
           ))}
+          <button
+            ref={fillBtnRef}
+            type="button"
+            className={`cv-sel-chrome-swatch cv-sel-chrome-swatch--custom${fillOpen ? " is-on" : ""}`}
+            style={{
+              background: fillStyle
+                ? `conic-gradient(from 180deg, ${fillStyle.border}, ${fillStyle.bg}, ${colorToShapeHex(color || "yellow")})`
+                : undefined,
+            }}
+            title="自訂填色／透明度"
+            onClick={() => {
+              setTextOpen(false);
+              setFillOpen((v) => !v);
+            }}
+          />
+          <CanvasColorPicker
+            color={color || "yellow"}
+            onChange={onColor}
+            opacity={opacity}
+            onOpacityChange={onOpacity}
+            open={fillOpen}
+            onClose={() => setFillOpen(false)}
+            anchorRef={fillBtnRef}
+            title="填色"
+          />
+        </span>
+      )}
+
+      {showText && (
+        <span className="cv-sel-chrome-swatches" title="文字顏色">
+          <button
+            ref={textBtnRef}
+            type="button"
+            className={`cv-sel-chrome-btn is-tiny${textOpen ? " is-on" : ""}`}
+            title="文字顏色"
+            onClick={() => {
+              setFillOpen(false);
+              setTextOpen((v) => !v);
+            }}
+          >
+            <span className="cv-sel-chrome-text-swatch" style={{ background: textHex }} />
+            字色
+          </button>
+          <CanvasColorPicker
+            color={textColor || "#1f2937"}
+            onChange={onTextColor}
+            open={textOpen}
+            onClose={() => setTextOpen(false)}
+            anchorRef={textBtnRef}
+            hidePresets
+            title="文字顏色"
+          />
         </span>
       )}
 
@@ -136,9 +213,11 @@ export default function CanvasSelectionChrome({
       <button type="button" className="cv-sel-chrome-btn" onClick={onDelete} title="刪除">
         刪除
       </button>
-      <button type="button" className="cv-sel-chrome-btn is-ai" onClick={onAi} title="AI 動作">
-        AI
-      </button>
+      {kind !== "stroke" && (
+        <button type="button" className="cv-sel-chrome-btn is-ai" onClick={onAi} title="AI 動作">
+          AI
+        </button>
+      )}
     </div>
   );
 }

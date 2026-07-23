@@ -71,6 +71,7 @@ import {
   uid,
   createSticky,
   createSection,
+  createStroke,
   alignBoxes,
   itemsInsideSection,
   stickyHeightForText,
@@ -86,7 +87,14 @@ import {
   createMediaItem,
   colorToShapeHex,
   resolveStickyStyle,
+  strokeBounds,
+  strokeToPath,
+  hitTestStroke,
+  clampOpacity,
+  hexToRgba,
   type EdgePort,
+  type Point,
+  type CanvasStroke,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
@@ -150,6 +158,9 @@ function CanvasIdPageInner() {
   const [ready, setReady] = useState(false);
   const [tool, setTool] = useState<ToolId>(prefs.canvasDefaultTool);
   const [stickyColor, setStickyColor] = useState<string>("yellow");
+  const [brushOpacity, setBrushOpacity] = useState(1);
+  const [penWidth, setPenWidth] = useState(3.5);
+  const [liveStroke, setLiveStroke] = useState<CanvasStroke | null>(null);
   const [selected, setSelected] = useState<Selectable[]>([]);
   const focusApplied = useRef(false);
   const lastCloudSig = useRef("");
@@ -209,7 +220,7 @@ function CanvasIdPageInner() {
   const baseUpdatedAt = useRef(0);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
   const drag = useRef<{
-    mode: "move" | "pan" | "marquee" | "resize" | "edge-end";
+    mode: "move" | "pan" | "marquee" | "resize" | "edge-end" | "draw";
     ids?: Selectable[];
     startX: number;
     startY: number;
@@ -222,6 +233,8 @@ function CanvasIdPageInner() {
     edgeId?: string;
     edgeWhich?: "from" | "to";
   } | null>(null);
+  const strokeMoveOrigin = useRef<Record<string, Point[]>>({});
+  const drawingRef = useRef<CanvasStroke | null>(null);
 
   // Clear connect session when leaving the tool.
   useEffect(() => {
@@ -259,7 +272,7 @@ function CanvasIdPageInner() {
       setCanvasShare(parseCanvasShare((d as { share?: unknown }).share));
       setReady(true);
       try {
-        localStorage.setItem(lastCanvasKey(user.uid), canvasId);
+      localStorage.setItem(lastCanvasKey(user.uid), canvasId);
       } catch {
         /* ignore */
       }
@@ -336,7 +349,7 @@ function CanvasIdPageInner() {
     [pushHistory]
   );
 
-  /** Set color preference + apply to selected stickies / shapes.
+  /** Set color preference + apply to selected stickies / shapes / strokes.
    *  Text stickies: color = font color (no fill). Stickies/shapes: fill/stroke. */
   const applyCanvasColor = useCallback(
     (color: string) => {
@@ -344,7 +357,8 @@ function CanvasIdPageInner() {
       const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
       const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
       const sectionIds = new Set(selected.filter((s) => s.type === "section").map((s) => s.id));
-      if (!stickyIds.size && !shapeIds.size && !sectionIds.size) return;
+      const strokeIds = new Set(selected.filter((s) => s.type === "stroke").map((s) => s.id));
+      if (!stickyIds.size && !shapeIds.size && !sectionIds.size && !strokeIds.size) return;
       const shapeHex = colorToShapeHex(color);
       updateDoc((d) => ({
         ...d,
@@ -355,6 +369,46 @@ function CanvasIdPageInner() {
         }),
         shapes: d.shapes.map((s) => (shapeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
         sections: (d.sections || []).map((s) => (sectionIds.has(s.id) ? { ...s, color: shapeHex } : s)),
+        strokes: (d.strokes || []).map((s) => (strokeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
+      }));
+    },
+    [selected, updateDoc]
+  );
+
+  const applyBrushOpacity = useCallback(
+    (opacity: number) => {
+      const o = clampOpacity(opacity);
+      setBrushOpacity(o);
+      const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
+      const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
+      const sectionIds = new Set(selected.filter((s) => s.type === "section").map((s) => s.id));
+      const strokeIds = new Set(selected.filter((s) => s.type === "stroke").map((s) => s.id));
+      if (!stickyIds.size && !shapeIds.size && !sectionIds.size && !strokeIds.size) return;
+      updateDoc((d) => ({
+        ...d,
+        stickies: d.stickies.map((s) =>
+          stickyIds.has(s.id) && s.variant !== "text" ? { ...s, opacity: o } : s
+        ),
+        shapes: d.shapes.map((s) => (shapeIds.has(s.id) ? { ...s, opacity: o } : s)),
+        sections: (d.sections || []).map((s) => (sectionIds.has(s.id) ? { ...s, opacity: o } : s)),
+        strokes: (d.strokes || []).map((s) => (strokeIds.has(s.id) ? { ...s, opacity: o } : s)),
+      }));
+    },
+    [selected, updateDoc]
+  );
+
+  const applyTextColor = useCallback(
+    (color: string) => {
+      const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
+      if (!stickyIds.size) return;
+      const hex = colorToShapeHex(color);
+      updateDoc((d) => ({
+        ...d,
+        stickies: d.stickies.map((s) => {
+          if (!stickyIds.has(s.id)) return s;
+          if (s.variant === "text") return { ...s, color: hex };
+          return { ...s, textColor: hex };
+        }),
       }));
     },
     [selected, updateDoc]
@@ -367,11 +421,18 @@ function CanvasIdPageInner() {
     if (hit.type === "sticky") {
       const st = doc.stickies.find((s) => s.id === hit.id);
       if (st?.color) setStickyColor(st.color);
+      if (typeof st?.opacity === "number") setBrushOpacity(clampOpacity(st.opacity));
     } else if (hit.type === "shape") {
       const sh = doc.shapes.find((s) => s.id === hit.id);
       if (sh?.color) setStickyColor(sh.color);
+      if (typeof sh?.opacity === "number") setBrushOpacity(clampOpacity(sh.opacity));
+    } else if (hit.type === "stroke") {
+      const sk = (doc.strokes || []).find((s) => s.id === hit.id);
+      if (sk?.color) setStickyColor(sk.color);
+      if (typeof sk?.opacity === "number") setBrushOpacity(clampOpacity(sk.opacity));
+      if (sk?.width) setPenWidth(sk.width);
     }
-  }, [selected, doc.stickies, doc.shapes]);
+  }, [selected, doc.stickies, doc.shapes, doc.strokes]);
 
   const undo = () => {
     setHistory((h) => {
@@ -432,6 +493,10 @@ function CanvasIdPageInner() {
         return { type: "shape", id: s.id };
       }
     }
+    const strokes = [...(doc.strokes || [])].sort((a, b) => b.z - a.z);
+    for (const s of strokes) {
+      if (hitTestStroke(s, world)) return { type: "stroke", id: s.id };
+    }
     for (const n of [...doc.notes].reverse()) {
       if (world.x >= n.x && world.x <= n.x + n.w && world.y >= n.y && world.y <= n.y + n.h) {
         return { type: "note", id: n.noteId };
@@ -465,6 +530,10 @@ function CanvasIdPageInner() {
     if (s.type === "section") {
       const sec = (doc.sections || []).find((x) => x.id === s.id);
       return sec ? { x: sec.x, y: sec.y, w: sec.w, h: sec.h } : null;
+    }
+    if (s.type === "stroke") {
+      const sk = (doc.strokes || []).find((x) => x.id === s.id);
+      return sk ? strokeBounds(sk) : null;
     }
     return null;
   };
@@ -786,7 +855,7 @@ function CanvasIdPageInner() {
 
   const alignSelected = (mode: AlignMode) => {
     const boxes = selected
-      .filter((s) => s.type !== "edge")
+      .filter((s) => s.type !== "edge" && s.type !== "stroke")
       .map((s) => {
         const b = boxOf(s);
         if (!b) return null;
@@ -1147,6 +1216,21 @@ function CanvasIdPageInner() {
       return;
     }
 
+    if (tool === "pen") {
+      const stroke = createStroke({
+        points: [{ x: world.x, y: world.y }],
+        color: colorToShapeHex(stickyColor),
+        width: penWidth,
+        opacity: brushOpacity,
+        z: Date.now(),
+      });
+      drawingRef.current = stroke;
+      setLiveStroke(stroke);
+      setSelected([]);
+      drag.current = { mode: "draw", startX: world.x, startY: world.y };
+      return;
+    }
+
     if (tool === "sticky" || tool === "text" || tool === "rect" || tool === "ellipse" || tool === "frame") {
       const x = snapVal(world.x, 22, doc.snap);
       const y = snapVal(world.y, 22, doc.snap);
@@ -1165,6 +1249,7 @@ function CanvasIdPageInner() {
               ? "#1f2937"
               : colorToShapeHex(stickyColor)
             : stickyColor,
+          opacity: isText ? undefined : brushOpacity < 0.999 ? brushOpacity : undefined,
           z,
           variant: isText ? "text" : "sticky",
         });
@@ -1184,6 +1269,7 @@ function CanvasIdPageInner() {
         h: tool === "frame" ? 360 : 180,
         label: tool === "frame" ? "區塊" : "",
         color: colorToShapeHex(stickyColor),
+        opacity: brushOpacity < 0.999 ? brushOpacity : undefined,
         z,
       };
       updateDoc((d) => ({ ...d, shapes: [...d.shapes, shape] }));
@@ -1227,12 +1313,17 @@ function CanvasIdPageInner() {
         : [hit];
 
     const origin: Record<string, { x: number; y: number; w?: number; h?: number }> = {};
+    strokeMoveOrigin.current = {};
     let moveIds = [...ids];
     for (const s of ids) {
       const b = boxOf(s);
       if (!b) continue;
       const key = s.id;
       origin[key] = { x: b.x, y: b.y, w: b.w, h: b.h };
+      if (s.type === "stroke") {
+        const sk = (doc.strokes || []).find((x) => x.id === s.id);
+        if (sk) strokeMoveOrigin.current[s.id] = sk.points.map((p) => ({ ...p }));
+      }
       if (s.type === "section") {
         const sec = (doc.sections || []).find((x) => x.id === s.id);
         if (!sec) continue;
@@ -1367,6 +1458,17 @@ function CanvasIdPageInner() {
 
     const d = drag.current;
     if (!d) return;
+    if (d.mode === "draw" && drawingRef.current) {
+      const prev = drawingRef.current;
+      const last = prev.points[prev.points.length - 1];
+      if (last && Math.hypot(world.x - last.x, world.y - last.y) < 1.2 / Math.max(0.4, doc.scale)) {
+        return;
+      }
+      const next = { ...prev, points: [...prev.points, { x: world.x, y: world.y }] };
+      drawingRef.current = next;
+      setLiveStroke(next);
+      return;
+    }
     if (d.mode === "pan" && d.pan0) {
       if (rightPan.current) {
         if (isDragGesture(e.clientX - rightPan.current.sx, e.clientY - rightPan.current.sy)) {
@@ -1508,13 +1610,38 @@ function CanvasIdPageInner() {
             y: snapVal(o.y + dy, 22, prev.snap),
           };
         });
-        return { ...prev, stickies, shapes, media, notes: notesPins, sections };
+        const strokes = (prev.strokes || []).map((s) => {
+          const pts0 = strokeMoveOrigin.current[s.id];
+          if (!pts0 || !d.ids!.some((i) => i.type === "stroke" && i.id === s.id)) return s;
+          return {
+            ...s,
+            points: pts0.map((p) => ({
+              x: snapVal(p.x + dx, 22, prev.snap),
+              y: snapVal(p.y + dy, 22, prev.snap),
+            })),
+          };
+        });
+        return { ...prev, stickies, shapes, media, notes: notesPins, sections, strokes };
       });
     }
   };
 
   const onPointerUp = () => {
     const d = drag.current;
+    if (d?.mode === "draw") {
+      const stroke = drawingRef.current;
+      drawingRef.current = null;
+      setLiveStroke(null);
+      if (stroke && stroke.points.length >= 2) {
+        updateDoc((prev) => ({
+          ...prev,
+          strokes: [...(prev.strokes || []), stroke],
+        }));
+        setSelected([{ type: "stroke", id: stroke.id }]);
+      }
+      drag.current = null;
+      return;
+    }
     if (d?.mode === "edge-end" && d.edgeId && d.edgeWhich) {
       const preview = edgeDragPreview;
       const world = preview?.point;
@@ -1570,12 +1697,19 @@ function CanvasIdPageInner() {
             hits.push({ type: "note", id: n.noteId });
           }
         }
+        for (const sk of doc.strokes || []) {
+          const b = strokeBounds(sk);
+          if (b && b.x + b.w >= x1 && b.x <= x2 && b.y + b.h >= y1 && b.y <= y2) {
+            hits.push({ type: "stroke", id: sk.id });
+          }
+        }
         setSelected(hits);
       }
       setMarquee(null);
     }
     if (d?.mode === "move" && d.moved) pushHistory(doc);
     if (d?.mode === "resize") pushHistory(doc);
+    strokeMoveOrigin.current = {};
     drag.current = null;
   };
 
@@ -1588,6 +1722,7 @@ function CanvasIdPageInner() {
       const noteIds = new Set(selected.filter((s) => s.type === "note").map((s) => s.id));
       const edgeIds = new Set(selected.filter((s) => s.type === "edge").map((s) => s.id));
       const sectionIds = new Set(selected.filter((s) => s.type === "section").map((s) => s.id));
+      const strokeIds = new Set(selected.filter((s) => s.type === "stroke").map((s) => s.id));
       const removeRefs = new Set([
         ...Array.from(stickyIds),
         ...Array.from(shapeIds),
@@ -1601,6 +1736,7 @@ function CanvasIdPageInner() {
         media: (d.media || []).filter((m) => !mediaIds.has(m.id)),
         notes: d.notes.filter((n) => !noteIds.has(n.noteId)),
         sections: (d.sections || []).filter((s) => !sectionIds.has(s.id)),
+        strokes: (d.strokes || []).filter((s) => !strokeIds.has(s.id)),
         edges: d.edges.filter(
           (e) => !edgeIds.has(e.id) && !removeRefs.has(e.from) && !removeRefs.has(e.to)
         ),
@@ -1816,6 +1952,7 @@ function CanvasIdPageInner() {
       if (!mod) {
         if (k === "v") setTool("select");
         if (k === "h") setTool("pan");
+        if (k === "p") setTool("pen");
         if (k === "s") setTool("sticky");
         if (k === "t") setTool("text");
         if (k === "r") setTool("rect");
@@ -2005,11 +2142,15 @@ function CanvasIdPageInner() {
       </div>
 
 
-      <CanvasToolbar
+        <CanvasToolbar
           tool={tool}
           onTool={setTool}
           stickyColor={stickyColor}
           onStickyColor={applyCanvasColor}
+          brushOpacity={brushOpacity}
+          onBrushOpacity={applyBrushOpacity}
+          penWidth={penWidth}
+          onPenWidth={setPenWidth}
           scale={doc.scale}
           grid={doc.grid}
           snap={doc.snap}
@@ -2209,14 +2350,14 @@ function CanvasIdPageInner() {
                 const selectedEdge = isSelected("edge", edge.id);
                 return (
                   <g key={edge.id}>
-                    <path
-                      d={edgePath(a, b)}
+                  <path
+                    d={edgePath(a, b)}
                       className={`cv-edge${selectedEdge ? " is-on" : ""}`}
-                      onPointerDown={(ev) => {
-                        ev.stopPropagation();
-                        setSelected([{ type: "edge", id: edge.id }]);
-                      }}
-                    />
+                    onPointerDown={(ev) => {
+                      ev.stopPropagation();
+                      setSelected([{ type: "edge", id: edge.id }]);
+                    }}
+                  />
                     {selectedEdge && tool !== "connect" ? (
                       <>
                         <circle
@@ -2258,9 +2399,48 @@ function CanvasIdPageInner() {
                   );
                 })()
               ) : null}
+              {(doc.strokes || []).map((sk) => {
+                const d = strokeToPath(sk.points);
+                if (!d) return null;
+                const selectedStroke = isSelected("stroke", sk.id);
+                return (
+                  <path
+                    key={sk.id}
+                    d={d}
+                    className={`cv-ink${selectedStroke ? " is-on" : ""}`}
+                    fill="none"
+                    stroke={sk.color}
+                    strokeWidth={sk.width}
+                    strokeOpacity={clampOpacity(sk.opacity)}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ pointerEvents: "stroke" }}
+                    onPointerDown={(ev) => {
+                      ev.stopPropagation();
+                      if (tool === "pen") return;
+                      setSelected([{ type: "stroke", id: sk.id }]);
+                    }}
+                  />
+                );
+              })}
+              {liveStroke ? (
+                <path
+                  d={strokeToPath(liveStroke.points)}
+                  className="cv-ink cv-ink--live"
+                  fill="none"
+                  stroke={liveStroke.color}
+                  strokeWidth={liveStroke.width}
+                  strokeOpacity={clampOpacity(liveStroke.opacity)}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ pointerEvents: "none" }}
+                />
+              ) : null}
             </svg>
 
-            {doc.shapes.map((s) => (
+            {doc.shapes.map((s) => {
+              const op = clampOpacity(s.opacity);
+              return (
               <div
                 key={s.id}
                 className={`cv-shape cv-shape--${s.shape}${isSelected("shape", s.id) ? " is-on" : ""}${connectFrom?.ref === s.id || hoverConnectRef === s.id ? " is-connect" : ""}`}
@@ -2269,8 +2449,8 @@ function CanvasIdPageInner() {
                   top: s.y,
                   width: s.w,
                   height: s.h,
-                  borderColor: s.color,
-                  background: s.shape === "frame" ? "transparent" : `${s.color}22`,
+                  borderColor: hexToRgba(s.color, op),
+                  background: s.shape === "frame" ? "transparent" : hexToRgba(s.color, op * 0.13),
                   borderRadius: s.shape === "ellipse" ? "50%" : s.shape === "frame" ? 16 : 12,
                   zIndex: s.z,
                 }}
@@ -2297,13 +2477,18 @@ function CanvasIdPageInner() {
                   <span className="cv-shape-label">{s.label || "雙擊編輯"}</span>
                 )}
               </div>
-            ))}
+              );
+            })}
 
             {doc.stickies.map((s) => {
-              const pal = resolveStickyStyle(s.color);
+              const pal = resolveStickyStyle(s.color, s.opacity);
               const isText = s.variant === "text";
               const connectOn = connectFrom?.ref === s.id || hoverConnectRef === s.id;
-              const textColor = isText ? colorToShapeHex(s.color) : undefined;
+              const fontColor = isText
+                ? colorToShapeHex(s.color)
+                : s.textColor
+                  ? colorToShapeHex(s.textColor)
+                  : undefined;
               return (
                 <div
                   key={s.id}
@@ -2318,11 +2503,12 @@ function CanvasIdPageInner() {
                           background: "transparent",
                           border: "none",
                           boxShadow: "none",
-                          color: textColor || "var(--text-main)",
+                          color: fontColor || "var(--text-main)",
                         }
                       : {
                           background: pal.bg,
                           borderColor: pal.border,
+                          ...(fontColor ? { color: fontColor } : {}),
                         }),
                     zIndex: s.z,
                   }}
@@ -2468,13 +2654,25 @@ function CanvasIdPageInner() {
               const sectionSel = selected.length === 1 && selected[0].type === "section"
                 ? (doc.sections || []).find((s) => s.id === selected[0].id)
                 : null;
-              const colorNow = stickySel?.color || shapeSel?.color || sectionSel?.color;
+              const strokeSel = selected.length === 1 && selected[0].type === "stroke"
+                ? (doc.strokes || []).find((s) => s.id === selected[0].id)
+                : null;
+              const colorNow =
+                stickySel?.color || shapeSel?.color || sectionSel?.color || strokeSel?.color;
+              const opacityNow =
+                stickySel?.opacity ??
+                shapeSel?.opacity ??
+                sectionSel?.opacity ??
+                strokeSel?.opacity ??
+                brushOpacity;
               return (
                 <CanvasSelectionChrome
                   box={selectionInfo.box}
                   count={selected.length}
                   kind={kind}
                   color={colorNow}
+                  opacity={opacityNow}
+                  textColor={stickySel?.textColor || (stickySel?.variant === "text" ? stickySel.color : undefined)}
                   canTranscribe={Boolean(mediaSel && (mediaSel.media === "youtube" || mediaSel.media === "video" || mediaSel.media === "audio"))}
                   hasTranscript={Boolean(mediaSel?.transcript?.trim())}
                   canOrganize={Boolean(
@@ -2489,6 +2687,8 @@ function CanvasIdPageInner() {
                   onDelete={deleteSelected}
                   onAi={openStageAi}
                   onColor={applyCanvasColor}
+                  onOpacity={applyBrushOpacity}
+                  onTextColor={applyTextColor}
                   onAlign={alignSelected}
                   onTranscribe={mediaSel ? () => void startMediaTranscribe(mediaSel.id) : undefined}
                   onSummarize={mediaSel ? () => void summarizeMedia(mediaSel.id) : undefined}
@@ -2541,10 +2741,10 @@ function CanvasIdPageInner() {
             </>
           ) : (
             <>
-              <button type="button" onClick={() => { startEdit(); setCtxMenu(null); }}>編輯</button>
-              <button type="button" onClick={() => { doCut(); setCtxMenu(null); }}>剪下</button>
-              <button type="button" onClick={() => { doCopy(); setCtxMenu(null); }}>複製</button>
-              <button type="button" onClick={() => { doPaste(); setCtxMenu(null); }}>貼上</button>
+          <button type="button" onClick={() => { startEdit(); setCtxMenu(null); }}>編輯</button>
+          <button type="button" onClick={() => { doCut(); setCtxMenu(null); }}>剪下</button>
+          <button type="button" onClick={() => { doCopy(); setCtxMenu(null); }}>複製</button>
+          <button type="button" onClick={() => { doPaste(); setCtxMenu(null); }}>貼上</button>
               {selected.length === 1 && selected[0].type === "media" && (
                 <button type="button" onClick={() => {
                   const id = selected[0].id;
@@ -2552,9 +2752,9 @@ function CanvasIdPageInner() {
                   setCtxMenu(null);
                 }}>拆成知識卡</button>
               )}
-              <button type="button" className="is-danger" onClick={() => { deleteSelected(); setCtxMenu(null); }}>
-                刪除
-              </button>
+          <button type="button" className="is-danger" onClick={() => { deleteSelected(); setCtxMenu(null); }}>
+            刪除
+          </button>
             </>
           )}
         </div>
