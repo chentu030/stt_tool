@@ -2,7 +2,18 @@
  * Meeting session façade: bind schedule event ↔ note, live capture, post-meeting AI pack.
  */
 
-import { createNote, getNote, updateNote, appendNoteMarkdown } from "@/lib/firebase";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
+import { db, createNote, getNote, updateNote, appendNoteMarkdown } from "@/lib/firebase";
 import {
   extractConferenceUrl,
   openConferenceWindow,
@@ -21,6 +32,9 @@ export type MeetingAiContext = {
   title: string;
   transcript: string;
   dateKey?: string;
+  /** Snapshot for journal rollup after pack */
+  event?: ScheduleEvent;
+  uid?: string;
 };
 
 type Listener = (ctx: MeetingAiContext | null) => void;
@@ -35,6 +49,12 @@ export function setMeetingAiContext(ctx: MeetingAiContext | null) {
 
 export function getMeetingAiContext() {
   return current;
+}
+
+export function patchMeetingAiContext(patch: Partial<MeetingAiContext>) {
+  if (!current) return;
+  current = { ...current, ...patch };
+  listeners.forEach((cb) => cb(current));
 }
 
 export function subscribeMeetingAiContext(cb: Listener): () => void {
@@ -73,6 +93,10 @@ ${MEETING_AI_MARKER_END}
 `;
 }
 
+export function formatMeetingRange(startMin: number, endMin: number) {
+  return formatRange(startMin, endMin);
+}
+
 function formatRange(startMin: number, endMin: number) {
   const fmt = (m: number) => {
     const h = Math.floor(m / 60);
@@ -80,6 +104,42 @@ function formatRange(startMin: number, endMin: number) {
     return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   };
   return `${fmt(startMin)}–${fmt(endMin)}`;
+}
+
+function linkDocId(provider: string, externalId: string) {
+  return `${provider}_${externalId}`.replace(/[^\w.-]+/g, "_").slice(0, 700);
+}
+
+async function readExternalNoteLink(
+  uid: string,
+  provider: string,
+  externalId: string
+): Promise<string | null> {
+  const snap = await getDoc(doc(db, "users", uid, "meeting_links", linkDocId(provider, externalId)));
+  if (!snap.exists()) return null;
+  const noteId = String(snap.data()?.noteId || "");
+  return noteId || null;
+}
+
+async function writeExternalNoteLink(
+  uid: string,
+  provider: string,
+  externalId: string,
+  noteId: string,
+  meta?: { title?: string; dateKey?: string }
+) {
+  await setDoc(
+    doc(db, "users", uid, "meeting_links", linkDocId(provider, externalId)),
+    {
+      noteId,
+      provider,
+      externalId,
+      title: meta?.title || "",
+      dateKey: meta?.dateKey || "",
+      updated_at: serverTimestamp(),
+    },
+    { merge: true }
+  );
 }
 
 /** Ensure a meeting note exists and is linked on the schedule event. */
@@ -92,16 +152,11 @@ export async function ensureMeetingNote(
     if (existing) return { noteId: ev.noteId, created: false };
   }
 
-  // Google overlays are read-only in schedule_events; remember link in sessionStorage.
-  const cacheKey =
-    ev.provider !== "local" && ev.externalId
-      ? `cadence_meeting_note:${ev.provider}:${ev.externalId}`
-      : null;
-  if (cacheKey && typeof sessionStorage !== "undefined") {
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      const existing = await getNote(cached);
-      if (existing) return { noteId: cached, created: false };
+  if (ev.provider !== "local" && ev.externalId) {
+    const linked = await readExternalNoteLink(uid, ev.provider, ev.externalId);
+    if (linked) {
+      const existing = await getNote(linked);
+      if (existing) return { noteId: linked, created: false };
     }
   }
 
@@ -110,17 +165,31 @@ export async function ensureMeetingNote(
     ev.title || "會議",
     meetingNoteBody(ev),
     undefined,
-    ["會議", "journal"],
+    ["會議"],
     {
       folder: "會議",
-      journal_date: ev.dateKey,
+      // Keep date for rollup lookup, but not as a journal entry (see isJournalNote).
+      journal_date: "",
       status: "doing",
+      props: {
+        meeting_date: ev.dateKey,
+        schedule_event_id: ev.id,
+        schedule_provider: ev.provider,
+        schedule_external_id: ev.externalId || "",
+      },
     }
   );
   if (ev.provider === "local") {
-    await updateScheduleEvent(uid, ev.id, { noteId });
-  } else if (cacheKey && typeof sessionStorage !== "undefined") {
-    sessionStorage.setItem(cacheKey, noteId);
+    try {
+      await updateScheduleEvent(uid, ev.id, { noteId });
+    } catch {
+      /* note exists; link can be retried */
+    }
+  } else if (ev.externalId) {
+    await writeExternalNoteLink(uid, ev.provider, ev.externalId, noteId, {
+      title: ev.title,
+      dateKey: ev.dateKey,
+    });
   }
   return { noteId, created: true };
 }
@@ -166,13 +235,82 @@ export async function runMeetingPackOnNote(noteId: string, title: string): Promi
   return text;
 }
 
+export async function runMeetingAiAction(
+  noteId: string,
+  title: string,
+  prompt: string
+): Promise<string> {
+  const note = await getNote(noteId);
+  if (!note) throw new Error("找不到會議筆記");
+  const res = await fetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "note",
+      title,
+      body: note.body_md || "",
+      prompt,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "AI 失敗");
+  return String(data.text || "").trim();
+}
+
+/** Find primary journal note for a date (excludes 會議 folder). */
+export async function findJournalNoteIdForDate(
+  uid: string,
+  dateKey: string
+): Promise<string | null> {
+  const q = query(
+    collection(db, "notes"),
+    where("user_id", "==", uid),
+    where("journal_date", "==", dateKey),
+    limit(30)
+  );
+  const snap = await getDocs(q);
+  const rows = snap.docs
+    .map((d) => ({ id: d.id, ...(d.data() as { folder?: string; tags?: string[] }) }))
+    .filter((n) => n.folder !== "會議" && !(n.tags || []).includes("會議"));
+  return rows[0]?.id || null;
+}
+
+export async function ensureJournalNoteForDate(uid: string, dateKey: string): Promise<string> {
+  const existing = await findJournalNoteIdForDate(uid, dateKey);
+  if (existing) return existing;
+  return createNote(uid, dateKey, `# ${dateKey}\n\n`, undefined, ["journal"], {
+    folder: "日誌",
+    journal_date: dateKey,
+  });
+}
+
 export async function appendJournalDayRollup(
   journalNoteId: string,
   ev: ScheduleEvent,
-  meetingNoteId: string
+  meetingNoteId: string,
+  blurb?: string
 ) {
-  const line = `\n\n### 會議 · ${ev.title}\n- 時段：${ev.allDay ? "全天" : formatRange(ev.startMin, ev.endMin)}\n- 筆記：[/notes/${meetingNoteId}](/notes/${meetingNoteId})\n`;
+  const blurbLine = blurb ? `\n- 摘要：${blurb.replace(/\s+/g, " ").slice(0, 160)}\n` : "\n";
+  const line = `\n\n### 會議 · ${ev.title}\n- 時段：${ev.allDay ? "全天" : formatRange(ev.startMin, ev.endMin)}\n- 筆記：[/notes/${meetingNoteId}](/notes/${meetingNoteId})${blurbLine}`;
   await appendNoteMarkdown(journalNoteId, line);
+}
+
+/** Pack + optional rollup into that day's journal. */
+export async function finishMeetingWithPack(opts: {
+  uid: string;
+  noteId: string;
+  title: string;
+  event?: ScheduleEvent | null;
+  writeToJournal?: boolean;
+}): Promise<{ pack: string; journalNoteId?: string }> {
+  const pack = await runMeetingPackOnNote(opts.noteId, opts.title);
+  let journalNoteId: string | undefined;
+  if (opts.writeToJournal && opts.event?.dateKey) {
+    journalNoteId = await ensureJournalNoteForDate(opts.uid, opts.event.dateKey);
+    const blurb = pack.split("\n").find((l) => l.trim() && !l.startsWith("#")) || "";
+    await appendJournalDayRollup(journalNoteId, opts.event, opts.noteId, blurb);
+  }
+  return { pack, journalNoteId };
 }
 
 export function conferenceUrlOf(ev: ScheduleEvent): string | undefined {
@@ -182,6 +320,7 @@ export function conferenceUrlOf(ev: ScheduleEvent): string | undefined {
 export function joinMeeting(ev: ScheduleEvent) {
   const url = conferenceUrlOf(ev);
   if (!url) throw new Error("此行程沒有會議連結");
+  if (!/^https:\/\//i.test(url)) throw new Error("會議連結必須是 https://");
   openConferenceWindow(url);
   return url;
 }

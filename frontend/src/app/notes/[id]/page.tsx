@@ -44,7 +44,14 @@ import {
 import { takeNoteBodySeed } from "@/lib/jobToNote";
 import NoteAppSurface from "@/components/workspace/NoteAppSurface";
 import RichNoteEditor from "@/components/RichNoteEditor";
+import MeetingNoteBar from "@/components/notes/MeetingNoteBar";
 import ShareDialog from "@/components/ShareDialog";
+import {
+  getMeetingAiContext,
+  subscribeMeetingAiContext,
+  setMeetingAiContext,
+  type MeetingAiContext,
+} from "@/lib/meetingSession";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
 import { getNoteAclRole, type NoteAclRole } from "@/lib/noteAcl";
@@ -148,6 +155,7 @@ function NotePageInner() {
   );
   const [note, setNote] = useState<Note | null>(null);
   const { notes: allNotes } = useNotesList();
+  const [meetingCtx, setMeetingCtxState] = useState<MeetingAiContext | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -462,6 +470,17 @@ function NotePageInner() {
   }, [note, splitId, router]);
 
   // Open live note recorder from capture (?live=1[&liveMode=…][&liveAudio=…][&liveStart=1])
+  useEffect(() => {
+    return subscribeMeetingAiContext(setMeetingCtxState);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const ctx = getMeetingAiContext();
+      if (ctx?.noteId === id) setMeetingAiContext(null);
+    };
+  }, [id]);
+
   useEffect(() => {
     if (!id || !user) return;
     if (searchParams.get("live") !== "1") return;
@@ -2540,6 +2559,25 @@ function NotePageInner() {
                 }}
               />
             ) : (
+            <>
+            <MeetingNoteBar
+              noteId={note.id}
+              noteTitle={title || note.title}
+              uid={user.uid}
+              active={
+                note.folder === "會議" ||
+                (note.tags || []).includes("會議") ||
+                meetingCtx?.noteId === note.id
+              }
+              meetingCtx={meetingCtx}
+              onBodyPatched={() => {
+                void getNote(note.id).then((n) => {
+                  if (!n) return;
+                  setBody(n.body_md || "");
+                  latest.current = { ...latest.current, body: n.body_md || "" };
+                });
+              }}
+            />
             <RichNoteEditor
               key={collabReady ? `collab-${note.id}` : `local-${note.id}`}
               valueMd={body}
@@ -2624,6 +2662,7 @@ function NotePageInner() {
                 }
               }}
             />
+            </>
             )}
           </div>
 

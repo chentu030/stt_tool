@@ -160,6 +160,9 @@ export async function deleteScheduleEvent(uid: string, eventId: string) {
 }
 
 export function openConferenceWindow(url: string) {
+  if (!/^https:\/\//i.test(url)) {
+    throw new Error("會議連結必須是 https://");
+  }
   const w = Math.min(960, Math.floor(window.screen.availWidth * 0.48));
   const h = Math.min(800, Math.floor(window.screen.availHeight * 0.9));
   const left = Math.max(0, Math.floor(window.screen.availWidth * 0.02));

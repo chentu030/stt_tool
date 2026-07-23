@@ -124,6 +124,8 @@ export function parseDateKey(key: string): Date | null {
 }
 
 export function isJournalNote(n: Note): boolean {
+  if ((n.folder || "") === "會議") return false;
+  if ((n.tags || []).includes("會議") && !(n.tags || []).includes("journal")) return false;
   if (n.journal_date) return true;
   if ((n.tags || []).includes("journal")) return true;
   return /^\d{4}-\d{2}-\d{2}$/.test(n.title);

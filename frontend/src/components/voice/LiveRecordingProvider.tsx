@@ -15,10 +15,10 @@ import LiveNoteRecorder, {
 } from "@/components/voice/LiveNoteRecorder";
 import { appendNoteMarkdown } from "@/lib/firebase";
 import { toast } from "@/lib/toast";
-import { askConfirm } from "@/lib/dialogs";
+import { askChoice, askConfirm } from "@/lib/dialogs";
 import {
+  finishMeetingWithPack,
   getMeetingAiContext,
-  runMeetingPackOnNote,
   setMeetingAiContext,
 } from "@/lib/meetingSession";
 
@@ -101,28 +101,60 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
 
   const closeLive = useCallback(() => {
     const noteId = sessionRef.current?.noteId;
+    const uid = sessionRef.current?.uid;
     const meeting = getMeetingAiContext();
     setSession(null);
     setActive(false);
-    if (noteId && meeting?.noteId === noteId) {
+    if (noteId && meeting?.noteId === noteId && uid) {
       void (async () => {
-        const ok = await askConfirm({
-          title: "產生會後整理？",
-          message: "會把摘要、決議與待辦寫入筆記的「會後整理」區塊（不覆蓋你寫的正文）。",
-          confirmLabel: "產生整理",
-          cancelLabel: "稍後",
-        });
-        if (!ok) return;
         try {
+          // Flush any off-page transcript appends before packing.
+          await writeChain.current.catch(() => undefined);
+          await new Promise((r) => setTimeout(r, 400));
+
+          const ok = await askConfirm({
+            title: "產生會後整理？",
+            message: "會把摘要、決議與待辦寫入筆記的「會後整理」區塊（不覆蓋你寫的正文）。",
+            confirmLabel: "產生整理",
+            cancelLabel: "稍後",
+          });
+          if (!ok) {
+            setMeetingAiContext(null);
+            return;
+          }
+
+          let writeToJournal = false;
+          if (meeting.event?.dateKey) {
+            const choice = await askChoice<"journal" | "note_only">({
+              title: "寫進今日日誌？",
+              message: "會在當日日誌附加會議標題、時段與筆記連結。",
+              options: [
+                { id: "journal", label: "整理並寫進今天", primary: true },
+                { id: "note_only", label: "只整理會議筆記" },
+              ],
+            });
+            writeToJournal = choice?.choice === "journal";
+          }
+
           toast("正在產生會後整理…");
-          await runMeetingPackOnNote(noteId, meeting.title);
-          toast("會後整理已寫入筆記");
+          const { journalNoteId } = await finishMeetingWithPack({
+            uid,
+            noteId,
+            title: meeting.title,
+            event: meeting.event,
+            writeToJournal,
+          });
+          toast(
+            journalNoteId ? "會後整理已寫入，並附加到今日日誌" : "會後整理已寫入筆記"
+          );
         } catch (e) {
           toast(e instanceof Error ? e.message : "會後整理失敗");
         } finally {
           setMeetingAiContext(null);
         }
       })();
+    } else if (meeting?.noteId === noteId) {
+      setMeetingAiContext(null);
     }
   }, []);
 
@@ -143,7 +175,6 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
         local.insert(md);
         return;
       }
-      // Off the note page: append in Firestore so the session can keep writing.
       writeChain.current = writeChain.current
         .then(() => appendNoteMarkdown(noteId, md))
         .catch((e) => {

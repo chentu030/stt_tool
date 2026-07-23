@@ -48,7 +48,8 @@ import {
 } from "@/lib/googleCalendar";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
-import { askConfirm } from "@/lib/dialogs";
+import { askConfirm, askChoice } from "@/lib/dialogs";
+import type { LiveAudioSource } from "@/components/voice/LiveNoteRecorder";
 import { toast } from "@/lib/toast";
 
 export default function JournalPage() {
@@ -90,9 +91,9 @@ export default function JournalPage() {
         if (!cancelled) setGcalEvents(rows);
       } catch (e) {
         if (!cancelled) {
-          setGcalOn(false);
-          setGcalEvents([]);
           toast(e instanceof Error ? e.message : "Google 日曆同步失敗");
+          setGcalEvents([]);
+          /* keep gcalOn so user can retry on next day change */
         }
       }
     })();
@@ -476,11 +477,34 @@ export default function JournalPage() {
         const goLive = await askConfirm({
           title: "開始即時轉錄？",
           message:
-            "會開啟會議筆記並開始錄製此裝置麥克風（建議外放會議，或之後在錄音面板改用「分享分頁音訊」以錄到對方）。結束後可在筆記內產生會後整理。",
-          confirmLabel: "開始轉錄",
+            "會開啟會議筆記。錄音來源請誠實選擇：僅麥克風聽得到你自己（外放會議時可錄到對方）；分頁音訊需 Chrome 分享會議分頁並勾選「分享分頁音訊」。",
+          confirmLabel: "選擇音訊並開始",
           cancelLabel: "只開筆記",
         });
         if (goLive) {
+          const audioPick = await askChoice<LiveAudioSource>({
+            title: "錄音來源",
+            message: "可之後在錄音面板再改。",
+            options: [
+              {
+                id: "mic",
+                label: "麥克風",
+                description: "錄此裝置麥克風（耳機通話通常錄不到對方）",
+                primary: true,
+              },
+              {
+                id: "system",
+                label: "分頁音訊",
+                description: "Chrome：分享會議分頁並勾選分享音訊",
+              },
+              {
+                id: "both",
+                label: "麥克風 + 分頁",
+                description: "同時錄自己與分頁音訊",
+              },
+            ],
+          });
+          const audioSource = audioPick?.choice || "mic";
           setMeetingAiContext({
             sessionId: ev.id,
             eventId: ev.id,
@@ -488,20 +512,34 @@ export default function JournalPage() {
             title: ev.title,
             transcript: "",
             dateKey: ev.dateKey,
+            event: ev,
+            uid: user.uid,
           });
           if (liveRec) {
             liveRec.startLive({
               uid: user.uid,
               noteId,
               mode: "transcribe",
-              audioSource: "mic",
+              audioSource,
               autoStart: true,
             });
           }
           toast(created ? "已建立會議筆記並開始轉錄" : "已開始即時轉錄");
-          router.push(`/notes/${noteId}?live=1&liveMode=transcribe`);
+          router.push(
+            `/notes/${noteId}?live=1&liveMode=transcribe&liveAudio=${audioSource}&liveStart=1`
+          );
           return;
         }
+        setMeetingAiContext({
+          sessionId: ev.id,
+          eventId: ev.id,
+          noteId,
+          title: ev.title,
+          transcript: "",
+          dateKey: ev.dateKey,
+          event: ev,
+          uid: user.uid,
+        });
         toast(created ? "已建立會議筆記" : "已開啟會議筆記");
         router.push(`/notes/${noteId}`);
       } catch (e) {
