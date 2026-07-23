@@ -131,6 +131,22 @@ export default function CanvasShareViewer({ doc }: Props) {
           transformOrigin: "0 0",
         }}
       >
+        {(doc.sections || []).map((sec) => (
+          <div
+            key={sec.id}
+            className="cv-section"
+            style={{
+              left: sec.x,
+              top: sec.y,
+              width: sec.w,
+              height: sec.h,
+              zIndex: sec.z || 0,
+              ["--sec-color" as string]: sec.color,
+            }}
+          >
+            <span className="cv-section-title">{sec.title}</span>
+          </div>
+        ))}
         <svg className="cv-edges" width="8000" height="6000">
           {edgeEls}
         </svg>

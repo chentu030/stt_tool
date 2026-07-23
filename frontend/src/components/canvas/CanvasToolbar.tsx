@@ -40,6 +40,7 @@ type Props = {
   selectionCount?: number;
   onInsertFiles?: (files: FileList | File[]) => void;
   onInsertUrl?: () => void;
+  onInsertSection?: () => void;
   uploadBusy?: boolean;
   onShare?: () => void;
   shareEnabled?: boolean;
@@ -77,6 +78,7 @@ export default function CanvasToolbar({
   selectionCount = 0,
   onInsertFiles,
   onInsertUrl,
+  onInsertSection,
   uploadBusy,
   onShare,
   shareEnabled,
@@ -148,6 +150,7 @@ export default function CanvasToolbar({
       <button type="button" className="cv-dock-panel-item" disabled={uploadBusy} onClick={() => audioRef.current?.click()}>語音</button>
       <button type="button" className="cv-dock-panel-item" disabled={uploadBusy} onClick={() => videoRef.current?.click()}>影片</button>
       <button type="button" className="cv-dock-panel-item" disabled={uploadBusy} onClick={() => { onInsertUrl?.(); setPanel(null); }}>網址 / YouTube</button>
+      <button type="button" className="cv-dock-panel-item" onClick={() => { onInsertSection?.(); setPanel(null); }}>分區</button>
       <button type="button" className="cv-dock-panel-item" disabled={uploadBusy} onClick={() => pdfRef.current?.click()}>PDF</button>
       <button type="button" className="cv-dock-panel-item" disabled={uploadBusy} onClick={() => pptRef.current?.click()}>簡報</button>
       <button type="button" className="cv-dock-panel-item" disabled={uploadBusy} onClick={() => fileRef.current?.click()}>檔案</button>

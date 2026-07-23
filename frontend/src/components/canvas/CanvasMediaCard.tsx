@@ -41,6 +41,7 @@ type Props = {
   onTranscribe?: (id: string) => void;
   onSummarize?: (id: string) => void;
   onMindMap?: (id: string) => void;
+  onSplitCards?: (id: string) => void;
   onPatchMedia?: (id: string, patch: Partial<CanvasMedia>) => void;
 };
 
@@ -51,6 +52,7 @@ export default function CanvasMediaCard({
   onTranscribe,
   onSummarize,
   onMindMap,
+  onSplitCards,
   onPatchMedia,
 }: Props) {
   const label = LABELS[item.media] || "媒體";
@@ -141,6 +143,9 @@ export default function CanvasMediaCard({
                 </button>
                 <button type="button" disabled={!onMindMap} onClick={() => onMindMap?.(item.id)}>
                   心智圖
+                </button>
+                <button type="button" disabled={!onSplitCards} onClick={() => onSplitCards?.(item.id)}>
+                  拆卡
                 </button>
               </>
             )}

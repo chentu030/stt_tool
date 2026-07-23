@@ -54,6 +54,7 @@ function docFromData(id: string, data: Record<string, unknown>): CanvasDoc & { i
     edges: Array.isArray(data.edges) ? (data.edges as CanvasDoc["edges"]) : [],
     notes: Array.isArray(data.notes) ? (data.notes as CanvasDoc["notes"]) : [],
     media: Array.isArray(data.media) ? (data.media as CanvasDoc["media"]) : [],
+    sections: Array.isArray(data.sections) ? (data.sections as CanvasDoc["sections"]) : [],
     grid: data.grid !== false,
     snap: data.snap !== false,
     updated_at:

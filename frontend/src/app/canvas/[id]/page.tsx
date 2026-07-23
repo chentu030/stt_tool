@@ -29,6 +29,9 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
 import CanvasAside from "@/components/canvas/CanvasAside";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
+import CanvasSelectionChrome, { selectionKindOf } from "@/components/canvas/CanvasSelectionChrome";
+import CanvasMinimap from "@/components/canvas/CanvasMinimap";
+import CanvasAiActionPreview from "@/components/canvas/CanvasAiActionPreview";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import CanvasShareDialog from "@/components/canvas/CanvasShareDialog";
@@ -65,6 +68,10 @@ import {
   snapVal,
   uid,
   createSticky,
+  createSection,
+  alignBoxes,
+  itemsInsideSection,
+  type AlignMode,
   copySelection,
   pasteClipboard,
   serializeCanvasForAi,
@@ -162,8 +169,27 @@ function CanvasIdPageInner() {
   const [stageAiOpen, setStageAiOpen] = useState(false);
   const [stageAiAnchor, setStageAiAnchor] = useState<{ top: number; left: number } | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [aiPreview, setAiPreview] = useState<{
+    title: string;
+    busy: boolean;
+    error?: string;
+    lines: string[];
+  } | null>(null);
+  const [stageSize, setStageSize] = useState({ w: 800, h: 600 });
   const [canvasShare, setCanvasShare] = useState<CanvasShare | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const sync = () => {
+      const r = el.getBoundingClientRect();
+      setStageSize({ w: r.width, h: r.height });
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ready]);
   const skipCloud = useRef(false);
   const baseUpdatedAt = useRef(0);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
@@ -302,7 +328,8 @@ function CanvasIdPageInner() {
       setStickyColor(color);
       const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
       const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
-      if (!stickyIds.size && !shapeIds.size) return;
+      const sectionIds = new Set(selected.filter((s) => s.type === "section").map((s) => s.id));
+      if (!stickyIds.size && !shapeIds.size && !sectionIds.size) return;
       const shapeHex = colorToShapeHex(color);
       updateDoc((d) => ({
         ...d,
@@ -312,6 +339,7 @@ function CanvasIdPageInner() {
           return { ...s, color };
         }),
         shapes: d.shapes.map((s) => (shapeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
+        sections: (d.sections || []).map((s) => (sectionIds.has(s.id) ? { ...s, color: shapeHex } : s)),
       }));
     },
     [selected, updateDoc]
@@ -394,6 +422,11 @@ function CanvasIdPageInner() {
         return { type: "note", id: n.noteId };
       }
     }
+    for (const sec of [...(doc.sections || [])].reverse()) {
+      if (world.x >= sec.x && world.x <= sec.x + sec.w && world.y >= sec.y && world.y <= sec.y + sec.h) {
+        return { type: "section", id: sec.id };
+      }
+    }
     return null;
   };
 
@@ -413,6 +446,10 @@ function CanvasIdPageInner() {
     if (s.type === "note") {
       const n = doc.notes.find((x) => x.noteId === s.id);
       return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null;
+    }
+    if (s.type === "section") {
+      const sec = (doc.sections || []).find((x) => x.id === s.id);
+      return sec ? { x: sec.x, y: sec.y, w: sec.w, h: sec.h } : null;
     }
     return null;
   };
@@ -528,24 +565,12 @@ function CanvasIdPageInner() {
       toast("請先選取內容");
       return;
     }
-    try {
-      const summary = await summarizeTranscript({
-        title: doc.name || "白板選取",
-        transcript: src,
-        assistant: {
-          name: prefs.aiAssistantName,
-          style: prefs.aiStyle,
-          model: prefs.aiModel,
-          grounding: prefs.aiGrounding,
-        },
-      });
-      if (summary) {
-        landStickiesFromAi([summary], true);
-        setStageAiOpen(false);
-      }
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "摘要失敗");
-    }
+    await runAiPreview(
+      "摘要到白板",
+      src,
+      "請用繁體中文產出簡潔摘要，每行一個重點，最多 6 行。不要編號、不要 markdown。"
+    );
+    setStageAiOpen(false);
   };
 
   const runSelectionMindMap = async () => {
@@ -554,38 +579,12 @@ function CanvasIdPageInner() {
       toast("請先選取內容");
       return;
     }
-    try {
-      const res = await aiFetch("/api/ai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "ask_selection",
-          title: doc.name || "白板選取",
-          selection: src,
-          body: src,
-          prompt:
-            "請把內容整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。",
-          assistant: {
-            name: prefs.aiAssistantName,
-            style: prefs.aiStyle,
-            model: prefs.aiModel,
-            grounding: prefs.aiGrounding,
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "AI 失敗");
-      const lines = String(data.text || "")
-        .split(/\n+/)
-        .map((l: string) => l.replace(/^[-*•\d.、）)\s]+/, "").trim())
-        .filter(Boolean)
-        .slice(0, 8);
-      if (!lines.length) throw new Error("沒有產生節點");
-      landStickiesFromAi(lines, true);
-      setStageAiOpen(false);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "心智圖失敗");
-    }
+    await runAiPreview(
+      "心智圖草稿",
+      src,
+      "請把內容整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。"
+    );
+    setStageAiOpen(false);
   };
 
   const patchMedia = (id: string, patch: Partial<CanvasMedia>) => {
@@ -692,17 +691,65 @@ function CanvasIdPageInner() {
       return;
     }
     setSelected([{ type: "media", id: mediaId }]);
+    await runAiPreview(
+      "心智圖草稿",
+      item.transcript,
+      "請把逐字稿整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。"
+    );
+  };
+
+
+  const alignSelected = (mode: AlignMode) => {
+    const boxes = selected
+      .filter((s) => s.type !== "edge")
+      .map((s) => {
+        const b = boxOf(s);
+        if (!b) return null;
+        return { id: s.type === "note" ? s.id : s.id, sel: s, ...b };
+      })
+      .filter(Boolean) as { id: string; sel: Selectable; x: number; y: number; w: number; h: number }[];
+    if (boxes.length < 2) return;
+    const map = alignBoxes(
+      boxes.map((b) => ({ id: `${b.sel.type}:${b.sel.id}`, x: b.x, y: b.y, w: b.w, h: b.h })),
+      mode
+    );
+    updateDoc((d) => {
+      let stickies = d.stickies;
+      let shapes = d.shapes;
+      let media = d.media || [];
+      let notes = d.notes;
+      let sections = d.sections || [];
+      for (const b of boxes) {
+        const next = map.get(`${b.sel.type}:${b.sel.id}`);
+        if (!next) continue;
+        if (b.sel.type === "sticky") {
+          stickies = stickies.map((s) => (s.id === b.sel.id ? { ...s, ...next } : s));
+        } else if (b.sel.type === "shape") {
+          shapes = shapes.map((s) => (s.id === b.sel.id ? { ...s, ...next } : s));
+        } else if (b.sel.type === "media") {
+          media = media.map((m) => (m.id === b.sel.id ? { ...m, ...next } : m));
+        } else if (b.sel.type === "note") {
+          notes = notes.map((n) => (n.noteId === b.sel.id ? { ...n, ...next } : n));
+        } else if (b.sel.type === "section") {
+          sections = sections.map((s) => (s.id === b.sel.id ? { ...s, ...next } : s));
+        }
+      }
+      return { ...d, stickies, shapes, media, notes, sections };
+    });
+  };
+
+  const runAiPreview = async (title: string, sourceText: string, prompt: string) => {
+    setAiPreview({ title, busy: true, lines: [] });
     try {
       const res = await aiFetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "ask_selection",
-          title: item.title || "媒體",
-          selection: item.transcript.slice(0, 12000),
-          body: item.transcript.slice(0, 12000),
-          prompt:
-            "請把逐字稿整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。",
+          title,
+          selection: sourceText.slice(0, 14000),
+          body: sourceText.slice(0, 14000),
+          prompt,
           assistant: {
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
@@ -717,15 +764,49 @@ function CanvasIdPageInner() {
         .split(/\n+/)
         .map((l: string) => l.replace(/^[-*•\d.、）)\s]+/, "").trim())
         .filter(Boolean)
-        .slice(0, 8);
-      if (!lines.length) throw new Error("沒有產生節點");
-      landStickiesFromAi(lines, true);
+        .slice(0, 10);
+      if (!lines.length) throw new Error("沒有產生內容");
+      setAiPreview({ title, busy: false, lines });
     } catch (e) {
-      toast(e instanceof Error ? e.message : "心智圖失敗");
+      setAiPreview({
+        title,
+        busy: false,
+        error: e instanceof Error ? e.message : "AI 失敗",
+        lines: [],
+      });
     }
   };
 
+  const splitMediaToCards = async (mediaId: string) => {
+    const item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item?.transcript?.trim()) {
+      toast("尚無逐字稿");
+      return;
+    }
+    setSelected([{ type: "media", id: mediaId }]);
+    await runAiPreview(
+      "拆成知識卡",
+      item.transcript,
+      "請把逐字稿拆成 5 到 8 張知識卡。每行一張：標題必須是可直接引用的短句（論點），不要編號、不要 markdown。只輸出標題行。"
+    );
+  };
+
+  const insertSectionAtCenter = () => {
+    const center = viewportCenterWorld();
+    const sec = createSection({
+      x: snapVal(center.x - 240, 22, doc.snap),
+      y: snapVal(center.y - 160, 22, doc.snap),
+      title: "分區",
+      color: colorToShapeHex(stickyColor),
+    });
+    updateDoc((d) => ({ ...d, sections: [...(d.sections || []), sec] }));
+    setSelected([{ type: "section", id: sec.id }]);
+    setTool("select");
+    toast("已新增分區");
+  };
+
   const applyStageAiImage = async (file: File) => {
+
     if (!user || !canvasId) return;
     setUploadBusy(true);
     try {
@@ -1003,15 +1084,53 @@ function CanvasIdPageInner() {
         : [hit];
 
     const origin: Record<string, { x: number; y: number; w?: number; h?: number }> = {};
+    let moveIds = [...ids];
     for (const s of ids) {
       const b = boxOf(s);
       if (!b) continue;
-      const key = s.type === "note" ? s.id : s.id;
+      const key = s.id;
       origin[key] = { x: b.x, y: b.y, w: b.w, h: b.h };
+      if (s.type === "section") {
+        const sec = (doc.sections || []).find((x) => x.id === s.id);
+        if (!sec) continue;
+        const inside = itemsInsideSection(doc, sec);
+        for (const id of inside.stickies) {
+          const st = doc.stickies.find((x) => x.id === id);
+          if (!st) continue;
+          origin[id] = { x: st.x, y: st.y, w: st.w, h: st.h };
+          if (!moveIds.some((m) => m.type === "sticky" && m.id === id)) {
+            moveIds.push({ type: "sticky", id });
+          }
+        }
+        for (const id of inside.shapes) {
+          const sh = doc.shapes.find((x) => x.id === id);
+          if (!sh) continue;
+          origin[id] = { x: sh.x, y: sh.y, w: sh.w, h: sh.h };
+          if (!moveIds.some((m) => m.type === "shape" && m.id === id)) {
+            moveIds.push({ type: "shape", id });
+          }
+        }
+        for (const id of inside.media) {
+          const m = (doc.media || []).find((x) => x.id === id);
+          if (!m) continue;
+          origin[id] = { x: m.x, y: m.y, w: m.w, h: m.h };
+          if (!moveIds.some((x) => x.type === "media" && x.id === id)) {
+            moveIds.push({ type: "media", id });
+          }
+        }
+        for (const id of inside.notes) {
+          const n = doc.notes.find((x) => x.noteId === id);
+          if (!n) continue;
+          origin[id] = { x: n.x, y: n.y, w: n.w, h: n.h };
+          if (!moveIds.some((x) => x.type === "note" && x.id === id)) {
+            moveIds.push({ type: "note", id });
+          }
+        }
+      }
     }
     drag.current = {
       mode: "move",
-      ids,
+      ids: moveIds,
       startX: world.x,
       startY: world.y,
       origin,
@@ -1183,6 +1302,14 @@ function CanvasIdPageInner() {
             notes: prev.notes.map((n) => (n.noteId === s.id ? { ...n, x, y, w, h } : n)),
           };
         }
+        if (s.type === "section") {
+          return {
+            ...prev,
+            sections: (prev.sections || []).map((sec) =>
+              sec.id === s.id ? { ...sec, x, y, w: Math.max(160, w), h: Math.max(120, h) } : sec
+            ),
+          };
+        }
         return prev;
       });
       return;
@@ -1229,7 +1356,16 @@ function CanvasIdPageInner() {
             y: snapVal(o.y + dy, 22, prev.snap),
           };
         });
-        return { ...prev, stickies, shapes, media, notes: notesPins };
+        const sections = (prev.sections || []).map((s) => {
+          const o = d.origin![s.id];
+          if (!o || !d.ids!.some((i) => i.type === "section" && i.id === s.id)) return s;
+          return {
+            ...s,
+            x: snapVal(o.x + dx, 22, prev.snap),
+            y: snapVal(o.y + dy, 22, prev.snap),
+          };
+        });
+        return { ...prev, stickies, shapes, media, notes: notesPins, sections };
       });
     }
   };
@@ -1308,6 +1444,7 @@ function CanvasIdPageInner() {
       const mediaIds = new Set(selected.filter((s) => s.type === "media").map((s) => s.id));
       const noteIds = new Set(selected.filter((s) => s.type === "note").map((s) => s.id));
       const edgeIds = new Set(selected.filter((s) => s.type === "edge").map((s) => s.id));
+      const sectionIds = new Set(selected.filter((s) => s.type === "section").map((s) => s.id));
       const removeRefs = new Set([
         ...Array.from(stickyIds),
         ...Array.from(shapeIds),
@@ -1320,6 +1457,7 @@ function CanvasIdPageInner() {
         shapes: d.shapes.filter((s) => !shapeIds.has(s.id)),
         media: (d.media || []).filter((m) => !mediaIds.has(m.id)),
         notes: d.notes.filter((n) => !noteIds.has(n.noteId)),
+        sections: (d.sections || []).filter((s) => !sectionIds.has(s.id)),
         edges: d.edges.filter(
           (e) => !edgeIds.has(e.id) && !removeRefs.has(e.from) && !removeRefs.has(e.to)
         ),
@@ -1746,6 +1884,7 @@ function CanvasIdPageInner() {
           onInsertFiles={(files) => {
             void insertFiles(files);
           }}
+          onInsertSection={insertSectionAtCenter}
           onInsertUrl={() => {
             void insertUrl();
           }}
@@ -1780,20 +1919,29 @@ function CanvasIdPageInner() {
             const world = screenToWorld(e.clientX, e.clientY);
             const hit = hitTest(world);
             if (!hit) {
-              // Double-click empty canvas → start writing text
+              // Double-click empty → sticky (Shift = plain text)
+              const asText = e.shiftKey;
               const sticky = createSticky({
                 x: snapVal(world.x, 22, doc.snap),
                 y: snapVal(world.y, 22, doc.snap),
-                w: 220,
-                h: 48,
+                w: asText ? 220 : 200,
+                h: asText ? 48 : 160,
                 text: "",
-                color: stickyColor === "yellow" ? "#1f2937" : colorToShapeHex(stickyColor),
-                variant: "text",
+                color: asText
+                  ? stickyColor === "yellow"
+                    ? "#1f2937"
+                    : colorToShapeHex(stickyColor)
+                  : stickyColor,
+                variant: asText ? "text" : "sticky",
               });
               updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
               setSelected([{ type: "sticky", id: sticky.id }]);
               setEditingId(sticky.id);
               setTool("select");
+              return;
+            }
+            if (hit.type === "section") {
+              setSelected([hit]);
               return;
             }
             if (hit.type === "sticky") {
@@ -1824,6 +1972,36 @@ function CanvasIdPageInner() {
               transformOrigin: "0 0",
             }}
           >
+            {(doc.sections || []).map((sec) => (
+              <div
+                key={sec.id}
+                className={`cv-section${isSelected("section", sec.id) ? " is-on" : ""}`}
+                style={{
+                  left: sec.x,
+                  top: sec.y,
+                  width: sec.w,
+                  height: sec.h,
+                  zIndex: sec.z || 0,
+                  ["--sec-color" as string]: sec.color,
+                }}
+              >
+                <input
+                  className="cv-section-title"
+                  value={sec.title}
+                  onChange={(e) => {
+                    const title = e.target.value;
+                    setDoc((d) => ({
+                      ...d,
+                      sections: (d.sections || []).map((x) => (x.id === sec.id ? { ...x, title } : x)),
+                    }));
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    setSelected([{ type: "section", id: sec.id }]);
+                  }}
+                />
+              </div>
+            ))}
             <svg className="cv-edges" width="8000" height="6000">
               {doc.edges.map((edge) => {
                 const ca = nodeCenter(doc, edge.from);
@@ -2023,6 +2201,7 @@ function CanvasIdPageInner() {
                 onTranscribe={startMediaTranscribe}
                 onSummarize={summarizeMedia}
                 onMindMap={mindMapMedia}
+                onSplitCards={splitMediaToCards}
                 onPatchMedia={patchMedia}
               />
             ))}
@@ -2083,29 +2262,41 @@ function CanvasIdPageInner() {
               />
             )}
 
-            {selectionInfo && !stageAiOpen && (
-              <div
-                className="cv-sel-chrome"
-                style={{
-                  left: selectionInfo.box.x + selectionInfo.box.w / 2,
-                  top: Math.max(8, selectionInfo.box.y - 8),
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                <span className="cv-sel-chrome-count">
-                  {selected.length > 1 ? `已選 ${selected.length}` : "已選"}
-                </span>
-                <button type="button" className="cv-sel-chrome-btn" onClick={() => { doCopy(); doPaste(); }} title="複製">
-                  複製
-                </button>
-                <button type="button" className="cv-sel-chrome-btn" onClick={deleteSelected} title="刪除">
-                  刪除
-                </button>
-                <button type="button" className="cv-sel-chrome-btn is-ai" onClick={openStageAi} title="AI 動作">
-                  AI
-                </button>
-              </div>
-            )}
+            {selectionInfo && !stageAiOpen && (() => {
+              const kind = selectionKindOf(selected);
+              const mediaSel = selected.length === 1 && selected[0].type === "media"
+                ? (doc.media || []).find((m) => m.id === selected[0].id)
+                : null;
+              const stickySel = selected.length === 1 && selected[0].type === "sticky"
+                ? doc.stickies.find((s) => s.id === selected[0].id)
+                : null;
+              const shapeSel = selected.length === 1 && selected[0].type === "shape"
+                ? doc.shapes.find((s) => s.id === selected[0].id)
+                : null;
+              const sectionSel = selected.length === 1 && selected[0].type === "section"
+                ? (doc.sections || []).find((s) => s.id === selected[0].id)
+                : null;
+              const colorNow = stickySel?.color || shapeSel?.color || sectionSel?.color;
+              return (
+                <CanvasSelectionChrome
+                  box={selectionInfo.box}
+                  count={selected.length}
+                  kind={kind}
+                  color={colorNow}
+                  canTranscribe={Boolean(mediaSel && (mediaSel.media === "youtube" || mediaSel.media === "video" || mediaSel.media === "audio"))}
+                  hasTranscript={Boolean(mediaSel?.transcript?.trim())}
+                  onDuplicate={() => { doCopy(); doPaste(); }}
+                  onDelete={deleteSelected}
+                  onAi={openStageAi}
+                  onColor={applyCanvasColor}
+                  onAlign={alignSelected}
+                  onTranscribe={mediaSel ? () => void startMediaTranscribe(mediaSel.id) : undefined}
+                  onSummarize={mediaSel ? () => void summarizeMedia(mediaSel.id) : undefined}
+                  onMindMap={mediaSel ? () => void mindMapMedia(mediaSel.id) : undefined}
+                  onSplitCards={mediaSel ? () => void splitMediaToCards(mediaSel.id) : undefined}
+                />
+              );
+            })()}
           </div>
         </div>
 
@@ -2126,13 +2317,46 @@ function CanvasIdPageInner() {
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <button type="button" onClick={() => { startEdit(); setCtxMenu(null); }}>編輯</button>
-          <button type="button" onClick={() => { doCut(); setCtxMenu(null); }}>剪下</button>
-          <button type="button" onClick={() => { doCopy(); setCtxMenu(null); }}>複製</button>
-          <button type="button" onClick={() => { doPaste(); setCtxMenu(null); }}>貼上</button>
-          <button type="button" className="is-danger" onClick={() => { deleteSelected(); setCtxMenu(null); }}>
-            刪除
-          </button>
+          {!selected.length ? (
+            <>
+              <button type="button" onClick={() => {
+                const world = screenToWorld(ctxMenu.x, ctxMenu.y);
+                const sticky = createSticky({
+                  x: snapVal(world.x, 22, doc.snap),
+                  y: snapVal(world.y, 22, doc.snap),
+                  text: "",
+                  color: stickyColor,
+                });
+                updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
+                setSelected([{ type: "sticky", id: sticky.id }]);
+                setEditingId(sticky.id);
+                setCtxMenu(null);
+              }}>新增便利貼</button>
+              <button type="button" onClick={() => {
+                insertSectionAtCenter();
+                setCtxMenu(null);
+              }}>新增分區</button>
+              <button type="button" onClick={() => { void insertUrl(); setCtxMenu(null); }}>插入網址</button>
+              <button type="button" onClick={() => { doPaste(); setCtxMenu(null); }}>貼上</button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={() => { startEdit(); setCtxMenu(null); }}>編輯</button>
+              <button type="button" onClick={() => { doCut(); setCtxMenu(null); }}>剪下</button>
+              <button type="button" onClick={() => { doCopy(); setCtxMenu(null); }}>複製</button>
+              <button type="button" onClick={() => { doPaste(); setCtxMenu(null); }}>貼上</button>
+              {selected.length === 1 && selected[0].type === "media" && (
+                <button type="button" onClick={() => {
+                  const id = selected[0].id;
+                  void splitMediaToCards(id);
+                  setCtxMenu(null);
+                }}>拆成知識卡</button>
+              )}
+              <button type="button" className="is-danger" onClick={() => { deleteSelected(); setCtxMenu(null); }}>
+                刪除
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -2149,6 +2373,29 @@ function CanvasIdPageInner() {
           onSummarizeSelection={() => void runSelectionSummarize()}
           onMindMapSelection={() => void runSelectionMindMap()}
           insertLabel="放到白板"
+        />
+      )}
+
+      <CanvasMinimap
+        doc={doc}
+        viewport={stageSize}
+        onPan={(pan) => setDoc((d) => ({ ...d, pan }))}
+        onFit={fitAll}
+      />
+
+      {aiPreview && (
+        <CanvasAiActionPreview
+          open
+          title={aiPreview.title}
+          busy={aiPreview.busy}
+          error={aiPreview.error}
+          previewLines={aiPreview.lines}
+          onCancel={() => setAiPreview(null)}
+          onConfirm={(lines) => {
+            landStickiesFromAi(lines, true);
+            setAiPreview(null);
+            setStageAiOpen(false);
+          }}
         />
       )}
 

@@ -103,6 +103,19 @@ export type CanvasMedia = {
   transcriptError?: string;
 };
 
+/** Soft grouping region on the canvas (moves contained items with it). */
+export type CanvasSection = {
+  id: string;
+  kind: "section";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  title: string;
+  color: string;
+  z: number;
+};
+
 export type CanvasDoc = {
   version: 2;
   name: string;
@@ -113,6 +126,7 @@ export type CanvasDoc = {
   edges: CanvasEdge[];
   notes: NotePin[];
   media: CanvasMedia[];
+  sections: CanvasSection[];
   grid: boolean;
   snap: boolean;
 };
@@ -196,6 +210,7 @@ export function emptyDoc(name = "主白板"): CanvasDoc {
     edges: [],
     notes: [],
     media: [],
+    sections: [],
     grid: true,
     snap: true,
   };
@@ -227,6 +242,7 @@ export function loadDoc(uid: string): CanvasDoc {
       ...parsed,
       version: 2,
       media: Array.isArray(parsed.media) ? parsed.media : [],
+      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     };
   } catch {
     return emptyDoc();
@@ -255,7 +271,8 @@ export type Selectable =
   | { type: "shape"; id: string }
   | { type: "note"; id: string }
   | { type: "edge"; id: string }
-  | { type: "media"; id: string };
+  | { type: "media"; id: string }
+  | { type: "section"; id: string };
 
 export function nodeBox(
   doc: CanvasDoc,
@@ -272,6 +289,8 @@ export function nodeBox(
   if (shape) return { x: shape.x, y: shape.y, w: shape.w, h: shape.h };
   const media = doc.media?.find((m) => m.id === ref);
   if (media) return { x: media.x, y: media.y, w: media.w, h: media.h };
+  const section = doc.sections?.find((s) => s.id === ref);
+  if (section) return { x: section.x, y: section.y, w: section.w, h: section.h };
   return null;
 }
 
@@ -480,6 +499,7 @@ export function applyCanvasOps(
     edges: [...doc.edges],
     notes: [...doc.notes],
     media: [...(doc.media || [])],
+    sections: [...(doc.sections || [])],
   };
   let z = Date.now();
   for (const op of ops) {
@@ -694,11 +714,111 @@ export function autoLayoutNotes(pins: NotePin[], cols = 4, gapX = 240, gapY = 17
   }));
 }
 
+export function createSection(
+  partial: Partial<Omit<CanvasSection, "id" | "kind">> & { x: number; y: number }
+): CanvasSection {
+  return {
+    id: uid("sec"),
+    kind: "section",
+    x: partial.x,
+    y: partial.y,
+    w: partial.w ?? 480,
+    h: partial.h ?? 320,
+    title: partial.title ?? "分區",
+    color: partial.color ?? "#0D9488",
+    z: partial.z ?? 0,
+  };
+}
+
+export type AlignMode =
+  | "left"
+  | "centerX"
+  | "right"
+  | "top"
+  | "centerY"
+  | "bottom"
+  | "distributeX"
+  | "distributeY"
+  | "sameWidth"
+  | "sameHeight";
+
+type BoxItem = { id: string; x: number; y: number; w: number; h: number };
+
+/** Align / distribute selected boxes relative to the selection bounding box. */
+export function alignBoxes(items: BoxItem[], mode: AlignMode): Map<string, { x: number; y: number; w: number; h: number }> {
+  const out = new Map<string, { x: number; y: number; w: number; h: number }>();
+  if (items.length < 2 && mode.startsWith("distribute")) return out;
+  if (!items.length) return out;
+  const minX = Math.min(...items.map((i) => i.x));
+  const maxX = Math.max(...items.map((i) => i.x + i.w));
+  const minY = Math.min(...items.map((i) => i.y));
+  const maxY = Math.max(...items.map((i) => i.y + i.h));
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+
+  if (mode === "distributeX" || mode === "distributeY") {
+    const sorted = [...items].sort((a, b) => (mode === "distributeX" ? a.x - b.x : a.y - b.y));
+    if (sorted.length < 3) return out;
+    if (mode === "distributeX") {
+      const span = sorted[sorted.length - 1].x - sorted[0].x;
+      const step = span / (sorted.length - 1);
+      sorted.forEach((it, i) => {
+        out.set(it.id, { x: sorted[0].x + step * i, y: it.y, w: it.w, h: it.h });
+      });
+    } else {
+      const span = sorted[sorted.length - 1].y - sorted[0].y;
+      const step = span / (sorted.length - 1);
+      sorted.forEach((it, i) => {
+        out.set(it.id, { x: it.x, y: sorted[0].y + step * i, w: it.w, h: it.h });
+      });
+    }
+    return out;
+  }
+
+  const baseW = items[0].w;
+  const baseH = items[0].h;
+  for (const it of items) {
+    let x = it.x;
+    let y = it.y;
+    let w = it.w;
+    let h = it.h;
+    if (mode === "left") x = minX;
+    if (mode === "right") x = maxX - it.w;
+    if (mode === "centerX") x = midX - it.w / 2;
+    if (mode === "top") y = minY;
+    if (mode === "bottom") y = maxY - it.h;
+    if (mode === "centerY") y = midY - it.h / 2;
+    if (mode === "sameWidth") w = baseW;
+    if (mode === "sameHeight") h = baseH;
+    out.set(it.id, { x, y, w, h });
+  }
+  return out;
+}
+
+/** Items whose center lies inside a section rect. */
+export function itemsInsideSection(
+  doc: CanvasDoc,
+  section: { x: number; y: number; w: number; h: number }
+): { stickies: string[]; shapes: string[]; media: string[]; notes: string[] } {
+  const contains = (x: number, y: number, w: number, h: number) => {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    return cx >= section.x && cx <= section.x + section.w && cy >= section.y && cy <= section.y + section.h;
+  };
+  return {
+    stickies: doc.stickies.filter((s) => contains(s.x, s.y, s.w, s.h)).map((s) => s.id),
+    shapes: doc.shapes.filter((s) => contains(s.x, s.y, s.w, s.h)).map((s) => s.id),
+    media: (doc.media || []).filter((m) => contains(m.x, m.y, m.w, m.h)).map((m) => m.id),
+    notes: doc.notes.filter((n) => contains(n.x, n.y, n.w, n.h)).map((n) => n.noteId),
+  };
+}
+
 export function boundsOf(doc: CanvasDoc): { minX: number; minY: number; maxX: number; maxY: number } | null {
   const boxes: { x: number; y: number; w: number; h: number }[] = [
     ...doc.stickies,
     ...doc.shapes,
     ...(doc.media || []),
+    ...(doc.sections || []),
     ...doc.notes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
   ];
   if (!boxes.length) return null;
@@ -747,6 +867,7 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
       ...parsed,
       version: 2,
       media: Array.isArray(parsed.media) ? parsed.media : [],
+      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     };
   } catch {
     return null;

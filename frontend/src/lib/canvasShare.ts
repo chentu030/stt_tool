@@ -68,6 +68,7 @@ function snapshotJson(data: CanvasDoc): string {
     edges: data.edges || [],
     notes: data.notes || [],
     media: data.media || [],
+    sections: data.sections || [],
     grid: data.grid !== false,
     snap: data.snap !== false,
   });
@@ -207,6 +208,7 @@ export function canvasDocFromShareToken(link: CanvasShareTokenDoc): CanvasDoc {
       edges: Array.isArray(parsed.edges) ? parsed.edges : [],
       notes: Array.isArray(parsed.notes) ? parsed.notes : [],
       media: Array.isArray(parsed.media) ? parsed.media : [],
+      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
       grid: parsed.grid !== false,
       snap: parsed.snap !== false,
       pan: parsed.pan || { x: 0, y: 0 },
