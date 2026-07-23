@@ -14661,9 +14661,17 @@ body.rich-media-float-dragging * {
 }
 .gp-svg { display: block; width: 100%; height: 100%; }
 .gp-label {
-  fill: var(--text-main);
+  fill: color-mix(in oklab, var(--text-muted) 78%, var(--text-main));
+  fill-opacity: 0.78;
   pointer-events: none;
-  font-weight: 550;
+  font-weight: 450;
+  letter-spacing: 0.01em;
+}
+.gp-node.is-sel .gp-label,
+.gp-node:hover .gp-label {
+  fill: var(--text-main);
+  fill-opacity: 0.92;
+  font-weight: 500;
 }
 .gp-node.is-dim { opacity: 0.28; }
 .gp-empty {

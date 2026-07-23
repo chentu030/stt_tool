@@ -102,7 +102,15 @@ export default function GraphDetailPage() {
   const [dragVer, setDragVer] = useState(0);
   /** Bumps every force-sim frame so SVG re-renders */
   const [simTick, setSimTick] = useState(0);
-  const simRef = useRef(new GraphForceSim({ centerX: 700, centerY: 450 }));
+  const simRef = useRef(
+    new GraphForceSim({
+      centerX: 700,
+      centerY: 450,
+      charge: -980,
+      centerStrength: 0.035,
+      collidePadding: 26,
+    })
+  );
   const simStructureKey = useRef("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -352,7 +360,7 @@ export default function GraphDetailPage() {
       bundle.edges.map((e) => ({
         source: e.from,
         target: e.to,
-        distance: e.kind === "wiki" ? 100 : e.kind === "tag" ? 140 : 160,
+        distance: e.kind === "wiki" ? 155 : e.kind === "tag" ? 210 : 245,
         strength: e.kind === "wiki" ? 0.8 : 0.45,
       }))
     );
@@ -1011,7 +1019,7 @@ ${orphanLines || "（無）"}`;
                       className={`gp-edge${onPath ? " is-path" : ""}${onHi ? " is-hi" : ""}${dim ? " is-dim" : ""}`}
                       stroke={stroke}
                       strokeWidth={onPath ? 3.2 : onHi ? 2.4 : e.kind === "wiki" ? 1.4 : 1}
-                      strokeOpacity={dim ? 0.12 : e.kind === "wiki" ? 0.5 : 0.28}
+                      strokeOpacity={dim ? 0.08 : e.kind === "wiki" ? 0.38 : 0.18}
                       strokeDasharray={
                         e.kind === "wiki" ? undefined : e.kind === "tag" ? "4 3" : "2 4"
                       }
@@ -1066,12 +1074,12 @@ ${orphanLines || "（無）"}`;
                         />
                       )}
                       <text
-                        y={r + 12}
+                        y={r + 14}
                         textAnchor="middle"
                         className="gp-label"
-                        fontSize={Math.max(9, 11 / Math.sqrt(scale))}
+                        fontSize={Math.max(7.5, 8.5 / Math.sqrt(scale))}
                       >
-                        {n.title.length > 14 ? `${n.title.slice(0, 14)}…` : n.title}
+                        {n.title.length > 12 ? `${n.title.slice(0, 12)}…` : n.title}
                       </text>
                     </g>
                   );

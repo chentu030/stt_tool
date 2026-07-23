@@ -630,9 +630,9 @@ export function layoutGraph(
         let dx = a.x - b.x;
         let dy = a.y - b.y;
         let dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-        const minDist = 28;
-        let force = (2800 / (dist * dist)) * cooling;
-        if (dist < minDist) force += ((minDist - dist) / dist) * 8 * cooling;
+        const minDist = 44;
+        let force = (4600 / (dist * dist)) * cooling;
+        if (dist < minDist) force += ((minDist - dist) / dist) * 10 * cooling;
         dx = (dx / dist) * force;
         dy = (dy / dist) * force;
         a.vx += dx;
@@ -649,7 +649,7 @@ export function layoutGraph(
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const ideal = e.kind === "wiki" ? 110 : e.kind === "tag" ? 150 : 170;
+      const ideal = e.kind === "wiki" ? 160 : e.kind === "tag" ? 210 : 250;
       const force = (dist - ideal) * 0.035 * e.weight * cooling;
       dx = (dx / dist) * force;
       dy = (dy / dist) * force;
@@ -660,8 +660,8 @@ export function layoutGraph(
     }
     // center gravity → ball
     for (const n of nodes) {
-      n.vx += (cx - n.x) * 0.02 * cooling;
-      n.vy += (cy - n.y) * 0.02 * cooling;
+      n.vx += (cx - n.x) * 0.012 * cooling;
+      n.vy += (cy - n.y) * 0.012 * cooling;
       n.vx *= 0.82;
       n.vy *= 0.82;
       n.x += n.vx;

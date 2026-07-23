@@ -55,12 +55,12 @@ export class GraphForceSim {
   constructor(opts: ForceSimOpts = {}) {
     this.centerX = opts.centerX ?? 700;
     this.centerY = opts.centerY ?? 450;
-    this.charge = opts.charge ?? -520;
-    this.centerStrength = opts.centerStrength ?? 0.06;
-    this.collidePadding = opts.collidePadding ?? 10;
-    this.velocityDecay = opts.velocityDecay ?? 0.55;
-    this.alphaDecay = opts.alphaDecay ?? 0.028;
-    this.alphaMin = opts.alphaMin ?? 0.0015;
+    this.charge = opts.charge ?? -980;
+    this.centerStrength = opts.centerStrength ?? 0.035;
+    this.collidePadding = opts.collidePadding ?? 26;
+    this.velocityDecay = opts.velocityDecay ?? 0.52;
+    this.alphaDecay = opts.alphaDecay ?? 0.024;
+    this.alphaMin = opts.alphaMin ?? 0.0012;
   }
 
   setCenter(x: number, y: number) {
