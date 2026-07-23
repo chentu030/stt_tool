@@ -60,7 +60,8 @@ export function extractOutline(md: string): HeadingItem[] {
     const m = /^(#{1,3})\s+(.+)$/.exec(line.trim());
     if (!m) return;
     const level = m[1].length as 1 | 2 | 3;
-    const text = m[2].replace(/[#*`]/g, "").trim();
+    // Strip md marks + common escapes (e.g. "1\." → "1.") so TOC matches rendered headings.
+    const text = unescapeMdHeading(m[2]);
     if (!text) return;
     out.push({
       id: `h-${index}-${level}-${text.slice(0, 24)}`,
@@ -70,6 +71,15 @@ export function extractOutline(md: string): HeadingItem[] {
     });
   });
   return out;
+}
+
+/** Display / jump text for outline: drop inline marks and unescape `1\.` style sequences. */
+export function unescapeMdHeading(raw: string): string {
+  return String(raw || "")
+    .replace(/[#*`]/g, "")
+    .replace(/\\([\\`*_{}[\]()#+\-.!|])/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export type RelatedNote = {
