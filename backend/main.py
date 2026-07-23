@@ -336,6 +336,35 @@ def _verify_token(authorization: Optional[str]) -> str:
     except Exception:
         raise HTTPException(401, "Invalid Firebase token")
 
+# 背單字 uses Firebase project english-32702 (not stt-tool). Verify via Identity Toolkit.
+_BEIDANZI_FB_API_KEY = (
+    os.environ.get("BEIDANZI_FIREBASE_API_KEY")
+    or "AIzaSyD9mwoyTf1cAS7LTnVMy5lnfFEYW5mYBoY"
+)
+
+def _verify_beidanzi_user(authorization: Optional[str]) -> str:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "請先登入背單字")
+    id_token = authorization[7:].strip()
+    if not id_token:
+        raise HTTPException(401, "請先登入背單字")
+    try:
+        r = requests.post(
+            f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={_BEIDANZI_FB_API_KEY}",
+            json={"idToken": id_token},
+            timeout=15,
+        )
+        data = r.json() if r.ok else {}
+        u = (data.get("users") or [None])[0]
+        if not u or not u.get("localId"):
+            raise HTTPException(401, "登入已過期，請重新登入背單字")
+        return str(u["localId"])
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(401, "無法驗證背單字登入狀態")
+
+
 # ─── Streaming bridge: run sync transcription in a thread, stream SSE ─────────
 def _stream_transcription(saved: List[tuple]):
     """saved = [(display_name, local_path), ...]. Returns an async generator of SSE."""
@@ -1466,7 +1495,8 @@ def _youtube_captions(url: str, language: Optional[str]) -> tuple:
     return None, None, best_title
 
 @app.post("/api/beidanzi/upload")
-async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] = Form(None)):
+async def beidanzi_upload(file: UploadFile = File(...), language: Optional[str] = Form(None), authorization: Optional[str] = Header(None)):
+    _verify_beidanzi_user(authorization)
     ext = os.path.splitext(file.filename or ".mp4")[1]
     fd, path = tempfile.mkstemp(suffix=ext)
     os.close(fd)
@@ -1493,7 +1523,9 @@ async def beidanzi_youtube(
     url: str = Form(...),
     language: Optional[str] = Form(None),
     force_whisper: Optional[str] = Form(None),
+    authorization: Optional[str] = Header(None),
 ):
+    _verify_beidanzi_user(authorization)
     vid = _yt_id(url)
     loop = asyncio.get_event_loop()
     force = str(force_whisper or "").strip().lower() in ("1", "true", "yes", "whisper")
@@ -1536,7 +1568,8 @@ async def beidanzi_youtube(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 @app.post("/api/beidanzi/store_audio")
-async def beidanzi_store_audio(file: UploadFile = File(...)):
+async def beidanzi_store_audio(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    _verify_beidanzi_user(authorization)
     """把前端產生的 AI 語音（WAV）永久存進 Firebase Storage，回傳公開下載網址。"""
     ext = os.path.splitext(file.filename or ".wav")[1].lower() or ".wav"
     fd, path = tempfile.mkstemp(suffix=ext)
@@ -2001,7 +2034,8 @@ def _fetch_online_dicts_sync(word: str) -> dict:
 
 
 @app.get("/api/beidanzi/dict_fetch")
-async def beidanzi_dict_fetch(word: str = ""):
+async def beidanzi_dict_fetch(word: str = "", authorization: Optional[str] = Header(None)):
+    _verify_beidanzi_user(authorization)
     """代抓劍橋／柯林斯／朗文／歐路／Etymonline 文字，供背單字 AI 整理補充。"""
     slug = _dict_slug(word)
     if not slug:
