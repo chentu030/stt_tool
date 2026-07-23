@@ -782,10 +782,12 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   // Without `open` → collapsed. Preserve line breaks inside the body.
   s = s.replace(/:::toggle(?!-h)(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g, (_m, openFlag, title, body) => {
     const open = openFlag ? "1" : "0";
+    // Skip blank lines so timestamp + transcript sit flush (no empty <p><br></p> gaps).
     const inner = String(body)
       .trim()
       .split(/\n/)
-      .map((line) => `<p>${escapeHtml(line) || "<br>"}</p>`)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => `<p>${escapeHtml(line)}</p>`)
       .join("");
     return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}">${inner || "<p></p>"}</div>`;
   });

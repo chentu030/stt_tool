@@ -15805,6 +15805,12 @@ body.is-sidebar-resizing iframe {
   outline: none;
 }
 .rich-toggle-body { padding: 0.55rem 0.75rem 0.7rem; }
+.rich-toggle-body > p {
+  margin: 0;
+}
+.rich-toggle-body > p + p {
+  margin-top: 0.2em;
+}
 .rich-toc {
   margin: 0.75rem 0;
   padding: 0.7rem 0.9rem;

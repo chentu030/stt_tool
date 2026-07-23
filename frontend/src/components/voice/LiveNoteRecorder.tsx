@@ -421,7 +421,8 @@ export default function LiveNoteRecorder({
           }
           segOkRef.current += 1;
         } else {
-          const toggle = transcriptToggleMd(`${time}\n\n${got.transcript}`);
+          // Single newline: toggle body splits each line into a <p>; blank lines become empty gaps.
+          const toggle = transcriptToggleMd(`${time}\n${got.transcript}`);
           // Toggle + audio with no blank line between.
           insertMd(
             audioBlock ? `\n\n${toggle}\n${audioBlock}\n` : toggle ? `\n\n${toggle}\n` : ""
