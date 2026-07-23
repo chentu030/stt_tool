@@ -190,7 +190,8 @@ export default function CanvasIdPage() {
     [pushHistory]
   );
 
-  /** Set color preference + apply to selected stickies / shapes. */
+  /** Set color preference + apply to selected stickies / shapes.
+   *  Text stickies: color = font color (no fill). Stickies/shapes: fill/stroke. */
   const applyCanvasColor = useCallback(
     (color: string) => {
       setStickyColor(color);
@@ -200,7 +201,11 @@ export default function CanvasIdPage() {
       const shapeHex = colorToShapeHex(color);
       updateDoc((d) => ({
         ...d,
-        stickies: d.stickies.map((s) => (stickyIds.has(s.id) ? { ...s, color } : s)),
+        stickies: d.stickies.map((s) => {
+          if (!stickyIds.has(s.id)) return s;
+          if (s.variant === "text") return { ...s, color: shapeHex };
+          return { ...s, color };
+        }),
         shapes: d.shapes.map((s) => (shapeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
       }));
     },
@@ -581,7 +586,12 @@ export default function CanvasIdPage() {
           w: isText ? 220 : 180,
           h: isText ? 48 : 160,
           text: "",
-          color: stickyColor,
+          // Text: no fill/border; color drives font color (default dark, not sticky yellow).
+          color: isText
+            ? stickyColor === "yellow"
+              ? "#1f2937"
+              : colorToShapeHex(stickyColor)
+            : stickyColor,
           z,
           variant: isText ? "text" : "sticky",
         });
@@ -1273,7 +1283,7 @@ export default function CanvasIdPage() {
                 w: 220,
                 h: 48,
                 text: "",
-                color: stickyColor,
+                color: stickyColor === "yellow" ? "#1f2937" : colorToShapeHex(stickyColor),
                 variant: "text",
               });
               updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
@@ -1374,6 +1384,7 @@ export default function CanvasIdPage() {
               const pal = resolveStickyStyle(s.color);
               const isText = s.variant === "text";
               const connectOn = connectFrom === s.id;
+              const textColor = isText ? colorToShapeHex(s.color) : undefined;
               return (
                 <div
                   key={s.id}
@@ -1383,8 +1394,17 @@ export default function CanvasIdPage() {
                     top: s.y,
                     width: s.w,
                     height: s.h,
-                    background: isText ? "transparent" : pal.bg,
-                    borderColor: isText ? "transparent" : pal.border,
+                    ...(isText
+                      ? {
+                          background: "transparent",
+                          border: "none",
+                          boxShadow: "none",
+                          color: textColor || "var(--text-main)",
+                        }
+                      : {
+                          background: pal.bg,
+                          borderColor: pal.border,
+                        }),
                     zIndex: s.z,
                   }}
                 >

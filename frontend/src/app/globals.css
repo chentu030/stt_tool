@@ -7334,11 +7334,11 @@ a.sidebar-user-name:hover {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.cv-sticky--text {
-  border: none;
+.cv-sticky.cv-sticky--text {
+  border: none !important;
   border-radius: 4px;
-  padding: 0.2rem 0.35rem;
-  box-shadow: none;
+  padding: 0.15rem 0.2rem;
+  box-shadow: none !important;
   background: transparent !important;
   font-size: 1.05rem;
   font-weight: 550;
@@ -7346,19 +7346,25 @@ a.sidebar-user-name:hover {
   color: var(--text-main);
   min-height: 1.6em;
 }
-.cv-sticky--text.is-on {
+.cv-sticky.cv-sticky--text.is-on {
   outline: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 2px;
+  background: transparent !important;
 }
-.cv-sticky--text p {
-  color: var(--text-main);
+.cv-sticky.cv-sticky--text.is-connect {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  background: transparent !important;
+}
+.cv-sticky.cv-sticky--text p {
+  color: inherit;
   opacity: 1;
 }
-.cv-sticky--text p.is-placeholder {
+.cv-sticky.cv-sticky--text p.is-placeholder {
   color: var(--text-muted);
   font-weight: 450;
 }
-.cv-sticky--text textarea {
+.cv-sticky.cv-sticky--text textarea {
   min-height: 1.6em;
   height: 100%;
   font-size: inherit;
@@ -7366,6 +7372,7 @@ a.sidebar-user-name:hover {
   line-height: inherit;
   color: inherit;
   padding: 0;
+  background: transparent;
 }
 .cv-sticky textarea {
   width: 100%;
