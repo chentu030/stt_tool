@@ -597,7 +597,7 @@ export default function RichNoteEditor({
     } finally {
       setUploadPct(null);
     }
-  }, [userId, noteId]);
+  }, [uploadUserId, uploadNoteId]);
 
   const createAiPhotoRef = useRef(createAiPhoto);
   createAiPhotoRef.current = createAiPhoto;
