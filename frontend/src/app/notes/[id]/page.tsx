@@ -69,7 +69,6 @@ import SlideStudio, { SlideStudioActions } from "@/components/slides/SlideStudio
 import {
   SlideDeck,
   deckFromMarkdown,
-  getTheme,
   isDeckStale,
   loadDeckLocal,
   normalizeDeck,
@@ -1482,10 +1481,6 @@ function NotePageInner() {
     hit?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const openSlideForHeading = (item: HeadingItem) => {
-    enterSlidesAt(findSlideIndexForHeading(item.text));
-  };
-
   const onAsideResize = (px: number) => {
     setAsideWidth(px);
     try {
@@ -1494,26 +1489,6 @@ function NotePageInner() {
       /* ignore */
     }
   };
-
-  const deckStale = isDeckStale(deck, title, body);
-  const slideCountHint =
-    deck?.slides?.length ||
-    Math.max(1, splitMarkdownSections(title, body).length);
-  const previewTheme = getTheme(deck?.theme || "teal");
-  const previewSlides = useMemo(() => {
-    if (deck?.slides?.length && !deckStale) {
-      return deck.slides.map((s, i) => ({
-        id: s.id,
-        index: i,
-        label: s.blocks.find((b) => b.role === "title")?.text || `第 ${i + 1} 頁`,
-      }));
-    }
-    return splitMarkdownSections(title, body).map((s, i) => ({
-      id: `pv_${i}`,
-      index: i,
-      label: s.title || `第 ${i + 1} 頁`,
-    }));
-  }, [deck, deckStale, title, body]);
 
   if (loading) return <PageLoading />;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
@@ -2541,27 +2516,11 @@ function NotePageInner() {
           })}
           backlinks={backlinks.map((n) => ({ id: n.id, title: n.title }))}
           onJumpHeading={jumpHeading}
-          onOpenSlideForHeading={openSlideForHeading}
           linkPicker={linkPicker}
           onLinkPickerChange={setLinkPicker}
           linkCandidates={linkCandidates.map((n) => ({ id: n.id, title: n.title }))}
           onOpenWikiNote={(t) => void openWikiNote(t)}
           onInsertWiki={viewMode === "read" ? () => undefined : insertWiki}
-          slidePreview={
-            viewMode === "write" || viewMode === "read"
-              ? {
-                  slides: previewSlides,
-                  countHint: slideCountHint,
-                  stale: deckStale,
-                  theme: {
-                    bg: previewTheme.bg,
-                    fg: previewTheme.fg,
-                    accent: previewTheme.accent,
-                  },
-                  onEnter: (index) => enterSlidesAt(index),
-                }
-              : undefined
-          }
           widthPx={asideWidth}
           onResizeWidth={onAsideResize}
         />

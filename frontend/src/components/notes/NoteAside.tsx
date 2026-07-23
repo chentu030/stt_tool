@@ -4,12 +4,6 @@ import Link from "next/link";
 import { HeadingItem, NoteStats, RelatedNote } from "@/lib/noteMeta";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 
-type SlidePreview = {
-  id: string;
-  index: number;
-  label: string;
-};
-
 type OutboundLink = {
   title: string;
   href?: string;
@@ -32,15 +26,6 @@ type Props = {
   outbound?: OutboundLink[];
   backlinks?: Backlink[];
   onJumpHeading?: (item: HeadingItem) => void;
-  onOpenSlideForHeading?: (item: HeadingItem) => void;
-  /** Presentation bridge in outline tab */
-  slidePreview?: {
-    slides: SlidePreview[];
-    countHint: number;
-    stale?: boolean;
-    theme: { bg: string; fg: string; accent: string };
-    onEnter: (index?: number) => void;
-  };
   /** Search / open / insert wiki links */
   linkPicker?: string;
   onLinkPickerChange?: (q: string) => void;
@@ -61,8 +46,6 @@ export default function NoteAside({
   outbound = [],
   backlinks = [],
   onJumpHeading,
-  onOpenSlideForHeading,
-  slidePreview,
   linkPicker = "",
   onLinkPickerChange,
   linkCandidates = [],
@@ -202,62 +185,8 @@ export default function NoteAside({
 
       {tab === "outline" && (
         <div className="note-aside-body">
-          {slidePreview && (
-            <div className="note-aside-slides">
-              <button
-                type="button"
-                className={`doc-slide-bridge${slidePreview.stale ? " is-stale" : ""}`}
-                onClick={() => slidePreview.onEnter()}
-              >
-                <span className="doc-slide-bridge-main">
-                  {slidePreview.slides.length
-                    ? `編輯簡報 · ${slidePreview.countHint} 頁`
-                    : `產生簡報 · 約 ${slidePreview.countHint} 頁`}
-                </span>
-                <span className="doc-slide-bridge-hint">
-                  {slidePreview.stale && slidePreview.slides.length ? "進入時會自動同步 · " : ""}
-                  點縮圖直達 · ⌘.
-                </span>
-              </button>
-              <div className="doc-slide-strip" role="list" aria-label="投影片預覽">
-                {slidePreview.slides.slice(0, 12).map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    role="listitem"
-                    className="doc-slide-strip-item"
-                    style={{
-                      background: slidePreview.theme.bg,
-                      color: slidePreview.theme.fg,
-                      borderColor: slidePreview.theme.accent,
-                    }}
-                    onClick={() => slidePreview.onEnter(s.index)}
-                    title={s.label}
-                  >
-                    <span
-                      className="doc-slide-strip-accent"
-                      style={{ background: slidePreview.theme.accent }}
-                    />
-                    <span className="doc-slide-strip-num">{s.index + 1}</span>
-                    <span className="doc-slide-strip-label">{s.label}</span>
-                  </button>
-                ))}
-                {slidePreview.slides.length > 12 && (
-                  <button
-                    type="button"
-                    className="doc-slide-strip-more"
-                    onClick={() => slidePreview.onEnter(12)}
-                  >
-                    +{slidePreview.slides.length - 12}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
           <p className="note-aside-hint">
-            點標題跳到段落
-            {onOpenSlideForHeading ? "；▷ 開對應投影片" : "（依 Markdown 標題）"}。
-            AI 請用右側全局欄或 Ctrl+Shift+A。
+            點標題跳到段落（依 Markdown 標題）。AI 請用右側全局欄或 Ctrl+Shift+A。
           </p>
           {outline.length === 0 ? (
             <p className="note-aside-empty">尚無標題。用 H1／H2 或輸入 # 建立結構。</p>
@@ -272,16 +201,6 @@ export default function NoteAside({
                   >
                     {h.text}
                   </button>
-                  {onOpenSlideForHeading && (
-                    <button
-                      type="button"
-                      className="note-toc-slide"
-                      title="在簡報中開啟"
-                      onClick={() => onOpenSlideForHeading(h)}
-                    >
-                      ▷
-                    </button>
-                  )}
                 </div>
               ))}
             </nav>
