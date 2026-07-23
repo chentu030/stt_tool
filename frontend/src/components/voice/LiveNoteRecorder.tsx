@@ -1010,6 +1010,8 @@ export default function LiveNoteRecorder({
       stopSilenceMonitor();
       void streamSessionRef.current?.stop();
       streamSessionRef.current = null;
+      recordingGuardRef.current?.release();
+      recordingGuardRef.current = null;
       void recRef.current?.stopAll();
     };
   }, []);
