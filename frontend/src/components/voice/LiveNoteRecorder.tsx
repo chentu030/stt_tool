@@ -106,9 +106,9 @@ export default function LiveNoteRecorder({
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
   const language = mapCaptureLangToGoogle(prefs?.captureLanguage || "zh-TW");
-  const minSecs = Math.max(15, prefs?.liveChunkMinSecs ?? 30);
+  const minSecs = Math.max(15, prefs?.liveChunkMinSecs ?? 15);
   const organizeEvery = Math.max(1, prefs?.liveOrganizeEveryChunks ?? 10);
-  const silenceMs = Math.max(600, prefs?.liveSilenceMs ?? 1200);
+  const silenceMs = Math.max(600, prefs?.liveSilenceMs ?? 700);
   const maxSecs = minSecs * MAX_CHUNK_MULT;
   const streamMaxSecs = Math.min(
     STREAM_QUOTA_MAX_SECS,

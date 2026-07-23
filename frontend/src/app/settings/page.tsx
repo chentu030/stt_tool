@@ -789,7 +789,7 @@ export default function SettingsPage() {
             </Row>
             <Row
               label={`即時錄音最短切段 ${prefs.liveChunkMinSecs}s`}
-              hint="自動模式：超過此時長且偵測到停頓後才切段（不會硬切句子中間）"
+              hint="切段批次：這段至少錄滿多久，且偵測到停頓後才切（預設 15s，適合 podcast／課程）"
             >
               <input
                 type="range"
@@ -802,7 +802,7 @@ export default function SettingsPage() {
             </Row>
             <Row
               label={`即時錄音每 ${prefs.liveOrganizeEveryChunks} 段整理`}
-              hint="自動模式累積此段數後才呼叫 AI 整理；手動「AI 整理」不受限"
+              hint="切段批次：累積此段數後才呼叫 AI 整理；即時串流改為每 5 分鐘整理。手動「AI 整理」不受限"
             >
               <input
                 type="range"
@@ -814,7 +814,7 @@ export default function SettingsPage() {
             </Row>
             <Row
               label={`停頓判定 ${prefs.liveSilenceMs}ms`}
-              hint="安靜持續多久視為一句講完"
+              hint="安靜持續多久視為可切段（預設 700ms；愈短愈容易切，愈長愈等完整句）"
             >
               <input
                 type="range"
@@ -827,7 +827,7 @@ export default function SettingsPage() {
             </Row>
             <Row
               label="即時串流轉錄"
-              hint="預設關閉（切段批次較省）。目前雲端後端尚未開放即時串流時，開啟也會自動改回切段。stadium.js／Receiving end 等 console 錯誤多半是瀏覽器擴充，與錄音無關。"
+              hint="預設關閉（切段批次較省）。開啟後邊講邊出字；用完額度會自動改回切段且不中斷錄音。"
             >
               <Toggle
                 checked={prefs.liveStreamStt}
