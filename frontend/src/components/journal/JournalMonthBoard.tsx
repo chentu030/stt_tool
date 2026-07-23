@@ -142,103 +142,105 @@ export default function JournalMonthBoard({
         </div>
       </div>
 
-      <div className="jn-month-weekdays">
-        {WEEKDAY_LABELS.map((w) => (
-          <span key={w}>{w}</span>
-        ))}
-      </div>
+      <div className="jn-month-board-scroll">
+        <div className="jn-month-weekdays">
+          {WEEKDAY_LABELS.map((w) => (
+            <span key={w}>{w}</span>
+          ))}
+        </div>
 
-      <div className="jn-month-grid">
-        {cells.map((cell) => {
-          const events = byDay.get(cell.dateKey) || [];
-          const important = events.filter((e) => e.allDay);
-          const timed = events.filter((e) => !e.allDay);
-          const isToday = cell.dateKey === todayKey;
-          const isSel = cell.dateKey === dateKey;
-          const dayNum = parseDateKey(cell.dateKey)?.getDate() ?? cell.dateKey.slice(8);
-          return (
-            <div
-              key={cell.dateKey}
-              className={`jn-month-cell${cell.inMonth ? "" : " is-out"}${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}`}
-              onClick={() => onSelectDay?.(cell.dateKey)}
-              onDoubleClick={() => {
-                if (editMode && cell.inMonth) void addImportant(cell.dateKey);
-              }}
-            >
-              <div className="jn-month-cell-top">
-                <strong>{dayNum}</strong>
-                {editMode && cell.inMonth && (
-                  <button
-                    type="button"
-                    className="jn-text-btn"
-                    title="新增重要事項"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void addImportant(cell.dateKey);
-                    }}
-                  >
-                    ＋
-                  </button>
-                )}
-              </div>
+        <div className="jn-month-grid">
+          {cells.map((cell) => {
+            const events = byDay.get(cell.dateKey) || [];
+            const important = events.filter((e) => e.allDay);
+            const timed = events.filter((e) => !e.allDay);
+            const isToday = cell.dateKey === todayKey;
+            const isSel = cell.dateKey === dateKey;
+            const dayNum = parseDateKey(cell.dateKey)?.getDate() ?? cell.dateKey.slice(8);
+            return (
               <div
-                className="jn-month-cell-items"
-                onClick={(e) => e.stopPropagation()}
-                onWheel={(e) => e.stopPropagation()}
+                key={cell.dateKey}
+                className={`jn-month-cell${cell.inMonth ? "" : " is-out"}${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}`}
+                onClick={() => onSelectDay?.(cell.dateKey)}
+                onDoubleClick={() => {
+                  if (editMode && cell.inMonth) void addImportant(cell.dateKey);
+                }}
               >
-                {important.map((ev) => (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    className={`jn-month-chip is-important${selectedEventId === ev.id ? " is-on" : ""}${ev.provider !== "local" ? " is-sync" : ""}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectDay?.(cell.dateKey);
-                      onSelectEvent?.(ev);
-                      setEditingEvent(ev);
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onSelectDay?.(cell.dateKey);
-                      onSelectEvent?.(ev);
-                      setEditingEvent(ev);
-                    }}
-                  >
-                    {ev.title}
-                  </button>
-                ))}
-                {timed.map((ev) => (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    className={`jn-month-chip${selectedEventId === ev.id ? " is-on" : ""}${ev.provider !== "local" ? " is-sync" : ""}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectDay?.(cell.dateKey);
-                      onSelectEvent?.(ev);
-                      setEditingEvent(ev);
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setEditingEvent(ev);
-                    }}
-                    title={`${formatClock(ev.startMin)} ${ev.title}`}
-                  >
-                    <em>{formatClock(ev.startMin)}</em> {ev.title}
-                  </button>
-                ))}
+                <div className="jn-month-cell-top">
+                  <strong>{dayNum}</strong>
+                  {editMode && cell.inMonth && (
+                    <button
+                      type="button"
+                      className="jn-text-btn"
+                      title="新增重要事項"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void addImportant(cell.dateKey);
+                      }}
+                    >
+                      ＋
+                    </button>
+                  )}
+                </div>
+                <div
+                  className="jn-month-cell-items"
+                  onClick={(e) => e.stopPropagation()}
+                  onWheel={(e) => e.stopPropagation()}
+                >
+                  {important.map((ev) => (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      className={`jn-month-chip is-important${selectedEventId === ev.id ? " is-on" : ""}${ev.provider !== "local" ? " is-sync" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectDay?.(cell.dateKey);
+                        onSelectEvent?.(ev);
+                        setEditingEvent(ev);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onSelectDay?.(cell.dateKey);
+                        onSelectEvent?.(ev);
+                        setEditingEvent(ev);
+                      }}
+                    >
+                      {ev.title}
+                    </button>
+                  ))}
+                  {timed.map((ev) => (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      className={`jn-month-chip${selectedEventId === ev.id ? " is-on" : ""}${ev.provider !== "local" ? " is-sync" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectDay?.(cell.dateKey);
+                        onSelectEvent?.(ev);
+                        setEditingEvent(ev);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setEditingEvent(ev);
+                      }}
+                      title={`${formatClock(ev.startMin)} ${ev.title}`}
+                    >
+                      <em>{formatClock(ev.startMin)}</em> {ev.title}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       <p className="jn-tl-hint">
         {editMode
           ? "編輯中：點 ＋ 或雙擊新增（可設時間、重複、提醒）。點已有事項可編輯／刪除。"
-          : "點日期會同步週視圖；事項多時可在格子內上下捲動。按「編輯事項」後可新增。"}
+          : "點日期會同步週視圖；事項多時可在格子內上下捲動，手機可左右滑看完整欄寬。按「編輯事項」後可新增。"}
       </p>
 
       {editingEvent && (

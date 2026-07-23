@@ -6649,6 +6649,14 @@ a.sidebar-user-name:hover {
   color: var(--text-muted);
   text-align: center;
 }
+.jn-month-board-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
 .jn-month-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -7765,6 +7773,37 @@ button.jn-heat-cell:disabled {
   .jn-hero-toolbar button {
     font-size: 0.78rem;
     white-space: nowrap;
+  }
+  /* Month board: wider day columns + horizontal pan */
+  .jn-month-board-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    -ms-overflow-style: auto;
+    padding-bottom: 0.35rem;
+  }
+  .jn-month-board-scroll::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+    width: auto;
+  }
+  .jn-month-board-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+    border-radius: 999px;
+  }
+  .jn-month-weekdays,
+  .jn-month-grid {
+    width: max(100%, calc(7 * 6.75rem + 6 * 0.35rem));
+    min-width: calc(7 * 6.75rem + 6 * 0.35rem);
+    grid-template-columns: repeat(7, minmax(6.75rem, 1fr));
+  }
+  .jn-month-grid {
+    grid-auto-rows: minmax(104px, 1fr);
+    min-height: 380px;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .jn-cal,
   .jn-composer,
