@@ -86,17 +86,31 @@ function ImageUrlView({
     if (selected) setLocalActive(true);
   }, [selected]);
 
+  // Hide chrome when clicking outside — also clear TipTap NodeSelection
+  // (otherwise `selected` stays true and the toolbar never dismisses).
   useEffect(() => {
-    if (!localActive || selected) return;
+    if (readOnly) return;
+    if (!localActive && !selected) return;
     const onDoc = (ev: PointerEvent) => {
       const t = ev.target as HTMLElement | null;
-      if (t?.closest?.(".rich-image-shell, .rich-media-toolbar, .rich-media-wrap-pop, .rich-image-ctx"))
+      if (
+        t?.closest?.(
+          ".rich-image-shell, .rich-media-frame, .rich-media-toolbar, .rich-media-wrap-pop, .rich-image-ctx"
+        )
+      ) {
         return;
+      }
       setLocalActive(false);
+      setCtxMenu(null);
+      if (!editor) return;
+      const pos = typeof getPos === "function" ? getPos() : null;
+      if (typeof pos !== "number") return;
+      const after = Math.min(pos + node.nodeSize, editor.state.doc.content.size);
+      editor.chain().setTextSelection(after).run();
     };
     document.addEventListener("pointerdown", onDoc, true);
     return () => document.removeEventListener("pointerdown", onDoc, true);
-  }, [localActive, selected]);
+  }, [localActive, selected, readOnly, editor, getPos, node.nodeSize]);
 
   useEffect(() => {
     if (!ctxMenu) return;

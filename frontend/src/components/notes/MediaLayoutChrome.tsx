@@ -54,6 +54,18 @@ export default function MediaLayoutChrome({
     if (!selected) setMenuOpen(false);
   }, [selected]);
 
+  // Close wrap menu when clicking outside it (toolbar can stay until image deselects).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (ev: PointerEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t?.closest?.(".rich-media-wrap-menu, .rich-media-wrap-pop")) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onDoc, true);
+    return () => document.removeEventListener("pointerdown", onDoc, true);
+  }, [menuOpen]);
+
   useEffect(() => {
     return () => setFloatDragging(false);
   }, []);

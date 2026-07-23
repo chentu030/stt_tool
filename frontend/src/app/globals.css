@@ -10074,7 +10074,7 @@ body.rich-media-float-dragging * {
   position: absolute;
   top: -2.05rem;
   left: 0;
-  z-index: 8;
+  z-index: 24;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -10119,7 +10119,7 @@ body.rich-media-float-dragging * {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  z-index: 12;
+  z-index: 30;
   min-width: 180px;
   padding: 0.3rem;
   border-radius: 10px;
@@ -10151,7 +10151,7 @@ body.rich-media-float-dragging * {
   position: absolute;
   right: 0.2rem;
   bottom: 0.2rem;
-  z-index: 8;
+  z-index: 4;
   width: 14px;
   height: 14px;
   padding: 0;
