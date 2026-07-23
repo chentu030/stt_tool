@@ -2633,13 +2633,15 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     const root = editor.view.dom;
     const canvas = root.closest(".rich-canvas") as HTMLElement | null;
     if (!canvas) return;
-    // Left page margin (where users start Windows-style box select) lives on .doc-page,
-    // outside .rich-canvas — must listen on the wider shell.
+    // Far side margins sit on .doc-main-stack (page is max-width centered).
+    // Prefer that shell so marquee can start from empty space beside the note.
     const shell =
+      (root.closest(".doc-main-stack") as HTMLElement | null) ||
       (root.closest(".doc-page") as HTMLElement | null) ||
       (root.closest(".doc-editor-shell") as HTMLElement | null) ||
       (canvas.parentElement as HTMLElement | null) ||
       canvas;
+    const pageEl = root.closest(".doc-page") as HTMLElement | null;
 
     const gutterWidth = () => {
       const pad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
@@ -2780,7 +2782,7 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       scheduleHideGrip();
     };
 
-    /** 格子內：完全交給 ProseMirror 放游標／選字。左側空白或 Alt：框選整塊。 */
+    /** 格子內選字；欄外左右空白／頁面 margin／Alt：框選整塊。 */
     const onMarqueeDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       if ((e as MouseEvent & { _blockMarquee?: boolean })._blockMarquee) return;
@@ -2790,31 +2792,35 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const t = e.target as HTMLElement | null;
       if (!t) return;
       if (!shell.contains(t) && t !== shell) return;
-      if (t.closest?.('.block-controls, .empty-templates')) return;
-      if (t.closest?.('input, textarea, select, button')) return;
+      // Split view: don't steal gestures from the other pane.
+      if (t.closest?.(".note-split-pane, .note-split-resizer, .note-split-rail")) return;
+      if (t.closest?.(".block-controls, .empty-templates")) return;
+      if (t.closest?.("input, textarea, select, button")) return;
       if (
         t.closest?.(
-          '.doc-title, .doc-title-row, .doc-props, .doc-command, .doc-cover, .doc-icon, .note-page-log, .doc-banner-ingest, .doc-banner-error, .rich-toolbar, .hl-panel'
+          ".doc-title, .doc-title-row, .doc-props, .doc-command, .doc-cover, .doc-icon, .note-page-log, .doc-banner-ingest, .doc-banner-error, .rich-toolbar, .hl-panel, .note-aside, .doc-chrome"
         )
       ) {
         return;
       }
-      if (t.closest?.('.rich-embed-url-input') && !e.altKey) return;
+      if (t.closest?.(".rich-embed-url-input") && !e.altKey) return;
 
       const rootRect = root.getBoundingClientRect();
-      const shellRect = shell.getBoundingClientRect();
       const canvasRect = canvas.getBoundingClientRect();
-      const contentPad = parseFloat(getComputedStyle(root).paddingLeft || '0') || 0;
-      const gutterLeft = rootRect.left - 16;
-      const gutterRight = rootRect.left + Math.max(contentPad, 52);
-      const inGutter = e.clientX >= gutterLeft && e.clientX < gutterRight;
-      const inPageLeftMargin =
-        e.clientX >= shellRect.left - 4 &&
-        e.clientX < rootRect.left + Math.max(contentPad, 52) &&
-        e.clientY >= canvasRect.top - 12 &&
-        e.clientY <= canvasRect.bottom + 12;
+      const pageRect = pageEl?.getBoundingClientRect();
+      const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
+      const contentPadRight = parseFloat(getComputedStyle(root).paddingRight || "0") || 0;
+      // Text column (after block-handle gutter). Side blanks + far page margins start outside this.
+      const textLeft = rootRect.left + Math.max(contentPad, 8);
+      const textRight = rootRect.right - Math.max(contentPadRight, 0);
+      const bandTop = canvasRect.top - 24;
+      const bandBottom = Math.max(canvasRect.bottom, pageRect?.bottom ?? canvasRect.bottom) + 8;
+      const inEditorBand = e.clientY >= bandTop && e.clientY <= bandBottom;
+      const inOutsideColumn =
+        inEditorBand && (e.clientX < textLeft || e.clientX > textRight);
+      const outsideProse = !t.closest?.(".ProseMirror");
       const onAtomChrome = !!t.closest?.(
-        '[data-note-embed], .rich-embed, .rich-embed-bar, .rich-embed-frame, hr, img, video, .ProseMirror-selectednode'
+        "[data-note-embed], .rich-embed, .rich-embed-bar, .rich-embed-frame, hr, img, video, .ProseMirror-selectednode"
       );
 
       let hitPos: number | null = null;
@@ -2833,11 +2839,12 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         }
       })();
 
-      // Block marquee only from explicit "outside" gestures.
-      const forceMarquee = e.altKey || inGutter || inPageLeftMargin || onAtomChrome;
+      // Outside text column, empty page chrome, Alt, or atom chrome → block marquee.
+      const forceMarquee =
+        e.altKey || inOutsideColumn || onAtomChrome || (outsideProse && inEditorBand);
 
       // Inside editable text/content: never preventDefault / setState here — that races the caret.
-      if (!forceMarquee && (inTextblock || !!t.closest?.('.ProseMirror'))) {
+      if (!forceMarquee && (inTextblock || !!t.closest?.(".ProseMirror"))) {
         if (blockSelRef.current) {
           queueMicrotask(() => {
             if (blockSelRef.current) setBlockSel(null);
@@ -2972,8 +2979,8 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         canvas.classList.remove('is-block-marquee');
         document.body.style.userSelect = prevUserSelect;
 
-        if (mode !== 'marquee') {
-          if (inGutter || inPageLeftMargin || onAtomChrome) {
+        if (mode !== "marquee") {
+          if (inOutsideColumn || onAtomChrome) {
             const hit = gripFromPos(originY, Math.max(originX, rootRect.left + 8));
             if (hit) {
               const prev = blockSelRef.current;
