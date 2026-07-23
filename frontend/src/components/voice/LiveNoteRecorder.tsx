@@ -437,16 +437,16 @@ export default function LiveNoteRecorder({
         if (ev.type === "interim") {
           const text = (ev.text || "").trim();
           if (!text) return;
-          let id = streamInterimIdRef.current;
-          if (!id) {
-            id = `stream-interim-${Date.now()}`;
-            streamInterimIdRef.current = id;
+          const existingId = streamInterimIdRef.current;
+          if (!existingId) {
+            const interimId = `stream-interim-${Date.now()}`;
+            streamInterimIdRef.current = interimId;
             setLines((prev) => [
-              ...prev.filter((l) => l.id !== id),
-              { id, label: "即時", text, state: "pending" },
+              ...prev.filter((l) => l.id !== interimId),
+              { id: interimId, label: "即時", text, state: "pending" },
             ]);
           } else {
-            upsertLine(id, { text, state: "pending" });
+            upsertLine(existingId, { text, state: "pending" });
           }
           setStatus("即時辨識中…");
           return;
