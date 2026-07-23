@@ -8,6 +8,7 @@ import {
 } from "@/lib/aiPrefs";
 import { NOTE_EDIT_SYSTEM_RULES } from "@/lib/noteAiEdit";
 import { DB_EDIT_SYSTEM_RULES } from "@/lib/dbAiEdit";
+import { SCHEDULE_EDIT_SYSTEM_RULES } from "@/lib/scheduleAiEdit";
 
 export const runtime = "nodejs";
 
@@ -54,10 +55,14 @@ type Body = {
   allowNoteEdit?: boolean;
   /** When true, system prompt allows albireus-db-edit fences for the open database. */
   allowDbEdit?: boolean;
+  /** When true, system prompt allows albireus-schedule-edit fences for journal schedule. */
+  allowScheduleEdit?: boolean;
   /** Focus note id (for edit targeting hints). */
   focusNoteId?: string;
   /** Focus database id (for edit targeting hints). */
   focusDatabaseId?: string;
+  /** Focus schedule selected date (YYYY-MM-DD). */
+  focusScheduleDate?: string;
   assistant?: {
     name?: string;
     style?: "concise" | "balanced" | "detailed";
@@ -247,6 +252,7 @@ ops 可用：
     const history = (data.messages || []).slice(-12);
     const allowEdit = !!data.allowNoteEdit;
     const allowDb = !!data.allowDbEdit;
+    const allowSchedule = !!data.allowScheduleEdit;
     const editRules = [
       allowDb
         ? `使用者已授權你在「明確要求修改資料庫」時直接產出可套用的資料庫編輯區塊。目前資料庫 ID：${data.focusDatabaseId || "（未知）"}。\n${DB_EDIT_SYSTEM_RULES}`
@@ -254,8 +260,11 @@ ops 可用：
       allowEdit
         ? `使用者已授權你在「明確要求修改筆記」時直接產出可套用的編輯區塊。目前對焦筆記 ID：${data.focusNoteId || "（未知）"}。\n${NOTE_EDIT_SYSTEM_RULES}`
         : "",
-      !allowDb && !allowEdit
-        ? "你目前沒有寫入筆記或資料庫的權限；只能在對話中給出建議，不要假裝已修改。"
+      allowSchedule
+        ? `使用者已授權你在「明確要求修改日誌行程」時產出可套用的行程編輯區塊（需使用者確認後才會寫入）。目前選取日：${data.focusScheduleDate || "（未知）"}。\n${SCHEDULE_EDIT_SYSTEM_RULES}`
+        : "",
+      !allowDb && !allowEdit && !allowSchedule
+        ? "你目前沒有寫入筆記、資料庫或行程的權限；只能在對話中給出建議，不要假裝已修改。"
         : "",
     ]
       .filter(Boolean)
@@ -264,7 +273,9 @@ ops 可用：
       asst,
       allowDb
         ? "優先根據提供的資料庫脈絡作答；改資料時用列 id／屬性 id（或清楚的顯示名稱），不要捏造不存在的列。"
-        : "優先根據提供的筆記／知識庫脈絡作答；不要捏造沒有的事實。",
+        : allowSchedule
+          ? "優先根據提供的日誌行程脈絡作答；改行程時用脈絡中的 id 與 dateKey，不要捏造不存在的行程。"
+          : "優先根據提供的筆記／知識庫脈絡作答；不要捏造沒有的事實。",
       "若使用者要求改寫／插入內容，用 Markdown 清楚標出建議文字。",
       "可用標題、清單、粗體、表格。",
       "提到具體筆記時，盡量附上路徑如 /notes/ID。",

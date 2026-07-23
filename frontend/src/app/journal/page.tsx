@@ -30,6 +30,7 @@ import {
   exportMonthMarkdown,
   parseDateKey,
   promptForDate,
+  shiftDateKey,
   toJournalEntries,
   upsertJournalMeta,
   weekDateKeys,
@@ -41,8 +42,14 @@ import {
 } from "@/lib/meetingSession";
 import {
   listenScheduleEvents,
+  listenScheduleEventsForDates,
   type ScheduleEvent,
 } from "@/lib/scheduleEvents";
+import {
+  buildScheduleLiveSnapshot,
+  clearScheduleLiveSnapshot,
+  publishScheduleLiveSnapshot,
+} from "@/lib/scheduleAiEdit";
 import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
@@ -77,12 +84,20 @@ export default function JournalPage() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [gcalEvents, setGcalEvents] = useState<ScheduleEvent[]>([]);
   const [localEvents, setLocalEvents] = useState<ScheduleEvent[]>([]);
+  const [aiLocalEvents, setAiLocalEvents] = useState<ScheduleEvent[]>([]);
   const [gcalOn, setGcalOn] = useState(false);
   const [gcalStatus, setGcalStatus] = useState<"off" | "loading" | "ok" | "error">("off");
   const [railOpen, setRailOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(false);
   const liveRec = useLiveRecordingOptional();
   const weekKeys = useMemo(() => weekDateKeys(selected), [selected]);
+  const aiRangeKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (let i = -14; i <= 14; i++) {
+      keys.push(shiftDateKey(selected, i));
+    }
+    return keys;
+  }, [selected]);
   const gcalRangeKeys = useMemo(() => {
     const d = parseDateKey(selected);
     if (!d) return weekKeys;
@@ -136,6 +151,32 @@ export default function JournalPage() {
     }
     return listenScheduleEvents(user.uid, selected, setLocalEvents);
   }, [user, selected]);
+
+  useEffect(() => {
+    if (!user) {
+      setAiLocalEvents([]);
+      clearScheduleLiveSnapshot();
+      return;
+    }
+    return listenScheduleEventsForDates(user.uid, aiRangeKeys, setAiLocalEvents);
+  }, [user, aiRangeKeys]);
+
+  useEffect(() => {
+    if (!user) {
+      clearScheduleLiveSnapshot();
+      return;
+    }
+    const map = new Map<string, ScheduleEvent>();
+    for (const e of aiLocalEvents) map.set(e.id, e);
+    for (const e of gcalEvents) {
+      if (aiRangeKeys.includes(e.dateKey)) map.set(e.id, e);
+    }
+    publishScheduleLiveSnapshot(buildScheduleLiveSnapshot(selected, [...map.values()], 14));
+  }, [user, selected, aiLocalEvents, gcalEvents, aiRangeKeys]);
+
+  useEffect(() => {
+    return () => clearScheduleLiveSnapshot();
+  }, []);
 
   useEffect(() => {
     if (!gcalOn || !user) {

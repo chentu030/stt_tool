@@ -34,6 +34,15 @@ import {
   readDbLiveSnapshot,
   type DbAiEdit,
 } from "@/lib/dbAiEdit";
+import {
+  applyScheduleAiEdit,
+  packScheduleContextForAi,
+  parseScheduleAiEdit,
+  readScheduleLiveSnapshot,
+  SCHEDULE_AI_LIVE_EVENT,
+  type ScheduleAiEdit,
+} from "@/lib/scheduleAiEdit";
+import type { ScheduleEvent } from "@/lib/scheduleEvents";
 import { getDatabase, listDatabaseRowsOnce } from "@/lib/database";
 import { toast } from "@/lib/toast";
 import {
@@ -51,6 +60,7 @@ type Msg = {
   edit?: NoteAiEdit | null;
   editNoteId?: string;
   dbEdit?: DbAiEdit | null;
+  scheduleEdit?: ScheduleAiEdit | null;
   editApplied?: boolean;
 };
 type RailMode = "dock" | "float";
@@ -95,6 +105,15 @@ const DB_PAGE_SUGGESTIONS = [
   { label: "批次改欄", prompt: "依我的描述批次修改多列的同一個欄位，並直接寫入資料庫" },
   { label: "新增一列", prompt: "依我的描述新增一列到資料庫並填好欄位" },
   { label: "只問不改", prompt: "先不要改資料庫，只說明目前表格內容" },
+];
+
+const JOURNAL_PAGE_SUGGESTIONS = [
+  { label: "幫我安排明天", prompt: "根據我最近的行程與空檔，幫我安排明天的待辦與會議，並產出可套用的行程修改" },
+  { label: "調開衝突", prompt: "檢查這兩週有沒有時間衝突的行程，提出調整方案並產出可套用的修改" },
+  { label: "本週空檔", prompt: "先不要改行程，只說明這週哪些時段較空、適合安排工作" },
+  { label: "新增一場會議", prompt: "依我接下來的描述新增一場會議到行程，並產出可套用的行程修改" },
+  { label: "刪掉過期的", prompt: "找出明顯已過期或不需要的本機行程，建議刪除並產出可套用的修改" },
+  { label: "只問不改", prompt: "先不要改行程，只說明目前選取日附近的行程安排" },
 ];
 
 const LIBRARY_SUGGESTIONS = AI_SUGGESTIONS;
@@ -256,6 +275,7 @@ export default function GlobalAiDock() {
   const [jobCtx, setJobCtx] = useState<JobAiContext | null>(null);
   const [meetingCtx, setMeetingCtx] = useState<MeetingAiContext | null>(null);
   const [dbLiveTick, setDbLiveTick] = useState(0);
+  const [scheduleLiveTick, setScheduleLiveTick] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
   const listRef = useRef<HTMLDivElement>(null);
@@ -268,6 +288,7 @@ export default function GlobalAiDock() {
   const onCanvasPage = pathname?.startsWith("/canvas/");
   const onJobPage = pathname?.startsWith("/job/");
   const onDbPage = pathname?.startsWith("/db/");
+  const onJournalPage = pathname === "/journal" || pathname?.startsWith("/journal/");
   const allowNoteEdit = prefsCtx?.prefs.aiAllowNoteEdit !== false;
   const focusNote = useMemo(
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
@@ -280,6 +301,10 @@ export default function GlobalAiDock() {
   const liveDb = useMemo(() => {
     return readDbLiveSnapshot(focusDatabaseId) || (focusDatabaseId ? null : readDbLiveSnapshot());
   }, [focusDatabaseId, dbLiveTick, open]);
+  const scheduleSnap = useMemo(() => {
+    if (!onJournalPage) return null;
+    return readScheduleLiveSnapshot();
+  }, [onJournalPage, scheduleLiveTick, open, pathname]);
   const activeDbSnap =
     liveDb && (!focusDatabaseId || liveDb.databaseId === focusDatabaseId) ? liveDb : null;
   const dockSuggestions =
@@ -291,6 +316,8 @@ export default function GlobalAiDock() {
       ? JOB_AI_SUGGESTIONS
       : onNotePage && focusNote
         ? NOTE_PAGE_SUGGESTIONS
+        : onJournalPage && scheduleSnap
+          ? JOURNAL_PAGE_SUGGESTIONS
         : onLibraryPage
           ? LIBRARY_SUGGESTIONS
           : onCanvasPage
@@ -423,6 +450,12 @@ export default function GlobalAiDock() {
     const on = () => setDbLiveTick((n) => n + 1);
     window.addEventListener("albireus:db-live", on);
     return () => window.removeEventListener("albireus:db-live", on);
+  }, []);
+
+  useEffect(() => {
+    const on = () => setScheduleLiveTick((n) => n + 1);
+    window.addEventListener(SCHEDULE_AI_LIVE_EVENT, on);
+    return () => window.removeEventListener(SCHEDULE_AI_LIVE_EVENT, on);
   }, []);
 
   useEffect(() => {
@@ -609,6 +642,47 @@ export default function GlobalAiDock() {
     }
   };
 
+  const applyScheduleEdit = async (msgId: string, edit: ScheduleAiEdit) => {
+    if (!user) {
+      toast("請先登入");
+      return;
+    }
+    try {
+      const snap = readScheduleLiveSnapshot();
+      const events: ScheduleEvent[] = (snap?.events || []).map((e) => ({
+        id: e.id,
+        dateKey: e.dateKey,
+        title: e.title,
+        startMin: e.startMin,
+        endMin: e.endMin,
+        allDay: e.allDay,
+        description: e.description,
+        remindMinutesBefore: e.remindMinutesBefore,
+        provider: e.provider,
+      }));
+      const result = await applyScheduleAiEdit(user.uid, edit, events);
+      patchActive((t) => ({
+        ...t,
+        msgs: t.msgs.map((m) =>
+          m.id === msgId ? { ...m, editApplied: true } : m
+        ),
+      }));
+      if (result.ok && !result.failed && !result.skipped) {
+        toast(`已更新行程（${result.ok} 項）`);
+      } else if (result.ok) {
+        toast(
+          `已套用 ${result.ok} 項` +
+            (result.skipped ? `，略過 ${result.skipped}` : "") +
+            (result.failed ? `，失敗 ${result.failed}` : "")
+        );
+      } else {
+        toast(result.messages[0] || "無法套用行程修改");
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "無法套用行程修改");
+    }
+  };
+
   const send = async (text: string) => {
     const prompt = text.trim();
     if (!prompt || busy) return;
@@ -683,8 +757,10 @@ export default function GlobalAiDock() {
       if (focusDatabaseId && !dbSnap) {
         throw new Error("資料庫脈絡尚未就緒，請等表格載入後再試");
       }
+      const liveSchedule = onJournalPage ? readScheduleLiveSnapshot() : null;
       const canEditDb = allowNoteEdit && !!dbSnap;
       const canEditHere = allowNoteEdit && !!focusNote && onNotePage && !dbSnap;
+      const canEditSchedule = onJournalPage && !!liveSchedule && !dbSnap;
 
       if (dbSnap) {
         body = {
@@ -762,6 +838,19 @@ export default function GlobalAiDock() {
           allowNoteEdit: canEditHere,
           focusNoteId: focusNote.id,
         };
+      } else if (canEditSchedule && liveSchedule) {
+        body = {
+          action: "note",
+          title: `日誌 ${liveSchedule.selectedDate}`,
+          prompt,
+          context: withChatSummaryContext(packScheduleContextForAi(liveSchedule), memory),
+          messages: history,
+          assistant,
+          allowNoteEdit: false,
+          allowDbEdit: false,
+          allowScheduleEdit: true,
+          focusScheduleDate: liveSchedule.selectedDate,
+        };
       } else {
         const libNotes = notes.map((n) => ({
           id: n.id,
@@ -799,6 +888,7 @@ export default function GlobalAiDock() {
       let displayText = rawText;
       let noteEdit: NoteAiEdit | null = null;
       let dbEdit: DbAiEdit | null = null;
+      let scheduleEdit: ScheduleAiEdit | null = null;
       let editApplied = false;
 
       if (canEditDb && dbSnap) {
@@ -837,6 +927,11 @@ export default function GlobalAiDock() {
           editApplied = true;
           toast(parsed.edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
         }
+      } else if (canEditSchedule) {
+        const parsedSched = parseScheduleAiEdit(rawText);
+        displayText = parsedSched.displayText;
+        scheduleEdit = parsedSched.edit;
+        // Journal schedule edits require explicit「套用到行程」— do not auto-write.
       }
 
       const assistantMsg: Msg = {
@@ -846,6 +941,7 @@ export default function GlobalAiDock() {
         edit: noteEdit,
         editNoteId: noteEdit && focusNote ? focusNote.id : undefined,
         dbEdit,
+        scheduleEdit,
         editApplied,
       };
       patchActive((t) => ({
@@ -1147,6 +1243,22 @@ export default function GlobalAiDock() {
                         onClick={() => void applyDbEdit(m.id, m.dbEdit!)}
                       >
                         {m.editApplied ? "再次套用" : "套用到資料庫"}
+                      </button>
+                    </div>
+                  ) : null}
+                  {m.role === "assistant" && m.scheduleEdit ? (
+                    <div className="cadence-ai-edit-bar">
+                      <span>
+                        {m.editApplied
+                          ? `已寫入行程（${m.scheduleEdit.ops.length} 項）`
+                          : `建議修改行程（${m.scheduleEdit.ops.length} 項）`}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => void applyScheduleEdit(m.id, m.scheduleEdit!)}
+                      >
+                        {m.editApplied ? "再次套用" : "套用到行程"}
                       </button>
                     </div>
                   ) : null}
