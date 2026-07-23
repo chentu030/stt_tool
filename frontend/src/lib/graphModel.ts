@@ -928,3 +928,35 @@ export function radiusForNode(n: GraphNode): number {
   const d = n.inDegree + n.outDegree;
   return Math.min(22, 8 + Math.sqrt(d) * 3 + Math.min(n.words / 800, 4));
 }
+
+/**
+ * Line endpoints on circle borders (not centers), so arrow tips sit on the rim
+ * instead of stacking inside the target node.
+ */
+export function edgeEndpointsOnCircles(
+  ax: number,
+  ay: number,
+  ar: number,
+  bx: number,
+  by: number,
+  br: number,
+  /** Extra gap before the target rim so a marker tip lands on the circumference */
+  tipGap = 0
+): { x1: number; y1: number; x2: number; y2: number } | null {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.001) return null;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  // Keep a tiny visible segment even when nodes almost touch
+  const maxTrim = Math.max(0, dist - 2);
+  const startPad = Math.min(ar, maxTrim * 0.45);
+  const endPad = Math.min(br + tipGap, maxTrim * 0.45);
+  return {
+    x1: ax + ux * startPad,
+    y1: ay + uy * startPad,
+    x2: bx - ux * endPad,
+    y2: by - uy * endPad,
+  };
+}

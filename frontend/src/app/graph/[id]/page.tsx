@@ -59,6 +59,7 @@ import {
   nodeIdForNote,
   orphanNotes,
   radiusForNode,
+  edgeEndpointsOnCircles,
   shortestPath,
   tagBuckets,
   topHubs,
@@ -990,13 +991,14 @@ ${orphanLines || "（無）"}`;
                 <marker
                   id="gp-arrow"
                   viewBox="0 0 10 10"
-                  refX="8"
+                  refX="10"
                   refY="5"
-                  markerWidth="6"
-                  markerHeight="6"
+                  markerWidth="7"
+                  markerHeight="7"
                   orient="auto-start-reverse"
+                  markerUnits="userSpaceOnUse"
                 >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)" fillOpacity="0.55" />
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
                 </marker>
               </defs>
               <g transform={`translate(${pan.x},${pan.y}) scale(${scale})`}>
@@ -1004,6 +1006,16 @@ ${orphanLines || "（無）"}`;
                   const a = painted.byId.get(e.from);
                   const b = painted.byId.get(e.to);
                   if (!a || !b) return null;
+                  const pts = edgeEndpointsOnCircles(
+                    a.x,
+                    a.y,
+                    radiusForNode(a),
+                    b.x,
+                    b.y,
+                    radiusForNode(b),
+                    0
+                  );
+                  if (!pts) return null;
                   const onPath = pathEdgeSet.has(e.id);
                   const onHi = highlight.edges.has(e.id);
                   const dim = Boolean((selectedId || hoverId || path) && !onHi && !onPath);
@@ -1012,14 +1024,15 @@ ${orphanLines || "（無）"}`;
                   return (
                     <line
                       key={e.id}
-                      x1={a.x}
-                      y1={a.y}
-                      x2={b.x}
-                      y2={b.y}
+                      x1={pts.x1}
+                      y1={pts.y1}
+                      x2={pts.x2}
+                      y2={pts.y2}
                       className={`gp-edge${onPath ? " is-path" : ""}${onHi ? " is-hi" : ""}${dim ? " is-dim" : ""}`}
                       stroke={stroke}
+                      style={e.kind === "wiki" ? { color: stroke } : undefined}
                       strokeWidth={onPath ? 3.2 : onHi ? 2.4 : e.kind === "wiki" ? 1.4 : 1}
-                      strokeOpacity={dim ? 0.08 : e.kind === "wiki" ? 0.38 : 0.18}
+                      strokeOpacity={dim ? 0.08 : e.kind === "wiki" ? 0.55 : 0.18}
                       strokeDasharray={
                         e.kind === "wiki" ? undefined : e.kind === "tag" ? "4 3" : "2 4"
                       }
