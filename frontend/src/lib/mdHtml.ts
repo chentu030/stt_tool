@@ -617,6 +617,82 @@ function normalizeCssColor(c: string): string {
   return s;
 }
 
+function decodeBasicEntities(s: string): string {
+  return String(s)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function colorFromHtmlAttrs(attrs: string): string {
+  const data = attrs.match(/\bdata-(?:color|text-color)\s*=\s*["']([^"']+)["']/i);
+  if (data?.[1]) return normalizeCssColor(data[1]);
+  const bg = attrs.match(/\bbackground-color\s*:\s*([^;"']+)/i);
+  if (bg?.[1]) return normalizeCssColor(bg[1].trim());
+  const fg = attrs.match(/(?:^|[;\s])color\s*:\s*([^;"']+)/i);
+  if (fg?.[1] && !/inherit/i.test(fg[1])) return normalizeCssColor(fg[1].trim());
+  return "";
+}
+
+/**
+ * Recover highlighter / text-color that were saved as literal HTML (or &lt;mark&gt; text).
+ * Those round-trips otherwise show raw tags after refresh.
+ */
+export function healHighlightArtifacts(md: string): string {
+  if (!md) return md;
+  let s = md;
+
+  // Entity-encoded marks: &lt;mark ...&gt;text&lt;/mark&gt;
+  s = s.replace(
+    /&lt;mark\b([^&]*?)&gt;([\s\S]*?)&lt;\/mark&gt;/gi,
+    (_m, attrs: string, text: string) => {
+      const color = colorFromHtmlAttrs(decodeBasicEntities(attrs));
+      const t = decodeBasicEntities(text).replace(/\n+/g, " ").trim();
+      if (!t) return "";
+      return color ? `==${t}=={${color}}` : `==${t}==`;
+    }
+  );
+
+  // Entity-encoded colored spans
+  s = s.replace(
+    /&lt;span\b([^&]*?(?:data-text-color|style\s*=\s*["'][^"']*color\s:)[^&]*?)&gt;([\s\S]*?)&lt;\/span&gt;/gi,
+    (_m, attrs: string, text: string) => {
+      const color = colorFromHtmlAttrs(decodeBasicEntities(attrs));
+      const t = decodeBasicEntities(text).replace(/\n+/g, " ").trim();
+      if (!t) return "";
+      if (!color) return t;
+      return `{c:${color}}${t}{/c}`;
+    }
+  );
+
+  // Standalone raw <mark>…</mark> lines (bad save of markdownToHtml output as body text)
+  s = s.replace(
+    /(^|\n)\s*<mark\b([^>]*)>([\s\S]*?)<\/mark>\s*(?=\n|$)/gi,
+    (_m, lead: string, attrs: string, text: string) => {
+      const color = colorFromHtmlAttrs(attrs);
+      const t = text.replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
+      if (!t) return lead;
+      return `${lead}${color ? `==${t}=={${color}}` : `==${t}==`}`;
+    }
+  );
+
+  // Standalone colored <span style="color:…"> / data-text-color
+  s = s.replace(
+    /(^|\n)\s*<span\b([^>]*(?:data-text-color|style\s*=\s*["'][^"']*color\s:)[^>]*)>([\s\S]*?)<\/span>\s*(?=\n|$)/gi,
+    (_m, lead: string, attrs: string, text: string) => {
+      const color = colorFromHtmlAttrs(attrs);
+      const t = text.replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
+      if (!t) return lead;
+      if (!color) return `${lead}${t}`;
+      return `${lead}{c:${color}}${t}{/c}`;
+    }
+  );
+
+  return s;
+}
+
 marked.setOptions({ gfm: true, breaks: false });
 
 function escapeAttr(s: string) {
@@ -912,7 +988,7 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
 }
 
 export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
-  const raw = tightenMediaAdjacencyMd((md || "").trim());
+  const raw = tightenMediaAdjacencyMd(healHighlightArtifacts((md || "").trim()));
   if (!raw) return "<p></p>";
   // Colored / plain highlights: ==text== or ==text=={#rrggbb}
   const withMarks = raw.replace(
@@ -1315,6 +1391,20 @@ export function htmlToMarkdown(html: string): string {
         const label = (el.textContent || "插入範本").trim();
         el.replaceWith(doc.createTextNode(park(`\n\n[template|${id}|${label}](#)\n\n`)));
       });
+
+      // Heal text nodes that already contain leaked mark/span HTML (corrupted docs).
+      // Park the recovered == / {c:} tokens so Turndown cannot escape them.
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      const textNodes: Text[] = [];
+      while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
+      for (const tn of textNodes) {
+        const raw = tn.nodeValue || "";
+        if (!/<\/?(?:mark|span)\b/i.test(raw) && !/&lt;(?:mark|span)\b/i.test(raw)) continue;
+        const healed = healHighlightArtifacts(raw);
+        if (healed === raw) continue;
+        tn.replaceWith(doc.createTextNode(park(healed)));
+      }
+
       input = doc.body.innerHTML;
     } catch {
       input = html;
@@ -1322,7 +1412,7 @@ export function htmlToMarkdown(html: string): string {
   }
   let md = turndown.turndown(input).trim();
   md = md.replace(/@@ATOM(\d+)@@/g, (_m, i) => atoms[Number(i)] ?? "");
-  return tightenMediaAdjacencyMd(md.trim());
+  return tightenMediaAdjacencyMd(healHighlightArtifacts(md.trim()));
 }
 
 /** Keep toggle / heading flush against following audio|video (no blank line). */

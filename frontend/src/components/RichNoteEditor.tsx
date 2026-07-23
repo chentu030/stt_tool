@@ -24,7 +24,7 @@ import { TableKit } from "@tiptap/extension-table";
 import Typography from "@tiptap/extension-typography";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
-import { markdownToHtml, htmlToMarkdown, formatFileSize, clipboardHasLatex } from "@/lib/mdHtml";
+import { markdownToHtml, htmlToMarkdown, healHighlightArtifacts, formatFileSize, clipboardHasLatex } from "@/lib/mdHtml";
 import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { NoteImage } from "@/lib/tiptapImage";
@@ -1786,8 +1786,15 @@ export default function RichNoteEditor({
       skip.current = false;
       return;
     }
-    const next = markdownToHtml(valueMd, (t) => resolveWikiRef.current(t));
-    if (htmlToMarkdown(editor.getHTML()) !== (valueMd || "").trim()) {
+    const rawMd = (valueMd || "").trim();
+    const healedMd = healHighlightArtifacts(rawMd);
+    // Persist repair when body was saved as literal <mark> / &lt;mark&gt; text.
+    if (healedMd !== rawMd) {
+      skip.current = true;
+      onChangeRef.current(healedMd);
+    }
+    const next = markdownToHtml(healedMd, (t) => resolveWikiRef.current(t));
+    if (htmlToMarkdown(editor.getHTML()) !== healedMd) {
       editor.commands.setContent(next, { emitUpdate: false });
     }
     // Intentionally omit wikiNotes: resolveWikiRef is a ref; listing all notes must not
