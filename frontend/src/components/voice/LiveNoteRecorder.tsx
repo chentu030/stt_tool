@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { uploadNoteMedia } from "@/lib/firebase";
 import {
+  fetchGoogleSttHealth,
   organizeLiveSegment,
   mapCaptureLangToGoogle,
   transcribeWithGoogle,
@@ -609,21 +610,35 @@ export default function LiveNoteRecorder({
           setStreamOn(false);
           toast("即時額度已用完，改用切段批次");
         } else {
-          setStatus("連接即時串流…");
-          try {
-            await startStreamSession(rec.mediaStream);
-          } catch (e) {
+          setStatus("檢查即時串流是否可用…");
+          const health = await fetchGoogleSttHealth();
+          if (health && health.stream_enabled === false) {
             forceBatchSttRef.current = true;
             streamOnRef.current = false;
             setStreamOn(false);
-            await stopStreamSession();
             try {
               await rec.rearmSegmentRecorder();
             } catch {
               /* ignore */
             }
-            const msg = e instanceof Error ? e.message : "無法開啟即時串流";
-            toast(`${msg} · 已改用切段批次`);
+            toast("伺服器尚未開放即時串流，已改用切段批次");
+          } else {
+            setStatus("連接即時串流…");
+            try {
+              await startStreamSession(rec.mediaStream);
+            } catch (e) {
+              forceBatchSttRef.current = true;
+              streamOnRef.current = false;
+              setStreamOn(false);
+              await stopStreamSession();
+              try {
+                await rec.rearmSegmentRecorder();
+              } catch {
+                /* ignore */
+              }
+              const msg = e instanceof Error ? e.message : "無法開啟即時串流";
+              toast(`${msg} · 已改用切段批次`);
+            }
           }
         }
       } else {
@@ -978,14 +993,29 @@ export default function LiveNoteRecorder({
                         return;
                       }
                       const next = !streamOn;
-                      setStreamOn(next);
-                      streamOnRef.current = next;
-                      prefsCtx?.setPrefs({ liveStreamStt: next });
-                      setStatus(
-                        next
-                          ? `已開即時串流（${quotaLabel}，目前先 5 小時）`
-                          : "已改用切段批次（較省）"
-                      );
+                      if (next) {
+                        void fetchGoogleSttHealth().then((h) => {
+                          if (h && h.stream_enabled === false) {
+                            toast("伺服器尚未開放即時串流，請先用切段批次");
+                            setStreamOn(false);
+                            streamOnRef.current = false;
+                            forceBatchSttRef.current = true;
+                            prefsCtx?.setPrefs({ liveStreamStt: false });
+                            return;
+                          }
+                          setStreamOn(true);
+                          streamOnRef.current = true;
+                          forceBatchSttRef.current = false;
+                          prefsCtx?.setPrefs({ liveStreamStt: true });
+                          setStatus(`已開即時串流（${quotaLabel}，目前先 5 小時）`);
+                        });
+                        return;
+                      }
+                      setStreamOn(false);
+                      streamOnRef.current = false;
+                      forceBatchSttRef.current = true;
+                      prefsCtx?.setPrefs({ liveStreamStt: false });
+                      setStatus("已改用切段批次（較省）");
                     }}
                   >
                     {streamOn ? `即時 ${quotaLabel}` : "切段批次"}

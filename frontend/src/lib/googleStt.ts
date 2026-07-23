@@ -31,6 +31,27 @@ function detailMessage(data: unknown, status: number): string {
   return `Google STT 失敗（${status}）`;
 }
 
+export type GoogleSttHealth = {
+  ready?: boolean;
+  stream_enabled?: boolean;
+  stream_max_secs?: number;
+  mode?: string;
+  location?: string;
+  model?: string;
+  note?: string;
+};
+
+/** Probe backend; used to skip realtime WS when Cloud Run has streaming disabled. */
+export async function fetchGoogleSttHealth(): Promise<GoogleSttHealth | null> {
+  try {
+    const res = await fetch(`${apiBase()}/stt/google/health`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return (await res.json()) as GoogleSttHealth;
+  } catch {
+    return null;
+  }
+}
+
 /** Live note segments + quick voice — Google only (V2 dynamic batch on backend). */
 export async function transcribeWithGoogle(
   blob: Blob,
