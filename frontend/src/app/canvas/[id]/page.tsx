@@ -17,6 +17,12 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle, getNote, uploadCanvasMedia, type Note } from "@/lib/firebase";
+import {
+  loadJobPlainTranscript,
+  startTranscriptionJob,
+  summarizeTranscript,
+  watchJob,
+} from "@/lib/noteMediaIngest";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -25,6 +31,12 @@ import CanvasAside from "@/components/canvas/CanvasAside";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import StageSelectionAi from "@/components/StageSelectionAi";
+import CanvasShareDialog from "@/components/canvas/CanvasShareDialog";
+import {
+  parseCanvasShare,
+  syncCanvasShareSnapshot,
+  type CanvasShare,
+} from "@/lib/canvasShare";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import { toast } from "@/lib/toast";
 import {
@@ -149,6 +161,8 @@ function CanvasIdPageInner() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [stageAiOpen, setStageAiOpen] = useState(false);
   const [stageAiAnchor, setStageAiAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [canvasShare, setCanvasShare] = useState<CanvasShare | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const skipCloud = useRef(false);
   const baseUpdatedAt = useRef(0);
@@ -201,6 +215,7 @@ function CanvasIdPageInner() {
       const withAt = d as CanvasDoc & { updated_at?: Date };
       if (withAt.updated_at) baseUpdatedAt.current = withAt.updated_at.getTime();
       setDoc(d);
+      setCanvasShare(parseCanvasShare((d as { share?: unknown }).share));
       setReady(true);
       try {
         localStorage.setItem(lastCanvasKey(user.uid), canvasId);
@@ -229,7 +244,11 @@ function CanvasIdPageInner() {
       lastCloudSig.current = canvasDocSig(doc);
       void saveCanvasWithSync(user.uid, canvasId, doc, baseUpdatedAt.current || Date.now())
         .then((status) => {
-          if (status === "saved") baseUpdatedAt.current = Date.now();
+          if (status === "saved") {
+            baseUpdatedAt.current = Date.now();
+            const share = parseCanvasShare((doc as { share?: unknown }).share) || canvasShare;
+            void syncCanvasShareSnapshot(user.uid, canvasId, doc, share);
+          }
         })
         .finally(() => {
           setTimeout(() => {
@@ -238,7 +257,7 @@ function CanvasIdPageInner() {
         });
     }, 500);
     return () => clearTimeout(t);
-  }, [doc, user, canvasId, ready]);
+  }, [doc, user, canvasId, ready, canvasShare]);
 
   // Embed iframe: only fetch pinned note cards (never full notes listen).
   useEffect(() => {
@@ -422,6 +441,10 @@ function CanvasIdPageInner() {
       } else if (s.type === "note") {
         const n = noteMap.get(s.id);
         if (n?.title.trim()) texts.push(n.title.trim());
+      } else if (s.type === "media") {
+        const m = (doc.media || []).find((x) => x.id === s.id);
+        if (m?.transcript?.trim()) texts.push(m.transcript.trim());
+        else if (m?.title?.trim()) texts.push(m.title.trim());
       }
     }
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
@@ -429,7 +452,54 @@ function CanvasIdPageInner() {
       box: { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) },
       text: texts.join("\n"),
     };
-  }, [selected, doc.stickies, doc.shapes, noteMap, boxOf]);
+  }, [selected, doc.stickies, doc.shapes, doc.media, noteMap, boxOf]);
+
+  const selectionAnchorRef = (): string | null => {
+    if (selected.length !== 1) return null;
+    const s = selected[0];
+    if (s.type === "edge") return null;
+    if (s.type === "note") return `note:${s.id}`;
+    return s.id;
+  };
+
+  const landStickiesFromAi = (texts: string[], connect = true) => {
+    const chunks = texts.map((t) => t.trim()).filter(Boolean);
+    if (!chunks.length) return;
+    const box = selectionInfo?.box;
+    const origin = box
+      ? { x: box.x + box.w + 36, y: box.y }
+      : viewportCenterWorld();
+    const fromRef = connect ? selectionAnchorRef() : null;
+    const created: string[] = [];
+    updateDoc((d) => {
+      let next = { ...d, stickies: [...d.stickies], edges: [...d.edges] };
+      chunks.forEach((text, i) => {
+        const sticky = createSticky({
+          x: snapVal(origin.x + (i % 3) * 28, 22, d.snap),
+          y: snapVal(origin.y + i * 48, 22, d.snap),
+          w: 220,
+          h: Math.min(280, 80 + Math.ceil(text.length / 40) * 22),
+          text,
+          color: stickyColor,
+        });
+        created.push(sticky.id);
+        next.stickies.push(sticky);
+        if (fromRef) {
+          next.edges.push({
+            id: uid("e"),
+            kind: "edge",
+            from: fromRef,
+            to: sticky.id,
+            fromPort: "e",
+            toPort: "w",
+          });
+        }
+      });
+      return next;
+    });
+    if (created.length) setSelected(created.map((id) => ({ type: "sticky" as const, id })));
+    toast(created.length > 1 ? `已新增 ${created.length} 張便利貼` : "已新增便利貼");
+  };
 
   const applyStageAiReplace = (text: string) => {
     const clean = text.trim();
@@ -443,39 +513,216 @@ function CanvasIdPageInner() {
       toast("已更新便利貼");
       return;
     }
-    const box = selectionInfo?.box;
-    const origin = box ? { x: box.x, y: box.y } : viewportCenterWorld();
-    const sticky = createSticky({
-      x: snapVal(origin.x, 22, doc.snap),
-      y: snapVal(origin.y, 22, doc.snap),
-      w: 220,
-      h: 180,
-      text: clean,
-      color: stickyColor,
-    });
-    updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
-    setSelected([{ type: "sticky", id: sticky.id }]);
-    toast("已新增便利貼");
+    landStickiesFromAi([clean], true);
   };
 
   const applyStageAiInsert = (text: string) => {
     const clean = text.trim();
     if (!clean) return;
-    const box = selectionInfo?.box;
-    const origin = box
-      ? { x: box.x, y: box.y + box.h + 24 }
-      : viewportCenterWorld();
-    const sticky = createSticky({
-      x: snapVal(origin.x, 22, doc.snap),
-      y: snapVal(origin.y, 22, doc.snap),
-      w: 220,
-      h: 180,
-      text: clean,
-      color: stickyColor,
-    });
-    updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
-    setSelected([{ type: "sticky", id: sticky.id }]);
-    toast("已插入便利貼");
+    landStickiesFromAi([clean], true);
+  };
+
+  const runSelectionSummarize = async () => {
+    const src = (selectionInfo?.text || "").trim();
+    if (!src) {
+      toast("請先選取內容");
+      return;
+    }
+    try {
+      const summary = await summarizeTranscript({
+        title: doc.name || "白板選取",
+        transcript: src,
+        assistant: {
+          name: prefs.aiAssistantName,
+          style: prefs.aiStyle,
+          model: prefs.aiModel,
+          grounding: prefs.aiGrounding,
+        },
+      });
+      if (summary) {
+        landStickiesFromAi([summary], true);
+        setStageAiOpen(false);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "摘要失敗");
+    }
+  };
+
+  const runSelectionMindMap = async () => {
+    const src = (selectionInfo?.text || "").trim();
+    if (!src) {
+      toast("請先選取內容");
+      return;
+    }
+    try {
+      const res = await aiFetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ask_selection",
+          title: doc.name || "白板選取",
+          selection: src,
+          body: src,
+          prompt:
+            "請把內容整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。",
+          assistant: {
+            name: prefs.aiAssistantName,
+            style: prefs.aiStyle,
+            model: prefs.aiModel,
+            grounding: prefs.aiGrounding,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI 失敗");
+      const lines = String(data.text || "")
+        .split(/\n+/)
+        .map((l: string) => l.replace(/^[-*•\d.、）)\s]+/, "").trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (!lines.length) throw new Error("沒有產生節點");
+      landStickiesFromAi(lines, true);
+      setStageAiOpen(false);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "心智圖失敗");
+    }
+  };
+
+  const patchMedia = (id: string, patch: Partial<CanvasMedia>) => {
+    updateDoc((d) => ({
+      ...d,
+      media: (d.media || []).map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    }));
+  };
+
+  const startMediaTranscribe = async (mediaId: string) => {
+    if (!user) return;
+    const item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item) return;
+    if (item.media !== "youtube" && item.media !== "video" && item.media !== "audio") {
+      toast("此媒體類型不支援轉錄");
+      return;
+    }
+    patchMedia(mediaId, { transcriptStatus: "queued", transcriptError: "" });
+    try {
+      const getIdToken = async () => {
+        const t = await user.getIdToken();
+        return t;
+      };
+      let jobId = "";
+      if (item.media === "youtube") {
+        jobId = await startTranscriptionJob({
+          uid: user.uid,
+          getIdToken,
+          media: {
+            kind: "youtube",
+            youtubeUrl: item.originalUrl || item.url,
+            label: item.title || "YouTube",
+          },
+        });
+      } else {
+        const res = await fetch(item.url);
+        if (!res.ok) throw new Error("無法讀取媒體檔案");
+        const blob = await res.blob();
+        const ext =
+          item.media === "audio"
+            ? "webm"
+            : (item.title.match(/\.[a-z0-9]+$/i)?.[0] || ".mp4").replace(/^\./, "");
+        const file = new File([blob], item.title || `canvas-${item.media}.${ext}`, {
+          type: blob.type || item.mime || (item.media === "audio" ? "audio/webm" : "video/mp4"),
+        });
+        jobId = await startTranscriptionJob({
+          uid: user.uid,
+          getIdToken,
+          media: { kind: "file", file, label: item.title || file.name },
+        });
+      }
+      patchMedia(mediaId, { jobId, transcriptStatus: "running" });
+      const { promise } = watchJob(jobId, (job) => {
+        const st = job.status === "queued" ? "queued" : job.status === "done" ? "done" : job.status === "error" ? "error" : "running";
+        patchMedia(mediaId, { transcriptStatus: st as CanvasMedia["transcriptStatus"] });
+      });
+      const done = await promise;
+      const transcript = await loadJobPlainTranscript(done);
+      patchMedia(mediaId, {
+        transcript,
+        transcriptStatus: "done",
+        jobId,
+        // expand card height a bit for transcript panel
+        h: Math.max(item.h, 320),
+      });
+      toast("轉錄完成");
+    } catch (e) {
+      patchMedia(mediaId, {
+        transcriptStatus: "error",
+        transcriptError: e instanceof Error ? e.message : "轉錄失敗",
+      });
+      toast(e instanceof Error ? e.message : "轉錄失敗");
+    }
+  };
+
+  const summarizeMedia = async (mediaId: string) => {
+    const item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item?.transcript?.trim()) {
+      toast("尚無逐字稿");
+      return;
+    }
+    setSelected([{ type: "media", id: mediaId }]);
+    try {
+      const summary = await summarizeTranscript({
+        title: item.title || "媒體",
+        transcript: item.transcript,
+        assistant: {
+          name: prefs.aiAssistantName,
+          style: prefs.aiStyle,
+          model: prefs.aiModel,
+          grounding: prefs.aiGrounding,
+        },
+      });
+      if (summary) landStickiesFromAi([summary], true);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "摘要失敗");
+    }
+  };
+
+  const mindMapMedia = async (mediaId: string) => {
+    const item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item?.transcript?.trim()) {
+      toast("尚無逐字稿");
+      return;
+    }
+    setSelected([{ type: "media", id: mediaId }]);
+    try {
+      const res = await aiFetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ask_selection",
+          title: item.title || "媒體",
+          selection: item.transcript.slice(0, 12000),
+          body: item.transcript.slice(0, 12000),
+          prompt:
+            "請把逐字稿整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。",
+          assistant: {
+            name: prefs.aiAssistantName,
+            style: prefs.aiStyle,
+            model: prefs.aiModel,
+            grounding: prefs.aiGrounding,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI 失敗");
+      const lines = String(data.text || "")
+        .split(/\n+/)
+        .map((l: string) => l.replace(/^[-*•\d.、）)\s]+/, "").trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (!lines.length) throw new Error("沒有產生節點");
+      landStickiesFromAi(lines, true);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "心智圖失敗");
+    }
   };
 
   const applyStageAiImage = async (file: File) => {
@@ -614,8 +861,8 @@ function CanvasIdPageInner() {
     if (t.closest(".cv-port, .cv-edge-end")) return;
     // Connect mode must hit note cards even when the title <a> is under the cursor.
     if (tool === "connect") {
-      if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) return;
-    } else if (t.closest("textarea,a,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) {
+      if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file,.cv-media-actions,.cv-media-tx")) return;
+    } else if (t.closest("textarea,a,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file,.cv-media-actions,.cv-media-tx")) {
       return;
     }
     setCtxMenu(null);
@@ -1427,7 +1674,26 @@ function CanvasIdPageInner() {
             })();
           }}
         />
-        <CanvasToolbar
+        <div className="cv-float-actions">
+          <button
+            type="button"
+            className={`btn btn-ghost btn-sm${canvasShare?.enabled ? " is-on" : ""}`}
+            onClick={() => setShareOpen(true)}
+            title={canvasShare?.enabled ? "分享中" : "分享白板"}
+          >
+            {canvasShare?.enabled ? "分享中" : "分享"}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={undo} disabled={!history.length}>
+            復原
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAsideOpen((v) => !v)}>
+            {asideOpen ? "收合側欄" : "側欄"}
+          </button>
+        </div>
+      </div>
+
+
+      <CanvasToolbar
           tool={tool}
           onTool={setTool}
           stickyColor={stickyColor}
@@ -1476,6 +1742,7 @@ function CanvasIdPageInner() {
             })();
           }}
           canEditSelection={selected.length > 0}
+          selectionCount={selected.length}
           onInsertFiles={(files) => {
             void insertFiles(files);
           }}
@@ -1483,16 +1750,9 @@ function CanvasIdPageInner() {
             void insertUrl();
           }}
           uploadBusy={uploadBusy}
+          onShare={() => setShareOpen(true)}
+          shareEnabled={Boolean(canvasShare?.enabled)}
         />
-        <div className="cv-float-actions">
-          <button type="button" className="btn btn-ghost btn-sm" onClick={undo} disabled={!history.length}>
-            復原
-          </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAsideOpen((v) => !v)}>
-            {asideOpen ? "收合側欄" : "側欄"}
-          </button>
-        </div>
-      </div>
 
       <div className={`cv-layout cv-layout--immersive${asideOpen ? "" : " cv-layout--wide"}`}>
         <div
@@ -1756,7 +2016,15 @@ function CanvasIdPageInner() {
             })}
 
             {(doc.media || []).map((m) => (
-              <CanvasMediaCard key={m.id} item={m} selected={isSelected("media", m.id)} />
+              <CanvasMediaCard
+                key={m.id}
+                item={m}
+                selected={isSelected("media", m.id)}
+                onTranscribe={startMediaTranscribe}
+                onSummarize={summarizeMedia}
+                onMindMap={mindMapMedia}
+                onPatchMedia={patchMedia}
+              />
             ))}
 
             {resizeBox && (
@@ -1816,16 +2084,27 @@ function CanvasIdPageInner() {
             )}
 
             {selectionInfo && !stageAiOpen && (
-              <button
-                type="button"
-                className="cv-sel-ai-btn"
-                style={{ left: selectionInfo.box.x + selectionInfo.box.w, top: selectionInfo.box.y }}
+              <div
+                className="cv-sel-chrome"
+                style={{
+                  left: selectionInfo.box.x + selectionInfo.box.w / 2,
+                  top: Math.max(8, selectionInfo.box.y - 8),
+                }}
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={openStageAi}
-                title="詢問 AI"
               >
-                ✦ AI
-              </button>
+                <span className="cv-sel-chrome-count">
+                  {selected.length > 1 ? `已選 ${selected.length}` : "已選"}
+                </span>
+                <button type="button" className="cv-sel-chrome-btn" onClick={() => { doCopy(); doPaste(); }} title="複製">
+                  複製
+                </button>
+                <button type="button" className="cv-sel-chrome-btn" onClick={deleteSelected} title="刪除">
+                  刪除
+                </button>
+                <button type="button" className="cv-sel-chrome-btn is-ai" onClick={openStageAi} title="AI 動作">
+                  AI
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -1867,6 +2146,21 @@ function CanvasIdPageInner() {
           onApplyReplace={applyStageAiReplace}
           onApplyInsert={applyStageAiInsert}
           onGenerateImage={applyStageAiImage}
+          onSummarizeSelection={() => void runSelectionSummarize()}
+          onMindMapSelection={() => void runSelectionMindMap()}
+          insertLabel="放到白板"
+        />
+      )}
+
+      {shareOpen && user && (
+        <CanvasShareDialog
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          uid={user.uid}
+          canvasId={canvasId}
+          doc={doc}
+          share={canvasShare}
+          onShareChange={setCanvasShare}
         />
       )}
 

@@ -72,6 +72,13 @@ export type CanvasMediaKind =
   | "link"
   | "web";
 
+export type CanvasMediaTranscriptStatus =
+  | "idle"
+  | "queued"
+  | "running"
+  | "done"
+  | "error";
+
 export type CanvasMedia = {
   id: string;
   kind: "media";
@@ -89,6 +96,11 @@ export type CanvasMedia = {
   /** false → show link card instead of iframe */
   frameable?: boolean;
   z: number;
+  /** In-card transcript (YouTube / audio / video) */
+  transcript?: string;
+  transcriptStatus?: CanvasMediaTranscriptStatus;
+  jobId?: string;
+  transcriptError?: string;
 };
 
 export type CanvasDoc = {

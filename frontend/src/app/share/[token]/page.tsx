@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import RichNoteEditor from "@/components/RichNoteEditor";
+import CanvasShareViewer from "@/components/canvas/CanvasShareViewer";
 import {
   copySharedNoteToUser,
   getNoteById,
@@ -16,6 +17,15 @@ import {
   resolveShareToken,
   type ShareMode,
 } from "@/lib/share";
+import {
+  canvasDocFromShareToken,
+  copySharedCanvasToUser,
+  listenCanvasShareToken,
+  resolveCanvasShareToken,
+  type CanvasShareMode,
+  type CanvasShareTokenDoc,
+} from "@/lib/canvasShare";
+import type { CanvasDoc } from "@/lib/canvasStore";
 import { loginWithGoogle, type Note } from "@/lib/firebase";
 import { useNoteCollab } from "@/hooks/useNoteCollab";
 import NotePresence from "@/components/notes/NotePresence";
@@ -28,12 +38,17 @@ import {
 } from "@/lib/accessGate";
 import { toast } from "@/lib/toast";
 
+type ShareKind = "note" | "canvas" | null;
+
 export default function ShareNotePage() {
   const { token } = useParams<{ token: string }>();
   const { user, loading: authLoading, displayName } = useAuth();
   const router = useRouter();
-  const [mode, setMode] = useState<ShareMode>("view");
+  const [kind, setKind] = useState<ShareKind>(null);
+  const [mode, setMode] = useState<ShareMode | CanvasShareMode>("view");
   const [note, setNote] = useState<Note | null>(null);
+  const [canvasDoc, setCanvasDoc] = useState<CanvasDoc | null>(null);
+  const [canvasLink, setCanvasLink] = useState<CanvasShareTokenDoc | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
@@ -49,8 +64,8 @@ export default function ShareNotePage() {
     !!user && (isAllowlistedEmail(user.email) || accessStatus === "approved");
   const accessPending = !!user && accessStatus === "pending";
   // Edit / copy into library require closed-beta approval — view-only stays open.
-  const canEdit = mode === "edit" && accessApproved;
-  const collabEnabled = !!note && mode === "edit" && accessApproved;
+  const canEdit = kind === "note" && mode === "edit" && accessApproved;
+  const collabEnabled = !!note && kind === "note" && mode === "edit" && accessApproved;
 
   const collab = useNoteCollab({
     noteId: note?.id,
@@ -100,11 +115,40 @@ export default function ShareNotePage() {
     (async () => {
       setBusy(true);
       setError("");
+      setKind(null);
+      setNote(null);
+      setCanvasDoc(null);
+      setCanvasLink(null);
       try {
         if (!token) throw new Error("無效連結");
+
+        const canvas = await resolveCanvasShareToken(token);
+        if (canvas) {
+          if (cancelled) return;
+          setKind("canvas");
+          setMode(canvas.mode);
+          setCanvasLink(canvas);
+          setTitle(canvas.name);
+          setCanvasDoc(canvasDocFromShareToken(canvas));
+          unsub = listenCanvasShareToken(token, (live) => {
+            if (!live) {
+              setError("白板已刪除或分享已關閉");
+              setCanvasDoc(null);
+              setCanvasLink(null);
+              return;
+            }
+            setCanvasLink(live);
+            setMode(live.mode);
+            setTitle(live.name);
+            setCanvasDoc(canvasDocFromShareToken(live));
+          });
+          return;
+        }
+
         const link = await resolveShareToken(token);
         if (!link?.note_id) throw new Error("分享連結不存在或已關閉");
         if (cancelled) return;
+        setKind("note");
         setMode(link.mode);
 
         // Edit mode (signed in): live note + collab. View/copy: public token snapshot only.
@@ -167,7 +211,7 @@ export default function ShareNotePage() {
   const collabReadyRef = useRef(false);
   collabReadyRef.current = collabReady;
 
-  const onCopy = async () => {
+  const onCopyNote = async () => {
     if (!user) {
       await loginWithGoogle();
       return;
@@ -198,6 +242,33 @@ export default function ShareNotePage() {
     }
   };
 
+  const onCopyCanvas = async () => {
+    if (!user) {
+      await loginWithGoogle();
+      return;
+    }
+    if (!accessApproved) {
+      if (accessPending) {
+        toast("申請審核中，通過後即可複製到我的白板");
+      } else {
+        toast("請先完成使用申請，並等待後台核准");
+        router.push("/");
+      }
+      return;
+    }
+    if (!canvasLink) return;
+    setCopyBusy(true);
+    setError("");
+    try {
+      const id = await copySharedCanvasToUser(user.uid, canvasLink);
+      router.push(`/canvas/${id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCopyBusy(false);
+    }
+  };
+
   const modeLabel =
     mode === "edit" ? "可編輯" : mode === "copy" ? "可複製" : "僅檢視";
 
@@ -210,32 +281,48 @@ export default function ShareNotePage() {
     : collab.status === "error" ? "同步異常"
     : "";
 
+  const showCopy =
+    (mode === "copy" || mode === "view") &&
+    (kind === "note" ? !!note : kind === "canvas" ? !!canvasDoc : false);
+
   return (
-    <div className="share-page">
+    <div className={`share-page${kind === "canvas" ? " share-page--canvas" : ""}`}>
       <header className="share-page-head">
         <Link href="/" className="share-brand">
           Albireus
         </Link>
         <span className="share-pill">{modeLabel}分享</span>
+        {kind === "canvas" && title ? <span className="share-save">{title}</span> : null}
         {canEdit && syncLabel && <span className="share-save">{syncLabel}</span>}
-        {note && user ? <NotePresence noteId={note.id} /> : null}
+        {kind === "note" && note && user ? <NotePresence noteId={note.id} /> : null}
         <div className="share-page-actions">
-          {(mode === "copy" || mode === "view") && (
+          {showCopy && kind === "note" && (
             <button
               type="button"
               className="btn btn-sm"
               disabled={copyBusy || !note}
-              onClick={() => void onCopy()}
+              onClick={() => void onCopyNote()}
             >
               {!user ? "登入後複製" : copyBusy ? "複製中…" : "複製到我的知識庫"}
             </button>
           )}
-          {mode === "edit" && !user && !authLoading && (
+          {showCopy && kind === "canvas" && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              disabled={copyBusy || !canvasLink}
+              onClick={() => void onCopyCanvas()}
+              title="複製一份到你的白板"
+            >
+              {!user ? "登入後複製" : copyBusy ? "複製中…" : "複製到我的白板"}
+            </button>
+          )}
+          {kind === "note" && mode === "edit" && !user && !authLoading && (
             <button type="button" className="btn btn-sm" onClick={() => void loginWithGoogle()}>
               登入以編輯
             </button>
           )}
-          {mode === "edit" && user && !accessLoading && !accessApproved && (
+          {kind === "note" && mode === "edit" && user && !accessLoading && !accessApproved && (
             <button
               type="button"
               className="btn btn-sm"
@@ -245,8 +332,8 @@ export default function ShareNotePage() {
             </button>
           )}
           {user && (
-            <Link href="/library" className="btn btn-sm btn-ghost">
-              我的知識庫
+            <Link href={kind === "canvas" ? "/canvas" : "/library"} className="btn btn-sm btn-ghost">
+              {kind === "canvas" ? "我的白板" : "我的知識庫"}
             </Link>
           )}
         </div>
@@ -255,7 +342,7 @@ export default function ShareNotePage() {
       {busy && <PageLoading fill={false} label="載入中…" />}
       {error && <p className="share-status is-error">{error}</p>}
 
-      {!busy && note && !error && mode === "edit" && user && !accessLoading && !accessApproved && (
+      {!busy && kind === "note" && note && !error && mode === "edit" && user && !accessLoading && !accessApproved && (
         <p className="share-status">
           {accessPending
             ? "你的使用申請審核中。通過後即可編輯此分享文件；目前為唯讀。"
@@ -263,7 +350,7 @@ export default function ShareNotePage() {
         </p>
       )}
 
-      {!busy && note && !error && (
+      {!busy && kind === "note" && note && !error && (
         <div className="share-doc">
           {canEdit ? (
             <input
@@ -297,6 +384,10 @@ export default function ShareNotePage() {
             />
           )}
         </div>
+      )}
+
+      {!busy && kind === "canvas" && canvasDoc && !error && (
+        <CanvasShareViewer doc={canvasDoc} />
       )}
     </div>
   );

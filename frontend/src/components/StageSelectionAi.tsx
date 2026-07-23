@@ -35,6 +35,10 @@ type Props = {
   onApplyReplace: (text: string) => void;
   onApplyInsert: (text: string) => void;
   onGenerateImage?: (file: File) => void | Promise<void>;
+  /** Extra quick actions for canvas (摘要 / 心智圖草稿) */
+  onSummarizeSelection?: () => void | Promise<void>;
+  onMindMapSelection?: () => void | Promise<void>;
+  insertLabel?: string;
 };
 
 export default function StageSelectionAi({
@@ -47,6 +51,9 @@ export default function StageSelectionAi({
   onApplyReplace,
   onApplyInsert,
   onGenerateImage,
+  onSummarizeSelection,
+  onMindMapSelection,
+  insertLabel = "插入下方",
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const [prompt, setPrompt] = useState("");
@@ -212,6 +219,26 @@ export default function StageSelectionAi({
             {imgBusy ? "生圖中…" : "AI 生圖"}
           </button>
         )}
+        {onSummarizeSelection && (
+          <button
+            type="button"
+            className="doc-cmd"
+            disabled={busy}
+            onClick={() => void onSummarizeSelection()}
+          >
+            摘要到白板
+          </button>
+        )}
+        {onMindMapSelection && (
+          <button
+            type="button"
+            className="doc-cmd"
+            disabled={busy}
+            onClick={() => void onMindMapSelection()}
+          >
+            心智圖草稿
+          </button>
+        )}
       </div>
       <form
         className="sel-ai-ask"
@@ -241,7 +268,7 @@ export default function StageSelectionAi({
               {hasSelection ? "取代" : "套用"}
             </button>
             <button type="button" className="doc-cmd" onClick={() => { onApplyInsert(result); onClose(); }}>
-              插入下方
+              {insertLabel}
             </button>
             <button
               type="button"

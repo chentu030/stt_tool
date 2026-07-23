@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo, useRef } from "react";
 import type { CanvasMedia } from "@/lib/canvasStore";
+import { parseTranscript } from "@/lib/transcript";
 
 const LABELS: Record<CanvasMedia["media"], string> = {
   image: "圖片",
@@ -14,17 +16,91 @@ const LABELS: Record<CanvasMedia["media"], string> = {
   web: "網頁",
 };
 
+function formatTs(sec: number) {
+  const s = Math.max(0, Math.floor(sec));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function youtubeSeekUrl(embedUrl: string, seconds: number): string {
+  try {
+    const u = new URL(embedUrl);
+    u.searchParams.set("start", String(Math.max(0, Math.floor(seconds))));
+    u.searchParams.set("autoplay", "1");
+    return u.toString();
+  } catch {
+    return embedUrl;
+  }
+}
+
 type Props = {
   item: CanvasMedia;
   selected: boolean;
+  readOnly?: boolean;
+  onTranscribe?: (id: string) => void;
+  onSummarize?: (id: string) => void;
+  onMindMap?: (id: string) => void;
+  onPatchMedia?: (id: string, patch: Partial<CanvasMedia>) => void;
 };
 
-export default function CanvasMediaCard({ item, selected }: Props) {
+export default function CanvasMediaCard({
+  item,
+  selected,
+  readOnly,
+  onTranscribe,
+  onSummarize,
+  onMindMap,
+  onPatchMedia,
+}: Props) {
   const label = LABELS[item.media] || "媒體";
   const href = item.originalUrl || item.url;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const showFrame =
     item.frameable !== false &&
     (item.media === "youtube" || item.media === "web" || item.media === "pdf" || item.media === "ppt");
+  const canTranscribe =
+    !readOnly && (item.media === "youtube" || item.media === "video" || item.media === "audio");
+  const status = item.transcriptStatus || (item.transcript ? "done" : "idle");
+  const busy = status === "queued" || status === "running";
+
+  const segments = useMemo(() => {
+    const raw = (item.transcript || "").trim();
+    if (!raw) return [] as { start: number; text: string }[];
+    const parsed = parseTranscript(raw);
+    if (parsed.length) {
+      return parsed.map((s) => ({ start: s.startSec ?? 0, text: s.text }));
+    }
+    return raw.split(/\n+/).filter(Boolean).map((text) => ({ start: 0, text }));
+  }, [item.transcript]);
+
+  const seekTo = (sec: number) => {
+    if (item.media === "video" && videoRef.current) {
+      videoRef.current.currentTime = sec;
+      void videoRef.current.play().catch(() => {});
+      return;
+    }
+    if (item.media === "audio" && audioRef.current) {
+      audioRef.current.currentTime = sec;
+      void audioRef.current.play().catch(() => {});
+      return;
+    }
+    if (item.media === "youtube" && onPatchMedia) {
+      onPatchMedia(item.id, { url: youtubeSeekUrl(item.url, sec) });
+    }
+  };
+
+  const statusLabel =
+    status === "queued"
+      ? "排隊中"
+      : status === "running"
+        ? "轉錄中"
+        : status === "done"
+          ? "已轉錄"
+          : status === "error"
+            ? "失敗"
+            : "";
 
   return (
     <div
@@ -36,6 +112,40 @@ export default function CanvasMediaCard({ item, selected }: Props) {
         <span className="cv-media-name" title={item.title}>
           {item.title || "未命名"}
         </span>
+        {statusLabel ? (
+          <span
+            className={`cv-media-badge${
+              status === "running" || status === "queued"
+                ? " is-run"
+                : status === "done"
+                  ? " is-done"
+                  : status === "error"
+                    ? " is-err"
+                    : ""
+            }`}
+          >
+            {statusLabel}
+          </span>
+        ) : null}
+        {!readOnly && canTranscribe && (
+          <div className="cv-media-actions" onPointerDown={(e) => e.stopPropagation()}>
+            {!item.transcript && (
+              <button type="button" disabled={busy || !onTranscribe} onClick={() => onTranscribe?.(item.id)}>
+                {busy ? "…" : "轉錄"}
+              </button>
+            )}
+            {item.transcript && (
+              <>
+                <button type="button" disabled={!onSummarize} onClick={() => onSummarize?.(item.id)}>
+                  摘要
+                </button>
+                <button type="button" disabled={!onMindMap} onClick={() => onMindMap?.(item.id)}>
+                  心智圖
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <a
           href={href}
           target="_blank"
@@ -53,13 +163,24 @@ export default function CanvasMediaCard({ item, selected }: Props) {
           <img src={item.url} alt={item.title} draggable={false} />
         )}
         {item.media === "audio" && (
-          <audio controls src={item.url} onPointerDown={(e) => e.stopPropagation()} />
+          <audio
+            ref={audioRef}
+            controls
+            src={item.url}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
         )}
         {item.media === "video" && (
-          <video controls src={item.url} onPointerDown={(e) => e.stopPropagation()} />
+          <video
+            ref={videoRef}
+            controls
+            src={item.url}
+            onPointerDown={(e) => e.stopPropagation()}
+          />
         )}
         {showFrame && (
           <iframe
+            key={item.url}
             src={item.url}
             title={item.title}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -83,6 +204,31 @@ export default function CanvasMediaCard({ item, selected }: Props) {
           </a>
         )}
       </div>
+      {segments.length > 0 && (
+        <div
+          className="cv-media-tx"
+          onPointerDown={(e) => e.stopPropagation()}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          {segments.slice(0, 80).map((seg, i) => (
+            <button
+              key={`${seg.start}-${i}`}
+              type="button"
+              className="cv-media-tx-line"
+              onClick={() => seekTo(seg.start)}
+              title="跳到此時間"
+            >
+              {seg.start > 0 && <span className="cv-media-tx-t">{formatTs(seg.start)}</span>}
+              {seg.text}
+            </button>
+          ))}
+        </div>
+      )}
+      {status === "error" && item.transcriptError && (
+        <div className="cv-media-tx" style={{ color: "var(--danger)" }}>
+          {item.transcriptError}
+        </div>
+      )}
     </div>
   );
 }
