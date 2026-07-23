@@ -237,10 +237,26 @@ function loadThreads(): { threads: ChatThread[]; activeId: string } {
 
 function persistThreads(threads: ChatThread[], activeId: string) {
   try {
-    localStorage.setItem(THREADS_KEY, JSON.stringify(threads.slice(0, 40)));
+    // Guard against boot race: never wipe non-empty history with an empty array.
+    if (threads.length === 0) {
+      const existing = localStorage.getItem(THREADS_KEY);
+      if (existing && existing !== "[]") return;
+    }
+    const payload = JSON.stringify(threads.slice(0, 40));
+    localStorage.setItem(THREADS_KEY, payload);
     localStorage.setItem(ACTIVE_KEY, activeId);
   } catch {
-    /* ignore */
+    // Quota or private mode — try a leaner payload once.
+    try {
+      const lean = threads.slice(0, 12).map((t) => ({
+        ...t,
+        msgs: t.msgs.slice(-20),
+      }));
+      localStorage.setItem(THREADS_KEY, JSON.stringify(lean));
+      localStorage.setItem(ACTIVE_KEY, activeId);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -282,6 +298,7 @@ export default function GlobalAiDock() {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
+  const skipNextPersist = useRef(true);
   const sheetDrag = useRef<{ startY: number; startH: number } | null>(null);
 
   const onNotePage = pathname?.startsWith("/notes/");
@@ -386,6 +403,9 @@ export default function GlobalAiDock() {
     const loaded = loadThreads();
     setThreads(loaded.threads);
     setActiveId(loaded.activeId);
+    // Skip the persist effect that runs for this hydration commit (empty → loaded),
+    // otherwise the empty initial state can wipe localStorage in the same tick.
+    skipNextPersist.current = true;
     hydrated.current = true;
   }, []);
 
@@ -418,6 +438,10 @@ export default function GlobalAiDock() {
 
   useEffect(() => {
     if (!hydrated.current) return;
+    if (skipNextPersist.current) {
+      skipNextPersist.current = false;
+      return;
+    }
     persistThreads(threads, activeId);
   }, [threads, activeId]);
 
