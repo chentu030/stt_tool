@@ -6886,6 +6886,53 @@ a.sidebar-user-name:hover {
 .cv-handle--s { left: calc(50% - 4px); bottom: -5px; cursor: ns-resize; }
 .cv-handle--e { right: -5px; top: calc(50% - 4px); cursor: ew-resize; }
 .cv-handle--w { left: -5px; top: calc(50% - 4px); cursor: ew-resize; }
+.cv-port-box {
+  position: absolute;
+  pointer-events: none;
+  z-index: 55;
+}
+.cv-port {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+  pointer-events: auto;
+  cursor: crosshair;
+  transform: translate(-50%, -50%);
+}
+.cv-port:hover,
+.cv-port.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cv-port--nw { left: 0; top: 0; }
+.cv-port--n { left: 50%; top: 0; }
+.cv-port--ne { left: 100%; top: 0; }
+.cv-port--w { left: 0; top: 50%; }
+.cv-port--e { left: 100%; top: 50%; }
+.cv-port--sw { left: 0; top: 100%; }
+.cv-port--s { left: 50%; top: 100%; }
+.cv-port--se { left: 100%; top: 100%; }
+.cv-edge--preview {
+  stroke-dasharray: 6 5;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.cv-edge-end {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  pointer-events: all;
+  cursor: grab;
+}
+.cv-edge-end:active {
+  cursor: grabbing;
+}
 .cv-marquee {
   position: absolute;
   border: 1px dashed var(--accent);

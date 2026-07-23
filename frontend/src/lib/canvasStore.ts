@@ -39,10 +39,18 @@ export type CanvasShape = {
 export type CanvasEdge = {
   id: string;
   kind: "edge";
-  from: string; // sticky | shape | note:{noteId}
+  from: string; // sticky | shape | note:{noteId} | media id
   to: string;
+  /** Preferred attachment on the from/to box (8 compass ports). */
+  fromPort?: EdgePort;
+  toPort?: EdgePort;
   label?: string;
 };
+
+/** Eight ports around a node box (same positions as resize handles). */
+export type EdgePort = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+export const EDGE_PORTS: EdgePort[] = ["nw", "n", "ne", "w", "e", "sw", "s", "se"];
 
 export type NotePin = {
   noteId: string;
@@ -281,6 +289,60 @@ export function nodeAnchor(doc: CanvasDoc, ref: string, toward: Point): Point | 
   const sy = dy === 0 ? Infinity : hh / Math.abs(dy);
   const t = Math.min(sx, sy);
   return { x: cx + dx * t, y: cy + dy * t };
+}
+
+/** Exact port position on a node (n/s/e/w + corners). */
+export function nodePortPoint(doc: CanvasDoc, ref: string, port: EdgePort): Point | null {
+  const box = nodeBox(doc, ref);
+  if (!box) return null;
+  const { x, y, w, h } = box;
+  const mx = x + w / 2;
+  const my = y + h / 2;
+  switch (port) {
+    case "n":
+      return { x: mx, y };
+    case "s":
+      return { x: mx, y: y + h };
+    case "w":
+      return { x, y: my };
+    case "e":
+      return { x: x + w, y: my };
+    case "nw":
+      return { x, y };
+    case "ne":
+      return { x: x + w, y };
+    case "sw":
+      return { x, y: y + h };
+    case "se":
+      return { x: x + w, y: y + h };
+  }
+}
+
+/** Closest of the 8 ports to a world point. */
+export function nearestPort(doc: CanvasDoc, ref: string, point: Point): EdgePort {
+  let best: EdgePort = "e";
+  let bestD = Infinity;
+  for (const p of EDGE_PORTS) {
+    const pt = nodePortPoint(doc, ref, p);
+    if (!pt) continue;
+    const d = (pt.x - point.x) ** 2 + (pt.y - point.y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/** Resolve edge endpoint: fixed port if set, else dynamic border toward the other end. */
+export function edgeEndpoint(
+  doc: CanvasDoc,
+  ref: string,
+  port: EdgePort | undefined,
+  toward: Point
+): Point | null {
+  if (port) return nodePortPoint(doc, ref, port) ?? nodeAnchor(doc, ref, toward);
+  return nodeAnchor(doc, ref, toward);
 }
 
 export function edgePath(a: Point, b: Point, _radius = 12): string {

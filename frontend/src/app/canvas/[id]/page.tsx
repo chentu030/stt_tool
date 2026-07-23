@@ -42,8 +42,11 @@ import {
   exportCanvasJson,
   fitView,
   importCanvasJson,
-  nodeAnchor,
   nodeCenter,
+  nodePortPoint,
+  nearestPort,
+  edgeEndpoint,
+  EDGE_PORTS,
   snapVal,
   uid,
   createSticky,
@@ -56,6 +59,7 @@ import {
   createMediaItem,
   colorToShapeHex,
   resolveStickyStyle,
+  type EdgePort,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
@@ -94,7 +98,15 @@ export default function CanvasIdPage() {
   const focusApplied = useRef(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingShape, setEditingShape] = useState<string | null>(null);
-  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const [connectFrom, setConnectFrom] = useState<{ ref: string; port?: EdgePort } | null>(null);
+  const [hoverConnectRef, setHoverConnectRef] = useState<string | null>(null);
+  const [connectCursor, setConnectCursor] = useState<{ x: number; y: number } | null>(null);
+  const [edgeDragPreview, setEdgeDragPreview] = useState<{
+    edgeId: string;
+    which: "from" | "to";
+    point: { x: number; y: number };
+    hoverRef: string | null;
+  } | null>(null);
   const [history, setHistory] = useState<CanvasDoc[]>([]);
   const [asideOpen, setAsideOpen] = useState(false);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
@@ -109,7 +121,7 @@ export default function CanvasIdPage() {
   const baseUpdatedAt = useRef(0);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
   const drag = useRef<{
-    mode: "move" | "pan" | "marquee" | "resize";
+    mode: "move" | "pan" | "marquee" | "resize" | "edge-end";
     ids?: Selectable[];
     startX: number;
     startY: number;
@@ -119,7 +131,17 @@ export default function CanvasIdPage() {
     pan0?: { x: number; y: number };
     handle?: ResizeHandle;
     moved?: boolean;
+    edgeId?: string;
+    edgeWhich?: "from" | "to";
   } | null>(null);
+
+  // Clear connect session when leaving the tool.
+  useEffect(() => {
+    if (tool === "connect") return;
+    setConnectFrom(null);
+    setConnectCursor(null);
+    setHoverConnectRef(null);
+  }, [tool]);
 
   useEffect(() => {
     if (!user) return;
@@ -522,6 +544,8 @@ export default function CanvasIdPage() {
 
   const onPointerDown = (e: REPointerEvent) => {
     const t = e.target as HTMLElement;
+    // Connect ports / edge ends handle themselves — don't steal those events.
+    if (t.closest(".cv-port, .cv-edge-end")) return;
     // Connect mode must hit note cards even when the title <a> is under the cursor.
     if (tool === "connect") {
       if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) return;
@@ -553,23 +577,35 @@ export default function CanvasIdPage() {
 
     if (tool === "connect") {
       const hit = hitTest(world);
-      if (!hit) {
+      if (!hit || hit.type === "edge") {
         setConnectFrom(null);
+        setConnectCursor(null);
         return;
       }
       const ref = refIdForSelectable(hit);
+      const port = nearestPort(doc, ref, world);
       if (!connectFrom) {
-        setConnectFrom(ref);
-        toast("已選起點，再點終點");
+        setConnectFrom({ ref, port });
+        setConnectCursor(world);
+        toast("已選起點，再點終點或錨點");
         return;
       }
-      if (connectFrom === ref) {
+      if (connectFrom.ref === ref) {
         setConnectFrom(null);
+        setConnectCursor(null);
         return;
       }
-      const edge: CanvasEdge = { id: uid("e"), kind: "edge", from: connectFrom, to: ref };
+      const edge: CanvasEdge = {
+        id: uid("e"),
+        kind: "edge",
+        from: connectFrom.ref,
+        to: ref,
+        fromPort: connectFrom.port,
+        toPort: port,
+      };
       updateDoc((d) => ({ ...d, edges: [...d.edges, edge] }));
       setConnectFrom(null);
+      setConnectCursor(null);
       toast("已建立連線");
       return;
     }
@@ -691,7 +727,69 @@ export default function CanvasIdPage() {
     stageRef.current?.setPointerCapture?.(e.pointerId);
   };
 
+  /** Connect-tool: click a port to start/finish a link (does not resize). */
+  const onPortPointerDown = (e: REPointerEvent, ref: string, port: EdgePort) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (tool !== "connect" || e.button !== 0) return;
+    setCtxMenu(null);
+    if (!connectFrom) {
+      setConnectFrom({ ref, port });
+      const pt = nodePortPoint(doc, ref, port);
+      if (pt) setConnectCursor(pt);
+      toast("已選起點錨點，再點終點");
+      return;
+    }
+    if (connectFrom.ref === ref) {
+      setConnectFrom(null);
+      setConnectCursor(null);
+      return;
+    }
+    const edge: CanvasEdge = {
+      id: uid("e"),
+      kind: "edge",
+      from: connectFrom.ref,
+      to: ref,
+      fromPort: connectFrom.port,
+      toPort: port,
+    };
+    updateDoc((d) => ({ ...d, edges: [...d.edges, edge] }));
+    setConnectFrom(null);
+    setConnectCursor(null);
+    toast("已建立連線");
+  };
+
+  /** Drag an existing edge endpoint to reconnect. */
+  const startEdgeEndDrag = (e: REPointerEvent, edgeId: string, which: "from" | "to") => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (e.button !== 0) return;
+    const world = screenToWorld(e.clientX, e.clientY);
+    drag.current = {
+      mode: "edge-end",
+      startX: world.x,
+      startY: world.y,
+      edgeId,
+      edgeWhich: which,
+      moved: false,
+    };
+    setEdgeDragPreview({ edgeId, which, point: world, hoverRef: null });
+    setSelected([{ type: "edge", id: edgeId }]);
+    stageRef.current?.setPointerCapture?.(e.pointerId);
+  };
+
   const onPointerMove = (e: REPointerEvent) => {
+    const world = screenToWorld(e.clientX, e.clientY);
+
+    // Connect-mode hover + rubber-band preview (even when not dragging).
+    if (tool === "connect" && !drag.current) {
+      const hit = hitTest(world);
+      const ref =
+        hit && hit.type !== "edge" ? refIdForSelectable(hit) : null;
+      setHoverConnectRef(ref);
+      if (connectFrom) setConnectCursor(world);
+    }
+
     const d = drag.current;
     if (!d) return;
     if (d.mode === "pan" && d.pan0) {
@@ -709,13 +807,25 @@ export default function CanvasIdPage() {
       }));
       return;
     }
+    if (d.mode === "edge-end" && d.edgeId && d.edgeWhich) {
+      d.moved = true;
+      const hit = hitTest(world);
+      const hoverRef =
+        hit && hit.type !== "edge" ? refIdForSelectable(hit) : null;
+      setEdgeDragPreview({
+        edgeId: d.edgeId,
+        which: d.edgeWhich,
+        point: world,
+        hoverRef,
+      });
+      if (hoverRef) setHoverConnectRef(hoverRef);
+      return;
+    }
     if (d.mode === "marquee" && d.worldX != null && d.worldY != null) {
-      const world = screenToWorld(e.clientX, e.clientY);
       setMarquee({ x0: d.worldX, y0: d.worldY, x1: world.x, y1: world.y });
       return;
     }
     if (d.mode === "resize" && d.ids?.[0] && d.origin && d.handle) {
-      const world = screenToWorld(e.clientX, e.clientY);
       const s = d.ids[0];
       const o = d.origin[s.id];
       if (!o || o.w == null || o.h == null) return;
@@ -765,7 +875,6 @@ export default function CanvasIdPage() {
       return;
     }
     if (d.mode === "move" && d.ids && d.origin) {
-      const world = screenToWorld(e.clientX, e.clientY);
       const dx = world.x - d.startX;
       const dy = world.y - d.startY;
       if (!d.moved && Math.hypot(dx, dy) < 3) return;
@@ -814,6 +923,34 @@ export default function CanvasIdPage() {
 
   const onPointerUp = () => {
     const d = drag.current;
+    if (d?.mode === "edge-end" && d.edgeId && d.edgeWhich) {
+      const preview = edgeDragPreview;
+      const world = preview?.point;
+      if (world) {
+        const hit = hitTest(world);
+        if (hit && hit.type !== "edge") {
+          const ref = refIdForSelectable(hit);
+          const edge = doc.edges.find((e) => e.id === d.edgeId);
+          const other = d.edgeWhich === "from" ? edge?.to : edge?.from;
+          if (edge && ref !== other) {
+            const port = nearestPort(doc, ref, world);
+            updateDoc((prev) => ({
+              ...prev,
+              edges: prev.edges.map((e) => {
+                if (e.id !== d.edgeId) return e;
+                if (d.edgeWhich === "from") {
+                  return { ...e, from: ref, fromPort: port };
+                }
+                return { ...e, to: ref, toPort: port };
+              }),
+            }));
+            toast("已更新連線");
+          }
+        }
+      }
+      setEdgeDragPreview(null);
+      setHoverConnectRef(null);
+    }
     if (d?.mode === "marquee" && marquee) {
       const x1 = Math.min(marquee.x0, marquee.x1);
       const y1 = Math.min(marquee.y0, marquee.y1);
@@ -1147,7 +1284,48 @@ export default function CanvasIdPage() {
     selected.some((s) => s.type === type && s.id === id);
 
   const single = selected.length === 1 ? selected[0] : null;
-  const resizeBox = single && single.type !== "edge" ? boxOf(single) : null;
+  const resizeBox = single && single.type !== "edge" && tool !== "connect" ? boxOf(single) : null;
+
+  /** Boxes that should show 8 connect ports in connect mode / edge-end drag. */
+  const connectPortTargets = useMemo(() => {
+    const dragHover = edgeDragPreview ? edgeDragPreview.hoverRef : null;
+    const reconnecting = edgeDragPreview != null;
+    if (tool !== "connect" && !reconnecting) {
+      return [] as { ref: string; x: number; y: number; w: number; h: number }[];
+    }
+    const selectedRef = single && single.type !== "edge" ? refIdForSelectable(single) : null;
+    const out: { ref: string; x: number; y: number; w: number; h: number }[] = [];
+    const want = (ref: string) =>
+      Boolean(connectFrom) ||
+      reconnecting ||
+      hoverConnectRef === ref ||
+      dragHover === ref ||
+      selectedRef === ref;
+    for (const s of doc.stickies) {
+      if (want(s.id)) out.push({ ref: s.id, x: s.x, y: s.y, w: s.w, h: s.h });
+    }
+    for (const s of doc.shapes) {
+      if (want(s.id)) out.push({ ref: s.id, x: s.x, y: s.y, w: s.w, h: s.h });
+    }
+    for (const n of doc.notes) {
+      const ref = `note:${n.noteId}`;
+      if (want(ref)) out.push({ ref, x: n.x, y: n.y, w: n.w, h: n.h });
+    }
+    for (const m of doc.media || []) {
+      if (want(m.id)) out.push({ ref: m.id, x: m.x, y: m.y, w: m.w, h: m.h });
+    }
+    return out;
+  }, [
+    tool,
+    doc.stickies,
+    doc.shapes,
+    doc.notes,
+    doc.media,
+    connectFrom,
+    hoverConnectRef,
+    single,
+    edgeDragPreview,
+  ]);
 
   const openStageAi = () => {
     if (!selectionInfo) return;
@@ -1325,26 +1503,71 @@ export default function CanvasIdPage() {
                 const ca = nodeCenter(doc, edge.from);
                 const cb = nodeCenter(doc, edge.to);
                 if (!ca || !cb) return null;
-                const a = nodeAnchor(doc, edge.from, cb) ?? ca;
-                const b = nodeAnchor(doc, edge.to, ca) ?? cb;
+                let a = edgeEndpoint(doc, edge.from, edge.fromPort, cb) ?? ca;
+                let b = edgeEndpoint(doc, edge.to, edge.toPort, ca) ?? cb;
+                // While dragging an endpoint, preview the moving side.
+                if (edgeDragPreview?.edgeId === edge.id) {
+                  if (edgeDragPreview.which === "from") a = edgeDragPreview.point;
+                  else b = edgeDragPreview.point;
+                }
+                const selectedEdge = isSelected("edge", edge.id);
                 return (
-                  <path
-                    key={edge.id}
-                    d={edgePath(a, b)}
-                    className={`cv-edge${isSelected("edge", edge.id) ? " is-on" : ""}`}
-                    onPointerDown={(ev) => {
-                      ev.stopPropagation();
-                      setSelected([{ type: "edge", id: edge.id }]);
-                    }}
-                  />
+                  <g key={edge.id}>
+                    <path
+                      d={edgePath(a, b)}
+                      className={`cv-edge${selectedEdge ? " is-on" : ""}`}
+                      onPointerDown={(ev) => {
+                        ev.stopPropagation();
+                        setSelected([{ type: "edge", id: edge.id }]);
+                      }}
+                    />
+                    {selectedEdge && tool !== "connect" ? (
+                      <>
+                        <circle
+                          className="cv-edge-end"
+                          cx={a.x}
+                          cy={a.y}
+                          r={6}
+                          onPointerDown={(ev) => {
+                            startEdgeEndDrag(ev as unknown as REPointerEvent, edge.id, "from");
+                          }}
+                        />
+                        <circle
+                          className="cv-edge-end"
+                          cx={b.x}
+                          cy={b.y}
+                          r={6}
+                          onPointerDown={(ev) => {
+                            startEdgeEndDrag(ev as unknown as REPointerEvent, edge.id, "to");
+                          }}
+                        />
+                      </>
+                    ) : null}
+                  </g>
                 );
               })}
+              {tool === "connect" && connectFrom && connectCursor ? (
+                (() => {
+                  const start =
+                    (connectFrom.port
+                      ? nodePortPoint(doc, connectFrom.ref, connectFrom.port)
+                      : null) ||
+                    nodeCenter(doc, connectFrom.ref);
+                  if (!start) return null;
+                  return (
+                    <path
+                      d={edgePath(start, connectCursor)}
+                      className="cv-edge cv-edge--preview"
+                    />
+                  );
+                })()
+              ) : null}
             </svg>
 
             {doc.shapes.map((s) => (
               <div
                 key={s.id}
-                className={`cv-shape cv-shape--${s.shape}${isSelected("shape", s.id) ? " is-on" : ""}${connectFrom === s.id ? " is-connect" : ""}`}
+                className={`cv-shape cv-shape--${s.shape}${isSelected("shape", s.id) ? " is-on" : ""}${connectFrom?.ref === s.id || hoverConnectRef === s.id ? " is-connect" : ""}`}
                 style={{
                   left: s.x,
                   top: s.y,
@@ -1383,7 +1606,7 @@ export default function CanvasIdPage() {
             {doc.stickies.map((s) => {
               const pal = resolveStickyStyle(s.color);
               const isText = s.variant === "text";
-              const connectOn = connectFrom === s.id;
+              const connectOn = connectFrom?.ref === s.id || hoverConnectRef === s.id;
               const textColor = isText ? colorToShapeHex(s.color) : undefined;
               return (
                 <div
@@ -1436,7 +1659,7 @@ export default function CanvasIdPage() {
               const n = noteMap.get(pin.noteId);
               if (!n) return null;
               const noteRef = `note:${pin.noteId}`;
-              const connectOn = connectFrom === noteRef;
+              const connectOn = connectFrom?.ref === noteRef || hoverConnectRef === noteRef;
               return (
                 <div
                   key={pin.noteId}
@@ -1489,6 +1712,30 @@ export default function CanvasIdPage() {
                 ))}
               </div>
             )}
+
+            {(tool === "connect" || edgeDragPreview) &&
+              connectPortTargets.map((t) => (
+                <div
+                  key={`ports-${t.ref}`}
+                  className="cv-port-box"
+                  style={{ left: t.x, top: t.y, width: t.w, height: t.h }}
+                >
+                  {EDGE_PORTS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`cv-port cv-port--${p}${
+                        connectFrom?.ref === t.ref && connectFrom.port === p ? " is-on" : ""
+                      }${edgeDragPreview?.hoverRef === t.ref ? " is-on" : ""}`}
+                      title="連線錨點"
+                      onPointerDown={(e) => {
+                        if (edgeDragPreview) return; // drop handled on pointer up
+                        onPortPointerDown(e, t.ref, p);
+                      }}
+                    />
+                  ))}
+                </div>
+              ))}
 
             {marquee && (
               <div
@@ -1557,7 +1804,7 @@ export default function CanvasIdPage() {
         />
       )}
 
-      {connectFrom && <p className="cv-toast">連線中… 再點終點</p>}
+      {connectFrom && <p className="cv-toast">連線中… 點錨點或物件作為終點</p>}
     </div>
   );
 }
