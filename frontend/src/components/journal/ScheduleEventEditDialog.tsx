@@ -88,6 +88,7 @@ export default function ScheduleEventEditDialog({
       allDay: Boolean(createInitial?.allDay),
       title: createInitial?.title || "",
       conferenceUrl: "",
+      description: "",
       provider: "local" as const,
       remindMinutesBefore: null as number | null,
       recurrence: null as ScheduleRecurrence | null,
@@ -105,6 +106,7 @@ export default function ScheduleEventEditDialog({
   const [endH, setEndH] = useState(String(end0.h));
   const [endM, setEndM] = useState(pad2(end0.m));
   const [conferenceUrl, setConferenceUrl] = useState(seed.conferenceUrl || "");
+  const [description, setDescription] = useState(seed.description || "");
   const [repeatOn, setRepeatOn] = useState(Boolean(seed.recurrence));
   const [freq, setFreq] = useState<ScheduleRecurrenceFreq>(seed.recurrence?.freq || "weekly");
   const [interval, setInterval] = useState(String(seed.recurrence?.interval || 1));
@@ -163,6 +165,7 @@ export default function ScheduleEventEditDialog({
       startMin,
       endMin,
       conferenceUrl: url || undefined,
+      description: description.trim() || null,
       recurrence: buildRecurrence(),
       remindMinutesBefore: remind === "" ? null : Number(remind),
       provider: "local",
@@ -498,6 +501,18 @@ export default function ScheduleEventEditDialog({
             )}
           </>
         )}
+
+        <label className="jn-ev-field">
+          <span>備註</span>
+          <textarea
+            className="input jn-ev-note"
+            rows={3}
+            placeholder="地點、準備事項、補充說明…"
+            value={description}
+            disabled={readonly || busy}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
 
         <label className="jn-ev-field">
           <span>會議連結</span>

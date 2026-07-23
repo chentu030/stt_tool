@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import JournalDayView from "@/components/journal/JournalDayView";
 import JournalWeekTimeline from "@/components/journal/JournalWeekTimeline";
 import JournalMonthBoard from "@/components/journal/JournalMonthBoard";
 import type { ScheduleEvent } from "@/lib/scheduleEvents";
@@ -18,6 +19,8 @@ type Props = {
   onJoin?: (ev: ScheduleEvent) => void;
 };
 
+type Mode = "day" | "week" | "month";
+
 export default function JournalSchedulePanel({
   uid,
   dateKey,
@@ -30,7 +33,7 @@ export default function JournalSchedulePanel({
   onOpenNote,
   onJoin,
 }: Props) {
-  const [mode, setMode] = useState<"week" | "month">("week");
+  const [mode, setMode] = useState<Mode>("week");
 
   return (
     <div className="jn-schedule-panel">
@@ -38,11 +41,20 @@ export default function JournalSchedulePanel({
         <button
           type="button"
           role="tab"
+          aria-selected={mode === "day"}
+          className={`jn-schedule-tab${mode === "day" ? " is-on" : ""}`}
+          onClick={() => setMode("day")}
+        >
+          日
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={mode === "week"}
           className={`jn-schedule-tab${mode === "week" ? " is-on" : ""}`}
           onClick={() => setMode("week")}
         >
-          週時間軸
+          週
         </button>
         <button
           type="button"
@@ -51,11 +63,23 @@ export default function JournalSchedulePanel({
           className={`jn-schedule-tab${mode === "month" ? " is-on" : ""}`}
           onClick={() => setMode("month")}
         >
-          月重要事項
+          月
         </button>
       </div>
 
-      {mode === "week" ? (
+      {mode === "day" ? (
+        <JournalDayView
+          uid={uid}
+          dateKey={dateKey}
+          selectedEventId={selectedEventId}
+          overlays={weekOverlays}
+          onSelectDay={onSelectDay}
+          onSelectEvent={onSelectEvent}
+          onMeetingMode={onMeetingMode}
+          onOpenNote={onOpenNote}
+          onJoin={onJoin}
+        />
+      ) : mode === "week" ? (
         <JournalWeekTimeline
           uid={uid}
           dateKey={dateKey}

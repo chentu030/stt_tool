@@ -65,6 +65,8 @@ export type ScheduleEventInput = {
   allDay?: boolean;
   title: string;
   conferenceUrl?: string;
+  /** Free-text note / memo on the event. */
+  description?: string | null;
   provider?: ScheduleProvider;
   externalId?: string;
   noteId?: string;
@@ -222,6 +224,12 @@ function payloadFromInput(input: ScheduleEventInput, seriesId?: string | null) {
     allDay: Boolean(input.allDay),
     title: (input.title || "未命名").trim() || "未命名",
     conferenceUrl: input.conferenceUrl || null,
+    description:
+      input.description === undefined
+        ? null
+        : input.description
+          ? String(input.description).trim() || null
+          : null,
     provider: input.provider || "local",
     externalId: input.externalId || null,
     noteId: input.noteId || null,
@@ -339,6 +347,9 @@ export async function updateScheduleEvent(
   if (patch.allDay != null) data.allDay = patch.allDay;
   if (patch.title != null) data.title = patch.title.trim() || "未命名";
   if (patch.conferenceUrl !== undefined) data.conferenceUrl = patch.conferenceUrl || null;
+  if (patch.description !== undefined) {
+    data.description = patch.description ? String(patch.description).trim() || null : null;
+  }
   if (patch.noteId !== undefined) data.noteId = patch.noteId || null;
   if (patch.provider != null) data.provider = patch.provider;
   if (patch.externalId !== undefined) data.externalId = patch.externalId || null;
@@ -377,6 +388,8 @@ export async function updateScheduleEventScoped(
         title: patch.title ?? event.title,
         conferenceUrl:
           patch.conferenceUrl !== undefined ? patch.conferenceUrl : event.conferenceUrl,
+        description:
+          patch.description !== undefined ? patch.description : event.description ?? null,
         remindMinutesBefore:
           patch.remindMinutesBefore !== undefined
             ? patch.remindMinutesBefore
@@ -398,6 +411,7 @@ export async function updateScheduleEventScoped(
     endMin: patch.endMin,
     allDay: patch.allDay,
     conferenceUrl: patch.conferenceUrl,
+    description: patch.description,
     remindMinutesBefore: patch.remindMinutesBefore,
     recurrence: patch.recurrence,
   };
@@ -421,6 +435,9 @@ export async function updateScheduleEventScoped(
       }
     }
     if (clean.conferenceUrl !== undefined) data.conferenceUrl = clean.conferenceUrl || null;
+    if (clean.description !== undefined) {
+      data.description = clean.description ? String(clean.description).trim() || null : null;
+    }
     if (clean.remindMinutesBefore !== undefined) {
       data.remindMinutesBefore =
         clean.remindMinutesBefore === null
