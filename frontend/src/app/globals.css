@@ -18652,6 +18652,29 @@ body.is-sidebar-resizing iframe {
 }
 .collaboration-carets__selection {
   pointer-events: none;
+  border-radius: 2px;
+}
+.ProseMirror-yjs-selection {
+  pointer-events: none;
+  border-radius: 2px;
+}
+/* Remote peer multi-block 框選 (inline color from awareness) */
+.ProseMirror .is-remote-block-selected {
+  border-radius: 6px;
+  box-shadow: none;
+}
+.ProseMirror li.is-remote-block-selected,
+.ProseMirror [data-type="taskItem"].is-remote-block-selected {
+  border-radius: 6px;
+}
+.ProseMirror > .is-remote-block-selected + .is-remote-block-selected {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  outline-offset: -1px;
+}
+.ProseMirror > .is-remote-block-selected:has(+ .is-remote-block-selected) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 .doc-collab-status {
   font-size: 0.72rem;

@@ -28,6 +28,11 @@ import { markdownToHtml, htmlToMarkdown, healHighlightArtifacts, formatFileSize,
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import type { FirestoreYjsProvider } from "@/lib/noteCollab";
+import {
+  CollaborationRemoteBlockSel,
+  publishLocalBlockSel,
+} from "@/lib/collabRemoteBlockSel";
+import type { Awareness } from "y-protocols/awareness";
 import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { NoteImage } from "@/lib/tiptapImage";
@@ -1240,6 +1245,15 @@ export default function RichNoteEditor({
                 name: collabProvider.user.name,
                 color: collabProvider.user.color,
               },
+              selectionRender: (user) => ({
+                nodeName: "span",
+                class: "collaboration-carets__selection",
+                style: `background-color: ${user.color}55`,
+                "data-user": user.name,
+              }),
+            }),
+            CollaborationRemoteBlockSel.configure({
+              awareness: collabProvider.awareness,
             }),
           ]
         : []),
@@ -2259,7 +2273,9 @@ export default function RichNoteEditor({
 
       <div ref={canvasRef} className={`rich-canvas${pageMode ? " rich-canvas--page" : ""}`}>
         <div className={pageMode ? "rich-page-sheet" : "rich-canvas-inner"}>
-          {!readOnly && <BlockDragHandle editor={editor} />}
+          {!readOnly && (
+            <BlockDragHandle editor={editor} awareness={collabProvider?.awareness ?? null} />
+          )}
           <EditorContent editor={editor} />
         </div>
         {!readOnly && showEmptyTemplates && isEmptyDoc && onEmptyTemplate && (
@@ -2451,7 +2467,13 @@ function nearestLineHeight(v: number): number {
   );
 }
 
-function BlockDragHandle({ editor }: { editor: Editor }) {
+function BlockDragHandle({
+  editor,
+  awareness,
+}: {
+  editor: Editor;
+  awareness?: Awareness | null;
+}) {
   const [grip, setGrip] = useState<{
     top: number;
     left: number;
@@ -2510,6 +2532,17 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
     else paintBlockSelection(editor, -1, 1, 0); // clear
     return () => paintBlockSelection(editor, -1, 1, 0);
   }, [editor, blockSel, editor.state.doc]);
+
+  // Publish multi-block 框選 to Yjs awareness so remote peers can paint it.
+  useEffect(() => {
+    if (!awareness) return;
+    const range = selRange(blockSel);
+    publishLocalBlockSel(
+      awareness,
+      range ? { parentFrom: range.parentFrom, start: range.start, end: range.end } : null
+    );
+    return () => publishLocalBlockSel(awareness, null);
+  }, [awareness, blockSel]);
 
   // Keep ProseMirror selection aligned with painted blocks (once per blockSel change).
   useEffect(() => {

@@ -322,8 +322,13 @@ export class FirestoreYjsProvider {
     );
     this.unsubs.push(unsub);
 
-    // Heartbeat local awareness so others see us
+    // Heartbeat local awareness so peers keep our caret / blockSel (default timeout ~30s)
     void this.flushAwareness([this.doc.clientID]);
+    const heartbeat = setInterval(() => {
+      if (this.destroyed) return;
+      void this.flushAwareness([this.doc.clientID]);
+    }, 12_000);
+    this.unsubs.push(() => clearInterval(heartbeat));
   }
 
   private async flushAwareness(changedClients: number[]) {
