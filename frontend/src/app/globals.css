@@ -3540,6 +3540,14 @@ html.is-note-app-embed body {
   margin: 0;
   background: var(--bg-primary);
 }
+html.is-note-app-embed .shell-embed-root {
+  display: block;
+  width: 100%;
+  height: 100vh;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+}
 html.is-note-app-embed .app-shell,
 html.is-note-app-embed .shell-sidebar,
 html.is-note-app-embed .shell-top,

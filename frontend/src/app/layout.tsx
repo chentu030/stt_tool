@@ -6,12 +6,11 @@ import { PrefsProvider } from "@/components/PrefsProvider";
 import DialogProvider from "@/components/DialogProvider";
 import ToastProvider from "@/components/ToastProvider";
 import OfflineSyncBootstrap from "@/components/OfflineSyncBootstrap";
-import AppShell from "@/components/shell/AppShell";
 import AccessGate from "@/components/AccessGate";
 import { CommunityProvider } from "@/components/community/CommunityProvider";
 import HttpsUpgrade from "@/components/HttpsUpgrade";
 import LiveRecordingProvider from "@/components/voice/LiveRecordingProvider";
-import { NotesListProvider } from "@/components/notes/NotesListProvider";
+import EmbedAwareChrome from "@/components/shell/EmbedAwareChrome";
 
 export const metadata: Metadata = {
   title: "Albireus — 把說話寫成知識",
@@ -77,9 +76,7 @@ export default function RootLayout({
                 <AccessGate>
                   <CommunityProvider>
                     <LiveRecordingProvider>
-                      <NotesListProvider>
-                        <AppShell>{children}</AppShell>
-                      </NotesListProvider>
+                      <EmbedAwareChrome>{children}</EmbedAwareChrome>
                     </LiveRecordingProvider>
                   </CommunityProvider>
                 </AccessGate>

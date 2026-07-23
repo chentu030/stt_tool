@@ -6,10 +6,6 @@ import {
 } from "firebase/auth";
 import {
   getFirestore,
-  initializeFirestore,
-  memoryLocalCache,
-  persistentLocalCache,
-  persistentSingleTabManager,
   collection,
   doc,
   setDoc,
@@ -44,28 +40,11 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 /**
- * One Firestore instance per JS realm.
- * - SSR / Node: memory cache only
- * - Browser: IndexedDB persistence (single-tab; avoids multi-tab lock crashes on refresh)
- * Safe under Next.js HMR / double-import via try/catch → getFirestore.
+ * Memory-only Firestore. IndexedDB persistence was disabled after it crashed
+ * whiteboard tabs/iframes on refresh (Chrome "This page couldn't load"),
+ * especially with parent + embed=1 both opening the same persistent cache.
  */
-function createFirestore() {
-  const settings =
-    typeof window === "undefined"
-      ? { localCache: memoryLocalCache() }
-      : {
-          localCache: persistentLocalCache({
-            tabManager: persistentSingleTabManager(undefined),
-          }),
-        };
-  try {
-    return initializeFirestore(app, settings);
-  } catch {
-    return getFirestore(app);
-  }
-}
-
-export const db = createFirestore();
+export const db = getFirestore(app);
 export const storage = getStorage(app);
 
 const googleProvider = new GoogleAuthProvider();

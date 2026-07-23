@@ -15,7 +15,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle, uploadCanvasMedia, type Note } from "@/lib/firebase";
+import { loginWithGoogle, getNote, uploadCanvasMedia, type Note } from "@/lib/firebase";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -82,6 +82,25 @@ type ResizeHandle = "nw" | "ne" | "sw" | "se" | "e" | "w" | "n" | "s";
 const MIN_W = 80;
 const MIN_H = 60;
 
+function canvasDocSig(d: CanvasDoc): string {
+  try {
+    return JSON.stringify({
+      name: d.name,
+      pan: d.pan,
+      scale: d.scale,
+      stickies: d.stickies,
+      shapes: d.shapes,
+      edges: d.edges,
+      notes: d.notes,
+      media: d.media,
+      grid: d.grid,
+      snap: d.snap,
+    });
+  } catch {
+    return String(Date.now());
+  }
+}
+
 export default function CanvasIdPage() {
   return (
     <Suspense fallback={<PageLoading />}>
@@ -95,10 +114,12 @@ function CanvasIdPageInner() {
   const canvasId = String(params.id || "");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const embed = searchParams.get("embed") === "1";
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
   useRedirectSpecialtyToNote("canvas", canvasId);
-  const { notes } = useNotesList();
+  const { notes: sharedNotes } = useNotesList();
+  const [pinnedNotes, setPinnedNotes] = useState<Note[]>([]);
   const [list, setList] = useState<CanvasMeta[]>([]);
   const [doc, setDoc] = useState<CanvasDoc>(() => emptyDoc());
   const [ready, setReady] = useState(false);
@@ -106,6 +127,7 @@ function CanvasIdPageInner() {
   const [stickyColor, setStickyColor] = useState<string>("yellow");
   const [selected, setSelected] = useState<Selectable[]>([]);
   const focusApplied = useRef(false);
+  const lastCloudSig = useRef("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingShape, setEditingShape] = useState<string | null>(null);
   const [connectFrom, setConnectFrom] = useState<{ ref: string; port?: EdgePort } | null>(null);
@@ -155,29 +177,42 @@ function CanvasIdPageInner() {
 
   useEffect(() => {
     if (!user) return;
+    if (embed) return;
     return listenCanvases(user.uid, setList);
-  }, [user]);
+  }, [user, embed]);
 
   useEffect(() => {
     if (!user || !canvasId) return;
     setReady(false);
+    lastCloudSig.current = "";
     const unsub = listenCanvas(user.uid, canvasId, (d) => {
       if (!d) {
         router.replace("/canvas");
         return;
       }
       if (skipCloud.current) return;
+      const sig = canvasDocSig(d);
+      if (sig === lastCloudSig.current) {
+        setReady(true);
+        return;
+      }
+      lastCloudSig.current = sig;
       const withAt = d as CanvasDoc & { updated_at?: Date };
       if (withAt.updated_at) baseUpdatedAt.current = withAt.updated_at.getTime();
       setDoc(d);
       setReady(true);
-      localStorage.setItem(lastCanvasKey(user.uid), canvasId);
+      try {
+        localStorage.setItem(lastCanvasKey(user.uid), canvasId);
+      } catch {
+        /* ignore */
+      }
     });
     const onReload = (ev: Event) => {
       const id = (ev as CustomEvent<{ canvasId?: string }>).detail?.canvasId;
       if (id && id !== canvasId) return;
       // Force next snapshot apply
       skipCloud.current = false;
+      lastCloudSig.current = "";
     };
     window.addEventListener("albireus:canvas-reload", onReload);
     return () => {
@@ -190,6 +225,7 @@ function CanvasIdPageInner() {
     if (!user || !canvasId || !ready) return;
     const t = setTimeout(() => {
       skipCloud.current = true;
+      lastCloudSig.current = canvasDocSig(doc);
       void saveCanvasWithSync(user.uid, canvasId, doc, baseUpdatedAt.current || Date.now())
         .then((status) => {
           if (status === "saved") baseUpdatedAt.current = Date.now();
@@ -202,6 +238,28 @@ function CanvasIdPageInner() {
     }, 500);
     return () => clearTimeout(t);
   }, [doc, user, canvasId, ready]);
+
+  // Embed iframe: only fetch pinned note cards (never full notes listen).
+  useEffect(() => {
+    if (!embed || !user || !ready) {
+      setPinnedNotes([]);
+      return;
+    }
+    const ids = [...new Set(doc.notes.map((n) => n.noteId).filter(Boolean))];
+    if (!ids.length) {
+      setPinnedNotes([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const rows = await Promise.all(ids.map((id) => getNote(id).catch(() => null)));
+      if (cancelled) return;
+      setPinnedNotes(rows.filter((n): n is Note => !!n));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [embed, user, ready, doc.notes]);
 
   const pushHistory = useCallback((prev: CanvasDoc) => {
     setHistory((h) => [...h.slice(-29), prev]);
@@ -261,6 +319,8 @@ function CanvasIdPageInner() {
     });
     toast("已復原");
   };
+
+  const notes = embed ? pinnedNotes : sharedNotes;
 
   const noteMap = useMemo(() => {
     const m = new Map<string, Note>();
