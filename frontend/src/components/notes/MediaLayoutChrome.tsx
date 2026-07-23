@@ -21,6 +21,8 @@ type Props = {
   onRequestSelect?: () => void;
   /** Remove the media node from the document. */
   onDelete?: () => void;
+  /** Extra controls in the floating toolbar (e.g. image URL field). */
+  toolbarExtra?: ReactNode;
   selected?: boolean;
   readOnly?: boolean;
   className?: string;
@@ -39,6 +41,7 @@ export default function MediaLayoutChrome({
   updateAttributes,
   onRequestSelect,
   onDelete,
+  toolbarExtra,
   selected = false,
   readOnly = false,
   className = "",
@@ -288,6 +291,7 @@ export default function MediaLayoutChrome({
             ) : null}
           </div>
           <span className="rich-media-toolbar-pct">{layout.widthPct}%</span>
+          {toolbarExtra}
           {onDelete ? (
             <>
               <span className="rich-media-toolbar-sep" />

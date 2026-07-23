@@ -10191,6 +10191,7 @@ body.rich-media-float-dragging * {
   border: 1px solid var(--border);
   background: var(--bg-elevated, var(--bg));
   box-shadow: 0 6px 18px color-mix(in srgb, #000 12%, transparent);
+  max-width: min(100%, 36rem);
 }
 .rich-media-toolbar button {
   border: 0;
@@ -10218,6 +10219,22 @@ body.rich-media-float-dragging * {
   color: var(--text-muted);
   padding: 0 0.25rem;
   font-variant-numeric: tabular-nums;
+}
+.rich-media-toolbar-url {
+  width: min(14rem, 42vw);
+  min-width: 6rem;
+  max-width: 18rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated, var(--bg));
+  color: var(--text-main);
+  font-size: 0.7rem;
+  padding: 0.2rem 0.4rem;
+  outline: none;
+}
+.rich-media-toolbar-url:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .rich-media-wrap-menu {
   position: relative;
@@ -11130,8 +11147,9 @@ body.rich-media-float-dragging * {
   border-color: var(--accent);
   color: var(--accent);
 }
-.rich-prose .rich-image--gif {
-  /* Keep GIF animation when ancestors use transform (Chromium). */
+.rich-prose .rich-image--gif,
+.rich-prose .rich-image--animated {
+  /* Keep GIF/APNG animation when ancestors use transform (Chromium). */
   transform: translateZ(0);
   backface-visibility: hidden;
 }

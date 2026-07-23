@@ -8,7 +8,6 @@ import {
   layoutDataAttrString,
   parseEmbedMid,
   parseImageMid,
-  readHideUrlBarFromElement,
   readLayoutFromElement,
   DEFAULT_MEDIA_LAYOUT,
 } from "@/lib/mediaLayout";
@@ -313,11 +312,7 @@ turndown.addRule("richImageLayout", {
     const layout = readLayoutFromElement(frame);
     const src = img.getAttribute("src") || "";
     const alt = img.getAttribute("alt") || "";
-    const hideUrlBar =
-      readHideUrlBarFromElement(el) ||
-      readHideUrlBarFromElement(frame) ||
-      readHideUrlBarFromElement(img);
-    return `\n\n${formatImageToken(src, alt, layout, { hideUrlBar })}\n\n`;
+    return `\n\n${formatImageToken(src, alt, layout, { hideUrlBar: true })}\n\n`;
   },
 });
 
@@ -334,8 +329,7 @@ turndown.addRule("richImageBare", {
     const src = img.getAttribute("src") || "";
     if (!src) return "";
     const alt = img.getAttribute("alt") || "";
-    const hideUrlBar = readHideUrlBarFromElement(img);
-    return `\n\n${formatImageToken(src, alt, layout, { hideUrlBar })}\n\n`;
+    return `\n\n${formatImageToken(src, alt, layout, { hideUrlBar: true })}\n\n`;
   },
 });
 
@@ -1336,15 +1330,11 @@ export function htmlToMarkdown(html: string): string {
           (img.closest(".rich-media-frame, .rich-image-shell") as HTMLElement | null) ||
           host;
         const layout = readLayoutFromElement(frame);
-        const hideUrlBar =
-          readHideUrlBarFromElement(host) ||
-          readHideUrlBarFromElement(frame) ||
-          readHideUrlBarFromElement(img);
         const token = formatImageToken(
           img.getAttribute("src") || "",
           img.getAttribute("alt") || "",
           layout,
-          { hideUrlBar }
+          { hideUrlBar: true }
         );
         const target =
           (host.closest(".rich-image-shell") as HTMLElement | null) ||
