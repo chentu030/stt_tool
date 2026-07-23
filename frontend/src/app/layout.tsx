@@ -10,6 +10,7 @@ import AppShell from "@/components/shell/AppShell";
 import AccessGate from "@/components/AccessGate";
 import { CommunityProvider } from "@/components/community/CommunityProvider";
 import HttpsUpgrade from "@/components/HttpsUpgrade";
+import LiveRecordingProvider from "@/components/voice/LiveRecordingProvider";
 
 export const metadata: Metadata = {
   title: "Albireus — 把說話寫成知識",
@@ -74,7 +75,9 @@ export default function RootLayout({
                 <OfflineSyncBootstrap />
                 <AccessGate>
                   <CommunityProvider>
-                    <AppShell>{children}</AppShell>
+                    <LiveRecordingProvider>
+                      <AppShell>{children}</AppShell>
+                    </LiveRecordingProvider>
                   </CommunityProvider>
                 </AccessGate>
               </ToastProvider>

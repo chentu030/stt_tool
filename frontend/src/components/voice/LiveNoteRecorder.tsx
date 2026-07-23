@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { uploadNoteMedia } from "@/lib/firebase";
 import {
   fetchGoogleSttHealth,
@@ -56,6 +57,10 @@ type Props = {
   mode?: LiveRecordMode;
   /** Initial source; user can still change before pressing 開始 */
   audioSource?: LiveAudioSource;
+  /** Link back to the note while recording on other pages */
+  noteHref?: string;
+  /** Notify host when recording / finishing pipeline is active */
+  onLiveChange?: (active: boolean) => void;
 };
 
 type PreviewLine = {
@@ -106,10 +111,15 @@ export default function LiveNoteRecorder({
   autoStart,
   mode = "organize",
   audioSource: audioSourceProp = "mic",
+  noteHref,
+  onLiveChange,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
   const language = mapCaptureLangToGoogle(prefs?.captureLanguage || "zh-TW");
+  const insertMdRef = useRef(insertMd);
+  insertMdRef.current = insertMd;
+  const writeMd = (md: string) => insertMdRef.current(md);
   const minSecs = Math.max(15, prefs?.liveChunkMinSecs ?? 15);
   const organizeEvery = Math.max(1, prefs?.liveOrganizeEveryChunks ?? 10);
   const silenceMs = Math.max(600, prefs?.liveSilenceMs ?? 700);
@@ -332,7 +342,7 @@ export default function LiveNoteRecorder({
       const organized = await organizeLiveSegment(packed);
       if (organized.trim()) {
         const time = clockNow();
-        insertMd(`\n### 整理 · ${time}\n\n${organized}\n`);
+        writeMd(`\n### 整理 · ${time}\n\n${organized}\n`);
         toast(`已整理 ${texts.length} 段`);
       }
       setStatus("整理完成 · 繼續錄製");
@@ -353,7 +363,7 @@ export default function LiveNoteRecorder({
     streamTranscriptBufRef.current = [];
     const body = buf.map((x) => `${x.stamp}\n${x.text}`).join("\n\n");
     const toggle = transcriptToggleMd(body);
-    if (toggle) insertMd(`\n\n${toggle}`);
+    if (toggle) writeMd(`\n\n${toggle}`);
   };
 
   const maybeAutoOrganize = () => {
@@ -421,11 +431,11 @@ export default function LiveNoteRecorder({
         if (modeRef.current === "audio" || got.audioOnly) {
           if (modeRef.current === "audio") {
             // H3 tight against the player (no blank line).
-            insertMd(audioBlock ? `\n\n### 音檔 · ${time}\n${audioBlock}\n` : `\n\n### 音檔 · ${time}\n`);
+            writeMd(audioBlock ? `\n\n### 音檔 · ${time}\n${audioBlock}\n` : `\n\n### 音檔 · ${time}\n`);
             setStatus(`「${job.label}」音檔已寫入`);
           } else {
             // Text already streamed in; keep a compact audio bookmark per cut.
-            if (audioBlock) insertMd(`\n${audioBlock}\n`);
+            if (audioBlock) writeMd(`\n${audioBlock}\n`);
             setStatus(`「${job.label}」音檔已附上`);
           }
           segOkRef.current += 1;
@@ -433,7 +443,7 @@ export default function LiveNoteRecorder({
           // Single newline: toggle body splits each line into a <p>; blank lines become empty gaps.
           const toggle = transcriptToggleMd(`${time}\n${got.transcript}`);
           // Toggle + audio with no blank line between.
-          insertMd(
+          writeMd(
             audioBlock ? `\n\n${toggle}\n${audioBlock}\n` : toggle ? `\n\n${toggle}\n` : ""
           );
           queueTranscriptForOrganize(got.transcript);
@@ -835,8 +845,8 @@ export default function LiveNoteRecorder({
     const rec = recRef.current;
     liveRef.current = false;
     setLive(false);
-    setStatus("結束錄音，正在處理…請稍候，不要關閉頁面");
-    toast("正在處理錄音…完成後會寫入筆記");
+    setStatus("結束錄音，正在處理…請稍候，可切換頁面但不要關閉分頁");
+    toast("正在處理錄音…可切換其他頁面，請勿關閉瀏覽器分頁");
     if (!rec) {
       setStopping(false);
       setDoneSummary("沒有可處理的錄音");
@@ -895,7 +905,7 @@ export default function LiveNoteRecorder({
             ? transcriptToggleMd(fullText, "整段逐字稿")
             : "";
           // H3 → full transcript toggle → audio, no blank lines between.
-          insertMd(
+          writeMd(
             fullToggle
               ? `\n\n---\n\n### 整段錄音\n${fullToggle}\n${audioMd(up.url, file.name)}\n`
               : `\n\n---\n\n### 整段錄音\n${audioMd(up.url, file.name)}\n`
@@ -944,6 +954,20 @@ export default function LiveNoteRecorder({
     setStarting(false);
     onClose();
   };
+
+  useEffect(() => {
+    onLiveChange?.(live || stopping || starting);
+  }, [live, stopping, starting, onLiveChange]);
+
+  useEffect(() => {
+    if (!live && !stopping && !starting) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [live, stopping, starting]);
 
   useEffect(() => {
     if (!open) {
@@ -1085,6 +1109,16 @@ export default function LiveNoteRecorder({
                 ) : null}
               </div>
             </div>
+
+            {noteHref ? (
+              <Link
+                href={noteHref}
+                className="btn btn-sm btn-ghost voice-live-note-link"
+                title="回到這則筆記（錄音不會中斷）"
+              >
+                回筆記
+              </Link>
+            ) : null}
 
             {(canPickSource || booting) && (
               <div className="voice-live-source" role="group" aria-label="錄音來源">

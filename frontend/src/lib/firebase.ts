@@ -577,6 +577,22 @@ export async function updateNote(
   return { updatedAt: adoptedRemoteMs ?? updatedAtMs };
 }
 
+/** Append markdown while a live session writes off the open editor (cross-page recording). */
+export async function appendNoteMarkdown(noteId: string, md: string): Promise<void> {
+  if (!md) return;
+  const ref = doc(db, "notes", noteId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("筆記不存在");
+    const data = snap.data() as Record<string, unknown>;
+    const body = String(data.body_md || "");
+    tx.update(ref, {
+      body_md: `${body}${md}`,
+      updated_at: Timestamp.now(),
+    });
+  });
+}
+
 export async function getNote(noteId: string): Promise<Note | null> {
   const snap = await getDoc(doc(db, "notes", noteId));
   if (!snap.exists()) return null;

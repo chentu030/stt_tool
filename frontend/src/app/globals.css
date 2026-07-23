@@ -20012,6 +20012,10 @@ body.is-sidebar-resizing iframe {
   min-width: 0;
   flex: 1 1 auto;
 }
+.voice-live-note-link {
+  flex-shrink: 0;
+  text-decoration: none;
+}
 .voice-live-dock-pulse {
   width: 8px;
   height: 8px;

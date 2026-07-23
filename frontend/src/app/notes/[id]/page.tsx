@@ -96,11 +96,12 @@ import { splitFolderPath } from "@/lib/noteTree";
 import { FocusModeProvider, useFocusMode } from "@/components/notes/FocusModeProvider";
 import NotePresence from "@/components/notes/NotePresence";
 import NoteHuddle from "@/components/notes/NoteHuddle";
-import LiveNoteRecorder, {
+import {
   liveModeLabel,
   type LiveAudioSource,
   type LiveRecordMode,
 } from "@/components/voice/LiveNoteRecorder";
+import { useLiveRecording } from "@/components/voice/LiveRecordingProvider";
 import { liveAudioSourceHint, liveAudioSourceLabel } from "@/lib/voiceSession";
 import NotePageLog from "@/components/notes/NotePageLog";
 import NoteDbPropertiesPanel from "@/components/notes/NoteDbPropertiesPanel";
@@ -242,12 +243,12 @@ function NotePageInner() {
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRestored = useRef<string | null>(null);
   const insertMdRef = useRef<((md: string, opts?: { at?: "cursor" | "end" }) => void) | null>(null);
-  const [liveOpen, setLiveOpen] = useState(false);
-  const [liveAutoStart, setLiveAutoStart] = useState(false);
+  const liveRec = useLiveRecording();
   const [liveMode, setLiveMode] = useState<LiveRecordMode>("organize");
   const [liveAudioSource, setLiveAudioSource] = useState<LiveAudioSource>("mic");
   const [liveMenuOpen, setLiveMenuOpen] = useState(false);
   const liveMenuRef = useRef<HTMLDivElement | null>(null);
+  const liveOpen = !!(id && liveRec.noteId === id);
   const latest = useRef({
     title: "",
     body: "",
@@ -396,7 +397,7 @@ function NotePageInner() {
 
   // Open live note recorder from capture (?live=1[&liveMode=…][&liveAudio=…][&liveStart=1])
   useEffect(() => {
-    if (!id) return;
+    if (!id || !user) return;
     if (searchParams.get("live") !== "1") return;
     const raw = searchParams.get("liveMode");
     const mode: LiveRecordMode =
@@ -406,16 +407,35 @@ function NotePageInner() {
       rawSrc === "system" || rawSrc === "both" || rawSrc === "mic" ? rawSrc : "mic";
     setLiveMode(mode);
     setLiveAudioSource(src);
-    // Capture opens picker; note menu / explicit liveStart=1 auto-starts
-    setLiveAutoStart(searchParams.get("liveStart") === "1");
-    setLiveOpen(true);
+    liveRec.startLive({
+      uid: user.uid,
+      noteId: id,
+      mode,
+      audioSource: src,
+      autoStart: searchParams.get("liveStart") === "1",
+    });
     const url = new URL(window.location.href);
     url.searchParams.delete("live");
     url.searchParams.delete("liveMode");
     url.searchParams.delete("liveAudio");
     url.searchParams.delete("liveStart");
     window.history.replaceState({}, "", url.pathname + (url.search || ""));
-  }, [id, searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, searchParams, user?.uid]);
+
+  useEffect(() => {
+    if (!id) return;
+    return liveRec.registerNoteInsert(id, (md) => {
+      if (insertMdRef.current) insertMdRef.current(md, { at: "end" });
+      else {
+        const next = `${latest.current.body || ""}${md}`;
+        latest.current = { ...latest.current, body: next };
+        setBody(next);
+        markDirty({ body: next });
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, liveRec.registerNoteInsert]);
 
   useEffect(() => {
     if (!liveMenuOpen) return;
@@ -1711,9 +1731,15 @@ function NotePageInner() {
                       role="menuitem"
                       onClick={() => {
                         setLiveMode(mode);
-                        setLiveAutoStart(true);
-                        setLiveOpen(true);
                         setLiveMenuOpen(false);
+                        if (!user || !note) return;
+                        liveRec.startLive({
+                          uid: user.uid,
+                          noteId: note.id,
+                          mode,
+                          audioSource: liveAudioSource,
+                          autoStart: true,
+                        });
                       }}
                     >
                       <strong>
@@ -2572,31 +2598,6 @@ function NotePageInner() {
           }}
         />
       )}
-
-      {user && note && liveOpen ? (
-        <LiveNoteRecorder
-          key={note.id}
-          uid={user.uid}
-          noteId={note.id}
-          open={liveOpen}
-          mode={liveMode}
-          audioSource={liveAudioSource}
-          autoStart={liveAutoStart}
-          onClose={() => {
-            setLiveOpen(false);
-            setLiveAutoStart(false);
-          }}
-          insertMd={(md) => {
-            if (insertMdRef.current) insertMdRef.current(md, { at: "end" });
-            else {
-              const next = `${latest.current.body || ""}${md}`;
-              latest.current = { ...latest.current, body: next };
-              setBody(next);
-              markDirty();
-            }
-          }}
-        />
-      ) : null}
     </div>
   );
 }
