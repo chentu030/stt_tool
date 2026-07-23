@@ -498,12 +498,25 @@ button, input, textarea, select {
 }
 
 /* Cadence database (Notion-like) */
-.cdb-node { margin: 0.85rem 0; }
+.cdb-node {
+  margin: 0.85rem 0;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
 .cdb-embed-shell, .cdb {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-elevated);
+  /* Keep radius clip, but never grow past the note/page width —
+     otherwise wide tables get cut by app-main overflow-x: clip with no way to pan. */
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .cdb--compact { font-size: 0.92rem; }
 .cdb-toolbar {
@@ -706,7 +719,37 @@ button, input, textarea, select {
   cursor: pointer;
 }
 .cdb-view-tab.is-on { background: var(--accent-soft); color: var(--accent); }
-.cdb-table-wrap { overflow: auto; }
+.cdb-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  /* Override global hidden scrollbars so users can drag the right edge into view */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+.cdb-table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+.cdb-table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cdb-table-wrap::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.cdb-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 70%, transparent);
+  background-clip: padding-box;
+}
 .cdb-table-wrap.is-resizing {
   cursor: col-resize;
   user-select: none;
@@ -1023,7 +1066,8 @@ button, input, textarea, select {
 .cdb-chips,
 .cdb-rel {
   position: relative;
-  min-width: 7rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .cdb-chip-list {
   display: flex;
@@ -1163,7 +1207,13 @@ button, input, textarea, select {
 }
 .cdb-open-page:hover { color: var(--accent); border-color: var(--accent); }
 .cdb-formula { font-variant-numeric: tabular-nums; color: var(--text-muted); }
-.cdb-files-cell { display: flex; flex-direction: column; gap: 0.35rem; min-width: 8rem; }
+.cdb-files-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+}
 .cdb-file-chip {
   font-size: 0.72rem;
   color: var(--accent);
@@ -1473,7 +1523,9 @@ button, input, textarea, select {
   color: var(--text-main);
   font: inherit;
   outline: none;
-  min-width: 6rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .cdb-date-field {
   width: 100%;
@@ -1633,6 +1685,10 @@ button, input, textarea, select {
   text-decoration: underline;
 }
 .cdb-title-cell {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: none;
   background: transparent;
   color: var(--accent);
@@ -1640,9 +1696,21 @@ button, input, textarea, select {
   cursor: pointer;
   text-align: left;
   padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cdb-title-cell:hover { text-decoration: underline; }
-.cdb-readonly { font-size: 0.78rem; color: var(--text-muted); }
+.cdb-readonly {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cdb-add-row {
   display: block;
   width: 100%;
@@ -1691,6 +1759,25 @@ button, input, textarea, select {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+.cdb-page > .cdb {
+  /* Full-page DB: still scroll inside the table wrap, not the page */
+  max-width: 100%;
+}
+.cdb-board {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+.cdb-board::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+.cdb-board::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
 }
 .cdb-page.is-embed {
   padding: 0;
