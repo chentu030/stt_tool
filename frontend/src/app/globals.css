@@ -16063,6 +16063,57 @@ body.is-sidebar-resizing iframe {
   gap: 0.45rem;
   padding-right: 0.15rem;
 }
+.cadence-ai-thinking {
+  min-height: 2.4rem;
+}
+.ai-thinking-morph {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.35rem;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+}
+.ai-thinking-morph-svg {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.ai-thinking-morph-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: ai-thinking-pulse 1.2s ease-in-out infinite;
+}
+.ai-thinking-morph-stage {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 4.5rem;
+  min-height: 1.25em;
+  overflow: hidden;
+}
+.ai-thinking-morph-word {
+  display: inline-block;
+  white-space: nowrap;
+  color: var(--text-main);
+}
+@keyframes ai-thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
 .cadence-ai-edit-bar {
   display: flex;
   flex-wrap: wrap;

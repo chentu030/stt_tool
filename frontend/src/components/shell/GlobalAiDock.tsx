@@ -14,6 +14,7 @@ import {
   type JobAiContext,
 } from "@/lib/jobAiContext";
 import AiMarkdown from "@/components/AiMarkdown";
+import AiThinkingMorph from "@/components/motion/AiThinkingMorph";
 import {
   dispatchNoteAiEdit,
   parseNoteAiEdit,
@@ -1092,7 +1093,12 @@ export default function GlobalAiDock() {
                   ) : null}
                 </div>
               ))}
-              {busy && <p className="note-aside-hint">思考中…</p>}
+              {busy && (
+                <div className="note-ai-msg note-ai-msg--assistant cadence-ai-thinking">
+                  <span className="note-ai-msg-role">{assistantName}</span>
+                  <AiThinkingMorph />
+                </div>
+              )}
             </div>
             {error && <p className="note-aside-error">{error}</p>}
             <form
