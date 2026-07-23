@@ -6068,15 +6068,35 @@ a.sidebar-user-name:hover {
 }
 
 @media (max-width: 1100px) {
+  /* Mobile: leave desktop pane scrolling — use normal document flow. */
+  .app-main:has(.jn-page) {
+    overflow-x: clip;
+    overflow-y: auto;
+  }
+  .jn-page {
+    flex: none;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+  }
   .jn-layout {
-    grid-template-columns: minmax(0, 1fr);
-    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+    gap: 0.85rem;
   }
   .jn-left,
   .jn-center,
   .jn-aside {
+    display: flex;
+    flex-direction: column;
+    flex: none;
     height: auto;
     max-height: none;
+    min-height: 0;
     overflow: visible;
     padding-bottom: 0;
     scrollbar-gutter: auto;
@@ -6113,6 +6133,10 @@ a.sidebar-user-name:hover {
   .jn-continue .continue-chips-row {
     min-width: 0;
     flex: 1 1 auto;
+  }
+  /* Write area first on phones; calendar / history below */
+  .jn-center {
+    order: -1;
   }
 }
 
