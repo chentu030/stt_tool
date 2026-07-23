@@ -85,9 +85,12 @@ export default function AccessGate({ children }: { children: ReactNode }) {
 
   const status = useMemo(() => resolveAccess(user, request), [user, request]);
 
-  if (bypass || !user) return <>{children}</>;
+  // Share links stay readable; auth must finish before we decide the rest of the app.
+  if (bypass) return <>{children}</>;
+  if (loading) return <PageLoading label="確認使用權限…" />;
+  if (!user) return <>{children}</>;
   if (allowlisted) return <>{children}</>;
-  if (loading || reqLoading) return <PageLoading label="確認使用權限…" />;
+  if (reqLoading) return <PageLoading label="確認使用權限…" />;
   if (status === "approved") return <>{children}</>;
   if (status === "pending") {
     return (

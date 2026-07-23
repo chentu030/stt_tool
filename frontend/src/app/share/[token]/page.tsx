@@ -19,6 +19,14 @@ import {
 import { loginWithGoogle, type Note } from "@/lib/firebase";
 import { useNoteCollab } from "@/hooks/useNoteCollab";
 import NotePresence from "@/components/notes/NotePresence";
+import {
+  fetchAccessRequest,
+  isAllowlistedEmail,
+  listenAccessRequest,
+  resolveAccess,
+  type AccessRequest,
+} from "@/lib/accessGate";
+import { toast } from "@/lib/toast";
 
 export default function ShareNotePage() {
   const { token } = useParams<{ token: string }>();
@@ -31,11 +39,18 @@ export default function ShareNotePage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const [copyBusy, setCopyBusy] = useState(false);
+  const [accessReq, setAccessReq] = useState<AccessRequest | null>(null);
+  const [accessLoading, setAccessLoading] = useState(false);
   const bodyRef = useRef(body);
   bodyRef.current = body;
 
-  const canEdit = mode === "edit" && !!user;
-  const collabEnabled = !!note && mode === "edit" && !!user;
+  const accessStatus = resolveAccess(user, accessReq);
+  const accessApproved =
+    !!user && (isAllowlistedEmail(user.email) || accessStatus === "approved");
+  const accessPending = !!user && accessStatus === "pending";
+  // Edit / copy into library require closed-beta approval — view-only stays open.
+  const canEdit = mode === "edit" && accessApproved;
+  const collabEnabled = !!note && mode === "edit" && accessApproved;
 
   const collab = useNoteCollab({
     noteId: note?.id,
@@ -51,6 +66,35 @@ export default function ShareNotePage() {
   const collabReady = collab.ready && !!collab.provider;
 
   useEffect(() => {
+    if (!user) {
+      setAccessReq(null);
+      setAccessLoading(false);
+      return;
+    }
+    if (isAllowlistedEmail(user.email)) {
+      setAccessReq(null);
+      setAccessLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAccessLoading(true);
+    void fetchAccessRequest(user.uid).then((req) => {
+      if (cancelled) return;
+      setAccessReq(req);
+      setAccessLoading(false);
+    });
+    const unsub = listenAccessRequest(user.uid, (req) => {
+      if (cancelled) return;
+      setAccessReq(req);
+      setAccessLoading(false);
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [user]);
+
+  useEffect(() => {
     let unsub: (() => void) | undefined;
     let cancelled = false;
     (async () => {
@@ -64,7 +108,7 @@ export default function ShareNotePage() {
         setMode(link.mode);
 
         // Edit mode (signed in): live note + collab. View/copy: public token snapshot only.
-        const useLiveNote = link.mode === "edit" && !!user;
+        const useLiveNote = link.mode === "edit" && accessApproved;
         if (useLiveNote) {
           const n = await getNoteById(link.note_id);
           if (!n) throw new Error("筆記不存在或無法讀取");
@@ -118,7 +162,7 @@ export default function ShareNotePage() {
       cancelled = true;
       unsub?.();
     };
-  }, [token, user?.uid]);
+  }, [token, user?.uid, accessApproved]);
 
   const collabReadyRef = useRef(false);
   collabReadyRef.current = collabReady;
@@ -126,6 +170,15 @@ export default function ShareNotePage() {
   const onCopy = async () => {
     if (!user) {
       await loginWithGoogle();
+      return;
+    }
+    if (!accessApproved) {
+      if (accessPending) {
+        toast("申請審核中，通過後即可複製到知識庫");
+      } else {
+        toast("請先完成使用申請，並等待後台核准");
+        router.push("/");
+      }
       return;
     }
     if (!note) return;
@@ -182,6 +235,15 @@ export default function ShareNotePage() {
               登入以編輯
             </button>
           )}
+          {mode === "edit" && user && !accessLoading && !accessApproved && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => router.push("/")}
+            >
+              {accessPending ? "審核中 — 查看申請狀態" : "申請使用後即可編輯"}
+            </button>
+          )}
           {user && (
             <Link href="/library" className="btn btn-sm btn-ghost">
               我的知識庫
@@ -192,6 +254,14 @@ export default function ShareNotePage() {
 
       {busy && <PageLoading fill={false} label="載入中…" />}
       {error && <p className="share-status is-error">{error}</p>}
+
+      {!busy && note && !error && mode === "edit" && user && !accessLoading && !accessApproved && (
+        <p className="share-status">
+          {accessPending
+            ? "你的使用申請審核中。通過後即可編輯此分享文件；目前為唯讀。"
+            : "編輯分享文件需先完成使用申請並經後台核准。目前為唯讀。"}
+        </p>
+      )}
 
       {!busy && note && !error && (
         <div className="share-doc">

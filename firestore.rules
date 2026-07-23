@@ -16,7 +16,7 @@ service cloud.firestore {
     function noteSharedEdit() {
       return noteSharedRead()
         && resource.data.share.mode == 'edit'
-        && signedIn();
+        && isAccessApproved();
     }
     function noteDoc(noteId) {
       return get(/databases/$(database)/documents/notes/$(noteId)).data;
@@ -49,13 +49,18 @@ service cloud.firestore {
     function canEditNoteCollab(noteId) {
       return signedIn() && (
         noteDoc(noteId).user_id == request.auth.uid
-        || noteAclEditor(noteId)
         || (
-          noteDoc(noteId).keys().hasAll(['share'])
-          && noteDoc(noteId).share.enabled == true
-          && noteDoc(noteId).share.mode == 'edit'
-          && noteDoc(noteId).share.token is string
-          && noteDoc(noteId).share.token.size() > 0
+          isAccessApproved()
+          && (
+            noteAclEditor(noteId)
+            || (
+              noteDoc(noteId).keys().hasAll(['share'])
+              && noteDoc(noteId).share.enabled == true
+              && noteDoc(noteId).share.mode == 'edit'
+              && noteDoc(noteId).share.token is string
+              && noteDoc(noteId).share.token.size() > 0
+            )
+          )
         )
       );
     }
@@ -65,14 +70,16 @@ service cloud.firestore {
 
     match /jobs/{jobId} {
       allow create: if signedIn()
-                    && request.resource.data.user_id == request.auth.uid;
+                    && request.resource.data.user_id == request.auth.uid
+                    && isAccessApproved();
       allow read, update, delete: if signedIn()
                     && resource.data.user_id == request.auth.uid;
     }
 
     match /notes/{noteId} {
       allow create: if signedIn()
-                    && request.resource.data.user_id == request.auth.uid;
+                    && request.resource.data.user_id == request.auth.uid
+                    && isAccessApproved();
       // Shared notes are not world-readable by note id; public viewers use share_tokens snapshot.
       // Signed-in users may still open edit-mode shares via noteSharedRead().
       allow read: if noteOwner() || noteAclViewer(noteId) || (signedIn() && noteSharedRead());
@@ -156,6 +163,15 @@ service cloud.firestore {
         || request.auth.token.email == 'ljc123@gmail.com'
         || request.auth.token.email == 'a.meowalien@gmail.com'
       );
+    }
+    // Closed beta: new accounts must be approved (or allowlisted) before writing.
+    function isAccessApproved() {
+      return isAccessAllowlisted()
+        || (
+          signedIn()
+          && exists(/databases/$(database)/documents/access_requests/$(request.auth.uid))
+          && get(/databases/$(database)/documents/access_requests/$(request.auth.uid)).data.status == 'approved'
+        );
     }
 
     // Closed-beta access applications
