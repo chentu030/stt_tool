@@ -5938,6 +5938,7 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+  justify-content: flex-end;
 }
 .jn-aside { position: sticky; top: 0.75rem; }
 .jn-stat-grid {

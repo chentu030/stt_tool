@@ -313,16 +313,6 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
         >
           {busy ? "儲存中…" : dirty ? "儲存這天 *" : "儲存這天"}
         </button>
-        <button
-          type="button"
-          className="btn btn-soft"
-          disabled={busy}
-          onClick={() =>
-            onSave({ text: `${text.trim()}\n\n> ${prompt}\n\n`, tags: selected })
-          }
-        >
-          用提問起筆並儲存
-        </button>
       </div>
     </div>
   );
