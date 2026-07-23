@@ -14161,37 +14161,50 @@ body.is-sidebar-resizing iframe {
   gap: 0.35rem;
   color: inherit;
   text-decoration: none;
-  padding: 0.15rem 0.15rem;
+  padding: 0;
 }
 .sb-folder-icon {
-  width: 12px;
-  height: 10px;
+  width: 1.2rem;
+  height: 1.2rem;
   flex-shrink: 0;
-  border: 1.5px solid var(--text-muted);
-  border-radius: 2px 2px 1px 1px;
-  opacity: 0.7;
+  border: none;
+  opacity: 0.75;
   position: relative;
   padding: 0;
   cursor: pointer;
   background: transparent;
+  box-sizing: border-box;
 }
 .sb-folder-icon::before {
   content: "";
   position: absolute;
-  top: -3px;
-  left: 1px;
+  top: 3px;
+  left: 3px;
   width: 5px;
   height: 3px;
   border: 1.5px solid var(--text-muted);
   border-bottom: none;
   border-radius: 2px 2px 0 0;
+  box-sizing: border-box;
 }
-.sb-folder-icon.is-open {
+.sb-folder-icon::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 3px;
+  width: 12px;
+  height: 9px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 1px 2px 2px 2px;
+  background: transparent;
+  box-sizing: border-box;
+}
+.sb-folder-icon.is-open::before,
+.sb-folder-icon.is-open::after {
   border-color: var(--accent);
+}
+.sb-folder-icon.is-open::after {
   background: var(--accent-soft);
-}
-.sb-folder-icon.is-open::before {
-  border-color: var(--accent);
 }
 .sb-note-icon {
   width: 1.2rem;

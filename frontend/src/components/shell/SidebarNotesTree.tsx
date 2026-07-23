@@ -1731,7 +1731,7 @@ export default function SidebarNotesTree() {
                   <div
                     className={`sb-row sb-row--folder${dragOverFolder === dropKey || fileDropTarget === dropKey ? " is-drop" : ""}${colorId ? " has-color" : ""}`}
                     style={{
-                      paddingLeft: 8 + row.depth * 12,
+                      paddingLeft: 12 + row.depth * 12,
                       ...(colorId
                         ? {
                             ["--sb-tint" as string]: color.fg,
