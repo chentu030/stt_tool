@@ -132,16 +132,24 @@ function conferenceFromEvent(ev: GCalEvent): string | undefined {
 
 /** Map Google Calendar events for a dateKey into ScheduleEvent overlays. */
 export async function fetchGoogleDayEvents(dateKey: string): Promise<ScheduleEvent[]> {
+  const rows = await fetchGoogleRangeEvents([dateKey]);
+  return rows.filter((e) => e.dateKey === dateKey);
+}
+
+/** Fetch Google events spanning multiple local dateKeys (one API call). */
+export async function fetchGoogleRangeEvents(dateKeys: string[]): Promise<ScheduleEvent[]> {
+  const keys = [...new Set(dateKeys.filter(Boolean))].sort();
+  if (!keys.length) return [];
   let token = getStoredGoogleAccessToken();
   if (!token) token = await connectGoogleCalendar();
-  const dayStart = new Date(`${dateKey}T00:00:00`);
-  const dayEnd = new Date(`${dateKey}T23:59:59`);
+  const dayStart = new Date(`${keys[0]}T00:00:00`);
+  const dayEnd = new Date(`${keys[keys.length - 1]}T23:59:59`);
   const params = new URLSearchParams({
     timeMin: dayStart.toISOString(),
     timeMax: dayEnd.toISOString(),
     singleEvents: "true",
     orderBy: "startTime",
-    maxResults: "50",
+    maxResults: "250",
     conferenceDataVersion: "1",
   });
   const res = await fetch(
@@ -157,40 +165,58 @@ export async function fetchGoogleDayEvents(dateKey: string): Promise<ScheduleEve
     );
     if (!retry.ok) throw new Error("無法讀取 Google 日曆");
     const data = (await retry.json()) as { items?: GCalEvent[] };
-    return mapItems(dateKey, data.items || []);
+    return mapItemsRange(keys, data.items || []);
   }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(err.slice(0, 200) || "無法讀取 Google 日曆");
   }
   const data = (await res.json()) as { items?: GCalEvent[] };
-  return mapItems(dateKey, data.items || []);
+  return mapItemsRange(keys, data.items || []);
 }
 
 function mapItems(dateKey: string, items: GCalEvent[]): ScheduleEvent[] {
-  return items
-    .map((ev) => {
-      const id = `gcal:${ev.id || Math.random().toString(36).slice(2)}`;
-      const allDay = Boolean(ev.start?.date && !ev.start?.dateTime);
-      let startMin = 0;
-      let endMin = 24 * 60;
-      if (!allDay && ev.start?.dateTime && ev.end?.dateTime) {
-        startMin = minsFromDate(new Date(ev.start.dateTime));
-        endMin = minsFromDate(new Date(ev.end.dateTime));
-        if (endMin <= startMin) endMin = startMin + 30;
-      }
-      return {
-        id,
-        dateKey,
-        startMin,
-        endMin,
-        allDay,
-        title: (ev.summary || "（無標題）").trim(),
-        conferenceUrl: conferenceFromEvent(ev),
-        description: (ev.description || "").trim().slice(0, 2000) || undefined,
-        provider: "google" as const,
-        externalId: ev.id,
-      };
-    })
-    .filter((e) => e.dateKey === dateKey);
+  return mapItemsRange([dateKey], items).filter((e) => e.dateKey === dateKey);
+}
+
+function eventDateKey(ev: GCalEvent): string | null {
+  if (ev.start?.date) return ev.start.date.slice(0, 10);
+  if (ev.start?.dateTime) {
+    const d = new Date(ev.start.dateTime);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return null;
+}
+
+function mapItemsRange(dateKeys: string[], items: GCalEvent[]): ScheduleEvent[] {
+  const allow = new Set(dateKeys);
+  const out: ScheduleEvent[] = [];
+  for (const ev of items) {
+    const dateKey = eventDateKey(ev);
+    if (!dateKey || !allow.has(dateKey)) continue;
+    const allDay = Boolean(ev.start?.date && !ev.start?.dateTime);
+    let startMin = 0;
+    let endMin = 24 * 60;
+    if (!allDay && ev.start?.dateTime && ev.end?.dateTime) {
+      startMin = minsFromDate(new Date(ev.start.dateTime));
+      endMin = minsFromDate(new Date(ev.end.dateTime));
+      if (endMin <= startMin) endMin = startMin + 30;
+    }
+    out.push({
+      id: `gcal:${ev.id || `${dateKey}-${startMin}`}`,
+      dateKey,
+      startMin,
+      endMin,
+      allDay,
+      title: (ev.summary || "（無標題）").trim(),
+      conferenceUrl: conferenceFromEvent(ev),
+      description: (ev.description || "").trim().slice(0, 2000) || undefined,
+      provider: "google",
+      externalId: ev.id,
+    });
+  }
+  return out;
 }

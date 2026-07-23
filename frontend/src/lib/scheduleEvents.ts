@@ -120,6 +120,40 @@ export function listenScheduleEvents(
   );
 }
 
+/** Merge live listeners across multiple dateKeys (e.g. week view). */
+export function listenScheduleEventsForDates(
+  uid: string,
+  dateKeys: string[],
+  onData: (events: ScheduleEvent[]) => void,
+  onError?: (e: Error) => void
+): Unsubscribe {
+  const byDate = new Map<string, ScheduleEvent[]>();
+  const keys = [...new Set(dateKeys.filter(Boolean))];
+  const emit = () => {
+    const rows = keys.flatMap((k) => byDate.get(k) || []);
+    rows.sort(
+      (a, b) =>
+        a.dateKey.localeCompare(b.dateKey) ||
+        a.startMin - b.startMin ||
+        a.title.localeCompare(b.title)
+    );
+    onData(rows);
+  };
+  const unsubs = keys.map((dk) =>
+    listenScheduleEvents(
+      uid,
+      dk,
+      (rows) => {
+        byDate.set(dk, rows);
+        emit();
+      },
+      onError
+    )
+  );
+  if (!keys.length) onData([]);
+  return () => unsubs.forEach((u) => u());
+}
+
 export async function createScheduleEvent(uid: string, input: ScheduleEventInput) {
   const startMin = input.allDay ? 0 : snapMin(input.startMin);
   let endMin = input.allDay ? 24 * 60 : snapMin(input.endMin);

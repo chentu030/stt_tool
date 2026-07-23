@@ -116,6 +116,27 @@ export function dateKeyFromDate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Monday-start week containing `dateKey` (7 keys). */
+export function weekDateKeys(dateKey: string): string[] {
+  const d = parseDateKey(dateKey);
+  if (!d) return [dateKey];
+  const dow = d.getDay(); // 0=Sun
+  const toMon = dow === 0 ? -6 : 1 - dow;
+  const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() + toMon);
+  return Array.from({ length: 7 }, (_, i) => {
+    const x = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
+    return dateKeyFromDate(x);
+  });
+}
+
+/** Shift a dateKey by N days. */
+export function shiftDateKey(dateKey: string, days: number): string {
+  const d = parseDateKey(dateKey);
+  if (!d) return dateKey;
+  d.setDate(d.getDate() + days);
+  return dateKeyFromDate(d);
+}
+
 export function parseDateKey(key: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
   if (!m) return null;

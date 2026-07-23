@@ -20,7 +20,7 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import JournalCalendar from "@/components/journal/JournalCalendar";
 import JournalComposer, { type JournalComposerHandle } from "@/components/journal/JournalComposer";
 import JournalAside from "@/components/journal/JournalAside";
-import JournalDayTimeline from "@/components/journal/JournalDayTimeline";
+import JournalWeekTimeline from "@/components/journal/JournalWeekTimeline";
 import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import { useLiveRecordingOptional } from "@/components/voice/LiveRecordingProvider";
 import {
@@ -32,6 +32,7 @@ import {
   promptForDate,
   toJournalEntries,
   upsertJournalMeta,
+  weekDateKeys,
 } from "@/lib/journalMeta";
 import {
   ensureMeetingNote,
@@ -45,7 +46,7 @@ import {
 import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
-  fetchGoogleDayEvents,
+  fetchGoogleRangeEvents,
   getStoredGoogleAccessToken,
   googleCalendarConfigured,
 } from "@/lib/googleCalendar";
@@ -78,11 +79,30 @@ export default function JournalPage() {
   const [localEvents, setLocalEvents] = useState<ScheduleEvent[]>([]);
   const [gcalOn, setGcalOn] = useState(false);
   const [gcalStatus, setGcalStatus] = useState<"off" | "loading" | "ok" | "error">("off");
+  const [railOpen, setRailOpen] = useState(false);
   const liveRec = useLiveRecordingOptional();
+  const weekKeys = useMemo(() => weekDateKeys(selected), [selected]);
 
   useEffect(() => {
     setGcalOn(Boolean(getStoredGoogleAccessToken()));
+    try {
+      setRailOpen(localStorage.getItem("cadence_jn_rail") === "1");
+    } catch {
+      /* ignore */
+    }
   }, []);
+
+  const toggleRail = () => {
+    setRailOpen((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem("cadence_jn_rail", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!user) {
@@ -102,7 +122,7 @@ export default function JournalPage() {
     setGcalStatus("loading");
     void (async () => {
       try {
-        const rows = await fetchGoogleDayEvents(selected);
+        const rows = await fetchGoogleRangeEvents(weekKeys);
         if (!cancelled) {
           setGcalEvents(rows);
           setGcalStatus("ok");
@@ -118,7 +138,7 @@ export default function JournalPage() {
     return () => {
       cancelled = true;
     };
-  }, [gcalOn, selected, user]);
+  }, [gcalOn, weekKeys, user]);
 
   const agendaEvents = useMemo(() => {
     const map = new Map<string, ScheduleEvent>();
@@ -709,7 +729,7 @@ export default function JournalPage() {
         </div>
       </header>
 
-      <div className="jn-layout">
+      <div className={`jn-layout${railOpen ? " is-rail-open" : ""}`}>
         <div className="jn-left">
           <JournalCalendar
             year={cursor.year}
@@ -727,11 +747,58 @@ export default function JournalPage() {
             }}
           />
 
-          <JournalDayTimeline
+          <div className="jn-center-stack">
+            <JournalComposer
+              key={`${selectedId || "empty"}-${selected}-${composerKey}`}
+              ref={composerRef}
+              dateKey={selected}
+              initialText={composerBody}
+              tags={
+                selectedEntry?.meta.tags?.length
+                  ? selectedEntry.meta.tags
+                  : selectedEntry?.meta.mood
+                    ? [selectedEntry.meta.mood]
+                    : []
+              }
+              busy={busy}
+              onSave={(p) => {
+                void saveComposer(p);
+              }}
+              onOpenFull={() => {
+                void openOrCreate(selected);
+              }}
+              onDirtyChange={setComposerDirty}
+            />
+          </div>
+
+          <JournalAside
+            mode="agenda"
+            stats={stats}
+            dateKey={selected}
+            noteId={selectedEntry?.id}
+            noteTitle={selectedEntry?.title}
+            tagDefs={tagDefs}
+            agenda={agendaEvents}
+            onAskAi={askAi}
+            onMeetingMode={(ev) => {
+              void startMeetingMode(ev);
+            }}
+            onOpenNote={(ev) => {
+              void openEventNote(ev);
+            }}
+            onJoin={onJoinEvent}
+          />
+        </div>
+
+        <div className="jn-center">
+          <JournalWeekTimeline
             uid={user.uid}
             dateKey={selected}
             selectedEventId={selectedEventId}
             overlays={gcalEvents}
+            onSelectDay={(dk) => {
+              void onSelectDay(dk);
+            }}
             onSelectEvent={(ev) => {
               setSelectedEventId(ev?.id ?? null);
             }}
@@ -743,149 +810,135 @@ export default function JournalPage() {
             }}
             onJoin={onJoinEvent}
           />
+        </div>
 
-          <section className="jn-list-section">
-            <div className="jn-list-head">
-              <h3>過往日誌</h3>
-              <div className="jn-list-head-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm jn-add-entry"
-                  disabled={busy}
-                  title={`在 ${selected} 新增一則日誌`}
-                  onClick={() => {
-                    void createNewForDay(selected);
-                  }}
-                >
-                  新增
-                </button>
-                <input
-                  className="input"
-                  style={{ maxWidth: 160 }}
-                  placeholder="搜尋…"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                />
-              </div>
-            </div>
-            {filtered.length === 0 ? (
-              <div className="jn-empty">
-                <p className="jn-muted">還沒有日誌</p>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    void createNewForDay(today);
-                  }}
-                >
-                  寫今天
-                </button>
-              </div>
-            ) : (
-              <div className="jn-list">
-                {filtered.map((e, i) => (
-                  <motion.div
-                    key={e.id}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.02, 0.2) }}
-                    className={`jn-card${e.id === selectedEntry?.id ? " is-on" : ""}`}
-                  >
+        <button
+          type="button"
+          className={`jn-rail-toggle${railOpen ? " is-open" : ""}`}
+          onClick={toggleRail}
+          title={railOpen ? "收合側欄" : "展開側欄（過往日誌／節奏／AI）"}
+          aria-expanded={railOpen}
+        >
+          {railOpen ? "›" : "‹"}
+        </button>
+
+        <aside className={`jn-rail${railOpen ? " is-open" : ""}`} aria-hidden={!railOpen}>
+          {railOpen && (
+            <>
+              <section className="jn-list-section">
+                <div className="jn-list-head">
+                  <h3>過往日誌</h3>
+                  <div className="jn-list-head-actions">
                     <button
                       type="button"
-                      className="jn-card-main"
+                      className="btn btn-ghost btn-sm jn-add-entry"
+                      disabled={busy}
+                      title={`在 ${selected} 新增一則日誌`}
                       onClick={() => {
-                        void onSelectEntry(e);
+                        void createNewForDay(selected);
                       }}
                     >
-                      <div className="jn-card-top">
-                        <strong>{e.dateKey}</strong>
-                        {(e.meta.tags?.length
-                          ? e.meta.tags
-                          : e.meta.mood
-                            ? [e.meta.mood]
-                            : []
-                        ).map((id) => {
-                          const def = tagDefs.find((t) => t.id === id);
-                          return (
-                            <span
-                              key={id}
-                              className="jn-mood-dot"
-                              style={{ background: def?.color || "#94A3B8" }}
-                            >
-                              {def?.label || id}
-                            </span>
-                          );
-                        })}
-                      </div>
-                      <p>{e.snippet}</p>
-                      <div className="jn-card-meta">
-                        <span>{e.wordCount} 字</span>
-                        <span>{e.updated_at.toLocaleString("zh-TW")}</span>
-                      </div>
+                      新增
                     </button>
-                    <div className="jn-card-actions">
-                      <Link href={`/notes/${e.id}`} className="jn-card-open">
-                        開啟
-                      </Link>
-                      <button
-                        type="button"
-                        className="jn-card-del"
-                        title="刪除"
-                        onClick={() => {
-                          void deleteEntry(e.id, e.dateKey);
-                        }}
+                    <input
+                      className="input"
+                      style={{ maxWidth: 120 }}
+                      placeholder="搜尋…"
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {filtered.length === 0 ? (
+                  <div className="jn-empty">
+                    <p className="jn-muted">還沒有日誌</p>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        void createNewForDay(today);
+                      }}
+                    >
+                      寫今天
+                    </button>
+                  </div>
+                ) : (
+                  <div className="jn-list">
+                    {filtered.map((e, i) => (
+                      <motion.div
+                        key={e.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: Math.min(i * 0.02, 0.2) }}
+                        className={`jn-card${e.id === selectedEntry?.id ? " is-on" : ""}`}
                       >
-                        刪除
-                      </button>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+                        <button
+                          type="button"
+                          className="jn-card-main"
+                          onClick={() => {
+                            void onSelectEntry(e);
+                          }}
+                        >
+                          <div className="jn-card-top">
+                            <strong>{e.dateKey}</strong>
+                            {(e.meta.tags?.length
+                              ? e.meta.tags
+                              : e.meta.mood
+                                ? [e.meta.mood]
+                                : []
+                            ).map((id) => {
+                              const def = tagDefs.find((t) => t.id === id);
+                              return (
+                                <span
+                                  key={id}
+                                  className="jn-mood-dot"
+                                  style={{ background: def?.color || "#94A3B8" }}
+                                >
+                                  {def?.label || id}
+                                </span>
+                              );
+                            })}
+                          </div>
+                          <p>{e.snippet}</p>
+                          <div className="jn-card-meta">
+                            <span>{e.wordCount} 字</span>
+                            <span>{e.updated_at.toLocaleString("zh-TW")}</span>
+                          </div>
+                        </button>
+                        <div className="jn-card-actions">
+                          <Link href={`/notes/${e.id}`} className="jn-card-open">
+                            開啟
+                          </Link>
+                          <button
+                            type="button"
+                            className="jn-card-del"
+                            title="刪除"
+                            onClick={() => {
+                              void deleteEntry(e.id, e.dateKey);
+                            }}
+                          >
+                            刪除
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </section>
 
-        <div className="jn-center">
-          <JournalComposer
-            key={`${selectedId || "empty"}-${selected}-${composerKey}`}
-            ref={composerRef}
-            dateKey={selected}
-            initialText={composerBody}
-            tags={
-              selectedEntry?.meta.tags?.length
-                ? selectedEntry.meta.tags
-                : selectedEntry?.meta.mood
-                  ? [selectedEntry.meta.mood]
-                  : []
-            }
-            busy={busy}
-            onSave={(p) => {
-              void saveComposer(p);
-            }}
-            onOpenFull={() => {
-              void openOrCreate(selected);
-            }}
-            onDirtyChange={setComposerDirty}
-          />
-        </div>
-
-        <JournalAside
-          stats={stats}
-          dateKey={selected}
-          noteId={selectedEntry?.id}
-          noteTitle={selectedEntry?.title}
-          tagDefs={tagDefs}
-          agenda={agendaEvents}
-          onAskAi={askAi}
-          onMeetingMode={(ev) => {
-            void startMeetingMode(ev);
-          }}
-          onOpenNote={(ev) => {
-            void openEventNote(ev);
-          }}
-          onJoin={onJoinEvent}
-        />
+              <JournalAside
+                mode="secondary"
+                stats={stats}
+                dateKey={selected}
+                noteId={selectedEntry?.id}
+                noteTitle={selectedEntry?.title}
+                tagDefs={tagDefs}
+                agenda={agendaEvents}
+                onAskAi={askAi}
+              />
+            </>
+          )}
+        </aside>
       </div>
     </div>
   );

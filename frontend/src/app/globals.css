@@ -5559,7 +5559,7 @@ a.sidebar-user-name:hover {
 }
 .jn-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(220px, 260px);
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) 0 0;
   gap: 0.75rem;
   align-items: stretch;
   flex: 1;
@@ -5570,10 +5570,18 @@ a.sidebar-user-name:hover {
   /* Columns scroll independently; do not scroll the whole grid together. */
   overflow: hidden;
   padding-top: 0.1rem;
+  position: relative;
+}
+.jn-layout.is-rail-open {
+  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) 28px minmax(220px, 260px);
+}
+.jn-layout:not(.is-rail-open) {
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) 28px 0fr;
 }
 .jn-left,
 .jn-center,
-.jn-aside {
+.jn-aside,
+.jn-rail {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -5588,12 +5596,59 @@ a.sidebar-user-name:hover {
   padding-bottom: 0.75rem;
   scrollbar-gutter: stable;
 }
+.jn-center {
+  overflow: hidden;
+}
+.jn-rail {
+  padding-bottom: 0.75rem;
+}
+.jn-rail:not(.is-open) {
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
+  scrollbar-gutter: auto;
+  opacity: 0;
+  pointer-events: none;
+}
+.jn-rail-toggle {
+  align-self: stretch;
+  width: 28px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  height: 100%;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.jn-rail-toggle:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
+.jn-rail-toggle.is-open {
+  color: var(--accent);
+}
+.jn-center-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
 .jn-cal,
 .jn-composer,
 .jn-aside-block,
 .jn-list-section,
 .jn-week-strip,
-.jn-timeline {
+.jn-timeline,
+.jn-week {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -5948,6 +6003,221 @@ a.sidebar-user-name:hover {
   margin: 0;
   font-size: 0.68rem;
   color: var(--text-muted);
+}
+.jn-week {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+  max-height: 100%;
+}
+.jn-week-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.jn-week-head-left {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.jn-week-head h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+.jn-week-head-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+.jn-week-allday {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.35rem;
+  align-items: start;
+}
+.jn-week-allday-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding-top: 0.35rem;
+}
+.jn-week-allday-cols {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+.jn-week-allday-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 2.2rem;
+  padding: 0.2rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  position: relative;
+}
+.jn-week-allday-col.is-sel {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.jn-week-allday-wd {
+  position: absolute;
+  right: 0.25rem;
+  bottom: 0.1rem;
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+.jn-week-scroll {
+  flex: 1;
+  min-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 40%, var(--bg-elevated));
+}
+.jn-week-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  min-width: 560px;
+}
+.jn-week-hours {
+  position: relative;
+}
+.jn-week-hour {
+  position: absolute;
+  left: 0;
+  right: 0;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  transform: translateY(-0.4em);
+  text-align: center;
+}
+.jn-week-cols {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  position: relative;
+  border-left: 1px solid var(--border);
+}
+.jn-week-col {
+  position: relative;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(60px * 0.72 - 1px),
+    color-mix(in srgb, var(--border) 55%, transparent) calc(60px * 0.72 - 1px),
+    color-mix(in srgb, var(--border) 55%, transparent) calc(60px * 0.72)
+  );
+  touch-action: none;
+}
+.jn-week-col:last-child {
+  border-right: none;
+}
+.jn-week-col.is-today {
+  background-color: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.jn-week-col.is-sel {
+  background-color: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.jn-week-col-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  padding: 0.28rem 0.1rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.jn-week-col-head span {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+.jn-week-col-head strong {
+  font-size: 0.85rem;
+}
+.jn-week-col.is-today .jn-week-col-head strong {
+  color: var(--accent);
+}
+.jn-week-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 2;
+  pointer-events: none;
+}
+.jn-week-now::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.jn-week-event {
+  position: absolute;
+  left: 0.15rem;
+  right: 0.15rem;
+  z-index: 1;
+  padding: 0.2rem 0.28rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-elevated));
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+.jn-week-event strong {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jn-week-event span {
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jn-week-event.is-on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.jn-week-event.is-draft {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.jn-week-event.is-sync {
+  border-color: color-mix(in srgb, var(--border) 80%, #64748b);
+  background: color-mix(in srgb, #64748b 12%, var(--bg-elevated));
+}
+.jn-aside.is-agenda,
+.jn-aside.is-secondary {
+  height: auto;
+  overflow: visible;
+  padding-bottom: 0;
+  gap: 0.85rem;
 }
 .jn-tl-actions {
   display: flex;
@@ -6355,9 +6625,14 @@ a.sidebar-user-name:hover {
     overflow: visible;
     gap: 0.85rem;
   }
+  .jn-layout.is-rail-open,
+  .jn-layout:not(.is-rail-open) {
+    grid-template-columns: none;
+  }
   .jn-left,
   .jn-center,
-  .jn-aside {
+  .jn-aside,
+  .jn-rail {
     display: flex;
     flex-direction: column;
     flex: none;
@@ -6367,6 +6642,26 @@ a.sidebar-user-name:hover {
     overflow: visible;
     padding-bottom: 0;
     scrollbar-gutter: auto;
+  }
+  .jn-rail:not(.is-open) {
+    display: none;
+  }
+  .jn-rail-toggle {
+    width: 100%;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .jn-rail-toggle::after {
+    content: attr(title);
+    font-size: 0.75rem;
+    margin-left: 0.35rem;
+  }
+  .jn-week-scroll {
+    min-height: 360px;
+  }
+  /* Week schedule first on tablet+phone */
+  .jn-center {
+    order: -1;
   }
 }
 
@@ -6386,7 +6681,8 @@ a.sidebar-user-name:hover {
   .jn-composer,
   .jn-aside-block,
   .jn-list-section,
-  .jn-week-strip {
+  .jn-week-strip,
+  .jn-week {
     padding: 0.75rem;
   }
   .jn-list-head .input {
@@ -6400,10 +6696,6 @@ a.sidebar-user-name:hover {
   .jn-continue .continue-chips-row {
     min-width: 0;
     flex: 1 1 auto;
-  }
-  /* Write area first on phones; calendar / history below */
-  .jn-center {
-    order: -1;
   }
 }
 
