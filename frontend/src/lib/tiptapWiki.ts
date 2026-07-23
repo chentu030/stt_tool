@@ -39,6 +39,7 @@ export const WikiLink = Mark.create({
       mergeAttributes(attrs, {
         class: missing ? "rich-wiki is-missing" : "rich-wiki",
         rel: "noopener",
+        title: "點擊開啟",
       }),
       0,
     ];
@@ -51,7 +52,7 @@ export function wikiLinkHtml(title: string, noteId?: string | null): string {
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   if (noteId) {
-    return `<a class="rich-wiki" data-wiki="${esc(t)}" href="/notes/${esc(noteId)}">${esc(t)}</a>`;
+    return `<a class="rich-wiki" data-wiki="${esc(t)}" href="/notes/${esc(noteId)}" title="點擊開啟">${esc(t)}</a>`;
   }
-  return `<a class="rich-wiki is-missing" data-wiki="${esc(t)}" href="#">${esc(t)}</a>`;
+  return `<a class="rich-wiki is-missing" data-wiki="${esc(t)}" href="#" title="點擊開啟">${esc(t)}</a>`;
 }

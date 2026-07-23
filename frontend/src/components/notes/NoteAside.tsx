@@ -30,7 +30,7 @@ type Props = {
   linkPicker?: string;
   onLinkPickerChange?: (q: string) => void;
   linkCandidates?: LinkCandidate[];
-  onOpenWikiNote?: (title: string) => void;
+  onOpenWikiNote?: (title: string, noteId?: string | null) => void;
   onInsertWiki?: (title: string) => void;
   open: boolean;
   tab: "outline" | "info";

@@ -81,8 +81,8 @@ type Props = {
   noteTitle?: string;
   /** Create a nested page under the current note; return created title for wiki link */
   onCreateSubpage?: (title: string) => Promise<{ id: string; title: string } | null>;
-  /** Open / create a note from a wiki link title (click on [[…]]) */
-  onOpenWikiNote?: (title: string) => void | Promise<void>;
+  /** Open / create a note from a wiki link (click on [[…]] / 子頁). Prefer noteId when known. */
+  onOpenWikiNote?: (title: string, noteId?: string | null) => void | Promise<void>;
   /** Open Albireus AI aside / chat */
   onOpenAiAssistant?: (opts?: { selection?: string; question?: string; focusChat?: boolean }) => void;
   /** Launch deep research with selected text */
@@ -1282,32 +1282,31 @@ export default function RichNoteEditor({
         const el = target?.closest?.("a.rich-wiki") as HTMLAnchorElement | null;
         if (el) {
           event.preventDefault();
-          if (!isDouble) return false;
           const title = (el.getAttribute("data-wiki") || "").trim();
-          const href = el.getAttribute("href");
-          const label = title || el.textContent || href || "Wiki 連結";
-          void (async () => {
-            const ok = await askConfirm({
-              title: "開啟筆記連結？",
-              message: label,
-              confirmLabel: "開啟",
-              cancelLabel: "取消",
-            });
-            if (!ok) return;
-            const open = onOpenWikiNoteRef.current;
-            if (open && title) {
-              void open(title);
-              return;
-            }
-            if (href && href.startsWith("/notes/")) {
-              window.location.href = href;
-              return;
-            }
-            if (title) {
-              const id = resolveWikiRef.current(title);
-              if (id) window.location.href = `/notes/${id}`;
-            }
-          })();
+          const href = (el.getAttribute("href") || "").trim();
+          const noteId =
+            href.startsWith("/notes/")
+              ? href.slice("/notes/".length).split(/[?#]/)[0].trim()
+              : "";
+          // ⌘/Ctrl+click → new tab when we have a real note URL
+          if ((event.metaKey || event.ctrlKey) && noteId) {
+            window.open(`/notes/${noteId}`, "_blank", "noopener,noreferrer");
+            return true;
+          }
+          // Single click opens subpage / wiki links (no double-click or confirm).
+          const open = onOpenWikiNoteRef.current;
+          if (open && (title || noteId)) {
+            void open(title || noteId, noteId || null);
+            return true;
+          }
+          if (noteId) {
+            window.location.href = `/notes/${noteId}`;
+            return true;
+          }
+          if (title) {
+            const id = resolveWikiRef.current(title);
+            if (id) window.location.href = `/notes/${id}`;
+          }
           return true;
         }
         // TipTap Link uses openOnClick: false so contenteditable won't follow <a> —

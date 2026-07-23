@@ -1426,9 +1426,22 @@ function NotePageInner() {
   };
 
   const openWikiNote = useCallback(
-    async (noteTitle: string) => {
+    async (noteTitle: string, noteId?: string | null) => {
+      if (!user) return;
+      const idFromHref = (noteId || "").trim();
+      if (idFromHref) {
+        if (idFromHref === note?.id) {
+          toast("已在此筆記");
+          setLinkPicker("");
+          return;
+        }
+        if (dirty) await save(false);
+        setLinkPicker("");
+        router.push(`/notes/${idFromHref}`);
+        return;
+      }
       const t = noteTitle.trim();
-      if (!t || !user) return;
+      if (!t) return;
       const hit = findNoteByTitle(
         allNotes.map((n) => ({
           id: n.id,
@@ -2483,7 +2496,7 @@ function NotePageInner() {
                 toast(`已套用範本：${tpl.label}`);
               }}
               onOpenThread={(selection) => setThreadSelection(selection)}
-              onOpenWikiNote={(t) => void openWikiNote(t)}
+              onOpenWikiNote={(t, id) => void openWikiNote(t, id)}
               onCreateSubpage={async (pageTitle) => {
                 if (!user || !note) return null;
                 try {
@@ -2557,7 +2570,7 @@ function NotePageInner() {
           linkPicker={linkPicker}
           onLinkPickerChange={setLinkPicker}
           linkCandidates={linkCandidates.map((n) => ({ id: n.id, title: n.title }))}
-          onOpenWikiNote={(t) => void openWikiNote(t)}
+          onOpenWikiNote={(t, id) => void openWikiNote(t, id)}
           onInsertWiki={viewMode === "read" ? () => undefined : insertWiki}
           widthPx={asideWidth}
           onResizeWidth={onAsideResize}
