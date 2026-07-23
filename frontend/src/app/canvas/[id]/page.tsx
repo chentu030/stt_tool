@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Suspense,
   type PointerEvent as REPointerEvent,
 } from "react";
 import Link from "next/link";
@@ -82,6 +83,14 @@ const MIN_W = 80;
 const MIN_H = 60;
 
 export default function CanvasIdPage() {
+  return (
+    <Suspense fallback={<PageLoading />}>
+      <CanvasIdPageInner />
+    </Suspense>
+  );
+}
+
+function CanvasIdPageInner() {
   const params = useParams();
   const canvasId = String(params.id || "");
   const router = useRouter();

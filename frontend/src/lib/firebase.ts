@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut as fbSignOut,
@@ -7,8 +7,9 @@ import {
 import {
   getFirestore,
   initializeFirestore,
+  memoryLocalCache,
   persistentLocalCache,
-  persistentMultipleTabManager,
+  persistentSingleTabManager,
   collection,
   doc,
   setDoc,
@@ -39,19 +40,26 @@ import {
   type LineOp,
 } from "@/lib/textDiff";
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+/**
+ * One Firestore instance per JS realm.
+ * - SSR / Node: memory cache only
+ * - Browser: IndexedDB persistence (single-tab; avoids multi-tab lock crashes on refresh)
+ * Safe under Next.js HMR / double-import via try/catch → getFirestore.
+ */
 function createFirestore() {
-  if (typeof window === "undefined") {
-    return getFirestore(app);
-  }
+  const settings =
+    typeof window === "undefined"
+      ? { localCache: memoryLocalCache() }
+      : {
+          localCache: persistentLocalCache({
+            tabManager: persistentSingleTabManager(undefined),
+          }),
+        };
   try {
-    return initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-      }),
-    });
+    return initializeFirestore(app, settings);
   } catch {
     return getFirestore(app);
   }
