@@ -181,7 +181,11 @@ export default function JournalMonthBoard({
                   </button>
                 )}
               </div>
-              <div className="jn-month-cell-items">
+              <div
+                className="jn-month-cell-items"
+                onClick={(e) => e.stopPropagation()}
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {important.map((ev) => (
                   <button
                     key={ev.id}
@@ -204,7 +208,7 @@ export default function JournalMonthBoard({
                     {ev.title}
                   </button>
                 ))}
-                {timed.slice(0, 3).map((ev) => (
+                {timed.map((ev) => (
                   <button
                     key={ev.id}
                     type="button"
@@ -225,9 +229,6 @@ export default function JournalMonthBoard({
                     <em>{formatClock(ev.startMin)}</em> {ev.title}
                   </button>
                 ))}
-                {timed.length > 3 && (
-                  <span className="jn-month-more">+{timed.length - 3}</span>
-                )}
               </div>
             </div>
           );
@@ -237,7 +238,7 @@ export default function JournalMonthBoard({
       <p className="jn-tl-hint">
         {editMode
           ? "編輯中：點 ＋ 或雙擊新增（可設時間、重複、提醒）。點已有事項可編輯／刪除。"
-          : "點日期會同步週視圖；點事項可編輯。按「編輯事項」後可新增。"}
+          : "點日期會同步週視圖；事項多時可在格子內上下捲動。按「編輯事項」後可新增。"}
       </p>
 
       {editingEvent && (

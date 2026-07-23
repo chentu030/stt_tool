@@ -6662,13 +6662,17 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  min-height: 88px;
+  /* min-height:0 so grid rows stay fixed and items scroll instead of growing the cell */
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
   padding: 0.35rem;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 45%, var(--bg-elevated));
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
 }
 .jn-month-cell.is-out {
   opacity: 0.42;
@@ -6685,6 +6689,7 @@ a.sidebar-user-name:hover {
   align-items: center;
   justify-content: space-between;
   gap: 0.2rem;
+  flex: 0 0 auto;
 }
 .jn-month-cell-top strong {
   font-size: 0.78rem;
@@ -6696,8 +6701,26 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-direction: column;
   gap: 0.18rem;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  -ms-overflow-style: auto;
+}
+.jn-month-cell-items::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+  height: auto;
+}
+.jn-month-cell-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+.jn-month-cell-items::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
 }
 .jn-month-chip {
   appearance: none;
@@ -6713,6 +6736,8 @@ a.sidebar-user-name:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 0 0 auto;
+  min-height: 1.35em;
 }
 .jn-month-chip em {
   font-style: normal;
@@ -6729,10 +6754,6 @@ a.sidebar-user-name:hover {
 }
 .jn-month-chip.is-sync {
   opacity: 0.85;
-}
-.jn-month-more {
-  font-size: 0.58rem;
-  color: var(--text-muted);
 }
 .jn-week-now {
   position: absolute;
