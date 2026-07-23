@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  createScheduleEvent,
   formatClock,
   listenScheduleEventsForDates,
   type ScheduleEvent,
@@ -12,7 +11,6 @@ import {
   monthDateKeys,
   parseDateKey,
 } from "@/lib/journalMeta";
-import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import ScheduleEventEditDialog from "@/components/journal/ScheduleEventEditDialog";
 
@@ -58,6 +56,11 @@ export default function JournalMonthBoard({
   const [localEvents, setLocalEvents] = useState<ScheduleEvent[]>([]);
   const [editMode, setEditMode] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const [createFor, setCreateFor] = useState<{
+    dateKey: string;
+    allDay?: boolean;
+    title?: string;
+  } | null>(null);
   const todayKey = dateKeyFromDate(new Date());
   const monthLabel = useMemo(() => {
     const d = parseDateKey(dateKey);
@@ -105,35 +108,10 @@ export default function JournalMonthBoard({
     onSelectDay?.(dateKeyFromDate(next));
   };
 
-  const addImportant = async (dk: string) => {
+  const addImportant = (dk: string) => {
     if (!editMode) return;
-    try {
-      const t = await askPrompt({
-        title: "重要事項",
-        defaultValue: "",
-        placeholder: "例如：交報告、家人聚餐…",
-      });
-      if (t == null) return;
-      const id = await createScheduleEvent(uid, {
-        dateKey: dk,
-        startMin: 0,
-        endMin: 24 * 60,
-        allDay: true,
-        title: t.trim() || "重要事項",
-      });
-      onSelectDay?.(dk);
-      onSelectEvent?.({
-        id,
-        dateKey: dk,
-        startMin: 0,
-        endMin: 24 * 60,
-        allDay: true,
-        title: t.trim() || "重要事項",
-        provider: "local",
-      });
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "新增失敗");
-    }
+    onSelectDay?.(dk);
+    setCreateFor({ dateKey: dk, allDay: true, title: "" });
   };
 
   return (
@@ -258,8 +236,8 @@ export default function JournalMonthBoard({
 
       <p className="jn-tl-hint">
         {editMode
-          ? "編輯中：點格子 ＋ 或雙擊新增重要事項（與週時間軸同步）。"
-          : "點日期會同步週視圖；右鍵／點事項可編輯。按「編輯事項」後可新增。"}
+          ? "編輯中：點 ＋ 或雙擊新增（可設時間、重複、提醒）。點已有事項可編輯／刪除。"
+          : "點日期會同步週視圖；點事項可編輯。按「編輯事項」後可新增。"}
       </p>
 
       {editingEvent && (
@@ -271,6 +249,26 @@ export default function JournalMonthBoard({
           onDeleted={() => {
             if (selectedEventId === editingEvent.id) onSelectEvent?.(null);
             setEditingEvent(null);
+          }}
+        />
+      )}
+
+      {createFor && (
+        <ScheduleEventEditDialog
+          uid={uid}
+          createInitial={createFor}
+          onClose={() => setCreateFor(null)}
+          onSaved={(id) => {
+            onSelectEvent?.({
+              id,
+              dateKey: createFor.dateKey,
+              startMin: 0,
+              endMin: 24 * 60,
+              allDay: true,
+              title: createFor.title || "重要事項",
+              provider: "local",
+            });
+            setCreateFor(null);
           }}
         />
       )}

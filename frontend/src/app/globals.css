@@ -6538,8 +6538,8 @@ a.sidebar-user-name:hover {
   padding: 1rem;
 }
 .jn-ev-dialog {
-  width: min(420px, 100%);
-  max-height: min(90vh, 640px);
+  width: min(440px, 100%);
+  max-height: min(92vh, 720px);
   overflow: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -6604,6 +6604,27 @@ a.sidebar-user-name:hover {
   display: flex;
   gap: 0.35rem;
   margin-left: auto;
+}
+.jn-ev-repeat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 55%, var(--bg-elevated));
+}
+.jn-ev-repeat-end {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.jn-ev-repeat .jn-ev-check {
+  flex-wrap: wrap;
+}
+.jn-ev-inline-num {
+  width: 3.2rem !important;
+  text-align: center;
 }
 .jn-tl-actions {
   display: flex;

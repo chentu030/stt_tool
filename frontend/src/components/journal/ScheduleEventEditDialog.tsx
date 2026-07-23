@@ -1,22 +1,52 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
-  deleteScheduleEvent,
+  createScheduleEvent,
+  deleteScheduleEventScoped,
   formatClock,
+  recurrenceLabel,
   snapMin,
-  updateScheduleEvent,
+  updateScheduleEventScoped,
   type ScheduleEvent,
+  type ScheduleEventInput,
+  type ScheduleRecurrence,
+  type ScheduleRecurrenceFreq,
+  type SeriesDeleteScope,
+  type SeriesEditScope,
 } from "@/lib/scheduleEvents";
+import { askChoice, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import { requestScheduleNotificationPermission } from "@/lib/scheduleReminders";
+import { shiftDateKey } from "@/lib/journalMeta";
+
+type CreateInitial = {
+  dateKey: string;
+  title?: string;
+  allDay?: boolean;
+  startMin?: number;
+  endMin?: number;
+};
 
 type Props = {
   uid: string;
-  event: ScheduleEvent;
+  /** Edit existing; omit / null with `createInitial` for create mode. */
+  event?: ScheduleEvent | null;
+  createInitial?: CreateInitial;
   onClose: () => void;
-  onSaved?: () => void;
+  onSaved?: (id: string) => void;
   onDeleted?: () => void;
 };
+
+const REMIND_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "不提醒" },
+  { value: "0", label: "開始時" },
+  { value: "5", label: "5 分鐘前" },
+  { value: "15", label: "15 分鐘前" },
+  { value: "30", label: "30 分鐘前" },
+  { value: "60", label: "1 小時前" },
+  { value: "1440", label: "1 天前" },
+];
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -36,22 +66,57 @@ function parseHm(h: string, m: string) {
 export default function ScheduleEventEditDialog({
   uid,
   event,
+  createInitial,
   onClose,
   onSaved,
   onDeleted,
 }: Props) {
   const titleId = useId();
-  const readonly = event.provider !== "local";
-  const start0 = splitMin(event.startMin);
-  const end0 = splitMin(event.endMin >= 24 * 60 ? 24 * 60 - 1 : event.endMin);
-  const [title, setTitle] = useState(event.title);
-  const [dateKey, setDateKey] = useState(event.dateKey);
-  const [allDay, setAllDay] = useState(Boolean(event.allDay));
+  const isCreate = !event;
+  const readonly = Boolean(event && event.provider !== "local");
+
+  const seed = useMemo(() => {
+    if (event) return event;
+    const startMin = createInitial?.startMin ?? 9 * 60;
+    const endMin = createInitial?.endMin ?? startMin + 60;
+    return {
+      id: "",
+      dateKey: createInitial?.dateKey || "",
+      startMin,
+      endMin,
+      allDay: Boolean(createInitial?.allDay),
+      title: createInitial?.title || "",
+      conferenceUrl: "",
+      provider: "local" as const,
+      remindMinutesBefore: null as number | null,
+      recurrence: null as ScheduleRecurrence | null,
+    };
+  }, [event, createInitial]);
+
+  const start0 = splitMin(seed.startMin);
+  const end0 = splitMin(seed.endMin >= 24 * 60 ? 24 * 60 - 1 : seed.endMin);
+
+  const [title, setTitle] = useState(seed.title);
+  const [dateKey, setDateKey] = useState(seed.dateKey);
+  const [allDay, setAllDay] = useState(Boolean(seed.allDay));
   const [startH, setStartH] = useState(String(start0.h));
   const [startM, setStartM] = useState(pad2(start0.m));
   const [endH, setEndH] = useState(String(end0.h));
   const [endM, setEndM] = useState(pad2(end0.m));
-  const [conferenceUrl, setConferenceUrl] = useState(event.conferenceUrl || "");
+  const [conferenceUrl, setConferenceUrl] = useState(seed.conferenceUrl || "");
+  const [repeatOn, setRepeatOn] = useState(Boolean(seed.recurrence));
+  const [freq, setFreq] = useState<ScheduleRecurrenceFreq>(seed.recurrence?.freq || "weekly");
+  const [interval, setInterval] = useState(String(seed.recurrence?.interval || 1));
+  const [endType, setEndType] = useState<"count" | "until">(
+    seed.recurrence?.endType === "until" ? "until" : "count"
+  );
+  const [count, setCount] = useState(String(seed.recurrence?.count || 8));
+  const [untilDateKey, setUntilDateKey] = useState(
+    seed.recurrence?.untilDateKey || shiftDateKey(seed.dateKey || dateKey, 28)
+  );
+  const [remind, setRemind] = useState(
+    seed.remindMinutesBefore == null ? "" : String(seed.remindMinutesBefore)
+  );
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -62,6 +127,47 @@ export default function ScheduleEventEditDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const buildRecurrence = (): ScheduleRecurrence | null => {
+    if (!repeatOn) return null;
+    const iv = Math.max(1, Number(interval) || 1);
+    if (endType === "until") {
+      return {
+        freq,
+        interval: iv,
+        endType: "until",
+        untilDateKey: untilDateKey || shiftDateKey(dateKey, 28),
+      };
+    }
+    return {
+      freq,
+      interval: iv,
+      endType: "count",
+      count: Math.max(2, Math.min(100, Number(count) || 2)),
+    };
+  };
+
+  const buildInput = (): ScheduleEventInput => {
+    let startMin = 0;
+    let endMin = 24 * 60;
+    if (!allDay) {
+      startMin = parseHm(startH, startM);
+      endMin = parseHm(endH, endM);
+      if (endMin <= startMin) endMin = Math.min(24 * 60, startMin + 30);
+    }
+    const url = conferenceUrl.trim();
+    return {
+      dateKey: dateKey.trim() || seed.dateKey,
+      title: title.trim() || (allDay ? "重要事項" : "未命名"),
+      allDay,
+      startMin,
+      endMin,
+      conferenceUrl: url || undefined,
+      recurrence: buildRecurrence(),
+      remindMinutesBefore: remind === "" ? null : Number(remind),
+      provider: "local",
+    };
+  };
+
   const save = async () => {
     if (readonly || busy) return;
     setBusy(true);
@@ -71,37 +177,92 @@ export default function ScheduleEventEditDialog({
         toast("會議連結請用 https:// 開頭");
         return;
       }
-      let startMin = 0;
-      let endMin = 24 * 60;
-      if (!allDay) {
-        startMin = parseHm(startH, startM);
-        endMin = parseHm(endH, endM);
-        if (endMin <= startMin) endMin = Math.min(24 * 60, startMin + 30);
+      if (remind !== "") {
+        const ok = await requestScheduleNotificationPermission();
+        if (!ok) {
+          // Keep saving; drop reminder if permission denied.
+        }
       }
-      await updateScheduleEvent(uid, event.id, {
-        title: title.trim() || "未命名",
-        dateKey: dateKey.trim() || event.dateKey,
-        allDay,
-        startMin,
-        endMin,
-        conferenceUrl: url || undefined,
-      });
+      const input = buildInput();
+      if (remind !== "" && typeof Notification !== "undefined" && Notification.permission !== "granted") {
+        input.remindMinutesBefore = null;
+      }
+
+      if (isCreate || !event) {
+        const id = await createScheduleEvent(uid, input);
+        toast(input.recurrence ? "已建立重複行程" : "已新增行程");
+        onSaved?.(id);
+        onClose();
+        return;
+      }
+
+      let scope: SeriesEditScope = "one";
+      if (event.seriesId) {
+        const choice = await askChoice<"one" | "all">({
+          title: "套用變更範圍",
+          message: "這是重複行程，要改哪裡？",
+          options: [
+            { id: "one", label: "僅此一次", description: "只改這一筆" },
+            {
+              id: "all",
+              label: "整個系列",
+              description: "標題、時間、提醒一併更新（日期各自保留）",
+              primary: true,
+            },
+          ],
+        });
+        if (!choice) return;
+        scope = choice.choice;
+      }
+
+      const id = await updateScheduleEventScoped(uid, event, input, scope);
       toast("已更新行程");
-      onSaved?.();
+      onSaved?.(id);
       onClose();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "更新失敗");
+      toast(e instanceof Error ? e.message : "儲存失敗");
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async () => {
-    if (readonly || busy) return;
+    if (readonly || busy || !event) return;
     setBusy(true);
     try {
-      await deleteScheduleEvent(uid, event.id);
-      toast("已刪除行程");
+      let scope: SeriesDeleteScope = "one";
+      if (event.seriesId) {
+        const choice = await askChoice<"one" | "following" | "all">({
+          title: "刪除重複行程",
+          message: "要刪除哪些？",
+          options: [
+            { id: "one", label: "僅此一次" },
+            {
+              id: "following",
+              label: "此筆及之後",
+              description: "含今天之後的重複",
+            },
+            {
+              id: "all",
+              label: "整個系列",
+              description: "刪除所有重複",
+              primary: true,
+            },
+          ],
+        });
+        if (!choice) return;
+        scope = choice.choice;
+      } else {
+        const ok = await askConfirm({
+          title: "刪除行程？",
+          message: event.title,
+          danger: true,
+          confirmLabel: "刪除",
+        });
+        if (!ok) return;
+      }
+      await deleteScheduleEventScoped(uid, event, scope);
+      toast("已刪除");
       onDeleted?.();
       onClose();
     } catch (e) {
@@ -110,6 +271,13 @@ export default function ScheduleEventEditDialog({
       setBusy(false);
     }
   };
+
+  const onRemindChange = async (v: string) => {
+    setRemind(v);
+    if (v !== "") await requestScheduleNotificationPermission();
+  };
+
+  const recPreview = buildRecurrence();
 
   return (
     <div className="jn-ev-dialog-backdrop" role="presentation" onClick={onClose}>
@@ -121,7 +289,9 @@ export default function ScheduleEventEditDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="jn-ev-dialog-head">
-          <h3 id={titleId}>{readonly ? "行程詳情" : "編輯行程"}</h3>
+          <h3 id={titleId}>
+            {readonly ? "行程詳情" : isCreate ? (allDay ? "新增重要事項" : "新增行程") : "編輯行程"}
+          </h3>
           <button type="button" className="jn-icon-btn" onClick={onClose} aria-label="關閉">
             ×
           </button>
@@ -139,7 +309,9 @@ export default function ScheduleEventEditDialog({
             className="input"
             value={title}
             disabled={readonly || busy}
+            placeholder={allDay ? "例如：交報告、家人聚餐…" : "行程名稱"}
             onChange={(e) => setTitle(e.target.value)}
+            autoFocus
           />
         </label>
 
@@ -213,6 +385,115 @@ export default function ScheduleEventEditDialog({
           </div>
         )}
 
+        {!readonly && (
+          <>
+            <label className="jn-ev-check">
+              <input
+                type="checkbox"
+                checked={repeatOn}
+                disabled={busy}
+                onChange={(e) => setRepeatOn(e.target.checked)}
+              />
+              <span>重複</span>
+            </label>
+
+            {repeatOn && (
+              <div className="jn-ev-repeat">
+                <div className="jn-ev-time-row">
+                  <label className="jn-ev-field">
+                    <span>頻率</span>
+                    <select
+                      className="input"
+                      value={freq}
+                      disabled={busy}
+                      onChange={(e) => setFreq(e.target.value as ScheduleRecurrenceFreq)}
+                    >
+                      <option value="daily">每天</option>
+                      <option value="weekly">每週</option>
+                      <option value="monthly">每月</option>
+                    </select>
+                  </label>
+                  <label className="jn-ev-field">
+                    <span>間隔</span>
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      value={interval}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setInterval(e.target.value.replace(/\D/g, "").slice(0, 2) || "1")
+                      }
+                    />
+                  </label>
+                </div>
+                <div className="jn-ev-repeat-end">
+                  <label className="jn-ev-check">
+                    <input
+                      type="radio"
+                      name="rec-end"
+                      checked={endType === "count"}
+                      disabled={busy}
+                      onChange={() => setEndType("count")}
+                    />
+                    <span>重複</span>
+                    <input
+                      className="input jn-ev-inline-num"
+                      inputMode="numeric"
+                      value={count}
+                      disabled={busy || endType !== "count"}
+                      onChange={(e) =>
+                        setCount(e.target.value.replace(/\D/g, "").slice(0, 3) || "2")
+                      }
+                    />
+                    <span>次</span>
+                  </label>
+                  <label className="jn-ev-check">
+                    <input
+                      type="radio"
+                      name="rec-end"
+                      checked={endType === "until"}
+                      disabled={busy}
+                      onChange={() => setEndType("until")}
+                    />
+                    <span>直到</span>
+                    <input
+                      className="input"
+                      type="date"
+                      value={untilDateKey}
+                      disabled={busy || endType !== "until"}
+                      onChange={(e) => setUntilDateKey(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="jn-muted" style={{ margin: 0, fontSize: "0.7rem" }}>
+                  {recurrenceLabel(recPreview)}
+                </p>
+              </div>
+            )}
+
+            <label className="jn-ev-field">
+              <span>提醒</span>
+              <select
+                className="input"
+                value={remind}
+                disabled={busy}
+                onChange={(e) => void onRemindChange(e.target.value)}
+              >
+                {REMIND_OPTIONS.map((o) => (
+                  <option key={o.value || "off"} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {remind !== "" && (
+              <p className="jn-muted" style={{ margin: 0, fontSize: "0.7rem" }}>
+                提醒需允許瀏覽器通知；分頁開啟時會準時提醒。
+              </p>
+            )}
+          </>
+        )}
+
         <label className="jn-ev-field">
           <span>會議連結</span>
           <input
@@ -224,15 +505,23 @@ export default function ScheduleEventEditDialog({
           />
         </label>
 
-        <p className="jn-muted" style={{ fontSize: "0.72rem" }}>
-          目前：{event.dateKey} ·{" "}
-          {event.allDay ? "全天" : `${formatClock(event.startMin)}–${formatClock(event.endMin)}`}
-          {event.provider === "google" ? " · Google" : ""}
-        </p>
+        {event && (
+          <p className="jn-muted" style={{ fontSize: "0.72rem" }}>
+            目前：{event.dateKey} ·{" "}
+            {event.allDay ? "全天" : `${formatClock(event.startMin)}–${formatClock(event.endMin)}`}
+            {event.seriesId ? " · 重複系列" : ""}
+            {event.provider === "google" ? " · Google" : ""}
+          </p>
+        )}
 
         <footer className="jn-ev-dialog-foot">
-          {!readonly && (
-            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void remove()}>
+          {!readonly && !isCreate && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => void remove()}
+            >
               刪除
             </button>
           )}
@@ -242,7 +531,7 @@ export default function ScheduleEventEditDialog({
             </button>
             {!readonly && (
               <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void save()}>
-                儲存
+                {isCreate ? "確定" : "儲存"}
               </button>
             )}
           </div>

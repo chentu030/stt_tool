@@ -30,6 +30,7 @@ import {
 } from "@/lib/teamStore";
 import { NAV_APPS, MOBILE_BOTTOM, type NavAppDef } from "@/lib/navApps";
 import { useCommunityOptional } from "@/components/community/CommunityProvider";
+import ScheduleReminderWatcher from "@/components/journal/ScheduleReminderWatcher";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import {
   getNotifPrefs,
@@ -973,6 +974,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         )}
         {palette}
         <GlobalAiDock />
+        <ScheduleReminderWatcher />
       </div>
     );
   }
@@ -1104,6 +1106,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </main>
       {palette}
       <GlobalAiDock />
+      <ScheduleReminderWatcher />
     </div>
   );
 }

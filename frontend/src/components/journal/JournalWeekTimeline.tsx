@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  createScheduleEvent,
   formatClock,
   listenScheduleEventsForDates,
   snapMin,
@@ -17,7 +16,6 @@ import {
   shiftDateKey,
   weekDateKeys,
 } from "@/lib/journalMeta";
-import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import ScheduleEventEditDialog from "@/components/journal/ScheduleEventEditDialog";
 
@@ -139,6 +137,13 @@ export default function JournalWeekTimeline({
   } | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const [createFor, setCreateFor] = useState<{
+    dateKey: string;
+    startMin?: number;
+    endMin?: number;
+    allDay?: boolean;
+    title?: string;
+  } | null>(null);
   const editModeRef = useRef(editMode);
   editModeRef.current = editMode;
 
@@ -414,7 +419,7 @@ export default function JournalWeekTimeline({
     }
   };
 
-  const finishCreate = async () => {
+  const finishCreate = () => {
     const drag = dragRef.current;
     dragRef.current = null;
     if (!editModeRef.current || !drag || !drag.moved) {
@@ -425,32 +430,14 @@ export default function JournalWeekTimeline({
     let endMin = Math.max(drag.startMin, drag.endMin);
     if (endMin - startMin < 15) endMin = Math.min(HOUR_END * 60, startMin + 30);
     setDraft(null);
-    try {
-      const id = await createScheduleEvent(uid, {
-        dateKey: drag.dateKey,
-        startMin,
-        endMin,
-        title: "未命名",
-      });
-      onSelectDay?.(drag.dateKey);
-      onSelectEvent?.({
-        id,
-        dateKey: drag.dateKey,
-        startMin,
-        endMin,
-        title: "未命名",
-        provider: "local",
-      });
-      const t = await askPrompt({
-        title: "行程名稱",
-        defaultValue: "未命名",
-      });
-      if (t != null && t.trim() && t.trim() !== "未命名") {
-        await updateScheduleEvent(uid, id, { title: t.trim() });
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "新增失敗");
-    }
+    onSelectDay?.(drag.dateKey);
+    setCreateFor({
+      dateKey: drag.dateKey,
+      startMin,
+      endMin,
+      allDay: false,
+      title: "",
+    });
   };
 
   const onColPointerDown = (dk: string, e: React.PointerEvent<HTMLDivElement>) => {
@@ -601,6 +588,7 @@ export default function JournalWeekTimeline({
                     onClick={() => {
                       onSelectDay?.(dk);
                       onSelectEvent?.(ev);
+                      openEventEditor(ev);
                     }}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -617,20 +605,12 @@ export default function JournalWeekTimeline({
                     className="jn-text-btn"
                     title={`新增 ${dk} 全天／重要事項`}
                     onClick={() => {
-                      void (async () => {
-                        try {
-                          await createScheduleEvent(uid, {
-                            dateKey: dk,
-                            startMin: 0,
-                            endMin: 24 * 60,
-                            allDay: true,
-                            title: "重要事項",
-                          });
-                          onSelectDay?.(dk);
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : "新增失敗");
-                        }
-                      })();
+                      onSelectDay?.(dk);
+                      setCreateFor({
+                        dateKey: dk,
+                        allDay: true,
+                        title: "",
+                      });
                     }}
                   >
                     ＋
@@ -685,7 +665,7 @@ export default function JournalWeekTimeline({
                   className={`jn-week-col${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}${editMode ? " is-edit" : ""}`}
                   onPointerDown={(e) => onColPointerDown(dk, e)}
                   onPointerMove={onColPointerMove}
-                  onPointerUp={() => void finishCreate()}
+                  onPointerUp={() => finishCreate()}
                   onPointerCancel={() => {
                     dragRef.current = null;
                     setDraft(null);
@@ -803,7 +783,7 @@ export default function JournalWeekTimeline({
             ? "編輯中：拖曳空白新增；長按行程移動；拖上下緣拉長。左右滑換四天。"
             : "手機一次顯示四天；左右滑動換頁，或用 ‹ ›。"
           : editMode
-            ? "編輯中：拖空白新增；長按行程可移動；拖上下緣可拉長。右鍵／雙擊開詳細設定。"
+            ? "編輯中：拖空白新增後可設重複／提醒；長按移動；拖上下緣拉長。點行程開啟編輯／刪除。"
             : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增或調整。"}
       </p>
 
@@ -850,6 +830,26 @@ export default function JournalWeekTimeline({
           onDeleted={() => {
             if (selectedEventId === editingEvent.id) onSelectEvent?.(null);
             setEditingEvent(null);
+          }}
+        />
+      )}
+
+      {createFor && (
+        <ScheduleEventEditDialog
+          uid={uid}
+          createInitial={createFor}
+          onClose={() => setCreateFor(null)}
+          onSaved={(id) => {
+            onSelectEvent?.({
+              id,
+              dateKey: createFor.dateKey,
+              startMin: createFor.startMin ?? 0,
+              endMin: createFor.endMin ?? 24 * 60,
+              allDay: Boolean(createFor.allDay),
+              title: createFor.title || (createFor.allDay ? "重要事項" : "未命名"),
+              provider: "local",
+            });
+            setCreateFor(null);
           }}
         />
       )}
