@@ -6626,6 +6626,18 @@ a.sidebar-user-name:hover {
   width: 3.2rem !important;
   text-align: center;
 }
+.jn-ev-field .cdb-date-field,
+.jn-ev-until .cdb-date-field {
+  width: 100%;
+  min-width: 0;
+}
+.jn-ev-until {
+  align-items: center;
+}
+.jn-ev-until .cdb-date-field {
+  flex: 1;
+  min-width: 9rem;
+}
 .jn-tl-actions {
   display: flex;
   flex-direction: column;

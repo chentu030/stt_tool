@@ -19,6 +19,7 @@ import { askChoice, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { requestScheduleNotificationPermission } from "@/lib/scheduleReminders";
 import { shiftDateKey } from "@/lib/journalMeta";
+import CadenceDateField from "@/components/CadenceDateField";
 
 type CreateInitial = {
   dateKey: string;
@@ -317,12 +318,14 @@ export default function ScheduleEventEditDialog({
 
         <label className="jn-ev-field">
           <span>日期</span>
-          <input
-            className="input"
-            type="date"
+          <CadenceDateField
             value={dateKey}
+            ariaLabel="行程日期"
+            placeholder="選擇日期"
             disabled={readonly || busy}
-            onChange={(e) => setDateKey(e.target.value)}
+            onChange={(next) => {
+              if (next) setDateKey(next);
+            }}
           />
         </label>
 
@@ -447,7 +450,7 @@ export default function ScheduleEventEditDialog({
                     />
                     <span>次</span>
                   </label>
-                  <label className="jn-ev-check">
+                  <label className="jn-ev-check jn-ev-until">
                     <input
                       type="radio"
                       name="rec-end"
@@ -456,12 +459,14 @@ export default function ScheduleEventEditDialog({
                       onChange={() => setEndType("until")}
                     />
                     <span>直到</span>
-                    <input
-                      className="input"
-                      type="date"
+                    <CadenceDateField
                       value={untilDateKey}
+                      ariaLabel="重複結束日"
+                      placeholder="結束日期"
                       disabled={busy || endType !== "until"}
-                      onChange={(e) => setUntilDateKey(e.target.value)}
+                      onChange={(next) => {
+                        if (next) setUntilDateKey(next);
+                      }}
                     />
                   </label>
                 </div>

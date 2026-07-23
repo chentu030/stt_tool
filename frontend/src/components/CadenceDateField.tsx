@@ -12,6 +12,7 @@ type Props = {
   className?: string;
   placeholder?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 };
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
@@ -81,6 +82,7 @@ export default function CadenceDateField({
   className = "",
   placeholder = "選擇日期",
   ariaLabel = "日期",
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; place: "bottom" | "top" } | null>(null);
@@ -303,7 +305,11 @@ export default function CadenceDateField({
         className={`cdb-date-trigger${!value ? " is-empty" : ""}`}
         aria-label={ariaLabel}
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((v) => !v);
+        }}
       >
         <span>{display}</span>
         <span className="material-symbols-outlined cdb-date-ico" aria-hidden>
