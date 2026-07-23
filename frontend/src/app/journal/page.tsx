@@ -10,11 +10,10 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   createNote,
   deleteNote,
-  listenToUserNotes,
   loginWithGoogle,
   updateNote,
-  Note,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -41,7 +40,7 @@ export default function JournalPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const prefsCtx = usePrefsOptional();
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [composerDirty, setComposerDirty] = useState(false);
@@ -55,11 +54,6 @@ export default function JournalPage() {
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [composerKey, setComposerKey] = useState(0);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {

@@ -12,16 +12,15 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
 import {
   listenToUserJobs,
-  listenToUserNotes,
   deleteJob,
   deleteNote,
   createNote,
   updateNote,
   loginWithGoogle,
   Job,
-  Note,
   jobDisplayTitle,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
@@ -64,7 +63,7 @@ function LibraryPageInner() {
   const searchParams = useSearchParams();
   const folderFromUrl = searchParams.get("folder") || "";
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"notes" | "jobs">("notes");
   const [tagFilter, setTagFilter] = useState("");
@@ -100,12 +99,7 @@ function LibraryPageInner() {
 
   useEffect(() => {
     if (!user) return;
-    const u1 = listenToUserJobs(user.uid, setJobs);
-    const u2 = listenToUserNotes(user.uid, setNotes);
-    return () => {
-      u1();
-      u2();
-    };
+    return listenToUserJobs(user.uid, setJobs);
   }, [user]);
 
   const scopedNotes = useMemo(() => {

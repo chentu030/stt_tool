@@ -9,13 +9,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  listenToUserNotes,
   updateNote,
   createNote,
   deleteNote,
   loginWithGoogle,
-  Note,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import {
   listenBoards,
   createBoard,
@@ -69,7 +68,7 @@ export default function BoardByIdPage() {
   useRedirectSpecialtyToNote("board", boardId);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [boards, setBoards] = useState<BoardConfig[]>([]);
   const [boardsReady, setBoardsReady] = useState(false);
   const [boardError, setBoardError] = useState("");
@@ -105,11 +104,6 @@ export default function BoardByIdPage() {
     setFilters((f) => ({ ...f, hideDone: prefs.boardHideDone }));
     setPrefsSeeded(true);
   }, [prefs.boardSort, prefs.boardSwimlanes, prefs.boardHideDone, prefsSeeded]);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;

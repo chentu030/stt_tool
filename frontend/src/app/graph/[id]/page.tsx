@@ -14,13 +14,12 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import {
-  listenToUserNotes,
   loginWithGoogle,
   createNote,
   updateNote,
   uploadNoteMedia,
-  Note,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { appendMediaToNote, mediaMarkdownForFile, titleFromFileName } from "@/lib/noteMediaInsert";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
@@ -90,7 +89,7 @@ export default function GraphDetailPage() {
   const graphId = String(params.id || "");
   useRedirectSpecialtyToNote("graph", graphId);
 
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [graphs, setGraphs] = useState<GraphConfig[]>([]);
   const [graph, setGraph] = useState<GraphConfig | null | undefined>(undefined);
   const [configReady, setConfigReady] = useState(false);
@@ -125,11 +124,6 @@ export default function GraphDetailPage() {
   const seededId = useRef<string | null>(null);
   const skipPersist = useRef(false);
   const focusApplied = useRef(false);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -711,7 +705,6 @@ export default function GraphDetailPage() {
           const res = await appendMediaToNote(user.uid, noteId, file, body);
           body = res.body_md;
         }
-        setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md: body } : nt)));
         setSelectedId(hit.id);
         setSelAiOpen(true);
         toast(files.length > 1 ? `已附加 ${files.length} 個檔案到「${hit.title}」` : `已附加到「${hit.title}」`);
@@ -749,15 +742,13 @@ export default function GraphDetailPage() {
     const sep = current.endsWith("\n\n") ? "" : current.endsWith("\n") ? "\n" : "\n\n";
     const body_md = `${current}${sep}${trimmed}\n`;
     await updateNote(noteId, { body_md });
-    setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md } : nt)));
     toast("已加入筆記");
   };
 
   const applySelAiImageToNote = async (noteId: string, file: File) => {
     if (!user) return;
     const current = notes.find((nt) => nt.id === noteId)?.body_md || "";
-    const res = await appendMediaToNote(user.uid, noteId, file, current);
-    setNotes((prev) => prev.map((nt) => (nt.id === noteId ? { ...nt, body_md: res.body_md } : nt)));
+    await appendMediaToNote(user.uid, noteId, file, current);
     toast("已插入圖片到筆記");
   };
 

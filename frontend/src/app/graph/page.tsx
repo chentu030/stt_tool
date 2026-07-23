@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, loginWithGoogle, updateNote, type Note } from "@/lib/firebase";
+import { loginWithGoogle, updateNote, type Note } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { listenGraphs, updateGraph, type GraphConfig } from "@/lib/graphStore";
 import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import {
@@ -41,7 +42,7 @@ export default function GraphIndexPage() {
   const router = useRouter();
   const prefsCtx = usePrefs();
   const [list, setList] = useState<GraphConfig[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("updated");
@@ -50,11 +51,6 @@ export default function GraphIndexPage() {
   useEffect(() => {
     if (!user) return;
     return listenGraphs(user.uid, setList);
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
   }, [user]);
 
   const noteByGraph = useMemo(() => {

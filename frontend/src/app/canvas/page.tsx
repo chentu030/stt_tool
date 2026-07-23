@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, loginWithGoogle, updateNote, type Note } from "@/lib/firebase";
+import { loginWithGoogle, updateNote, type Note } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { listenCanvases, type CanvasMeta } from "@/lib/canvasCloud";
 import { createWorkspacePage, noteOpenHref } from "@/lib/workspacePages";
 import { CANVAS_TEMPLATES, formatHubRelTime } from "@/lib/workspaceHubTemplates";
@@ -30,7 +31,7 @@ export default function CanvasIndexPage() {
   const router = useRouter();
   const prefsCtx = usePrefs();
   const [list, setList] = useState<CanvasMeta[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("updated");
@@ -39,11 +40,6 @@ export default function CanvasIndexPage() {
   useEffect(() => {
     if (!user) return;
     return listenCanvases(user.uid, setList);
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
   }, [user]);
 
   const noteByCanvas = useMemo(() => {

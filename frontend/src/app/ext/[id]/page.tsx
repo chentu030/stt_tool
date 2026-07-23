@@ -2,11 +2,12 @@
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, loginWithGoogle, type Note } from "@/lib/firebase";
+import { loginWithGoogle } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { useCommunity } from "@/components/community/CommunityProvider";
 import {
   createExtensionWorkspacePage,
@@ -38,15 +39,10 @@ export default function ExtensionHubPage() {
   const router = useRouter();
   const prefsCtx = usePrefs();
   const { extensions, ready } = useCommunity();
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [busy, setBusy] = useState(false);
 
   const ext = extensions.find((e) => e.id === id);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   const pages = useMemo(
     () =>

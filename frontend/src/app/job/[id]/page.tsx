@@ -11,11 +11,11 @@ import {
   getResultText,
   saveJobTranscripts,
   createNote,
-  listenToUserNotes,
   jobDisplayTitle,
   updateJobTitle,
   Job,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import TranscriptEditor from "@/components/TranscriptEditor";
 import { segmentsToPlainText, parseTranscript } from "@/lib/transcript";
 import { NOTE_TEMPLATES } from "@/lib/templates";
@@ -39,6 +39,7 @@ export default function JobPage() {
   const [linkedNoteId, setLinkedNoteId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleSaving, setTitleSaving] = useState(false);
+  const { notes } = useNotesList();
 
   useEffect(() => {
     if (!id) return;
@@ -46,12 +47,10 @@ export default function JobPage() {
   }, [id]);
 
   useEffect(() => {
-    if (!user || !id) return;
-    return listenToUserNotes(user.uid, (notes) => {
-      const hit = notes.find((n) => n.source_job_id === id);
-      setLinkedNoteId(hit?.id || null);
-    });
-  }, [user, id]);
+    if (!id) return;
+    const hit = notes.find((n) => n.source_job_id === id);
+    setLinkedNoteId(hit?.id || null);
+  }, [notes, id]);
 
   useEffect(() => {
     if (!job || job.status !== "done") return;

@@ -14,7 +14,8 @@ import {
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, loginWithGoogle, uploadCanvasMedia, type Note } from "@/lib/firebase";
+import { loginWithGoogle, uploadCanvasMedia, type Note } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
@@ -88,7 +89,7 @@ export default function CanvasIdPage() {
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
   useRedirectSpecialtyToNote("canvas", canvasId);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [list, setList] = useState<CanvasMeta[]>([]);
   const [doc, setDoc] = useState<CanvasDoc>(() => emptyDoc());
   const [ready, setReady] = useState(false);
@@ -142,11 +143,6 @@ export default function CanvasIdPage() {
     setConnectCursor(null);
     setHoverConnectRef(null);
   }, [tool]);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;

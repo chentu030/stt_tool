@@ -9,11 +9,11 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   createNote,
   getNote,
-  listenToUserNotes,
   loginWithGoogle,
   updateNote,
   type Note,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { searchNotes, packLibraryContext, type LibraryNote } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
@@ -230,7 +230,7 @@ function DeepResearchPageInner() {
   const prefs = usePrefsOptional();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [topic, setTopic] = useState("");
   const [context, setContext] = useState("");
   const [domains, setDomains] = useState("");
@@ -311,11 +311,6 @@ function DeepResearchPageInner() {
   const scrollToHeading = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;

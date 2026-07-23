@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserJobs, listenToUserNotes, loginWithGoogle, Job, Note, jobDisplayTitle } from "@/lib/firebase";
+import { listenToUserJobs, loginWithGoogle, Job, jobDisplayTitle } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import LineRippleBackground from "@/components/motion/LineRippleBackground";
 import TypeWriter from "@/components/motion/TypeWriter";
 import ScrambleText from "@/components/motion/ScrambleText";
@@ -16,13 +17,11 @@ import { libraryJobsUrl } from "@/lib/navApps";
 export default function HomePage() {
   const { user, loading } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
 
   useEffect(() => {
     if (!user) return;
-    const u1 = listenToUserJobs(user.uid, setJobs);
-    const u2 = listenToUserNotes(user.uid, setNotes);
-    return () => { u1(); u2(); };
+    return listenToUserJobs(user.uid, setJobs);
   }, [user]);
 
   if (loading) {
