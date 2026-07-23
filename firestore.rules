@@ -21,12 +21,39 @@ service cloud.firestore {
     function noteDoc(noteId) {
       return get(/databases/$(database)/documents/notes/$(noteId)).data;
     }
+    function noteAclRole(noteId) {
+      return get(/databases/$(database)/documents/notes/$(noteId)/acl/$(request.auth.uid)).data.role;
+    }
+    function noteAclEditor(noteId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/notes/$(noteId)/acl/$(request.auth.uid))
+        && noteAclRole(noteId) == 'editor';
+    }
+    function noteAclViewer(noteId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/notes/$(noteId)/acl/$(request.auth.uid))
+        && (noteAclRole(noteId) == 'editor' || noteAclRole(noteId) == 'viewer');
+    }
     function canAccessNote(noteId) {
       return signedIn() && (
         noteDoc(noteId).user_id == request.auth.uid
+        || noteAclViewer(noteId)
         || (
           noteDoc(noteId).keys().hasAll(['share'])
           && noteDoc(noteId).share.enabled == true
+          && noteDoc(noteId).share.token is string
+          && noteDoc(noteId).share.token.size() > 0
+        )
+      );
+    }
+    function canEditNoteCollab(noteId) {
+      return signedIn() && (
+        noteDoc(noteId).user_id == request.auth.uid
+        || noteAclEditor(noteId)
+        || (
+          noteDoc(noteId).keys().hasAll(['share'])
+          && noteDoc(noteId).share.enabled == true
+          && noteDoc(noteId).share.mode == 'edit'
           && noteDoc(noteId).share.token is string
           && noteDoc(noteId).share.token.size() > 0
         )
@@ -46,16 +73,42 @@ service cloud.firestore {
     match /notes/{noteId} {
       allow create: if signedIn()
                     && request.resource.data.user_id == request.auth.uid;
-      allow read: if noteOwner() || noteSharedRead();
+      allow read: if noteOwner() || noteSharedRead() || noteAclViewer(noteId);
       allow update: if noteOwner()
+        || noteAclEditor(noteId)
         || (noteSharedEdit()
             && request.resource.data.user_id == resource.data.user_id
             && request.resource.data.share == resource.data.share);
       allow delete: if noteOwner();
 
       match /versions/{versionId} {
-        allow read, create, delete: if signedIn()
+        allow read: if canAccessNote(noteId);
+        allow create, delete: if signedIn()
           && get(/databases/$(database)/documents/notes/$(noteId)).data.user_id == request.auth.uid;
+      }
+
+      match /acl/{uid} {
+        allow read: if canAccessNote(noteId);
+        allow create, update, delete: if signedIn()
+          && noteDoc(noteId).user_id == request.auth.uid;
+      }
+
+      match /ydoc/{docId} {
+        allow read: if canAccessNote(noteId);
+        allow create, update, delete: if canEditNoteCollab(noteId);
+      }
+
+      match /ydoc_updates/{updateId} {
+        allow read: if canAccessNote(noteId);
+        allow create: if canEditNoteCollab(noteId);
+        allow update, delete: if canEditNoteCollab(noteId);
+      }
+
+      match /awareness/{uid} {
+        allow read: if canAccessNote(noteId);
+        allow create, update, delete: if signedIn()
+          && request.auth.uid == uid
+          && canAccessNote(noteId);
       }
 
       match /threads/{threadId} {

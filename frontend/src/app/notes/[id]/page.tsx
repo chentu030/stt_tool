@@ -47,6 +47,8 @@ import RichNoteEditor from "@/components/RichNoteEditor";
 import ShareDialog from "@/components/ShareDialog";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
+import { getNoteAclRole, type NoteAclRole } from "@/lib/noteAcl";
+import { useNoteCollab } from "@/hooks/useNoteCollab";
 import NoteAside from "@/components/notes/NoteAside";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import {
@@ -222,6 +224,8 @@ function NotePageInner() {
   const [iconOpen, setIconOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [noteShare, setNoteShare] = useState<NoteShare | null>(null);
+  /** undefined = still resolving for non-owners */
+  const [aclRole, setAclRole] = useState<NoteAclRole | null | undefined>(undefined);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Serialize autosaves so overlapping writes don't share a stale baseUpdatedAt. */
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -265,6 +269,45 @@ function NotePageInner() {
     cover: "",
     parent_id: "",
   });
+
+  const isOwner = !!note && !!user && note.user_id === user.uid;
+  const canEditNote = isOwner || aclRole === "editor";
+  const canViewNote = isOwner || aclRole === "editor" || aclRole === "viewer";
+  const isAppSurface = !!(note?.app_link?.type && note.app_link.id);
+  const collabEnabled =
+    !!note && !!user && canViewNote && !isAppSurface && viewMode !== "slides";
+
+  const collab = useNoteCollab({
+    noteId: note?.id,
+    uid: user?.uid,
+    displayName,
+    enabled: collabEnabled,
+    canWrite: canEditNote && viewMode !== "read",
+    seedMarkdown: body,
+    seedTitle: title,
+    getBodyMd: () => latest.current.body,
+    onTitleRemote: (t) => {
+      setTitle(t);
+      latest.current = { ...latest.current, title: t };
+    },
+  });
+  const collabReady = collab.ready && !!collab.provider;
+  const collabReadyRef = useRef(false);
+  collabReadyRef.current = collabReady;
+
+  useEffect(() => {
+    if (!id || !user) {
+      setAclRole(undefined);
+      return;
+    }
+    let cancelled = false;
+    void getNoteAclRole(id, user.uid).then((role) => {
+      if (!cancelled) setAclRole(role);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, user]);
 
   useEffect(() => {
     if (!id) return;
@@ -360,6 +403,17 @@ function NotePageInner() {
         if (!n) return;
         baseUpdatedAtRef.current = n.updated_at.getTime();
         setNote(n);
+        setNoteShare(parseNoteShare(n.share));
+        // Yjs owns body/title while collab is connected.
+        if (collabReadyRef.current) {
+          setTags(n.tags || []);
+          setFolder(n.folder || "");
+          setIcon(normalizePageIcon(n.icon || ""));
+          setColor(normalizePageColor(n.color));
+          setCover(n.cover || "");
+          setParentId(n.parent_id || "");
+          return;
+        }
         setTitle(n.title);
         setBody(n.body_md || "");
         setTags(n.tags || []);
@@ -722,7 +776,7 @@ function NotePageInner() {
         savingId,
         {
           title: snap.title,
-          body_md: nextBody,
+          ...(collabReadyRef.current ? {} : { body_md: nextBody }),
           tags: mergedTags,
           folder: snap.folder,
           icon: snap.icon,
@@ -1560,10 +1614,21 @@ function NotePageInner() {
   if (loading) return <PageLoading />;
   if (!user) return <p style={{ padding: "2rem" }}>請先登入。</p>;
   if (!note) return <PageLoading label="載入筆記中…" />;
-  if (note.user_id !== user.uid) return <p style={{ padding: "2rem" }}>無權限。</p>;
+  if (!isOwner && aclRole === undefined) return <PageLoading label="確認權限…" />;
+  if (!canViewNote) return <p style={{ padding: "2rem" }}>無權限。</p>;
 
   const statusLabel =
     viewMode === "read" ? "閱讀模式"
+    : collabReady
+      ? (collab.status === "saving" ? "即時同步中…"
+        : collab.status === "synced" ? "即時共編已連線"
+        : collab.status === "offline" ? "離線（重連後同步）"
+        : collab.status === "error" ? "共編連線異常"
+        : collab.status === "connecting" ? "共編連線中…"
+        : status === "dirty" ? "未儲存變更"
+          : status === "saving" ? "儲存中…"
+            : status === "saved" ? "已自動儲存"
+              : "")
     : status === "saving" ? "儲存中…"
       : status === "saved" ? "已自動儲存"
         : status === "offline" ? "已離線儲存，上線後同步"
@@ -1715,6 +1780,18 @@ function NotePageInner() {
           ) : null}
           <div className="doc-command-actions">
           <NotePresence noteId={note.id} />
+          {collabReady ? (
+            <span
+              className={`doc-collab-status${
+                collab.status === "saving" ? " is-saving"
+                  : collab.status === "error" ? " is-error"
+                    : collab.status === "offline" ? " is-offline"
+                      : ""
+              }`}
+            >
+              {collab.status === "synced" ? "共編中" : collab.status === "saving" ? "同步中" : collab.status === "connecting" ? "連線中" : collab.status === "offline" ? "離線" : "共編異常"}
+            </span>
+          ) : null}
           <NoteHuddle noteId={note.id} />
           {!isAppPage && viewMode !== "slides" ? (
             <div className="doc-cmd-wrap" ref={liveMenuRef}>
@@ -2289,10 +2366,15 @@ function NotePageInner() {
                 onChange={(e) => {
                   const v = e.target.value;
                   setTitle(v);
+                  latest.current = { ...latest.current, title: v };
+                  if (collabReady) {
+                    collab.setTitle(v);
+                    return;
+                  }
                   markDirty({ title: v });
                 }}
                 placeholder="無標題"
-                readOnly={viewMode === "slides"}
+                readOnly={viewMode === "slides" || !canEditNote}
               />
             )}
           </div>
@@ -2459,15 +2541,17 @@ function NotePageInner() {
               />
             ) : (
             <RichNoteEditor
+              key={collabReady ? `collab-${note.id}` : `local-${note.id}`}
               valueMd={body}
               onChangeMd={(md) => {
-                if (viewMode === "read") return;
+                if (viewMode === "read" || !canEditNote) return;
                 // Ignore spurious empty updates that would wipe a loaded note via autosave.
                 if (!md.trim() && body.trim()) return;
                 // Keep latest in sync immediately so captureDraft / ingest write-back
                 // don't snapshot a stale body (e.g. YouTube URL not yet in React state).
                 latest.current = { ...latest.current, body: md };
                 setBody(md);
+                if (collabReady) return;
                 markDirty();
               }}
               placeholder="輸入文字，空白段按空白鍵或 /ai 呼叫助手…"
@@ -2481,7 +2565,8 @@ function NotePageInner() {
               noteTitle={title}
               aiContext={aiPack.context}
               insertMdRef={insertMdRef}
-              readOnly={viewMode === "read"}
+              readOnly={viewMode === "read" || !canEditNote}
+              collab={collabReady && collab.provider ? { provider: collab.provider } : undefined}
               onOpenAiAssistant={() => {
                 setFocusMode(false);
                 openGlobalAiRail();
@@ -2627,7 +2712,7 @@ function NotePageInner() {
           open={shareOpen}
           onClose={() => setShareOpen(false)}
           noteId={note.id}
-          ownerId={user.uid}
+          ownerId={note.user_id}
           noteTitle={note.title}
           share={noteShare}
           onUpdated={(s) => {

@@ -14,11 +14,13 @@ import {
   resolveShareToken,
   type ShareMode,
 } from "@/lib/share";
-import { updateNote, loginWithGoogle, type Note } from "@/lib/firebase";
+import { loginWithGoogle, type Note } from "@/lib/firebase";
+import { useNoteCollab } from "@/hooks/useNoteCollab";
+import NotePresence from "@/components/notes/NotePresence";
 
 export default function ShareNotePage() {
   const { token } = useParams<{ token: string }>();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, displayName } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<ShareMode>("view");
   const [note, setNote] = useState<Note | null>(null);
@@ -26,10 +28,25 @@ export default function ShareNotePage() {
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
-  const [saveState, setSaveState] = useState("");
   const [copyBusy, setCopyBusy] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bodyRef = useRef(body);
+  bodyRef.current = body;
+
   const canEdit = mode === "edit" && !!user;
+  const collabEnabled = !!note && mode === "edit" && !!user;
+
+  const collab = useNoteCollab({
+    noteId: note?.id,
+    uid: user?.uid,
+    displayName,
+    enabled: collabEnabled,
+    canWrite: canEdit,
+    seedMarkdown: body,
+    seedTitle: title,
+    getBodyMd: () => bodyRef.current,
+    onTitleRemote: (t) => setTitle(t),
+  });
+  const collabReady = collab.ready && !!collab.provider;
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -60,6 +77,9 @@ export default function ShareNotePage() {
             return;
           }
           setNote(live);
+          // Do not LWW-overwrite body/title while collab owns the doc.
+          if (collabReadyRef.current) return;
+          if (link.mode === "edit" && userRef.current) return;
           setTitle(live.title);
           setBody(live.body_md);
         });
@@ -75,33 +95,24 @@ export default function ShareNotePage() {
     };
   }, [token]);
 
-  const scheduleSave = (nextTitle: string, nextBody: string) => {
-    if (!canEdit || !note) return;
-    setSaveState("未儲存");
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        setSaveState("儲存中…");
-        await updateNote(note.id, { title: nextTitle, body_md: nextBody });
-        setSaveState("已儲存");
-      } catch (e) {
-        setSaveState(e instanceof Error ? e.message : "儲存失敗");
-      }
-    }, 800);
-  };
+  const collabReadyRef = useRef(false);
+  collabReadyRef.current = collabReady;
+  const userRef = useRef(user);
+  userRef.current = user;
 
   const onCopy = async () => {
-    if (!note) return;
     if (!user) {
       await loginWithGoogle();
       return;
     }
+    if (!note) return;
     setCopyBusy(true);
+    setError("");
     try {
       const id = await copySharedNoteToUser(user.uid, {
         ...note,
         title,
-        body_md: body,
+        body_md: bodyRef.current || body,
       });
       router.push(`/notes/${id}`);
     } catch (e) {
@@ -114,6 +125,15 @@ export default function ShareNotePage() {
   const modeLabel =
     mode === "edit" ? "可編輯" : mode === "copy" ? "可複製" : "僅檢視";
 
+  const syncLabel =
+    !canEdit ? ""
+    : collab.status === "saving" ? "同步中…"
+    : collab.status === "synced" ? "即時共編"
+    : collab.status === "connecting" ? "連線中…"
+    : collab.status === "offline" ? "離線"
+    : collab.status === "error" ? "同步異常"
+    : "";
+
   return (
     <div className="share-page">
       <header className="share-page-head">
@@ -121,7 +141,8 @@ export default function ShareNotePage() {
           Albireus
         </Link>
         <span className="share-pill">{modeLabel}分享</span>
-        {canEdit && saveState && <span className="share-save">{saveState}</span>}
+        {canEdit && syncLabel && <span className="share-save">{syncLabel}</span>}
+        {note && user ? <NotePresence noteId={note.id} /> : null}
         <div className="share-page-actions">
           {(mode === "copy" || mode === "view") && (
             <button
@@ -158,22 +179,28 @@ export default function ShareNotePage() {
               onChange={(e) => {
                 const v = e.target.value;
                 setTitle(v);
-                scheduleSave(v, body);
+                if (collabReady) collab.setTitle(v);
               }}
               placeholder="標題"
             />
           ) : (
             <h1 className="share-title">{title || "未命名"}</h1>
           )}
-          <RichNoteEditor
-            valueMd={body}
-            onChangeMd={(md) => {
-              setBody(md);
-              scheduleSave(title, md);
-            }}
-            readOnly={!canEdit}
-            placeholder={canEdit ? "開始編輯…" : ""}
-          />
+          {canEdit && !collabReady && collab.status !== "error" ? (
+            <PageLoading fill={false} label="共編連線中…" />
+          ) : (
+            <RichNoteEditor
+              key={collabReady ? `share-collab-${note.id}` : `share-${note.id}-${collab.status}`}
+              valueMd={body}
+              onChangeMd={(md) => {
+                setBody(md);
+                bodyRef.current = md;
+              }}
+              readOnly={!canEdit}
+              placeholder={canEdit ? "開始編輯…" : ""}
+              collab={collabReady && collab.provider ? { provider: collab.provider } : undefined}
+            />
+          )}
         </div>
       )}
     </div>

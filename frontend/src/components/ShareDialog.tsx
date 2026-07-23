@@ -17,6 +17,15 @@ import {
   type TeamMembership,
   type Channel,
 } from "@/lib/teamStore";
+import {
+  listenNoteAcl,
+  removeNoteAclEntry,
+  resolveUidByUsername,
+  setNoteAclEntry,
+  type NoteAclEntry,
+  type NoteAclRole,
+} from "@/lib/noteAcl";
+import { fetchUserProfile } from "@/lib/userProfile";
 import { askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import MenuSelect from "@/components/MenuSelect";
@@ -33,7 +42,7 @@ type Props = {
 
 const MODES: { id: ShareMode; label: string; hint: string }[] = [
   { id: "view", label: "僅檢視", hint: "任何人持連結可唯讀開啟" },
-  { id: "edit", label: "可編輯", hint: "登入者可共同編輯內容（不可改擁有權）" },
+  { id: "edit", label: "可編輯", hint: "登入者可即時共編（字元級合併，不可改擁有權）" },
   { id: "copy", label: "可複製", hint: "可開啟並複製成自己的筆記" },
 ];
 
@@ -57,14 +66,20 @@ export default function ShareDialog({
   const [channelId, setChannelId] = useState("");
   const [pinToo, setPinToo] = useState(true);
   const [teamShared, setTeamShared] = useState(false);
+  const [acl, setAcl] = useState<NoteAclEntry[]>([]);
+  const [inviteInput, setInviteInput] = useState("");
+  const [inviteRole, setInviteRole] = useState<NoteAclRole>("editor");
 
   useEffect(() => {
-    if (open) {
-      setMode(share?.mode || "view");
-      setError("");
-      setCopied(false);
-      setTeamShared(false);
-    }
+    if (!open) return;
+    /* Reset ephemeral dialog state when opened */
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setMode(share?.mode || "view");
+    setError("");
+    setCopied(false);
+    setTeamShared(false);
+    setInviteInput("");
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [open, share]);
 
   useEffect(() => {
@@ -82,7 +97,13 @@ export default function ShareDialog({
   }, [open, user]);
 
   useEffect(() => {
+    if (!open || !noteId) return;
+    return listenNoteAcl(noteId, setAcl);
+  }, [open, noteId]);
+
+  useEffect(() => {
     if (!teamId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear channel picker when team cleared
       setChannels([]);
       setChannelId("");
       return;
@@ -97,6 +118,7 @@ export default function ShareDialog({
 
   const enabled = !!share?.enabled && !!share.token;
   const url = enabled ? shareUrl(share!.token) : "";
+  const isOwner = !!user && user.uid === ownerId;
 
   const enable = async () => {
     setBusy(true);
@@ -189,6 +211,69 @@ export default function ShareDialog({
     }
   };
 
+  const inviteCollaborator = async () => {
+    if (!user || !isOwner) return;
+    const raw = inviteInput.trim();
+    if (!raw) return;
+    setBusy(true);
+    setError("");
+    try {
+      const resolved = await resolveUidByUsername(raw);
+      if (!resolved) throw new Error("找不到此用戶名稱，請確認對方已設定 @用戶名");
+      if (resolved.uid === ownerId) throw new Error("擁有者無需加入協作者");
+      const profile = await fetchUserProfile(resolved.uid);
+      await setNoteAclEntry({
+        noteId,
+        uid: resolved.uid,
+        role: inviteRole,
+        name: profile?.display_name || resolved.username,
+        username: resolved.username,
+        invitedBy: user.uid,
+      });
+      setInviteInput("");
+      toast(inviteRole === "editor" ? "已加入可編輯協作者" : "已加入唯讀協作者");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeCollaborator = async (uid: string) => {
+    if (!isOwner) return;
+    setBusy(true);
+    setError("");
+    try {
+      await removeNoteAclEntry(noteId, uid);
+      toast("已移除協作者");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeAclRole = async (uid: string, role: NoteAclRole) => {
+    if (!isOwner || !user) return;
+    const row = acl.find((a) => a.uid === uid);
+    if (!row) return;
+    setBusy(true);
+    try {
+      await setNoteAclEntry({
+        noteId,
+        uid,
+        role,
+        name: row.name,
+        username: row.username,
+        invitedBy: user.uid,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="cadence-dialog-backdrop"
@@ -199,7 +284,7 @@ export default function ShareDialog({
     >
       <div className="cadence-dialog share-dialog" role="dialog" aria-modal="true">
         <h2 className="cadence-dialog-title">分享筆記</h2>
-        <p className="cadence-dialog-msg">產生連結，或直接貼到團隊頻道。</p>
+        <p className="cadence-dialog-msg">產生連結、邀請協作者，或貼到團隊頻道。</p>
 
         <div className="share-mode-list" role="radiogroup" aria-label="分享權限">
           {MODES.map((m) => (
@@ -207,7 +292,7 @@ export default function ShareDialog({
               key={m.id}
               type="button"
               className={`share-mode-item${mode === m.id ? " is-on" : ""}`}
-              disabled={busy}
+              disabled={busy || !isOwner}
               onClick={() => void changeMode(m.id)}
             >
               <strong>{m.label}</strong>
@@ -227,7 +312,80 @@ export default function ShareDialog({
           <p className="share-off-hint">尚未開啟公開連結。選擇權限後按「開啟分享」。</p>
         )}
 
-        {teams.length > 0 && (
+        {isOwner && (
+          <div className="share-team-block">
+            <h3 className="share-team-title">邀請協作者（即時共編）</h3>
+            <p className="share-off-hint" style={{ marginTop: 0 }}>
+              輸入對方的 @用戶名稱。可編輯者開啟 /notes/此篇 即可即時共編。
+            </p>
+            <div className="share-acl-invite">
+              <input
+                className="input"
+                placeholder="@username"
+                value={inviteInput}
+                onChange={(e) => setInviteInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void inviteCollaborator();
+                  }
+                }}
+              />
+              <MenuSelect
+                variant="soft"
+                ariaLabel="協作者權限"
+                value={inviteRole}
+                options={[
+                  { value: "editor", label: "可編輯" },
+                  { value: "viewer", label: "唯讀" },
+                ]}
+                onChange={(v) => setInviteRole(v === "viewer" ? "viewer" : "editor")}
+              />
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={busy || !inviteInput.trim()}
+                onClick={() => void inviteCollaborator()}
+              >
+                邀請
+              </button>
+            </div>
+            {acl.length > 0 && (
+              <ul className="share-acl-list">
+                {acl.map((row) => (
+                  <li key={row.uid} className="share-acl-row">
+                    <span>
+                      {row.name || row.username || row.uid}
+                      {row.username ? (
+                        <span className="share-acl-handle"> @{row.username}</span>
+                      ) : null}
+                    </span>
+                    <MenuSelect
+                      variant="soft"
+                      ariaLabel="變更權限"
+                      value={row.role}
+                      options={[
+                        { value: "editor", label: "可編輯" },
+                        { value: "viewer", label: "唯讀" },
+                      ]}
+                      onChange={(v) => void changeAclRole(row.uid, v === "viewer" ? "viewer" : "editor")}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      disabled={busy}
+                      onClick={() => void removeCollaborator(row.uid)}
+                    >
+                      移除
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {teams.length > 0 && isOwner && (
           <div className="share-team-block">
             <h3 className="share-team-title">分享到團隊頻道</h3>
             <div className="share-team-row">
@@ -268,10 +426,14 @@ export default function ShareDialog({
           </div>
         )}
 
-        {error && <p className="cadence-dialog-msg" style={{ color: "var(--danger)" }}>{error}</p>}
+        {error && (
+          <p className="cadence-dialog-msg" style={{ color: "var(--danger)" }}>
+            {error}
+          </p>
+        )}
 
         <div className="cadence-dialog-actions">
-          {enabled && (
+          {enabled && isOwner && (
             <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void disable()}>
               停止分享
             </button>
@@ -279,7 +441,7 @@ export default function ShareDialog({
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             關閉
           </button>
-          {!enabled && (
+          {!enabled && isOwner && (
             <button type="button" className="btn" disabled={busy} onClick={() => void enable()}>
               {busy ? "…" : "開啟分享"}
             </button>

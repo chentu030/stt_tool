@@ -25,6 +25,9 @@ import Typography from "@tiptap/extension-typography";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { common, createLowlight } from "lowlight";
 import { markdownToHtml, htmlToMarkdown, healHighlightArtifacts, formatFileSize, clipboardHasLatex } from "@/lib/mdHtml";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import type { FirestoreYjsProvider } from "@/lib/noteCollab";
 import { generateAiImageFile } from "@/lib/aiImage";
 import { NoteAudio, NoteVideo, NoteFile } from "@/lib/tiptapMedia";
 import { NoteImage } from "@/lib/tiptapImage";
@@ -103,6 +106,13 @@ type Props = {
   readOnly?: boolean;
   /** Open the block discussion panel for the current text selection */
   onOpenThread?: (selectionText: string) => void;
+  /**
+   * Realtime co-editing via Yjs. When set, TipTap syncs through `provider.doc`
+   * and ignores remote whole-document `valueMd` resets.
+   */
+  collab?: {
+    provider: FirestoreYjsProvider;
+  };
 };
 
 type SlashItem = {
@@ -268,7 +278,9 @@ export default function RichNoteEditor({
   aiContext,
   readOnly = false,
   onOpenThread,
+  collab,
 }: Props) {
+  const collabProvider = collab?.provider ?? null;
   const prefsCtx = usePrefsOptional();
   const { user, displayName } = useAuth();
   const community = useCommunityOptional();
@@ -1152,7 +1164,8 @@ export default function RichNoteEditor({
         // StarterKit 3.x ships link/underline — we add custom ones below
         link: false,
         underline: false,
-        undoRedo: { depth: 200 },
+        // Yjs provides undo when collaborating
+        undoRedo: collabProvider ? false : { depth: 200 },
       }),
       CodeBlockLowlight.configure({
         lowlight,
@@ -1212,8 +1225,25 @@ export default function RichNoteEditor({
       AppCard,
       TemplateBtn,
       BlockSelectionHighlight,
+      ...(collabProvider
+        ? [
+            Collaboration.configure({
+              document: collabProvider.doc,
+              field: "default",
+            }),
+            CollaborationCaret.configure({
+              provider: collabProvider,
+              user: {
+                name: collabProvider.user.name,
+                color: collabProvider.user.color,
+              },
+            }),
+          ]
+        : []),
     ],
-    content: markdownToHtml(valueMd, (t) => resolveWikiRef.current(t)),
+    content: collabProvider
+      ? undefined
+      : markdownToHtml(valueMd, (t) => resolveWikiRef.current(t)),
     editorProps: {
       attributes: { class: "rich-prose" },
       handleDOMEvents: {
@@ -1781,6 +1811,7 @@ export default function RichNoteEditor({
 
   useEffect(() => {
     if (!editor) return;
+    if (collabProvider) return;
     if (skip.current) {
       skip.current = false;
       return;
@@ -1798,7 +1829,16 @@ export default function RichNoteEditor({
     }
     // Intentionally omit wikiNotes: resolveWikiRef is a ref; listing all notes must not
     // re-setContent (that was wiping YouTube embeds after transcription finished).
-  }, [valueMd, editor]);
+  }, [valueMd, editor, collabProvider]);
+
+  // Seed empty Y.Doc once from markdown (first collaborator / no prior state).
+  useEffect(() => {
+    if (!editor || !collabProvider?.needsSeed) return;
+    const md = collabProvider.seedMarkdown || "";
+    const html = markdownToHtml(md, (t) => resolveWikiRef.current(t));
+    editor.commands.setContent(html || "<p></p>");
+    collabProvider.markSeeded();
+  }, [editor, collabProvider]);
 
   // Re-resolve embed src from original URL when loading markdown (src may equal original)
   useEffect(() => {
