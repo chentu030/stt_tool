@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   heatAvailableYears,
   heatYearGraph,
@@ -26,6 +26,8 @@ export default function JournalHeatmap({ stats, wordsByDate, onSelectDay }: Prop
   );
   const [year, setYear] = useState(years[0] || new Date().getFullYear());
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollMax, setScrollMax] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
 
   useEffect(() => {
     if (!years.includes(year) && years[0]) setYear(years[0]);
@@ -40,12 +42,41 @@ export default function JournalHeatmap({ stats, wordsByDate, onSelectDay }: Prop
     [stats.filledDays, wordsByDate, year]
   );
 
+  const syncScrollMetrics = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const max = Math.max(0, el.scrollWidth - el.clientWidth);
+    setScrollMax(max);
+    setScrollLeft(Math.min(el.scrollLeft, max));
+  }, []);
+
   // Keep the latest months in view by default (scroll right).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollLeft = el.scrollWidth;
-  }, [graph.year, graph.weeks.length]);
+    syncScrollMetrics();
+  }, [graph.year, graph.weeks.length, syncScrollMetrics]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      setScrollLeft(el.scrollLeft);
+      setScrollMax(Math.max(0, el.scrollWidth - el.clientWidth));
+    };
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => syncScrollMetrics())
+        : null;
+    ro?.observe(el);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    syncScrollMetrics();
+    return () => {
+      ro?.disconnect();
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [syncScrollMetrics, graph.weeks.length]);
 
   return (
     <div className="jn-heat-year">
@@ -134,8 +165,28 @@ export default function JournalHeatmap({ stats, wordsByDate, onSelectDay }: Prop
           </div>
         </div>
 
+        {scrollMax > 0 && (
+          <input
+            type="range"
+            className="jn-heat-year-slider"
+            min={0}
+            max={scrollMax}
+            step={1}
+            value={scrollLeft}
+            aria-label="左右移動熱力圖"
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              const el = scrollRef.current;
+              if (el) el.scrollLeft = next;
+              setScrollLeft(next);
+            }}
+          />
+        )}
+
         <div className="jn-heat-year-foot">
-          <span className="jn-muted">可左右滑動查看整年</span>
+          <span className="jn-muted">
+            {scrollMax > 0 ? "拖曳滑桿或左右滑動查看整年" : "整年已完整顯示"}
+          </span>
           <div className="jn-heat-year-legend" aria-label="熱力圖例">
             <span>少</span>
             {[0, 1, 2, 3, 4].map((lv) => (
