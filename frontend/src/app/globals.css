@@ -5542,12 +5542,27 @@ a.sidebar-user-name:hover {
 .jn-hero {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.65rem;
   align-items: center;
+  gap: 0.65rem;
   flex-shrink: 0;
   min-width: 0;
   max-width: 100%;
+  /* Room for voice-btn glow (page uses overflow-x: clip). */
+  padding: 0.45rem 0.35rem;
+  margin: -0.45rem -0.35rem;
+  overflow: visible;
+}
+.jn-hero-brand {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.jn-hero-toolbar {
+  display: contents;
+}
+.jn-hero-toolbar > .voice-quick-btn,
+.jn-hero-toolbar > .voice-quick-btn--hero {
+  flex: 0 0 auto;
+  margin-right: 0.25rem;
 }
 .jn-hero-actions {
   display: flex;
@@ -5555,15 +5570,15 @@ a.sidebar-user-name:hover {
   align-items: center;
   flex-wrap: nowrap;
   min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 0.1rem;
-  scrollbar-gutter: stable;
+  margin-left: auto;
+  overflow: visible;
 }
 .jn-hero-actions > * {
   flex: 0 0 auto;
+}
+/* Desktop: drop「打開今日」— calendar / week already jump to today. */
+.jn-hero-open-today {
+  display: none !important;
 }
 .jn-layout {
   display: grid;
@@ -7257,15 +7272,42 @@ button.jn-heat-cell:disabled {
   .jn-hero {
     flex-direction: column;
     align-items: stretch;
+    padding: 0.4rem 0.2rem;
+    margin: -0.15rem -0.1rem;
+  }
+  .jn-hero-toolbar {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.35rem;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    /* Keep pulse glow inside the scrollport */
+    padding: 0.4rem 0.35rem;
+    margin: -0.15rem -0.1rem;
+    scrollbar-gutter: stable;
+  }
+  .jn-hero-toolbar > .voice-quick-btn,
+  .jn-hero-toolbar > .voice-quick-btn--hero {
+    margin-right: 0;
   }
   .jn-hero-actions {
-    width: 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    display: contents;
+    margin-left: 0;
+  }
+  .jn-hero-open-today {
+    display: inline-flex !important;
   }
   .jn-hero-actions .btn,
   .jn-hero-actions .shiny-pill,
-  .jn-hero-actions button {
+  .jn-hero-actions button,
+  .jn-hero-toolbar .btn,
+  .jn-hero-toolbar .shiny-pill,
+  .jn-hero-toolbar button {
     font-size: 0.78rem;
     white-space: nowrap;
   }

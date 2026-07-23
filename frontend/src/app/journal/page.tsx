@@ -669,7 +669,7 @@ export default function JournalPage() {
   return (
     <div className="jn-page">
       <header className="jn-hero">
-        <div>
+        <div className="jn-hero-brand">
           <ScrambleText words="日誌" as="h1" className="page-title font-display" speed={22} />
           <p className="page-sub">
             {today}
@@ -677,7 +677,7 @@ export default function JournalPage() {
             {composerDirty ? " · 未儲存" : ""}
           </p>
         </div>
-        <div className="jn-hero-actions">
+        <div className="jn-hero-toolbar">
           <QuickVoiceButton
             uid={user.uid}
             hero
@@ -712,49 +712,52 @@ export default function JournalPage() {
               /* note saved in background; toast already shown by queue */
             }}
           />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={exportMonth}>
-            匯出本月
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              void toggleGoogleCal();
-            }}
-            title={
-              googleCalendarConfigured()
-                ? "同步今日 Google 日曆行程（唯讀）"
-                : "需設定 NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID"
-            }
-          >
-            {gcalStatus === "loading"
-              ? "Google 日曆 · 同步中…"
-              : gcalStatus === "error"
-                ? "Google 日曆 · 重試"
-                : gcalOn
-                  ? "Google 日曆 · 已連結"
-                  : "連結 Google 日曆"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={busy}
-            onClick={() => {
-              void monthlyReview();
-            }}
-            title="AI 復盤本月日誌並建立筆記"
-          >
-            AI 月復盤
-          </button>
-          <ShinyPill
-            style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem" }}
-            disabled={busy}
-            onClick={() => {
-              void openOrCreate(today);
-            }}
-          >
-            {byDate.has(today) ? "打開今日" : "建立今日"}
-          </ShinyPill>
+          <div className="jn-hero-actions">
+            <button type="button" className="btn btn-ghost btn-sm" onClick={exportMonth}>
+              匯出本月
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                void toggleGoogleCal();
+              }}
+              title={
+                googleCalendarConfigured()
+                  ? "同步今日 Google 日曆行程（唯讀）"
+                  : "需設定 NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID"
+              }
+            >
+              {gcalStatus === "loading"
+                ? "Google 日曆 · 同步中…"
+                : gcalStatus === "error"
+                  ? "Google 日曆 · 重試"
+                  : gcalOn
+                    ? "Google 日曆 · 已連結"
+                    : "連結 Google 日曆"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => {
+                void monthlyReview();
+              }}
+              title="AI 復盤本月日誌並建立筆記"
+            >
+              AI 月復盤
+            </button>
+            <ShinyPill
+              className="btn jn-hero-open-today"
+              style={{ padding: "0.45rem 0.95rem", fontSize: "0.82rem" }}
+              disabled={busy}
+              onClick={() => {
+                void openOrCreate(today);
+              }}
+            >
+              {byDate.has(today) ? "打開今日" : "建立今日"}
+            </ShinyPill>
+          </div>
         </div>
       </header>
 
