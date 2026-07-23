@@ -16,6 +16,7 @@ export const ACCESS_ALLOWLIST = [
   "lcy101120@gmail.com",
   "lingyu1122@gmail.com",
   "ljc123@gmail.com",
+  "a.meowalien@gmail.com",
 ] as const;
 
 export type AccessStatus = "none" | "pending" | "approved" | "rejected";
