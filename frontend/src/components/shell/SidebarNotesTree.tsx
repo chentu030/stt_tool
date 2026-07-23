@@ -163,6 +163,8 @@ export default function SidebarNotesTree() {
   const draggingId = useRef<string | null>(null);
   const fileDragDepth = useRef(0);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  /** Anchor for Shift+click range select (last plain / Ctrl click). */
+  const selectAnchorRef = useRef<string | null>(null);
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [stylePicker, setStylePicker] = useState<StylePicker | null>(null);
   const [hintDismissed, setHintDismissed] = useState(true);
@@ -671,6 +673,7 @@ export default function SidebarNotesTree() {
   };
 
   const toggleSelect = useCallback((noteId: string) => {
+    selectAnchorRef.current = noteId;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(noteId)) next.delete(noteId);
@@ -681,9 +684,12 @@ export default function SidebarNotesTree() {
 
   const selectAllVisible = useCallback(() => {
     setSelected(new Set(visibleNoteIds));
+    if (visibleNoteIds.length) selectAnchorRef.current = visibleNoteIds[0];
   }, [visibleNoteIds]);
 
-  const clearSelection = useCallback(() => setSelected(new Set()), []);
+  const clearSelection = useCallback(() => {
+    setSelected(new Set());
+  }, []);
 
   const openCtx = (e: REMouseEvent, target: CtxTarget) => {
     e.preventDefault();
@@ -1185,19 +1191,32 @@ export default function SidebarNotesTree() {
       toggleSelect(noteId);
       return;
     }
-    if (e.shiftKey && selected.size) {
+    if (e.shiftKey) {
       e.preventDefault();
       const ids = visibleNoteIds;
-      const anchor = [...selected].pop() || ids[0];
-      const a = ids.indexOf(anchor);
+      const anchor =
+        selectAnchorRef.current ||
+        activeNoteId ||
+        (selected.size ? [...selected][0] : "") ||
+        ids[0] ||
+        "";
+      const a = anchor ? ids.indexOf(anchor) : -1;
       const b = ids.indexOf(noteId);
       if (a >= 0 && b >= 0) {
         const [lo, hi] = a < b ? [a, b] : [b, a];
         setSelected(new Set(ids.slice(lo, hi + 1)));
+      } else if (b >= 0) {
+        // Anchor not in current visible tree — still select the target (and anchor if known).
+        setSelected(new Set(anchor && anchor !== noteId ? [anchor, noteId] : [noteId]));
+        if (!selectAnchorRef.current) selectAnchorRef.current = noteId;
       } else {
-        toggleSelect(noteId);
+        setSelected(new Set([noteId]));
+        selectAnchorRef.current = noteId;
       }
+      return;
     }
+    // Plain click on the row (e.g. padding) — remember as range anchor.
+    selectAnchorRef.current = noteId;
   };
 
   const runMenuAction = async (fn: () => void | Promise<void>) => {
@@ -1380,6 +1399,8 @@ export default function SidebarNotesTree() {
                 e.preventDefault();
                 return;
               }
+              selectAnchorRef.current = note.id;
+              setSelected(new Set());
               prefsCtx?.setPrefs((p) => touchRecentId(p, note.id));
             }}
             onDoubleClick={(e) => {
