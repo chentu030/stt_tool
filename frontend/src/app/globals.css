@@ -7239,6 +7239,30 @@ a.sidebar-user-name:hover {
 .jn-preview-md {
   font-size: 0.95rem;
   line-height: 1.65;
+  min-width: 0;
+}
+/* Preview is not .rich-prose — without this, native <audio> stays ~300px and
+   gets clipped by .jn-rail / .jn-composer overflow-x: clip. */
+.jn-preview audio.rich-audio,
+.jn-preview video.rich-video,
+.jn-preview-md audio.rich-audio,
+.jn-preview-md video.rich-video,
+.note-ai-md audio.rich-audio,
+.note-ai-md video.rich-video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0.65em 0;
+  border-radius: 10px;
+}
+.jn-preview p:has(> audio),
+.jn-preview p:has(> video),
+.note-ai-md p:has(> audio),
+.note-ai-md p:has(> video) {
+  margin: 0.45em 0;
+  min-width: 0;
 }
 .jn-composer-actions {
   display: flex;
