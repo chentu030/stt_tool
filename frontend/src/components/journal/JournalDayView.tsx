@@ -375,12 +375,6 @@ export default function JournalDayView({
         </div>
       </div>
 
-      <p className="jn-tl-hint">
-        {editMode
-          ? "編輯中：點「新增」或時間軸空白處建立；點卡片可改備註、時間、重複。"
-          : "左右滑可換日；上下滑可捲動整頁。點行程可編輯。"}
-      </p>
-
       {editingEvent && (
         <ScheduleEventEditDialog
           uid={uid}

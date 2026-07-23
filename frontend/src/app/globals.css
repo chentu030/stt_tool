@@ -6403,10 +6403,44 @@ a.sidebar-user-name:hover {
   padding: 0;
   min-height: 0;
 }
+.jn-schedule-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 0.85rem;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  min-width: 0;
+}
 .jn-schedule-tabs {
   display: flex;
   gap: 0.35rem;
   flex: 0 0 auto;
+}
+.jn-schedule-selected {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem 0.65rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.jn-schedule-selected-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-main);
+  min-width: 0;
+  max-width: min(100%, 28rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jn-schedule-selected-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: flex-end;
 }
 .jn-schedule-tab {
   appearance: none;

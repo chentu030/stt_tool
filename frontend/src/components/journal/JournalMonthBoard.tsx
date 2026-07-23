@@ -237,12 +237,6 @@ export default function JournalMonthBoard({
         </div>
       </div>
 
-      <p className="jn-tl-hint">
-        {editMode
-          ? "編輯中：點 ＋ 或雙擊新增（可設時間、重複、提醒）。點已有事項可編輯／刪除。"
-          : "點日期會同步週視圖；事項多時可在格子內上下捲動，手機可左右滑看完整欄寬。按「編輯事項」後可新增。"}
-      </p>
-
       {editingEvent && (
         <ScheduleEventEditDialog
           uid={uid}

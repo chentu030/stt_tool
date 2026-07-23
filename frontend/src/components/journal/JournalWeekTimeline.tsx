@@ -55,9 +55,6 @@ type Props = {
   overlays?: ScheduleEvent[];
   onSelectDay?: (dateKey: string) => void;
   onSelectEvent?: (ev: ScheduleEvent | null) => void;
-  onMeetingMode?: (ev: ScheduleEvent) => void;
-  onOpenNote?: (ev: ScheduleEvent) => void;
-  onJoin?: (ev: ScheduleEvent) => void;
 };
 
 function topFor(min: number) {
@@ -89,9 +86,6 @@ export default function JournalWeekTimeline({
   overlays = [],
   onSelectDay,
   onSelectEvent,
-  onMeetingMode,
-  onOpenNote,
-  onJoin,
 }: Props) {
   const [compact, setCompact] = useState(false);
   /** Stable start of the 4-day window on mobile — not forced to the selected day. */
@@ -513,8 +507,6 @@ export default function JournalWeekTimeline({
     setEditingEvent(ev);
   };
 
-  const selected = merged.find((e) => e.id === selectedEventId) || null;
-
   return (
     <div
       className={`jn-week${editMode ? " is-editing" : ""}${compact ? " is-compact" : ""}`}
@@ -798,55 +790,6 @@ export default function JournalWeekTimeline({
           {shiftDateKey(todayKey, SLIDER_SPAN).slice(5).replace("-", "/")}
         </span>
       </div>
-      <p className="jn-week-slider-hint">
-        滑桿快速跳日 · 目前 {dateKey}
-        {sliderOffset !== sliderClamped ? "（已超出滑桿範圍，可點左右繼續）" : ""}
-      </p>
-
-      <p className="jn-tl-hint">
-        {compact
-          ? editMode
-            ? "編輯中：拖空白新增後可設重複／提醒；長按移動；拖上下緣拉長。左右滑或 ‹ › 一次一天。"
-            : "手機一次顯示四天；‹ › 與左右滑一次移動一天。"
-          : editMode
-            ? "編輯中：拖空白新增後可設重複／提醒；長按移動；拖上下緣拉長。點行程開啟編輯／刪除。"
-            : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增或調整。"}
-      </p>
-
-      {selected && (
-        <div className="jn-tl-actions">
-          <div className="jn-tl-actions-title">
-            {selected.dateKey.slice(5).replace("-", "/")} · {selected.title}
-            {!selected.allDay && (
-              <>
-                {" "}
-                · {formatClock(selected.startMin)}–{formatClock(selected.endMin)}
-              </>
-            )}
-          </div>
-          <div className="jn-tl-actions-row">
-            <button type="button" className="btn btn-sm" onClick={() => onMeetingMode?.(selected)}>
-              會議模式
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOpenNote?.(selected)}>
-              筆記
-            </button>
-            {selected.conferenceUrl && (
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onJoin?.(selected)}>
-                加入
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => openEventEditor(selected)}
-            >
-              詳細設定
-            </button>
-          </div>
-        </div>
-      )}
-
       {editingEvent && (
         <ScheduleEventEditDialog
           uid={uid}
