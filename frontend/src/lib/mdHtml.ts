@@ -102,10 +102,29 @@ turndown.addRule("noteVideo", {
     node.nodeName === "VIDEO" && !!(node as HTMLElement).getAttribute("src"),
   replacement: (_content, node) => {
     const el = node as HTMLElement;
+    if (el.closest("[data-note-video-wrap]")) return "";
     const src = el.getAttribute("src") || "";
     const title = el.getAttribute("title") || "video";
-    // Single leading newline — avoids empty <p> between toggle/heading and media on reload.
-    return `\n![video|${title}](${src})\n`;
+    const loopOff = el.getAttribute("data-loop") === "0";
+    const mid = loopOff ? `${title}|noloop` : title;
+    return `\n![video|${mid}](${src})\n`;
+  },
+});
+
+turndown.addRule("noteVideoWrap", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-note-video-wrap") === "1",
+  replacement: (_content, node) => {
+    const wrap = node as HTMLElement;
+    const video = wrap.querySelector("video[src]") as HTMLVideoElement | null;
+    if (!video?.getAttribute("src")) return "";
+    const src = video.getAttribute("src") || "";
+    const title = video.getAttribute("title") || "video";
+    const loopOff =
+      wrap.getAttribute("data-loop") === "0" || video.getAttribute("data-loop") === "0";
+    const mid = loopOff ? `${title}|noloop` : title;
+    return `\n![video|${mid}](${src})\n`;
   },
 });
 
@@ -691,9 +710,28 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
 
   s = s.replace(/@@EMB(\d+)@@/g, (_m, i) => embPark[Number(i)] || "");
 
-  s = s.replace(/!\[video(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, title, src) => {
-    const t = title ? ` title="${escapeAttr(title)}"` : "";
-    return `<video class="rich-video" data-note-video="1" controls preload="metadata" src="${escapeAttr(src)}"${t}></video>`;
+  s = s.replace(/!\[video(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, mid, src) => {
+    const parts = String(mid || "")
+      .split("|")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    let loop = true;
+    const titleParts: string[] = [];
+    for (const p of parts) {
+      if (/^(noloop|once|loop=0)$/i.test(p)) {
+        loop = false;
+        continue;
+      }
+      if (/^(loop|loop=1)$/i.test(p)) {
+        loop = true;
+        continue;
+      }
+      titleParts.push(p);
+    }
+    const title = titleParts.join("|") || "video";
+    const t = ` title="${escapeAttr(title)}"`;
+    const loopAttr = loop ? ` loop data-loop="1"` : ` data-loop="0"`;
+    return `<video class="rich-video" data-note-video="1" controls playsinline preload="metadata" src="${escapeAttr(src)}"${t}${loopAttr}></video>`;
   });
 
   s = s.replace(/!\[audio(?:\|([^\]]*))?\]\(([^)]+)\)/g, (_m, title, src) => {
@@ -1146,14 +1184,30 @@ export function htmlToMarkdown(html: string): string {
         const title = el.getAttribute("data-title") || "";
         el.replaceWith(doc.createTextNode(park(`\n\n[web|${title}](${url})\n\n`)));
       });
+      doc.querySelectorAll("[data-note-video-wrap]").forEach((el) => {
+        const video = el.querySelector("video[src]");
+        const src = video?.getAttribute("src") || "";
+        const title = video?.getAttribute("title") || "video";
+        if (!src) {
+          el.remove();
+          return;
+        }
+        const loopOff =
+          el.getAttribute("data-loop") === "0" || video?.getAttribute("data-loop") === "0";
+        const mid = loopOff ? `${title}|noloop` : title;
+        el.replaceWith(doc.createTextNode(park(`\n![video|${mid}](${src})\n`)));
+      });
       doc.querySelectorAll("[data-note-video]").forEach((el) => {
+        if (el.closest("[data-note-video-wrap]")) return;
         const src = el.getAttribute("src") || "";
         const title = el.getAttribute("title") || "video";
         if (!src) {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(park(`\n![video|${title}](${src})\n`)));
+        const loopOff = el.getAttribute("data-loop") === "0";
+        const mid = loopOff ? `${title}|noloop` : title;
+        el.replaceWith(doc.createTextNode(park(`\n![video|${mid}](${src})\n`)));
       });
       doc.querySelectorAll("[data-note-audio-wrap]").forEach((el) => {
         const audio = el.querySelector("audio[src]");
@@ -1299,7 +1353,7 @@ function normalizeBlockMediaHtml(html: string): string {
     const isMedia = (el: Element | null) =>
       !!el &&
       (el.matches(
-        "audio, video, hr, div[data-note-toggle], div[data-note-toggle-heading], div[data-note-audio-wrap], .rich-toggle, .rich-audio-wrap"
+        "audio, video, hr, div[data-note-toggle], div[data-note-toggle-heading], div[data-note-audio-wrap], div[data-note-video-wrap], .rich-toggle, .rich-audio-wrap, .rich-video-wrap"
       ) ||
         el.tagName === "AUDIO" ||
         el.tagName === "VIDEO");

@@ -17,6 +17,18 @@ import {
   type MediaLayout,
 } from "@/lib/mediaLayout";
 
+function isGifSrc(src: string): boolean {
+  const s = (src || "").trim();
+  if (!s) return false;
+  if (/^data:image\/gif/i.test(s)) return true;
+  try {
+    const path = decodeURIComponent(new URL(s, "https://local.invalid").pathname);
+    return /\.gif$/i.test(path);
+  } catch {
+    return /\.gif(\?|#|$)/i.test(s);
+  }
+}
+
 function ImageUrlView({
   node,
   updateAttributes,
@@ -33,10 +45,42 @@ function ImageUrlView({
   const readOnly = !editor?.isEditable;
   const [localActive, setLocalActive] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const imgRef = React.useRef<HTMLImageElement | null>(null);
+  const isGif = !empty && isGifSrc(src);
 
   useEffect(() => {
     setDraft(src);
   }, [src]);
+
+  // GIFs under CSS transform / off-screen can freeze in Chromium — restart when visible.
+  useEffect(() => {
+    if (!isGif || !src) return;
+    const img = imgRef.current;
+    if (!img) return;
+    const restart = () => {
+      const cur = img.getAttribute("src") || src;
+      img.removeAttribute("src");
+      // Force decode/replay of animated GIF
+      void img.offsetWidth;
+      img.setAttribute("src", cur);
+    };
+    let wasVisible = false;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting && !wasVisible) {
+            wasVisible = true;
+            restart();
+          } else if (!e.isIntersecting) {
+            wasVisible = false;
+          }
+        }
+      },
+      { threshold: 0.05 }
+    );
+    io.observe(img);
+    return () => io.disconnect();
+  }, [isGif, src]);
 
   useEffect(() => {
     if (selected) setLocalActive(true);
@@ -194,10 +238,12 @@ function ImageUrlView({
       {showUrlBar ? urlBar : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        className="rich-image"
+        ref={imgRef}
+        className={`rich-image${isGif ? " rich-image--gif" : ""}`}
         src={src}
         alt={alt}
         draggable={false}
+        decoding="async"
         onPointerDown={(e) => {
           // Select for layout chrome; don't start block-drag.
           e.stopPropagation();
