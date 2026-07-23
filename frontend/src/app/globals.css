@@ -723,8 +723,10 @@ button, input, textarea, select {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  /* Horizontal pan only by default so vertical wheel reaches the page.
+     Constrained shells (full page / app-fill) override to overflow: auto. */
   overflow-x: auto;
-  overflow-y: visible;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
   touch-action: pan-x pan-y;
@@ -1754,17 +1756,49 @@ button, input, textarea, select {
   line-height: 1.5;
 }
 .cdb-error { color: var(--danger); }
+/* Full-page database: fill app-main and scroll the table body (x + y). */
+.app-main:has(.cdb-page) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .cdb-page {
-  padding: 0.85rem 1.35rem 2rem;
+  padding: 0.85rem 1.35rem 1.25rem;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: clip;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cdb-page-nav {
+  flex-shrink: 0;
+  margin-bottom: 0.75rem;
 }
 .cdb-page > .cdb {
-  /* Full-page DB: still scroll inside the table wrap, not the page */
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cdb-page .cdb-toolbar,
+.cdb-page .cdb-ops,
+.cdb-page .cdb-panel,
+.cdb-page .cdb-error {
+  flex-shrink: 0;
+}
+.cdb-page .cdb-table-wrap,
+.cdb-page .cdb-list,
+.cdb-page .cdb-board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .cdb-board {
   scrollbar-width: thin;
@@ -1781,9 +1815,6 @@ button, input, textarea, select {
 }
 .cdb-page.is-embed {
   padding: 0;
-}
-.cdb-page-nav {
-  margin-bottom: 0.75rem;
 }
 .cdb-page-nav a {
   font-size: 0.85rem;
@@ -15128,6 +15159,19 @@ body.is-sidebar-resizing iframe {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb .cdb-toolbar,
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb .cdb-ops,
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb .cdb-panel {
+  flex-shrink: 0;
+}
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb .cdb-table-wrap,
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb .cdb-list,
+.doc-workspace.is-app-fill .note-app-surface:not(.note-app-surface--frame) > .cdb .cdb-board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .doc-workspace.is-app-fill .note-app-frame,
 .doc-workspace.is-app-fill .web-page-view .web-page-stage,
