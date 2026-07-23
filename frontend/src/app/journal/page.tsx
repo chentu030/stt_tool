@@ -24,6 +24,7 @@ import JournalAside from "@/components/journal/JournalAside";
 import JournalSchedulePanel from "@/components/journal/JournalSchedulePanel";
 import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import { useLiveRecordingOptional } from "@/components/voice/LiveRecordingProvider";
+import { markDailyRhythmStep } from "@/lib/dailyRhythm";
 import {
   buildMonthGrid,
   computeJournalStats,
@@ -88,7 +89,7 @@ export default function JournalPage() {
   const [aiLocalEvents, setAiLocalEvents] = useState<ScheduleEvent[]>([]);
   const [gcalOn, setGcalOn] = useState(false);
   const [gcalStatus, setGcalStatus] = useState<"off" | "loading" | "ok" | "error">("off");
-  const [railOpen, setRailOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(true);
   const [isNarrow, setIsNarrow] = useState(false);
   const liveRec = useLiveRecordingOptional();
   const weekKeys = useMemo(() => weekDateKeys(selected), [selected]);
@@ -116,7 +117,10 @@ export default function JournalPage() {
   useEffect(() => {
     setGcalOn(Boolean(getStoredGoogleAccessToken()));
     try {
-      setRailOpen(localStorage.getItem("cadence_jn_rail") === "1");
+      const v = localStorage.getItem("cadence_jn_rail");
+      if (v === "0") setRailOpen(false);
+      else if (v === "1") setRailOpen(true);
+      // unset → keep default open (capture-first)
     } catch {
       /* ignore */
     }
@@ -394,9 +398,10 @@ export default function JournalPage() {
     text: string;
     tags: string[];
     appendTemplate?: string;
+    silent?: boolean;
   }) => {
-    if (!user || busy) return;
-    setBusy(true);
+    if (!user || (busy && !payload.silent)) return;
+    if (!payload.silent) setBusy(true);
     try {
       const existing = selectedEntry;
       let text = payload.text;
@@ -414,14 +419,32 @@ export default function JournalPage() {
         noteId: existing?.id ?? selectedId,
       });
       setSelectedId(id);
-      toast(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
+      if (!payload.silent) {
+        toast(payload.appendTemplate ? "已插入段落並儲存" : "已儲存日誌");
+        setComposerKey((k) => k + 1);
+      }
       setComposerDirty(false);
-      setComposerKey((k) => k + 1);
     } catch (e) {
       toast(e instanceof Error ? e.message : "儲存失敗");
     } finally {
-      setBusy(false);
+      if (!payload.silent) setBusy(false);
     }
+  };
+
+  const insertAiIntoJournal = async (aiText: string) => {
+    const chunk = String(aiText || "").trim();
+    if (!chunk) return;
+    const base = composerBody.trim();
+    const next = `${base}${base ? "\n\n" : ""}## AI 整理\n\n${chunk}\n`;
+    const tags = selectedEntry?.meta.tags?.length
+      ? selectedEntry.meta.tags
+      : selectedEntry?.meta.mood
+        ? [selectedEntry.meta.mood]
+        : [];
+    await saveComposer({ text: next, tags });
+    markDailyRhythmStep("organize");
+    toast("已寫入日誌");
+    if (!railOpen) toggleRail();
   };
 
   const createNewForDay = async (dateKey: string) => {
@@ -776,6 +799,7 @@ export default function JournalPage() {
                   setSelectedId(id);
                   setComposerDirty(false);
                   setComposerKey((k) => k + 1);
+                  markDailyRhythmStep("capture");
                   toast("快速錄音紀錄已寫入目前日誌");
                 } catch (e) {
                   toast(e instanceof Error ? e.message : "寫入日誌失敗");
@@ -783,7 +807,7 @@ export default function JournalPage() {
               })();
             }}
             onCreatedNote={() => {
-              /* note saved in background; toast already shown by queue */
+              markDailyRhythmStep("open");
             }}
           />
           <div className="jn-hero-actions">
@@ -875,6 +899,7 @@ export default function JournalPage() {
             agenda={agendaEvents}
             wordsByDate={wordsByDate}
             onAskAi={askAi}
+            onInsertAi={(text) => void insertAiIntoJournal(text)}
             onSelectDay={(dk) => {
               void onSelectDay(dk);
             }}
@@ -1064,6 +1089,7 @@ export default function JournalPage() {
                 agenda={agendaEvents}
                 wordsByDate={wordsByDate}
                 onAskAi={askAi}
+                onInsertAi={(text) => void insertAiIntoJournal(text)}
                 onSelectDay={(dk) => {
                   void onSelectDay(dk);
                 }}

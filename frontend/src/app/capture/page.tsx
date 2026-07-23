@@ -17,6 +17,9 @@ import { libraryJobsUrl } from "@/lib/navApps";
 import { toast } from "@/lib/toast";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { loadPrefs } from "@/lib/userPrefs";
+import { useNotesList } from "@/components/notes/NotesListProvider";
+import { appendToTodayJournal } from "@/lib/journalCapture";
+import { markDailyRhythmStep } from "@/lib/dailyRhythm";
 
 const YT_DRAFT_KEY = "cadence_capture_yt_draft";
 const YT_RECENT_KEY = "cadence_capture_yt_recent";
@@ -81,6 +84,7 @@ function formatRec(secs: number) {
 export default function CapturePage() {
   const { user, loading } = useAuth();
   const prefsCtx = usePrefsOptional();
+  const { notes } = useNotesList();
   const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -410,15 +414,23 @@ export default function CapturePage() {
           <div className="capture-mode-card capture-mode-card--voice">
             <QuickVoiceButton
               uid={user.uid}
-              onAppendJournal={() => {
-                /* capture page: note already created under 日誌/快速錄音 */
+              onAppendJournal={(md) => {
+                void (async () => {
+                  try {
+                    await appendToTodayJournal(user.uid, notes, md);
+                    markDailyRhythmStep("capture");
+                    toast("已寫入今日日誌");
+                  } catch (e) {
+                    toast(e instanceof Error ? e.message : "寫入日誌失敗");
+                  }
+                })();
               }}
               onCreatedNote={() => {
-                /* stay on capture so bursts of ideas can keep recording */
+                markDailyRhythmStep("open");
               }}
             />
             <Link href="/journal" className="capture-mode-link">
-              或到日誌邊寫邊錄 →
+              打開今日日誌 →
             </Link>
           </div>
         </div>

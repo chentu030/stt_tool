@@ -24,7 +24,12 @@ type Props = {
   /** Selected tag ids for this entry. */
   tags?: string[];
   busy?: boolean;
-  onSave: (payload: { text: string; tags: string[]; appendTemplate?: string }) => void;
+  onSave: (payload: {
+    text: string;
+    tags: string[];
+    appendTemplate?: string;
+    silent?: boolean;
+  }) => void;
   onOpenFull: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 };
@@ -57,10 +62,13 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   const [mode, setMode] = useState<"preview" | "edit">(
     () => (initialText.trim() ? "preview" : "edit")
   );
+  const [metaOpen, setMetaOpen] = useState(() => Boolean(initialText.trim() || initialTags.length));
+  const [syncHint, setSyncHint] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const seedRef = useRef({ text: initialText, tags: initialTags });
   const prompt = promptForDate(dateKey);
   const focusedEmptyEdit = useRef(false);
+  const autosaveGen = useRef(0);
 
   const enterEdit = () => {
     setMode("edit");
@@ -92,8 +100,29 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   }, [initialText, initialTags, text, selected]);
 
   useEffect(() => {
+    if (text.trim() || selected.length) setMetaOpen(true);
+  }, [text, selected]);
+
+  useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Light autosave while editing
+  useEffect(() => {
+    if (!dirty || busy || mode !== "edit") return;
+    const gen = ++autosaveGen.current;
+    setSyncHint("即將自動儲存…");
+    const t = window.setTimeout(() => {
+      if (gen !== autosaveGen.current) return;
+      setSyncHint("儲存中…");
+      onSave({ text, tags: selected, silent: true });
+    }, 1800);
+    return () => window.clearTimeout(t);
+  }, [text, selected, dirty, busy, mode, onSave]);
+
+  useEffect(() => {
+    if (!dirty) setSyncHint((h) => (h ? "已同步" : ""));
+  }, [dirty]);
 
   useImperativeHandle(
     ref,
@@ -208,6 +237,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           <p className="jn-prompt">今日提問：{prompt}</p>
         </div>
         <div className="jn-composer-top-actions">
+          {syncHint ? <span className="jn-sync-hint">{syncHint}</span> : null}
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -225,6 +255,16 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
         </div>
       </div>
 
+      {!metaOpen && !text.trim() && selected.length === 0 ? (
+        <button
+          type="button"
+          className="jn-meta-fold"
+          onClick={() => setMetaOpen(true)}
+        >
+          顯示當日標記與模板
+        </button>
+      ) : (
+        <>
       <div className="jn-mood-row">
         <span>當日標記</span>
         <div className="jn-moods">
@@ -294,6 +334,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
             className="jn-chip"
             onClick={() => {
               setMode("edit");
+              setMetaOpen(true);
               setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`);
             }}
           >
@@ -309,6 +350,8 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           添加為模板
         </button>
       </div>
+        </>
+      )}
 
       {mode === "preview" ? (
         <button

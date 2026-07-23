@@ -21,6 +21,8 @@ type Props = {
   /** agenda = 今日議程；secondary = 節奏/熱力；all = 兩者 */
   mode?: "agenda" | "secondary" | "all";
   onAskAi?: (prompt: string) => Promise<string>;
+  /** Append AI output into today's journal composer / note. */
+  onInsertAi?: (text: string) => void | Promise<void>;
   onMeetingMode?: (ev: ScheduleEvent) => void;
   onOpenNote?: (ev: ScheduleEvent) => void;
   onJoin?: (ev: ScheduleEvent) => void;
@@ -56,6 +58,7 @@ export default function JournalAside({
   wordsByDate,
   mode = "all",
   onAskAi,
+  onInsertAi,
   onMeetingMode,
   onOpenNote,
   onJoin,
@@ -65,6 +68,29 @@ export default function JournalAside({
   const showSecondary = mode === "secondary" || mode === "all";
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [aiOut, setAiOut] = useState("");
+  const [insertBusy, setInsertBusy] = useState(false);
+
+  const copyAi = async () => {
+    if (!aiOut.trim()) return;
+    try {
+      await navigator.clipboard.writeText(aiOut);
+      toast("已複製");
+    } catch {
+      toast("無法複製");
+    }
+  };
+
+  const insertAi = async () => {
+    if (!aiOut.trim() || !onInsertAi || insertBusy) return;
+    setInsertBusy(true);
+    try {
+      await onInsertAi(aiOut);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "寫入失敗");
+    } finally {
+      setInsertBusy(false);
+    }
+  };
 
   const sortedAgenda = useMemo(
     () =>
@@ -134,6 +160,21 @@ export default function JournalAside({
           {aiOut ? (
             <div className="jn-aside-ai-out">
               <pre>{aiOut}</pre>
+              <div className="jn-aside-ai-actions">
+                {onInsertAi && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={insertBusy}
+                    onClick={() => void insertAi()}
+                  >
+                    {insertBusy ? "寫入中…" : "寫入日誌"}
+                  </button>
+                )}
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copyAi()}>
+                  複製
+                </button>
+              </div>
             </div>
           ) : (
             <p className="jn-muted">一鍵整理今日日誌：摘要、待辦或延續方向。</p>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createNote, deleteNote, updateNote, Note, Job, jobDisplayTitle } from "@/lib/firebase";
-import { NOTE_TEMPLATES, journalTitle } from "@/lib/templates";
+import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
 import {
@@ -17,7 +17,7 @@ import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { normalizeFolderPath } from "@/lib/noteTree";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
-import { appendToTodayJournal } from "@/lib/journalCapture";
+import { appendToTodayJournal, peekJournalCaptureUndo, undoLastJournalCapture } from "@/lib/journalCapture";
 import { markDailyRhythmStep } from "@/lib/dailyRhythm";
 
 type Props = {
@@ -213,22 +213,31 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
 
     if (!s) {
       if (userId) {
-        out.push({
-          kind: "action",
-          id: "quick-capture-hint",
-          label: "快速捕捉到今日日誌",
-          hint: "捕捉",
-          run: () => {
-            toast("先輸入一句話，再按 Enter 即可寫入今日日誌");
-          },
-        });
+        if (peekJournalCaptureUndo()) {
+          out.push({
+            kind: "action",
+            id: "undo-capture",
+            label: "復原剛才的日誌捕捉",
+            hint: "復原",
+            run: () => {
+              void (async () => {
+                try {
+                  const ok = await undoLastJournalCapture();
+                  toast(ok ? "已復原日誌捕捉" : "沒有可復原的捕捉");
+                  onClose();
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : "復原失敗");
+                }
+              })();
+            },
+          });
+        }
         out.push({
           kind: "action",
           id: "organize-page",
           label: "整理本頁（開啟 AI）",
           hint: "AI",
           run: () => {
-            markDailyRhythmStep("organize");
             onClose();
             openGlobalAiRail();
           },
@@ -341,11 +350,10 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         run: () => {
           void (async () => {
             try {
-              await appendToTodayJournal(userId, notes, title);
+              await appendToTodayJournal(userId, notes, title, { stamp: true });
               markDailyRhythmStep("capture");
-              toast("已寫入今日日誌");
+              toast("已寫入今日日誌 · ⌘K 可「復原剛才的日誌捕捉」");
               onClose();
-              router.push(`/journal?date=${encodeURIComponent(journalTitle())}`);
             } catch (e) {
               toast(e instanceof Error ? e.message : "寫入失敗");
             }
@@ -382,7 +390,6 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         label: "整理本頁（開啟 AI）",
         hint: "AI",
         run: () => {
-          markDailyRhythmStep("organize");
           onClose();
           openGlobalAiRail();
         },

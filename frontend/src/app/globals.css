@@ -7881,6 +7881,33 @@ button.jn-heat-cell:disabled {
   line-height: 1.45;
   color: var(--text-main);
 }
+.jn-aside-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+.jn-sync-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-left: 0.35rem;
+}
+.jn-meta-fold {
+  margin-top: 0.35rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+.jn-meta-fold > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  user-select: none;
+}
+.jn-meta-fold > summary::-webkit-details-marker {
+  display: none;
+}
 
 .voice-done-sheet {
   position: fixed;

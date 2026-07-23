@@ -13,7 +13,7 @@ import TypeWriter from "@/components/motion/TypeWriter";
 import ScrambleText from "@/components/motion/ScrambleText";
 import ShinyPill from "@/components/motion/ShinyPill";
 import { libraryJobsUrl } from "@/lib/navApps";
-import { markDailyRhythmStep, readDailyRhythm, type DailyRhythmState } from "@/lib/dailyRhythm";
+import { readDailyRhythm, type DailyRhythmState } from "@/lib/dailyRhythm";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import { journalTitle } from "@/lib/templates";
 
@@ -140,7 +140,6 @@ export default function HomePage() {
             <Link
               href={`/journal?date=${encodeURIComponent(journalTitle())}`}
               className="btn btn-sm btn-soft"
-              onClick={() => markDailyRhythmStep("capture")}
             >
               去日誌
             </Link>
@@ -156,7 +155,6 @@ export default function HomePage() {
             <Link
               href="/library"
               className="btn btn-sm btn-soft"
-              onClick={() => markDailyRhythmStep("open")}
             >
               知識庫
             </Link>
@@ -173,7 +171,6 @@ export default function HomePage() {
               type="button"
               className="btn btn-sm"
               onClick={() => {
-                markDailyRhythmStep("organize");
                 openGlobalAiRail();
               }}
             >

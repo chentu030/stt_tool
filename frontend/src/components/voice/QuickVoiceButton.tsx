@@ -206,7 +206,7 @@ export default function QuickVoiceButton({
 
   const keepJournal = () => {
     setDone(null);
-    toast("已留在日誌");
+    toast("可以再錄一段");
   };
 
   const openNote = () => {
@@ -268,7 +268,7 @@ export default function QuickVoiceButton({
         <p>已寫入今日日誌。接下來？</p>
         <div className="voice-done-sheet-actions">
           <button type="button" className="btn" onClick={keepJournal}>
-            留在日誌
+            再錄一段
           </button>
           <button type="button" className="btn btn-soft" onClick={openNote}>
             打開筆記

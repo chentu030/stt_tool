@@ -116,12 +116,12 @@ const DB_PAGE_SUGGESTIONS = [
 ];
 
 const JOURNAL_PAGE_SUGGESTIONS = [
+  { label: "今日摘要", prompt: "請用繁體中文為今日日誌寫一段重點摘要，條列 3–5 點" },
+  { label: "抽出待辦", prompt: "請從今日日誌抽出待辦清單，用 Markdown 核取方塊列出" },
+  { label: "整理結構", prompt: "請把今日日誌重新整理成清楚標題與條列，保留原意" },
   { label: "幫我安排明天", prompt: "根據我最近的行程與空檔，幫我安排明天的待辦與會議，並產出可套用的行程修改" },
-  { label: "調開衝突", prompt: "檢查這兩週有沒有時間衝突的行程，提出調整方案並產出可套用的修改" },
   { label: "本週空檔", prompt: "先不要改行程，只說明這週哪些時段較空、適合安排工作" },
-  { label: "新增一場會議", prompt: "依我接下來的描述新增一場會議到行程，並產出可套用的行程修改" },
-  { label: "刪掉過期的", prompt: "找出明顯已過期或不需要的本機行程，建議刪除並產出可套用的修改" },
-  { label: "只問不改", prompt: "先不要改行程，只說明目前選取日附近的行程安排" },
+  { label: "只問不改", prompt: "先不要改內容，只說明今日日誌與附近行程重點" },
 ];
 
 const LIBRARY_SUGGESTIONS = AI_SUGGESTIONS;
@@ -342,7 +342,7 @@ export default function GlobalAiDock() {
       ? JOB_AI_SUGGESTIONS
       : onNotePage && focusNote
         ? NOTE_PAGE_SUGGESTIONS
-        : onJournalPage && scheduleSnap
+        : onJournalPage
           ? JOURNAL_PAGE_SUGGESTIONS
         : onLibraryPage
           ? LIBRARY_SUGGESTIONS
