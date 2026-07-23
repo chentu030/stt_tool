@@ -5521,14 +5521,14 @@ a.sidebar-user-name:hover {
   display: grid;
   grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(220px, 260px);
   gap: 0.75rem;
-  align-items: start;
+  align-items: stretch;
   flex: 1;
   min-height: 0;
   min-width: 0;
   width: 100%;
   max-width: 100%;
-  overflow: auto;
-  /* Extra breathe room under sticky hero (hero margin alone was still tight) */
+  /* Columns scroll independently; do not scroll the whole grid together. */
+  overflow: hidden;
   padding-top: 0.1rem;
 }
 .jn-left,
@@ -5539,6 +5539,14 @@ a.sidebar-user-name:hover {
   gap: 0.85rem;
   min-width: 0;
   max-width: 100%;
+  min-height: 0;
+  height: 100%;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.75rem;
+  scrollbar-gutter: stable;
 }
 .jn-cal,
 .jn-composer,
@@ -5686,7 +5694,7 @@ a.sidebar-user-name:hover {
   flex: 0 0 auto;
   white-space: nowrap;
 }
-.jn-list { display: flex; flex-direction: column; gap: 0.4rem; max-height: 420px; overflow: auto; }
+.jn-list { display: flex; flex-direction: column; gap: 0.4rem; }
 .jn-card {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -5940,7 +5948,6 @@ a.sidebar-user-name:hover {
   gap: 0.45rem;
   justify-content: flex-end;
 }
-.jn-aside { position: sticky; top: 0.75rem; }
 .jn-stat-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -6032,8 +6039,17 @@ a.sidebar-user-name:hover {
 @media (max-width: 1100px) {
   .jn-layout {
     grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
   }
-  .jn-aside { position: static; }
+  .jn-left,
+  .jn-center,
+  .jn-aside {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding-bottom: 0;
+    scrollbar-gutter: auto;
+  }
 }
 
 @media (max-width: 900px) {
