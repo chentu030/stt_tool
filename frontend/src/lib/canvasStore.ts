@@ -14,6 +14,8 @@ export type CanvasSticky = {
   text: string;
   color: StickyColor;
   z: number;
+  /** Plain canvas text (no sticky chrome). */
+  variant?: "sticky" | "text";
 };
 
 export type ShapeKind = "rect" | "ellipse" | "frame";
@@ -203,23 +205,50 @@ export type Selectable =
   | { type: "edge"; id: string }
   | { type: "media"; id: string };
 
+export function nodeBox(
+  doc: CanvasDoc,
+  ref: string
+): { x: number; y: number; w: number; h: number } | null {
+  if (ref.startsWith("note:")) {
+    const noteId = ref.slice(5);
+    const n = doc.notes.find((x) => x.noteId === noteId);
+    return n ? { x: n.x, y: n.y, w: n.w, h: n.h } : null;
+  }
+  const sticky = doc.stickies.find((s) => s.id === ref);
+  if (sticky) return { x: sticky.x, y: sticky.y, w: sticky.w, h: sticky.h };
+  const shape = doc.shapes.find((s) => s.id === ref);
+  if (shape) return { x: shape.x, y: shape.y, w: shape.w, h: shape.h };
+  const media = doc.media?.find((m) => m.id === ref);
+  if (media) return { x: media.x, y: media.y, w: media.w, h: media.h };
+  return null;
+}
+
 export function nodeCenter(
   doc: CanvasDoc,
   ref: string
 ): Point | null {
-  if (ref.startsWith("note:")) {
-    const noteId = ref.slice(5);
-    const n = doc.notes.find((x) => x.noteId === noteId);
-    if (!n) return null;
-    return { x: n.x + n.w / 2, y: n.y + n.h / 2 };
-  }
-  const sticky = doc.stickies.find((s) => s.id === ref);
-  if (sticky) return { x: sticky.x + sticky.w / 2, y: sticky.y + sticky.h / 2 };
-  const shape = doc.shapes.find((s) => s.id === ref);
-  if (shape) return { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 };
-  const media = doc.media?.find((m) => m.id === ref);
-  if (media) return { x: media.x + media.w / 2, y: media.y + media.h / 2 };
-  return null;
+  const box = nodeBox(doc, ref);
+  if (!box) return null;
+  return { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+}
+
+/** Border attachment point facing another point (so lines meet the card edge). */
+export function nodeAnchor(doc: CanvasDoc, ref: string, toward: Point): Point | null {
+  const box = nodeBox(doc, ref);
+  if (!box) return null;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const dx = toward.x - cx;
+  const dy = toward.y - cy;
+  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return { x: cx, y: cy };
+
+  // Ray from center toward `toward` vs rectangle border.
+  const hw = box.w / 2;
+  const hh = box.h / 2;
+  const sx = dx === 0 ? Infinity : hw / Math.abs(dx);
+  const sy = dy === 0 ? Infinity : hh / Math.abs(dy);
+  const t = Math.min(sx, sy);
+  return { x: cx + dx * t, y: cy + dy * t };
 }
 
 export function edgePath(a: Point, b: Point, _radius = 12): string {
@@ -231,8 +260,7 @@ export function edgePath(a: Point, b: Point, _radius = 12): string {
   if (Math.abs(dy) < 1.5) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
   if (Math.abs(dx) < 1.5) return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
 
-  // Smooth cubic (Miro / Heptabase style) — no elbow kinks
-  // Prefer horizontal control offset when wider; vertical when taller
+  // Smooth cubic — control points stay outside the boxes for a clean attach.
   if (Math.abs(dx) >= Math.abs(dy)) {
     const cx = a.x + dx / 2;
     return `M ${a.x} ${a.y} C ${cx} ${a.y}, ${cx} ${b.y}, ${b.x} ${b.y}`;
@@ -551,6 +579,7 @@ export function createSticky(
     text: partial.text ?? "",
     color: partial.color ?? "yellow",
     z: partial.z ?? Date.now(),
+    variant: partial.variant ?? "sticky",
   };
 }
 

@@ -45,9 +45,11 @@ import {
   exportCanvasJson,
   fitView,
   importCanvasJson,
+  nodeAnchor,
   nodeCenter,
   snapVal,
   uid,
+  createSticky,
   copySelection,
   pasteClipboard,
   serializeCanvasForAi,
@@ -55,7 +57,6 @@ import {
   applyCanvasOps,
   mediaKindFromFile,
   createMediaItem,
-  createSticky,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
@@ -486,7 +487,13 @@ export default function CanvasIdPage() {
   };
 
   const onPointerDown = (e: REPointerEvent) => {
-    if ((e.target as HTMLElement).closest("textarea,a,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) return;
+    const t = e.target as HTMLElement;
+    // Connect mode must hit note cards even when the title <a> is under the cursor.
+    if (tool === "connect") {
+      if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) return;
+    } else if (t.closest("textarea,a,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file")) {
+      return;
+    }
     setCtxMenu(null);
     const world = screenToWorld(e.clientX, e.clientY);
     stageRef.current?.setPointerCapture?.(e.pointerId);
@@ -538,14 +545,16 @@ export default function CanvasIdPage() {
       const y = snapVal(world.y, 22, doc.snap);
       const z = Date.now();
       if (tool === "sticky" || tool === "text") {
+        const isText = tool === "text";
         const sticky = createSticky({
           x,
           y,
-          w: tool === "text" ? 240 : 180,
-          h: tool === "text" ? 100 : 160,
-          text: tool === "text" ? "文字" : "",
+          w: isText ? 220 : 180,
+          h: isText ? 48 : 160,
+          text: "",
           color: stickyColor,
           z,
+          variant: isText ? "text" : "sticky",
         });
         updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
         setSelected([{ type: "sticky", id: sticky.id }]);
@@ -1227,7 +1236,23 @@ export default function CanvasIdPage() {
             if ((e.target as HTMLElement).closest("textarea,a,button,input")) return;
             const world = screenToWorld(e.clientX, e.clientY);
             const hit = hitTest(world);
-            if (!hit) return;
+            if (!hit) {
+              // Double-click empty canvas → start writing text
+              const sticky = createSticky({
+                x: snapVal(world.x, 22, doc.snap),
+                y: snapVal(world.y, 22, doc.snap),
+                w: 220,
+                h: 48,
+                text: "",
+                color: stickyColor,
+                variant: "text",
+              });
+              updateDoc((d) => ({ ...d, stickies: [...d.stickies, sticky] }));
+              setSelected([{ type: "sticky", id: sticky.id }]);
+              setEditingId(sticky.id);
+              setTool("select");
+              return;
+            }
             if (hit.type === "sticky") {
               setSelected([hit]);
               setEditingId(hit.id);
@@ -1258,9 +1283,11 @@ export default function CanvasIdPage() {
           >
             <svg className="cv-edges" width="8000" height="6000">
               {doc.edges.map((edge) => {
-                const a = nodeCenter(doc, edge.from);
-                const b = nodeCenter(doc, edge.to);
-                if (!a || !b) return null;
+                const ca = nodeCenter(doc, edge.from);
+                const cb = nodeCenter(doc, edge.to);
+                if (!ca || !cb) return null;
+                const a = nodeAnchor(doc, edge.from, cb) ?? ca;
+                const b = nodeAnchor(doc, edge.to, ca) ?? cb;
                 return (
                   <path
                     key={edge.id}
@@ -1278,7 +1305,7 @@ export default function CanvasIdPage() {
             {doc.shapes.map((s) => (
               <div
                 key={s.id}
-                className={`cv-shape cv-shape--${s.shape}${isSelected("shape", s.id) ? " is-on" : ""}`}
+                className={`cv-shape cv-shape--${s.shape}${isSelected("shape", s.id) ? " is-on" : ""}${connectFrom === s.id ? " is-connect" : ""}`}
                 style={{
                   left: s.x,
                   top: s.y,
@@ -1316,17 +1343,19 @@ export default function CanvasIdPage() {
 
             {doc.stickies.map((s) => {
               const pal = STICKY_COLORS.find((c) => c.id === s.color)!;
+              const isText = s.variant === "text";
+              const connectOn = connectFrom === s.id;
               return (
                 <div
                   key={s.id}
-                  className={`cv-sticky${isSelected("sticky", s.id) ? " is-on" : ""}`}
+                  className={`cv-sticky${isText ? " cv-sticky--text" : ""}${isSelected("sticky", s.id) ? " is-on" : ""}${connectOn ? " is-connect" : ""}`}
                   style={{
                     left: s.x,
                     top: s.y,
                     width: s.w,
                     height: s.h,
-                    background: pal.bg,
-                    borderColor: pal.border,
+                    background: isText ? "transparent" : pal.bg,
+                    borderColor: isText ? "transparent" : pal.border,
                     zIndex: s.z,
                   }}
                 >
@@ -1334,6 +1363,7 @@ export default function CanvasIdPage() {
                     <textarea
                       autoFocus
                       value={s.text}
+                      placeholder={isText ? "輸入文字…" : ""}
                       onChange={(e) => {
                         const text = e.target.value;
                         setDoc((d) => ({
@@ -1345,7 +1375,9 @@ export default function CanvasIdPage() {
                       onPointerDown={(e) => e.stopPropagation()}
                     />
                   ) : (
-                    <p>{s.text || "雙擊編輯…"}</p>
+                    <p className={!s.text ? "is-placeholder" : undefined}>
+                      {s.text || (isText ? "雙擊編輯文字…" : "雙擊編輯…")}
+                    </p>
                   )}
                 </div>
               );
@@ -1354,16 +1386,24 @@ export default function CanvasIdPage() {
             {doc.notes.map((pin) => {
               const n = noteMap.get(pin.noteId);
               if (!n) return null;
+              const noteRef = `note:${pin.noteId}`;
+              const connectOn = connectFrom === noteRef;
               return (
                 <div
                   key={pin.noteId}
-                  className={`cv-note${isSelected("note", pin.noteId) ? " is-on" : ""}`}
+                  className={`cv-note${isSelected("note", pin.noteId) ? " is-on" : ""}${connectOn ? " is-connect" : ""}`}
                   style={{ left: pin.x, top: pin.y, width: pin.w, height: pin.h }}
                 >
                   <Link
                     href={`/notes/${n.id}`}
-                    onClick={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (tool === "connect") e.preventDefault();
+                    }}
+                    onPointerDown={(e) => {
+                      if (tool === "connect") return; // let stage handle connect hit-test
+                      e.stopPropagation();
+                    }}
                   >
                     {n.title || "未命名"}
                   </Link>

@@ -7,7 +7,7 @@ const TOOLS: { id: ToolId; label: string; hint: string }[] = [
   { id: "select", label: "選取", hint: "V" },
   { id: "pan", label: "平移", hint: "H" },
   { id: "sticky", label: "便利貼", hint: "S" },
-  { id: "text", label: "文字框", hint: "T" },
+  { id: "text", label: "文字", hint: "T · 或雙擊空白處" },
   { id: "rect", label: "矩形", hint: "R" },
   { id: "ellipse", label: "圓形", hint: "O" },
   { id: "frame", label: "框架", hint: "F" },
