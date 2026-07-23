@@ -5,9 +5,24 @@ import {
   onAuthStateChanged, User
 } from "firebase/auth";
 import {
-  getFirestore, collection, doc, setDoc,
-  query, where, onSnapshot, updateDoc, deleteDoc,
-  Timestamp, Unsubscribe, getDoc, getDocs, runTransaction,
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  collection,
+  doc,
+  setDoc,
+  query,
+  where,
+  onSnapshot,
+  updateDoc,
+  deleteDoc,
+  Timestamp,
+  Unsubscribe,
+  getDoc,
+  getDocs,
+  runTransaction,
+  deleteField,
 } from "firebase/firestore";
 import {
   getStorage, ref, uploadBytesResumable, getDownloadURL, getBytes, deleteObject,
@@ -15,10 +30,34 @@ import {
 } from "firebase/storage";
 
 import { firebaseConfig } from "@/lib/firebasePublic";
+import {
+  applyLineOps,
+  approxOpBytes,
+  diffLines,
+  editCharDelta,
+  summarizeLineOps,
+  type LineOp,
+} from "@/lib/textDiff";
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+function createFirestore() {
+  if (typeof window === "undefined") {
+    return getFirestore(app);
+  }
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    return getFirestore(app);
+  }
+}
+
+export const db = createFirestore();
 export const storage = getStorage(app);
 
 const googleProvider = new GoogleAuthProvider();
@@ -630,31 +669,177 @@ export type NoteVersion = {
   title: string;
   body_md: string;
   created_at: Date;
+  kind?: "full" | "delta";
+  summary?: string;
 };
 
-/** Keep last ~30 snapshots under notes/{id}/versions */
-export async function pushNoteVersion(noteId: string, title: string, bodyMd: string) {
-  const id = `v_${Date.now()}`;
-  await setDoc(doc(db, "notes", noteId, "versions", id), {
+const VERSION_KEEP = 30;
+/** Prefer delta snapshots unless this long since last version (or force). */
+const VERSION_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const VERSION_MIN_EDIT_CHARS = 80;
+
+type VersionRaw = {
+  id: string;
+  kind: "full" | "delta";
+  title: string;
+  body_md: string;
+  delta: LineOp[] | null;
+  summary: string;
+  created_at: Date;
+};
+
+function versionFromSnap(id: string, data: Record<string, unknown>): VersionRaw {
+  const kind = data.kind === "delta" ? "delta" : "full";
+  return {
+    id,
+    kind,
+    title: String(data.title || ""),
+    body_md: String(data.body_md || ""),
+    delta: Array.isArray(data.delta) ? (data.delta as LineOp[]) : null,
+    summary: String(data.summary || ""),
+    created_at: (data.created_at as { toDate?: () => Date } | undefined)?.toDate?.() || new Date(),
+  };
+}
+
+async function loadVersionRaws(noteId: string): Promise<VersionRaw[]> {
+  const res = await getDocs(collection(db, "notes", noteId, "versions"));
+  const list = res.docs.map((d) => versionFromSnap(d.id, d.data() as Record<string, unknown>));
+  list.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+  return list;
+}
+
+/** Resolve delta chain → newest-first versions with full body_md for UI restore. */
+function resolveVersionBodies(rawsAsc: VersionRaw[]): NoteVersion[] {
+  const resolved: NoteVersion[] = [];
+  let body = "";
+  for (const v of rawsAsc) {
+    if (v.kind === "full" || !v.delta) {
+      body = v.body_md;
+    } else {
+      body = applyLineOps(body, v.delta);
+    }
+    resolved.push({
+      id: v.id,
+      title: v.title,
+      body_md: body,
+      created_at: v.created_at,
+      kind: v.kind,
+      summary: v.summary || (v.kind === "full" ? "完整快照" : "變更紀錄"),
+    });
+  }
+  return resolved.reverse();
+}
+
+async function pruneNoteVersions(noteId: string, rawsAsc: VersionRaw[]) {
+  if (rawsAsc.length <= VERSION_KEEP) return;
+  const drop = rawsAsc.slice(0, rawsAsc.length - VERSION_KEEP);
+  // Ensure the oldest kept entry can stand alone: materialize to full if it is a delta.
+  const keptOldest = rawsAsc[rawsAsc.length - VERSION_KEEP];
+  if (keptOldest?.kind === "delta") {
+    const resolved = resolveVersionBodies(rawsAsc);
+    const full = resolved.find((v) => v.id === keptOldest.id);
+    if (full) {
+      await setDoc(doc(db, "notes", noteId, "versions", keptOldest.id), {
+        kind: "full",
+        title: full.title,
+        body_md: full.body_md,
+        summary: "完整快照",
+        created_at: Timestamp.fromDate(keptOldest.created_at),
+        delta: deleteField(),
+      });
+    }
+  }
+  await Promise.all(drop.map((v) => deleteDoc(doc(db, "notes", noteId, "versions", v.id))));
+}
+
+/**
+ * Sparse version history: full snapshot or line-delta vs last stored version.
+ * Returns whether a version doc was written.
+ */
+export async function maybePushNoteVersion(
+  noteId: string,
+  title: string,
+  bodyMd: string,
+  opts?: {
+    force?: boolean;
+    /** Last successfully versioned body (client cache). */
+    previousBody?: string;
+    previousTitle?: string;
+    lastVersionAt?: number;
+  }
+): Promise<{ written: boolean; at?: number }> {
+  const force = !!opts?.force;
+  const now = Date.now();
+  const prevBody = opts?.previousBody;
+  const prevTitle = opts?.previousTitle ?? "";
+  const lastAt = opts?.lastVersionAt ?? 0;
+
+  if (!force && lastAt && now - lastAt < VERSION_MIN_INTERVAL_MS) {
+    const titleSame = (title || "") === prevTitle;
+    const deltaChars = editCharDelta(prevBody ?? bodyMd, bodyMd);
+    if (titleSame && deltaChars < VERSION_MIN_EDIT_CHARS) {
+      return { written: false };
+    }
+  }
+
+  if (
+    typeof prevBody === "string" &&
+    prevBody === bodyMd &&
+    (title || "") === prevTitle &&
+    !force
+  ) {
+    return { written: false };
+  }
+
+  let kind: "full" | "delta" = "full";
+  let delta: LineOp[] | null = null;
+  let summary = "完整快照";
+  let storeBody = bodyMd;
+
+  if (typeof prevBody === "string" && prevBody.length > 0) {
+    const ops = diffLines(prevBody, bodyMd);
+    const bytes = approxOpBytes(ops);
+    if (bytes > 0 && bytes < bodyMd.length * 0.65) {
+      kind = "delta";
+      delta = ops;
+      summary = summarizeLineOps(ops);
+      if ((title || "") !== prevTitle) {
+        summary = `標題變更 · ${summary}`;
+      }
+      storeBody = "";
+    }
+  }
+
+  const id = `v_${now}`;
+  const payload: Record<string, unknown> = {
+    kind,
     title,
-    body_md: bodyMd,
+    summary,
     created_at: Timestamp.now(),
-  });
+  };
+  if (kind === "full") payload.body_md = storeBody;
+  else payload.delta = delta;
+
+  await setDoc(doc(db, "notes", noteId, "versions", id), payload);
+
+  try {
+    const raws = await loadVersionRaws(noteId);
+    await pruneNoteVersions(noteId, raws);
+  } catch {
+    /* best-effort prune */
+  }
+
+  return { written: true, at: now };
+}
+
+/** @deprecated Prefer maybePushNoteVersion — kept for rare force-full callers. */
+export async function pushNoteVersion(noteId: string, title: string, bodyMd: string) {
+  await maybePushNoteVersion(noteId, title, bodyMd, { force: true });
 }
 
 export async function listNoteVersions(noteId: string): Promise<NoteVersion[]> {
-  const res = await getDocs(collection(db, "notes", noteId, "versions"));
-  const list = res.docs.map((d) => {
-    const data = d.data();
-    return {
-      id: d.id,
-      title: data.title || "",
-      body_md: data.body_md || "",
-      created_at: data.created_at?.toDate?.() || new Date(),
-    } as NoteVersion;
-  });
-  list.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-  return list.slice(0, 30);
+  const raws = await loadVersionRaws(noteId);
+  return resolveVersionBodies(raws).slice(0, VERSION_KEEP);
 }
 
 /** Cloud canvas doc under users/{uid}/workspace/canvas */

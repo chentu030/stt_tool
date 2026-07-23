@@ -632,10 +632,13 @@ export default function SettingsPage() {
                 onChange={(e) => patch({ editorLineHeight: Number(e.target.value) })}
               />
             </Row>
-            <Row label={`自動儲存間隔 ${prefs.autosaveSeconds}s`}>
+            <Row
+              label={`雲端同步間隔 ${prefs.autosaveSeconds}s`}
+              hint="編輯會立刻留在本機；停打後才寫入雲端。較短較即時，較長較省讀寫。"
+            >
               <input
                 type="range"
-                min={1}
+                min={2}
                 max={15}
                 value={prefs.autosaveSeconds}
                 onChange={(e) => patch({ autosaveSeconds: Number(e.target.value) })}

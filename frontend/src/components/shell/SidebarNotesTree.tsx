@@ -18,10 +18,11 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   createNote,
   deleteNote,
-  listenToUserNotes,
   updateNote,
+  getNote,
   Note,
 } from "@/lib/firebase";
+import { useNoteSummaries } from "@/components/notes/NotesListProvider";
 import {
   WORKSPACE_PAGE_OPTIONS,
   createWorkspacePage,
@@ -135,13 +136,13 @@ function clampMenuPos(x: number, y: number, w = 220, h = 420) {
 
 export default function SidebarNotesTree() {
   const { user } = useAuth();
+  const notes = useNoteSummaries() as unknown as Note[];
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
   const community = useCommunityOptional();
   const pathname = usePathname();
   const router = useRouter();
   const rootRef = useRef<HTMLDivElement>(null);
-  const [notes, setNotes] = useState<Note[]>([]);
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -241,14 +242,6 @@ export default function SidebarNotesTree() {
   useEffect(() => {
     setExpanded(loadExpanded());
   }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setNotes([]);
-      return;
-    }
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   const topNotes = useMemo(
     () => notes.filter((n) => !(n.parent_id || "").trim()),
@@ -794,17 +787,18 @@ export default function SidebarNotesTree() {
 
   const duplicateNote = async (note: Note) => {
     if (!user) return;
+    const full = (await getNote(note.id)) || note;
     const newId = await createNote(
       user.uid,
-      `${note.title || "未命名"}（副本）`,
-      note.body_md || "",
-      note.source_job_id,
-      note.tags || [],
+      `${full.title || "未命名"}（副本）`,
+      full.body_md || "",
+      full.source_job_id,
+      full.tags || [],
       {
-        folder: note.folder || "",
-        status: note.status || "backlog",
-        icon: note.icon || "",
-        parent_id: note.parent_id || "",
+        folder: full.folder || "",
+        status: full.status || "backlog",
+        icon: full.icon || "",
+        parent_id: full.parent_id || "",
       }
     );
     toast("已建立副本");

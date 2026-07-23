@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle, logout, listenToUserNotes, listenToUserJobs, authErrorMessage, type Note, type Job } from "@/lib/firebase";
+import { loginWithGoogle, logout, listenToUserJobs, authErrorMessage, type Job } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import ThemeToggle from "@/components/ThemeToggle";
 import AlbireusLogo from "@/components/AlbireusLogo";
 import { usePrefsOptional } from "@/components/PrefsProvider";
@@ -236,7 +237,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const mainContent = showNoteTabs ? <NoteTabsShell>{children}</NoteTabsShell> : children;
   const [cmdOpen, setCmdOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [teamUnread, setTeamUnread] = useState(0);
   const [mentionUnread, setMentionUnread] = useState(0);
@@ -520,16 +521,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user) {
-      setNotes([]);
       setJobs([]);
       return;
     }
-    const u1 = listenToUserNotes(user.uid, setNotes);
-    const u2 = listenToUserJobs(user.uid, setJobs);
-    return () => {
-      u1();
-      u2();
-    };
+    return listenToUserJobs(user.uid, setJobs);
   }, [user]);
 
   useEffect(() => {

@@ -29,14 +29,14 @@ import { useAuth } from "@/components/AuthProvider";
 import {
   getNote,
   updateNote,
-  listenToUserNotes,
-  pushNoteVersion,
+  maybePushNoteVersion,
   listNoteVersions,
   createNote,
   deleteNote,
   Note,
   NoteVersion,
 } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import {
   loadPendingNoteDraft,
   saveNoteWithSync,
@@ -145,7 +145,7 @@ function NotePageInner() {
     [community?.enabledTemplates]
   );
   const [note, setNote] = useState<Note | null>(null);
-  const [allNotes, setAllNotes] = useState<Note[]>([]);
+  const { notes: allNotes } = useNotesList();
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tags, setTags] = useState<string[]>([]);
@@ -227,6 +227,12 @@ function NotePageInner() {
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const dirtyRef = useRef(false);
   const knownBodyById = useRef<Map<string, string>>(new Map());
+  const lastVersionRef = useRef<{
+    noteId: string;
+    title: string;
+    body: string;
+    at: number;
+  } | null>(null);
   /** Cloud `updated_at` ms this editor session is based on (for conflict checks). */
   const baseUpdatedAtRef = useRef(0);
   const draftRef = useRef<{
@@ -308,6 +314,12 @@ function NotePageInner() {
       const fromLocal = loadDeckLocal(n.id);
       setDeck(fromCloud || fromLocal);
       knownBodyById.current.set(id, bodyMd);
+      lastVersionRef.current = {
+        noteId: id,
+        title: titleMd,
+        body: bodyMd,
+        at: 0,
+      };
       latest.current = {
         title: titleMd,
         body: bodyMd,
@@ -470,11 +482,6 @@ function NotePageInner() {
     window.history.replaceState({}, "", url.pathname + (url.search || ""));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, searchParams]);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setAllNotes);
-  }, [user]);
 
   useEffect(() => {
     if (!id || !prefsCtx) return;
@@ -766,7 +773,22 @@ function NotePageInner() {
       }
 
       try {
-        await pushNoteVersion(savingId, snap.title, nextBody);
+        const prev =
+          lastVersionRef.current?.noteId === savingId ? lastVersionRef.current : null;
+        const ver = await maybePushNoteVersion(savingId, snap.title, nextBody, {
+          force: !silent,
+          previousBody: prev?.body,
+          previousTitle: prev?.title,
+          lastVersionAt: prev?.at,
+        });
+        if (ver.written) {
+          lastVersionRef.current = {
+            noteId: savingId,
+            title: snap.title,
+            body: nextBody,
+            at: ver.at || Date.now(),
+          };
+        }
       } catch {
         /* best-effort */
       }
@@ -849,7 +871,7 @@ function NotePageInner() {
     setDirty(true);
     setStatus("dirty");
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    const secs = Math.min(30, Math.max(1, prefsCtx?.prefs.autosaveSeconds ?? 2));
+    const secs = Math.min(30, Math.max(1, prefsCtx?.prefs.autosaveSeconds ?? 5));
     saveTimer.current = setTimeout(() => {
       void flushPendingSave({ silent: true });
     }, secs * 1000);
@@ -2188,7 +2210,10 @@ function NotePageInner() {
                   }}
                 >
                   <span>{v.title || "（無標題）"}</span>
-                  <span>{v.created_at.toLocaleString("zh-TW")}</span>
+                  <span>
+                    {v.summary ? `${v.summary} · ` : ""}
+                    {v.created_at.toLocaleString("zh-TW")}
+                  </span>
                 </button>
               ))}
             </div>

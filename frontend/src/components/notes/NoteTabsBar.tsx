@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, type Note } from "@/lib/firebase";
+import { type Note } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { useNoteTabs } from "@/components/notes/NoteTabsProvider";
 import { askPrompt } from "@/lib/dialogs";
 import PageChromeIcon from "@/components/PageChromeIcon";
@@ -47,7 +48,7 @@ export default function NoteTabsBar() {
   const { openIds, activeId, splitId, open, activate, close, setSplit, toggleSplitWith, reorder } =
     useNoteTabs();
   const community = useCommunityOptional();
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [menuOpen, setMenuOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -73,11 +74,6 @@ export default function NoteTabsBar() {
       ...extras,
     ];
   }, [community?.enabledExtensions]);
-
-  useEffect(() => {
-    if (!user) return;
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useLayoutEffect(() => {
     if (!createOpen) {

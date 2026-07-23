@@ -11,6 +11,7 @@ import AccessGate from "@/components/AccessGate";
 import { CommunityProvider } from "@/components/community/CommunityProvider";
 import HttpsUpgrade from "@/components/HttpsUpgrade";
 import LiveRecordingProvider from "@/components/voice/LiveRecordingProvider";
+import { NotesListProvider } from "@/components/notes/NotesListProvider";
 
 export const metadata: Metadata = {
   title: "Albireus — 把說話寫成知識",
@@ -76,7 +77,9 @@ export default function RootLayout({
                 <AccessGate>
                   <CommunityProvider>
                     <LiveRecordingProvider>
-                      <AppShell>{children}</AppShell>
+                      <NotesListProvider>
+                        <AppShell>{children}</AppShell>
+                      </NotesListProvider>
                     </LiveRecordingProvider>
                   </CommunityProvider>
                 </AccessGate>

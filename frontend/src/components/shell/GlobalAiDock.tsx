@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { listenToUserNotes, type Note } from "@/lib/firebase";
+import { type Note } from "@/lib/firebase";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 import { packLibraryContext, AI_SUGGESTIONS } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { buildResearchUrl } from "@/lib/researchBridge";
@@ -228,7 +229,7 @@ export default function GlobalAiDock() {
   const [activeId, setActiveId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notes, setNotes] = useState<Note[]>([]);
+  const { notes } = useNotesList();
   const [atOpen, setAtOpen] = useState(false);
   const [atQ, setAtQ] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -398,14 +399,6 @@ export default function GlobalAiDock() {
     window.addEventListener("albireus:db-live", on);
     return () => window.removeEventListener("albireus:db-live", on);
   }, []);
-
-  useEffect(() => {
-    if (!user) {
-      setNotes([]);
-      return;
-    }
-    return listenToUserNotes(user.uid, setNotes);
-  }, [user]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
