@@ -754,7 +754,7 @@ export default function LiveNoteRecorder({
             ? `${srcBit} · 純錄製：講超過 ${minSecs}s 且停頓後切段存檔`
             : `${srcBit} · 純錄製：按「切段」存音檔`
         );
-      } else if (streamOnRef.current && modeRef.current !== "audio") {
+      } else if (streamOnRef.current) {
         setStatus(
           modeRef.current === "organize"
             ? `${srcBit}${streamBit} · 邊講邊出字；每 ${STREAM_ORGANIZE_EVERY_SECS / 60} 分鐘 AI 整理`
