@@ -86,11 +86,11 @@ function clockNow(): string {
   });
 }
 
-/** Collapsed toggle titled 逐段逐字稿, with timestamped body. */
-function transcriptToggleMd(body: string): string {
+/** Collapsed toggle for transcript body (逐段 / 整段). */
+function transcriptToggleMd(body: string, title = "逐段逐字稿"): string {
   const inner = body.trim();
   if (!inner) return "";
-  return `:::toggle 逐段逐字稿\n${inner}\n:::`;
+  return `:::toggle ${title}\n${inner}\n:::`;
 }
 
 function audioMd(url: string, title: string): string {
@@ -164,6 +164,8 @@ export default function LiveNoteRecorder({
   const drainRef = useRef<Promise<void>>(Promise.resolve());
   const drainingRef = useRef(false);
   const pendingOrgTextsRef = useRef<string[]>([]);
+  /** Full-session transcript pieces → written under ### 整段錄音 before the full audio. */
+  const fullSessionTranscriptRef = useRef<string[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const silenceSinceRef = useRef<number | null>(null);
@@ -388,7 +390,14 @@ export default function LiveNoteRecorder({
   };
   maybeStreamTimedOrganizeRef.current = maybeStreamTimedOrganize;
 
+  const appendFullSessionTranscript = (transcript: string) => {
+    const t = transcript.trim();
+    if (!t) return;
+    fullSessionTranscriptRef.current.push(t);
+  };
+
   const queueTranscriptForOrganize = (transcript: string) => {
+    appendFullSessionTranscript(transcript);
     if (modeRef.current !== "organize") return;
     const t = transcript.trim();
     if (!t) return;
@@ -690,6 +699,7 @@ export default function LiveNoteRecorder({
     setPending(0);
     setPendingOrg(0);
     pendingOrgTextsRef.current = [];
+    fullSessionTranscriptRef.current = [];
     setStopping(false);
     setDoneSummary(null);
     segOkRef.current = 0;
@@ -880,7 +890,16 @@ export default function LiveNoteRecorder({
             type: full.type || "audio/webm",
           });
           const up = await uploadNoteMedia(uid, noteId, file);
-          insertMd(`\n\n---\n\n### 整段錄音\n${audioMd(up.url, file.name)}\n`);
+          const fullText = fullSessionTranscriptRef.current.join("\n").trim();
+          const fullToggle = fullText
+            ? transcriptToggleMd(fullText, "整段逐字稿")
+            : "";
+          // H3 → full transcript toggle → audio, no blank lines between.
+          insertMd(
+            fullToggle
+              ? `\n\n---\n\n### 整段錄音\n${fullToggle}\n${audioMd(up.url, file.name)}\n`
+              : `\n\n---\n\n### 整段錄音\n${audioMd(up.url, file.name)}\n`
+          );
           fullOk = true;
         } catch {
           toast("完整音檔上傳失敗，段落音檔仍保留");

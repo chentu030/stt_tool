@@ -10997,6 +10997,12 @@ body.rich-media-float-dragging * {
 .rich-prose .rich-toggle + audio.rich-audio {
   margin-top: 0.12em;
 }
+.rich-prose h3:has(+ .rich-toggle) {
+  margin-bottom: 0.12em;
+}
+.rich-prose h3 + .rich-toggle {
+  margin-top: 0.12em;
+}
 .rich-prose .rich-video {
   max-height: 420px;
 }
