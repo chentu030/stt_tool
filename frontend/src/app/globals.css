@@ -5537,6 +5537,9 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-direction: column;
   overflow-x: clip;
+  /* Room for quick-voice glow without pulling layout under the hero. */
+  padding: 0.35rem 0.25rem 0;
+  gap: 0.55rem;
 }
 .jn-guest { text-align: center; padding: 3rem 1rem; }
 .jn-hero {
@@ -5547,9 +5550,7 @@ a.sidebar-user-name:hover {
   flex-shrink: 0;
   min-width: 0;
   max-width: 100%;
-  /* Room for voice-btn glow (page uses overflow-x: clip). */
-  padding: 0.45rem 0.35rem;
-  margin: -0.45rem -0.35rem;
+  padding: 0.2rem 0.15rem;
   overflow: visible;
 }
 .jn-hero-brand {
@@ -5592,7 +5593,7 @@ a.sidebar-user-name:hover {
   max-width: 100%;
   /* Columns scroll independently; do not scroll the whole grid together. */
   overflow: hidden;
-  padding-top: 0.1rem;
+  padding-top: 0.35rem;
   position: relative;
 }
 .jn-layout.is-rail-open {
@@ -5621,6 +5622,51 @@ a.sidebar-user-name:hover {
 }
 .jn-center {
   overflow: hidden;
+  /* Keep schedule panel top (tabs / day heads) fully visible */
+  padding-top: 0.15rem;
+}
+.jn-schedule-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.jn-schedule-panel .jn-week,
+.jn-schedule-panel .jn-month,
+.jn-schedule-panel .jn-day {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Avoid height:100% fighting tabs and clipping the top chrome */
+  height: auto;
+  max-height: none;
+}
+.jn-week {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  flex: 1;
+  height: auto;
+  max-height: none;
+  overflow: hidden;
+}
+.jn-week-head,
+.jn-week-dayheads,
+.jn-week-allday,
+.jn-week-slider,
+.jn-week-slider-hint,
+.jn-tl-hint,
+.jn-tl-actions {
+  flex: 0 0 auto;
 }
 .jn-rail {
   padding-bottom: 0.75rem;
@@ -6032,8 +6078,9 @@ a.sidebar-user-name:hover {
   gap: 0.55rem;
   min-height: 0;
   flex: 1;
-  height: 100%;
-  max-height: 100%;
+  height: auto;
+  max-height: none;
+  overflow: hidden;
 }
 .jn-week-head {
   display: flex;
@@ -6284,8 +6331,10 @@ a.sidebar-user-name:hover {
 .jn-schedule-panel .jn-week,
 .jn-schedule-panel .jn-month,
 .jn-schedule-panel .jn-day {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
+  height: auto;
+  max-height: none;
 }
 .jn-schedule-panel .jn-month {
   background: transparent;
@@ -7527,13 +7576,14 @@ button.jn-heat-cell:disabled {
 
 @media (max-width: 900px) {
   .jn-page {
-    gap: 0.15rem;
+    gap: 0.35rem;
+    padding: 0.25rem 0.15rem 0;
   }
   .jn-hero {
     flex-direction: column;
     align-items: stretch;
-    padding: 0.4rem 0.2rem;
-    margin: -0.15rem -0.1rem;
+    padding: 0.25rem 0.1rem;
+    margin: 0;
   }
   .jn-hero-toolbar {
     display: flex;
@@ -7548,7 +7598,7 @@ button.jn-heat-cell:disabled {
     -webkit-overflow-scrolling: touch;
     /* Keep pulse glow inside the scrollport */
     padding: 0.4rem 0.35rem;
-    margin: -0.15rem -0.1rem;
+    margin: 0;
     scrollbar-gutter: stable;
   }
   .jn-hero-toolbar > .voice-quick-btn,
