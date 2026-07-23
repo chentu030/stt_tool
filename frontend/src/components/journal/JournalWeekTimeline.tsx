@@ -36,11 +36,14 @@ type EventGestureMode = "move" | "resize-start" | "resize-end";
 type EventGesture = {
   mode: EventGestureMode;
   id: string;
+  /** Current day under the pointer (may change while dragging). */
   dateKey: string;
+  originDateKey: string;
   originStart: number;
   originEnd: number;
   startMin: number;
   endMin: number;
+  startClientX: number;
   startClientY: number;
   colTop: number;
   armed: boolean;
@@ -128,6 +131,7 @@ export default function JournalWeekTimeline({
     startClientY: number;
   } | null>(null);
   const eventGestureRef = useRef<EventGesture | null>(null);
+  const gestureWinCleanupRef = useRef<(() => void) | null>(null);
   const [draft, setDraft] = useState<{
     dateKey: string;
     startMin: number;
@@ -136,6 +140,7 @@ export default function JournalWeekTimeline({
   /** Live preview while moving / resizing an existing event. */
   const [eventPreview, setEventPreview] = useState<{
     id: string;
+    dateKey: string;
     startMin: number;
     endMin: number;
   } | null>(null);
@@ -155,6 +160,8 @@ export default function JournalWeekTimeline({
     const g = eventGestureRef.current;
     if (g?.timer) clearTimeout(g.timer);
     eventGestureRef.current = null;
+    gestureWinCleanupRef.current?.();
+    gestureWinCleanupRef.current = null;
     if (!opts?.keepPreview) setEventPreview(null);
   };
 
@@ -304,13 +311,34 @@ export default function JournalWeekTimeline({
     return clampRange(g.originStart, Math.max(cur, g.originStart + MIN_EVENT_MINS));
   };
 
+  const dayKeyAtPoint = (clientX: number, clientY: number): string | null => {
+    if (typeof document === "undefined") return null;
+    const el = document.elementFromPoint(clientX, clientY);
+    const col = el?.closest?.(".jn-week-col") as HTMLElement | null;
+    const key = col?.dataset?.dateKey;
+    return key && dayKeys.includes(key) ? key : null;
+  };
+
+  const colTopForDateKey = (dk: string): number | null => {
+    if (typeof document === "undefined") return null;
+    const col = document.querySelector(
+      `.jn-week-col[data-date-key="${CSS.escape(dk)}"]`
+    ) as HTMLElement | null;
+    return col ? col.getBoundingClientRect().top : null;
+  };
+
   const armEventGesture = (g: EventGesture) => {
     g.armed = true;
     if (g.timer) {
       clearTimeout(g.timer);
       g.timer = null;
     }
-    setEventPreview({ id: g.id, startMin: g.startMin, endMin: g.endMin });
+    setEventPreview({
+      id: g.id,
+      dateKey: g.dateKey,
+      startMin: g.startMin,
+      endMin: g.endMin,
+    });
     try {
       navigator.vibrate?.(12);
     } catch {
@@ -340,10 +368,12 @@ export default function JournalWeekTimeline({
       mode,
       id: ev.id,
       dateKey: dk,
+      originDateKey: dk,
       originStart: ev.startMin,
       originEnd: ev.endMin,
       startMin: ev.startMin,
       endMin: ev.endMin,
+      startClientX: e.clientX,
       startClientY: e.clientY,
       colTop,
       armed: mode !== "move",
@@ -352,14 +382,39 @@ export default function JournalWeekTimeline({
     };
     eventGestureRef.current = gesture;
 
-    // Resize handles arm immediately; move needs long-press.
+    // Edit mode: arm move immediately so desktop drag-to-other-day works.
+    // Touch still gets a short long-press to reduce conflict with accidental slips.
     if (mode === "move") {
-      gesture.timer = setTimeout(() => {
-        if (eventGestureRef.current === gesture) armEventGesture(gesture);
-      }, LONG_PRESS_MS);
+      if (e.pointerType === "touch") {
+        gesture.timer = setTimeout(() => {
+          if (eventGestureRef.current === gesture) armEventGesture(gesture);
+        }, LONG_PRESS_MS);
+      } else {
+        armEventGesture(gesture);
+      }
     } else {
       armEventGesture(gesture);
     }
+
+    // Window-level listeners so crossing day columns does not drop the gesture
+    // when React remounts the card under the preview dateKey.
+    gestureWinCleanupRef.current?.();
+    const onWinMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      onEventPointerMoveWin(ev);
+    };
+    const onWinUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      void finishEventGesture();
+    };
+    window.addEventListener("pointermove", onWinMove);
+    window.addEventListener("pointerup", onWinUp);
+    window.addEventListener("pointercancel", onWinUp);
+    gestureWinCleanupRef.current = () => {
+      window.removeEventListener("pointermove", onWinMove);
+      window.removeEventListener("pointerup", onWinUp);
+      window.removeEventListener("pointercancel", onWinUp);
+    };
 
     try {
       const card =
@@ -371,26 +426,42 @@ export default function JournalWeekTimeline({
     }
   };
 
-  const onEventPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+  const onEventPointerMoveWin = (e: PointerEvent) => {
     const g = eventGestureRef.current;
     if (!g) return;
+    const dx = Math.abs(e.clientX - g.startClientX);
     const dy = Math.abs(e.clientY - g.startClientY);
     if (!g.armed) {
-      if (dy > 10) {
-        // Cancel long-press if finger slips before arming.
+      if (dx > 10 || dy > 10) {
         clearEventGesture();
       }
       return;
     }
-    if (!g.moved && dy < 4) return;
+    if (!g.moved && dx < 4 && dy < 4) return;
     g.moved = true;
-    // Refresh col top in case of scroll mid-drag.
-    const col = (e.currentTarget as HTMLElement).closest(".jn-week-col") as HTMLElement | null;
-    if (col) g.colTop = col.getBoundingClientRect().top;
+
+    if (g.mode === "move") {
+      const overKey = dayKeyAtPoint(e.clientX, e.clientY);
+      if (overKey && overKey !== g.dateKey) {
+        g.dateKey = overKey;
+      }
+      const top = colTopForDateKey(g.dateKey);
+      if (top != null) g.colTop = top;
+    }
+
     const next = applyEventGestureAtY(g, e.clientY);
     g.startMin = next.startMin;
     g.endMin = next.endMin;
-    setEventPreview({ id: g.id, startMin: next.startMin, endMin: next.endMin });
+    setEventPreview({
+      id: g.id,
+      dateKey: g.dateKey,
+      startMin: next.startMin,
+      endMin: next.endMin,
+    });
+  };
+
+  const onEventPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    onEventPointerMoveWin(e.nativeEvent);
   };
 
   const finishEventGesture = async () => {
@@ -399,6 +470,7 @@ export default function JournalWeekTimeline({
     const snapshot = {
       id: g.id,
       dateKey: g.dateKey,
+      originDateKey: g.originDateKey,
       startMin: g.startMin,
       endMin: g.endMin,
       originStart: g.originStart,
@@ -406,10 +478,10 @@ export default function JournalWeekTimeline({
       armed: g.armed,
       moved: g.moved,
     };
-    const shouldSave =
-      snapshot.armed &&
-      snapshot.moved &&
-      (snapshot.startMin !== snapshot.originStart || snapshot.endMin !== snapshot.originEnd);
+    const dayChanged = snapshot.dateKey !== snapshot.originDateKey;
+    const timeChanged =
+      snapshot.startMin !== snapshot.originStart || snapshot.endMin !== snapshot.originEnd;
+    const shouldSave = snapshot.armed && snapshot.moved && (dayChanged || timeChanged);
     clearEventGesture({ keepPreview: shouldSave });
     if (!shouldSave) {
       setEventPreview(null);
@@ -418,16 +490,19 @@ export default function JournalWeekTimeline({
     const prev = merged.find((x) => x.id === snapshot.id);
     try {
       await updateScheduleEvent(uid, snapshot.id, {
+        dateKey: snapshot.dateKey,
         startMin: snapshot.startMin,
         endMin: snapshot.endMin,
       });
       if (prev) {
         onSelectEvent?.({
           ...prev,
+          dateKey: snapshot.dateKey,
           startMin: snapshot.startMin,
           endMin: snapshot.endMin,
         });
       }
+      if (dayChanged) onSelectDay?.(snapshot.dateKey);
     } catch (err) {
       toast(err instanceof Error ? err.message : "更新失敗");
     } finally {
@@ -556,7 +631,7 @@ export default function JournalWeekTimeline({
             title={
               editMode
                 ? "關閉拖曳編輯，避免誤觸"
-                : "開啟後可拖曳新增；長按行程可移動，拖上下緣可拉長"
+                : "開啟後可拖曳行程改時間或換日；空白處拖曳可新增"
             }
           >
             {editMode ? "完成編輯" : "編輯行程"}
@@ -671,12 +746,25 @@ export default function JournalWeekTimeline({
               <div className="jn-week-hline is-pad" style={{ top: GRID_MINS * PX_PER_MIN - 1 }} />
             </div>
             {dayKeys.map((dk) => {
-              const dayEvents = (byDay.get(dk) || []).filter((e) => !e.allDay);
+              let dayEvents = (byDay.get(dk) || []).filter((e) => !e.allDay);
+              if (eventPreview) {
+                dayEvents = dayEvents.filter(
+                  (e) => e.id !== eventPreview.id || eventPreview.dateKey === dk
+                );
+                if (
+                  eventPreview.dateKey === dk &&
+                  !dayEvents.some((e) => e.id === eventPreview.id)
+                ) {
+                  const moved = merged.find((e) => e.id === eventPreview.id);
+                  if (moved && !moved.allDay) dayEvents = [...dayEvents, moved];
+                }
+              }
               const isToday = dk === todayKey;
               const isSel = dk === dateKey;
               return (
                 <div
                   key={dk}
+                  data-date-key={dk}
                   className={`jn-week-col${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}${editMode ? " is-edit" : ""}`}
                   onPointerDown={(e) => onColPointerDown(dk, e)}
                   onPointerMove={onColPointerMove}
