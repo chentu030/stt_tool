@@ -42,8 +42,6 @@ import {
   TemplatePreviewModal,
 } from "@/components/community/StoreWidgets";
 import {
-  hasCommunityPluginsAck,
-  setCommunityPluginsAck,
   getFavoriteIds,
   getRecentPackageIds,
   setCommunitySafeMode,
@@ -77,7 +75,6 @@ export default function CommunityStorePage() {
   const [updateMap, setUpdateMap] = useState<Record<string, string>>({});
   const [previewTpl, setPreviewTpl] = useState<InstalledTemplate | null>(null);
   const [installedQ, setInstalledQ] = useState("");
-  const [ack, setAck] = useState(false);
   const [favTick, setFavTick] = useState(0);
   const [utilTick, setUtilTick] = useState(0);
   const [publishedExtra, setPublishedExtra] = useState<CatalogEntry[]>([]);
@@ -100,10 +97,6 @@ export default function CommunityStorePage() {
     return merged;
   }, [publishedExtra]);
   const collections = useMemo(() => getCollections(), []);
-
-  useEffect(() => {
-    setAck(hasCommunityPluginsAck());
-  }, []);
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -472,29 +465,6 @@ export default function CommunityStorePage() {
           <div className="doc-banner-ingest-main">
             <strong>安全模式已開啟</strong>
             <p>擴充頁面已從側欄隱藏，且不會載入到筆記頁面。</p>
-          </div>
-        </div>
-      )}
-
-      {!ack && (
-        <div className="community-ack-banner doc-banner-ingest">
-          <div className="doc-banner-ingest-main">
-            <strong>啟用社群套件</strong>
-            <p>
-              社群擴充頁面以沙箱 iframe 載入；擴充功能由主程式提供；模板會寫入知識庫。請只安裝你信任的來源。
-            </p>
-            <div className="doc-banner-ingest-actions">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setCommunityPluginsAck();
-                  setAck(true);
-                }}
-              >
-                啟用
-              </button>
-            </div>
           </div>
         </div>
       )}

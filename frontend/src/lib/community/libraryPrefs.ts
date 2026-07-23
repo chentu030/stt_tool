@@ -1,10 +1,9 @@
-/** Local store prefs: favorites, recent, ack, safe mode, update checks, reports */
+/** Local store prefs: favorites, recent, safe mode, update checks, reports */
 
 import type { PackageReport } from "@/lib/community/types";
 
 const FAV_KEY = "albireus_community_favorites_v1";
 const RECENT_KEY = "albireus_community_recent_v1";
-const ACK_KEY = "albireus_community_plugins_ack_v1";
 const REPORT_KEY = "albireus_community_reports_v1";
 const SAFE_KEY = "albireus_community_safe_mode_v1";
 const UPDATE_CHECK_KEY = "albireus_community_last_update_check_v1";
@@ -62,14 +61,6 @@ export function getRecentPackageIds(): string[] {
 export function touchRecentPackage(id: string) {
   const list = [id, ...getRecentPackageIds().filter((x) => x !== id)];
   writeJson(RECENT_KEY, list.slice(0, 24));
-}
-
-export function hasCommunityPluginsAck(): boolean {
-  return readJson<boolean>(ACK_KEY, false) === true;
-}
-
-export function setCommunityPluginsAck() {
-  writeJson(ACK_KEY, true);
 }
 
 /** When safe mode is on, community extensions are hidden from sidebar / not loaded in notes. */
