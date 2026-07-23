@@ -177,15 +177,11 @@ export default function NoteAside({
                 )}
             </div>
           )}
-          <p className="note-aside-hint doc-link-aside-hint">
-            Enter 開啟 ·「連結」插入 [[雙向連結]]
-          </p>
         </div>
       )}
 
       {tab === "outline" && (
         <div className="note-aside-body">
-          <p className="note-aside-hint">點標題跳到段落 · AI 用右側欄或 Ctrl+Shift+A</p>
           {outline.length === 0 ? (
             <p className="note-aside-empty">尚無標題。用 H1／H2 或輸入 # 建立結構。</p>
           ) : (
