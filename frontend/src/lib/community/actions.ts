@@ -4,6 +4,8 @@ import { createNote } from "@/lib/firebase";
 import {
   saveInstalledExtension,
   saveInstalledTemplate,
+  getSeededDefaultPackageIds,
+  markSeededDefaultPackageIds,
 } from "@/lib/community/store";
 import { resolveBuiltinSource } from "@/lib/community/builtins";
 import {
@@ -67,6 +69,78 @@ function packIsPaid(pack: ResolvedPackage): boolean {
 }
 
 export type InstallOpts = { email?: string | null };
+
+/** Built-in extensions every account should get once (unless already seeded / uninstalled). */
+export const DEFAULT_EXTENSION_SOURCES = ["builtin:web-browser-pack"] as const;
+
+/**
+ * Install default extensions for a user if not yet seeded.
+ * After a successful seed (or if already installed), mark id so uninstall won't auto-reinstall.
+ */
+export async function ensureDefaultExtensions(
+  uid: string,
+  installed: InstalledExtension[]
+): Promise<void> {
+  const seeded = await getSeededDefaultPackageIds(uid);
+  const installedIds = new Set(installed.map((e) => e.id));
+  const nextSeeded = new Set(seeded);
+  let changed = false;
+
+  for (const source of DEFAULT_EXTENSION_SOURCES) {
+    let pack: ResolvedPackage;
+    try {
+      pack = await resolveAnySource(source);
+    } catch {
+      continue;
+    }
+    const id = pack.manifest.id;
+    if (nextSeeded.has(id)) continue;
+    if (pack.manifest.kind !== "extension") {
+      nextSeeded.add(id);
+      changed = true;
+      continue;
+    }
+
+    if (!installedIds.has(id)) {
+      try {
+        // Bypass safe-mode for official defaults: still respect paid locks.
+        assertMinAppVersion(pack);
+        assertCanInstallPaid(undefined, packIsPaid(pack));
+        const now = Date.now();
+        const settings: Record<string, string | boolean | number> = {};
+        for (const def of pack.manifest.settings || []) {
+          if (def.default !== undefined) settings[def.key] = def.default;
+        }
+        const item: InstalledExtension = {
+          id,
+          manifest: pack.manifest,
+          enabled: true,
+          source: pack.source,
+          sourceKind: pack.sourceKind,
+          installedAt: now,
+          updatedAt: now,
+          readme: pack.readme,
+          settings: Object.keys(settings).length ? settings : undefined,
+        };
+        await saveInstalledExtension(uid, item);
+      } catch {
+        // Keep trying next login if install failed (rules / network).
+        continue;
+      }
+    }
+
+    nextSeeded.add(id);
+    changed = true;
+  }
+
+  if (changed) {
+    try {
+      await markSeededDefaultPackageIds(uid, [...nextSeeded]);
+    } catch {
+      /* non-fatal */
+    }
+  }
+}
 
 export async function installResolvedPackage(
   uid: string,

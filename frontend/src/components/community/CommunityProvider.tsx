@@ -15,6 +15,7 @@ import {
 } from "@/lib/community/store";
 import type { InstalledExtension, InstalledTemplate } from "@/lib/community/types";
 import { isCommunitySafeMode } from "@/lib/community/libraryPrefs";
+import { ensureDefaultExtensions } from "@/lib/community/actions";
 
 type Ctx = {
   extensions: InstalledExtension[];
@@ -50,13 +51,22 @@ export function CommunityProvider({ children }: { children: ReactNode }) {
     }
     setReady(false);
     let n = 0;
+    let latestExt: InstalledExtension[] = [];
+    let seededOnce = false;
     const mark = () => {
       n += 1;
-      if (n >= 2) setReady(true);
+      if (n < 2) return;
+      setReady(true);
+      if (seededOnce) return;
+      seededOnce = true;
+      void ensureDefaultExtensions(user.uid, latestExt).catch(() => {
+        /* ignore seed failures; retry next login */
+      });
     };
     const u1 = listenInstalledExtensions(
       user.uid,
       (list) => {
+        latestExt = list;
         setExtensions(list);
         mark();
       },

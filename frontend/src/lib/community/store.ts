@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   deleteDoc,
+  getDoc,
   onSnapshot,
   setDoc,
   type Unsubscribe,
@@ -22,6 +23,10 @@ function extCol(uid: string) {
 
 function tplCol(uid: string) {
   return collection(db, "users", uid, "community_templates");
+}
+
+function metaDoc(uid: string) {
+  return doc(db, "users", uid, "community_meta", "seed");
 }
 
 function wrapCommunityStoreError(err: unknown, action: string): Error {
@@ -191,6 +196,30 @@ export async function saveExtensionSettings(
   await setDoc(
     doc(extCol(uid), id),
     { settings, updatedAt: Date.now() },
+    { merge: true }
+  );
+}
+
+/** Package ids already auto-seeded for this user (so uninstall won't reinstall). */
+export async function getSeededDefaultPackageIds(uid: string): Promise<string[]> {
+  try {
+    const snap = await getDoc(metaDoc(uid));
+    if (!snap.exists()) return [];
+    const raw = snap.data()?.defaultExtensionIds;
+    return Array.isArray(raw) ? raw.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function markSeededDefaultPackageIds(uid: string, ids: string[]) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  await setDoc(
+    metaDoc(uid),
+    {
+      defaultExtensionIds: unique,
+      updatedAt: Date.now(),
+    },
     { merge: true }
   );
 }
