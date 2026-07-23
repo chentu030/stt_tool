@@ -47,9 +47,8 @@ import RichNoteEditor from "@/components/RichNoteEditor";
 import MeetingNoteBar from "@/components/notes/MeetingNoteBar";
 import ShareDialog from "@/components/ShareDialog";
 import {
-  getMeetingAiContext,
   subscribeMeetingAiContext,
-  setMeetingAiContext,
+  rehydrateMeetingAiContext,
   type MeetingAiContext,
 } from "@/lib/meetingSession";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
@@ -475,10 +474,7 @@ function NotePageInner() {
   }, []);
 
   useEffect(() => {
-    return () => {
-      const ctx = getMeetingAiContext();
-      if (ctx?.noteId === id) setMeetingAiContext(null);
-    };
+    rehydrateMeetingAiContext(id || undefined);
   }, [id]);
 
   useEffect(() => {

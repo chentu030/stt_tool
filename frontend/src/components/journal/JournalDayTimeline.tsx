@@ -108,6 +108,7 @@ export default function JournalDayTimeline({
     endMin: number;
     duration?: number;
     moved: boolean;
+    startClientY?: number;
   } | null>(null);
   const [draft, setDraft] = useState<{
     startMin: number;
@@ -200,7 +201,20 @@ export default function JournalDayTimeline({
     if (!drag || !grid) return;
     const rect = grid.getBoundingClientRect();
     const cur = yToMin(e.clientY, rect.top);
-    drag.moved = true;
+    if (drag.mode === "move" || drag.mode === "resize") {
+      const dy = Math.abs(e.clientY - (drag.startClientY ?? e.clientY));
+      if (!drag.moved && dy < 5) return;
+      drag.moved = true;
+      if (!draft) {
+        setDraft({
+          startMin: drag.startMin,
+          endMin: drag.endMin,
+          eventId: drag.eventId,
+        });
+      }
+    } else {
+      drag.moved = true;
+    }
     if (drag.mode === "create") {
       const a = Math.min(drag.originMin, cur);
       const b = Math.max(drag.originMin, cur + 15);
@@ -208,11 +222,6 @@ export default function JournalDayTimeline({
       drag.endMin = Math.min(HOUR_END * 60, b);
       setDraft({ startMin: drag.startMin, endMin: drag.endMin });
     } else if (drag.mode === "move" && drag.eventId && drag.duration != null) {
-      const start = Math.max(
-        HOUR_START * 60,
-        Math.min(HOUR_END * 60 - drag.duration, cur - (drag.originMin - drag.startMin))
-      );
-      // originMin stored as grab offset from start
       const grab = drag.originMin;
       const nextStart = snapMin(
         Math.max(HOUR_START * 60, Math.min(HOUR_END * 60 - drag.duration, cur - grab))
@@ -224,7 +233,6 @@ export default function JournalDayTimeline({
         endMin: drag.endMin,
         eventId: drag.eventId,
       });
-      void start;
     } else if (drag.mode === "resize" && drag.eventId) {
       drag.endMin = Math.max(drag.startMin + 15, Math.min(HOUR_END * 60, cur));
       setDraft({
@@ -250,15 +258,24 @@ export default function JournalDayTimeline({
           endMin: drag.endMin,
           title: "未命名",
         });
-        toast("已新增行程（可點選重新命名）");
+        const t = await askPrompt({
+          title: "行程名稱",
+          defaultValue: "未命名",
+          message: `${formatClock(drag.startMin)}–${formatClock(drag.endMin)}`,
+        });
+        const title = (t ?? "未命名").trim() || "未命名";
+        if (title !== "未命名") {
+          await updateScheduleEvent(uid, id, { title });
+        }
         onSelectEvent?.({
           id,
           dateKey,
           startMin: drag.startMin,
           endMin: drag.endMin,
-          title: "未命名",
+          title,
           provider: "local",
         });
+        toast("已新增行程");
       } catch (err) {
         toast(err instanceof Error ? err.message : "新增失敗");
       }
@@ -266,6 +283,7 @@ export default function JournalDayTimeline({
     }
 
     if (!drag.eventId || !drag.moved) return;
+    if (drag.startMin === undefined) return;
     try {
       await updateScheduleEvent(uid, drag.eventId, {
         startMin: drag.startMin,
@@ -280,9 +298,10 @@ export default function JournalDayTimeline({
     void finishDrag();
   };
 
-  const beginMove = (ev: ScheduleEvent, e: React.PointerEvent) => {
-    if (ev.provider !== "local") return;
+  const beginEventPointer = (ev: ScheduleEvent, e: React.PointerEvent) => {
     e.stopPropagation();
+    onSelectEvent?.(ev);
+    if (ev.provider !== "local") return;
     const grid = gridRef.current;
     if (!grid) return;
     const rect = grid.getBoundingClientRect();
@@ -295,10 +314,9 @@ export default function JournalDayTimeline({
       endMin: ev.endMin,
       duration: ev.endMin - ev.startMin,
       moved: false,
+      startClientY: e.clientY,
     };
-    setDraft({ startMin: ev.startMin, endMin: ev.endMin, eventId: ev.id });
     grid.setPointerCapture(e.pointerId);
-    onSelectEvent?.(ev);
   };
 
   const beginResize = (ev: ScheduleEvent, e: React.PointerEvent) => {
@@ -313,6 +331,7 @@ export default function JournalDayTimeline({
       startMin: ev.startMin,
       endMin: ev.endMin,
       moved: false,
+      startClientY: e.clientY,
     };
     setDraft({ startMin: ev.startMin, endMin: ev.endMin, eventId: ev.id });
     grid.setPointerCapture(e.pointerId);
@@ -470,7 +489,7 @@ export default function JournalDayTimeline({
                 width: `calc((100% - 2.95rem) / ${layout.laneCount} - 0.2rem)`,
                 right: "auto",
               }}
-              onPointerDown={(e) => beginMove(ev, e)}
+              onPointerDown={(e) => beginEventPointer(ev, e)}
             >
               <strong>{ev.title}</strong>
               <span>

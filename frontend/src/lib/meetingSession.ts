@@ -23,7 +23,11 @@ import {
 
 export const MEETING_AI_MARKER_START = "<!-- cadence-meeting-ai:start -->";
 export const MEETING_AI_MARKER_END = "<!-- cadence-meeting-ai:end -->";
-export const MEETING_TRANSCRIPT_HEADING = "## 逐字稿";
+export const MEETING_TX_MARKER_START = "<!-- cadence-meeting-tx:start -->";
+export const MEETING_TX_MARKER_END = "<!-- cadence-meeting-tx:end -->";
+export const MEETING_TRANSCRIPT_HEADING = "## 逐字稿來源";
+
+const SESSION_STORAGE_KEY = "cadence_meeting_session_v1";
 
 export type MeetingAiContext = {
   sessionId: string;
@@ -42,8 +46,56 @@ type Listener = (ctx: MeetingAiContext | null) => void;
 let current: MeetingAiContext | null = null;
 const listeners = new Set<Listener>();
 
+function persistSession(ctx: MeetingAiContext | null) {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    if (!ctx) {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      return;
+    }
+    sessionStorage.setItem(
+      SESSION_STORAGE_KEY,
+      JSON.stringify({
+        sessionId: ctx.sessionId,
+        eventId: ctx.eventId,
+        noteId: ctx.noteId,
+        title: ctx.title,
+        transcript: (ctx.transcript || "").slice(-12000),
+        dateKey: ctx.dateKey,
+        event: ctx.event || null,
+        uid: ctx.uid || null,
+      })
+    );
+  } catch {
+    /* ignore quota */
+  }
+}
+
+export function rehydrateMeetingAiContext(noteId?: string): MeetingAiContext | null {
+  if (current && (!noteId || current.noteId === noteId)) return current;
+  try {
+    if (typeof sessionStorage === "undefined") return null;
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MeetingAiContext;
+    if (!parsed?.noteId) return null;
+    if (noteId && parsed.noteId !== noteId) return null;
+    current = {
+      ...parsed,
+      transcript: parsed.transcript || "",
+      event: parsed.event || undefined,
+      uid: parsed.uid || undefined,
+    };
+    listeners.forEach((cb) => cb(current));
+    return current;
+  } catch {
+    return null;
+  }
+}
+
 export function setMeetingAiContext(ctx: MeetingAiContext | null) {
   current = ctx;
+  persistSession(ctx);
   listeners.forEach((cb) => cb(current));
 }
 
@@ -54,11 +106,21 @@ export function getMeetingAiContext() {
 export function patchMeetingAiContext(patch: Partial<MeetingAiContext>) {
   if (!current) return;
   current = { ...current, ...patch };
+  persistSession(current);
   listeners.forEach((cb) => cb(current));
+}
+
+/** Append a live STT chunk into in-memory transcript (for dock / pack). */
+export function appendMeetingTranscriptChunk(chunk: string) {
+  const t = chunk.trim();
+  if (!t || !current) return;
+  const next = `${current.transcript ? `${current.transcript}\n\n` : ""}${t}`.slice(-20000);
+  patchMeetingAiContext({ transcript: next });
 }
 
 export function subscribeMeetingAiContext(cb: Listener): () => void {
   listeners.add(cb);
+  if (!current) rehydrateMeetingAiContext();
   cb(current);
   return () => {
     listeners.delete(cb);
@@ -74,21 +136,53 @@ export const MEETING_AI_SUGGESTIONS = [
 
 function meetingNoteBody(ev: ScheduleEvent) {
   const join = ev.conferenceUrl ? `\n- 會議連結：${ev.conferenceUrl}\n` : "\n";
+  const desc = (ev.description || "").trim();
+  const brief = desc
+    ? `\n> 來自行程說明\n>\n${desc
+        .split("\n")
+        .slice(0, 12)
+        .map((l) => `> ${l}`)
+        .join("\n")}\n`
+    : "";
   return `# ${ev.title}
 
 - 日期：${ev.dateKey}
 - 時段：${ev.allDay ? "全天" : `${formatRange(ev.startMin, ev.endMin)}`}
 ${join}
+## 會前準備
+${brief}
+- 議程：
+  - 
+- 我想確認／帶去討論：
+  - 
+- 相關筆記／待辦：
+
+
 ## 筆記
 
+（開會時在這裡寫你的重點子彈，AI 不會覆蓋此區）
 
+${MEETING_TX_MARKER_START}
 ${MEETING_TRANSCRIPT_HEADING}
 
+:::toggle 逐字稿來源（可摺疊）
+（即時轉錄會寫在這裡）
+:::
+${MEETING_TX_MARKER_END}
 
 ${MEETING_AI_MARKER_START}
 ## 會後整理
 
-（結束即時轉錄後可產生摘要、決議與待辦）
+### 摘要
+
+### 決議
+
+### 待辦
+
+- [ ] 
+
+### 未決／跟進
+
 ${MEETING_AI_MARKER_END}
 `;
 }
@@ -209,6 +303,19 @@ export function upsertMeetingAiSection(bodyMd: string, packMd: string): string {
   return `${bodyMd.trim()}\n\n${block}\n`;
 }
 
+/** Append STT text into the collapsible transcript source section. */
+export function appendMeetingTranscriptSection(bodyMd: string, chunk: string): string {
+  const t = chunk.trim();
+  if (!t) return bodyMd;
+  const stamp = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
+  const piece = `${stamp}\n${t}`;
+  if (bodyMd.includes(MEETING_TX_MARKER_START) && bodyMd.includes(MEETING_TX_MARKER_END)) {
+    return bodyMd.replace(MEETING_TX_MARKER_END, `\n\n${piece}\n${MEETING_TX_MARKER_END}`);
+  }
+  const block = `${MEETING_TX_MARKER_START}\n${MEETING_TRANSCRIPT_HEADING}\n\n:::toggle 逐字稿來源（可摺疊）\n${piece}\n:::\n${MEETING_TX_MARKER_END}`;
+  return `${bodyMd.trim()}\n\n${block}\n`;
+}
+
 function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -216,14 +323,20 @@ function escapeRe(s: string) {
 export async function runMeetingPackOnNote(noteId: string, title: string): Promise<string> {
   const note = await getNote(noteId);
   if (!note) throw new Error("找不到會議筆記");
+  const ctx = getMeetingAiContext();
+  const liveTx = ctx?.noteId === noteId ? ctx.transcript : "";
+  const bodyForAi = liveTx.trim()
+    ? `${note.body_md || ""}\n\n—— 即時逐字稿緩衝 ——\n${liveTx}`
+    : note.body_md || "";
   const res = await fetch("/api/ai/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "meeting_pack",
       title,
-      body: note.body_md || "",
-      prompt: "請依筆記與逐字稿產出會議整理包。",
+      body: bodyForAi,
+      prompt:
+        "請產出會議整理包，必須用以下 Markdown 標題（缺則寫「無」）：\n## 摘要\n## 決議\n## 待辦\n（待辦必須用 - [ ] checklist）\n## 未決／跟進",
     }),
   });
   const data = await res.json();
@@ -288,11 +401,41 @@ export async function appendJournalDayRollup(
   journalNoteId: string,
   ev: ScheduleEvent,
   meetingNoteId: string,
-  blurb?: string
+  blurb?: string,
+  todosMd?: string
 ) {
   const blurbLine = blurb ? `\n- 摘要：${blurb.replace(/\s+/g, " ").slice(0, 160)}\n` : "\n";
-  const line = `\n\n### 會議 · ${ev.title}\n- 時段：${ev.allDay ? "全天" : formatRange(ev.startMin, ev.endMin)}\n- 筆記：[/notes/${meetingNoteId}](/notes/${meetingNoteId})${blurbLine}`;
+  const todoBlock = todosMd?.trim()
+    ? `\n#### 待辦\n${todosMd.trim()}\n`
+    : "";
+  const line = `\n\n### 會議 · ${ev.title}\n- 時段：${ev.allDay ? "全天" : formatRange(ev.startMin, ev.endMin)}\n- 筆記：[/notes/${meetingNoteId}](/notes/${meetingNoteId})${blurbLine}${todoBlock}`;
   await appendNoteMarkdown(journalNoteId, line);
+}
+
+function extractChecklist(pack: string): string {
+  const lines = pack.split("\n").filter((l) => /^\s*[-*]\s*\[[ xX]\]/.test(l));
+  return lines.slice(0, 12).join("\n");
+}
+
+async function scheduleEventFromMeetingNote(noteId: string): Promise<ScheduleEvent | null> {
+  const note = await getNote(noteId);
+  if (!note) return null;
+  const props = (note.props || {}) as Record<string, unknown>;
+  const dateKey = String(props.meeting_date || note.journal_date || "").trim();
+  if (!dateKey) return null;
+  const providerRaw = String(props.schedule_provider || "local");
+  const provider = providerRaw === "google" ? "google" : "local";
+  return {
+    id: String(props.schedule_event_id || noteId),
+    dateKey,
+    startMin: 0,
+    endMin: 60,
+    allDay: true,
+    title: note.title || "會議",
+    provider,
+    externalId: String(props.schedule_external_id || "") || undefined,
+    noteId,
+  };
 }
 
 /** Pack + optional rollup into that day's journal. */
@@ -304,11 +447,25 @@ export async function finishMeetingWithPack(opts: {
   writeToJournal?: boolean;
 }): Promise<{ pack: string; journalNoteId?: string }> {
   const pack = await runMeetingPackOnNote(opts.noteId, opts.title);
+  let event = opts.event || undefined;
+  if (!event?.dateKey) {
+    event = (await scheduleEventFromMeetingNote(opts.noteId)) || undefined;
+  }
   let journalNoteId: string | undefined;
-  if (opts.writeToJournal && opts.event?.dateKey) {
-    journalNoteId = await ensureJournalNoteForDate(opts.uid, opts.event.dateKey);
-    const blurb = pack.split("\n").find((l) => l.trim() && !l.startsWith("#")) || "";
-    await appendJournalDayRollup(journalNoteId, opts.event, opts.noteId, blurb);
+  if (opts.writeToJournal && event?.dateKey) {
+    journalNoteId = await ensureJournalNoteForDate(opts.uid, event.dateKey);
+    const blurb =
+      pack
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith("#") && l !== "無") || "";
+    await appendJournalDayRollup(
+      journalNoteId,
+      event,
+      opts.noteId,
+      blurb,
+      extractChecklist(pack)
+    );
   }
   return { pack, journalNoteId };
 }

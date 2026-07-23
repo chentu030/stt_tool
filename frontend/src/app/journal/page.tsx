@@ -38,7 +38,10 @@ import {
   joinMeeting,
   setMeetingAiContext,
 } from "@/lib/meetingSession";
-import type { ScheduleEvent } from "@/lib/scheduleEvents";
+import {
+  listenScheduleEvents,
+  type ScheduleEvent,
+} from "@/lib/scheduleEvents";
 import {
   connectGoogleCalendar,
   disconnectGoogleCalendar,
@@ -72,7 +75,9 @@ export default function JournalPage() {
   const [composerKey, setComposerKey] = useState(0);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [gcalEvents, setGcalEvents] = useState<ScheduleEvent[]>([]);
+  const [localEvents, setLocalEvents] = useState<ScheduleEvent[]>([]);
   const [gcalOn, setGcalOn] = useState(false);
+  const [gcalStatus, setGcalStatus] = useState<"off" | "loading" | "ok" | "error">("off");
   const liveRec = useLiveRecordingOptional();
 
   useEffect(() => {
@@ -80,20 +85,33 @@ export default function JournalPage() {
   }, []);
 
   useEffect(() => {
+    if (!user) {
+      setLocalEvents([]);
+      return;
+    }
+    return listenScheduleEvents(user.uid, selected, setLocalEvents);
+  }, [user, selected]);
+
+  useEffect(() => {
     if (!gcalOn || !user) {
       setGcalEvents([]);
+      setGcalStatus(gcalOn ? "ok" : "off");
       return;
     }
     let cancelled = false;
+    setGcalStatus("loading");
     void (async () => {
       try {
         const rows = await fetchGoogleDayEvents(selected);
-        if (!cancelled) setGcalEvents(rows);
+        if (!cancelled) {
+          setGcalEvents(rows);
+          setGcalStatus("ok");
+        }
       } catch (e) {
         if (!cancelled) {
           toast(e instanceof Error ? e.message : "Google 日曆同步失敗");
           setGcalEvents([]);
-          /* keep gcalOn so user can retry on next day change */
+          setGcalStatus("error");
         }
       }
     })();
@@ -101,6 +119,18 @@ export default function JournalPage() {
       cancelled = true;
     };
   }, [gcalOn, selected, user]);
+
+  const agendaEvents = useMemo(() => {
+    const map = new Map<string, ScheduleEvent>();
+    for (const e of localEvents) map.set(e.id, e);
+    for (const e of gcalEvents) map.set(e.id, e);
+    return [...map.values()].sort(
+      (a, b) =>
+        Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) ||
+        a.startMin - b.startMin ||
+        a.title.localeCompare(b.title)
+    );
+  }, [localEvents, gcalEvents]);
 
   const toggleGoogleCal = async () => {
     if (gcalOn) {
@@ -648,7 +678,13 @@ export default function JournalPage() {
                 : "需設定 NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID"
             }
           >
-            {gcalOn ? "Google 日曆 · 已連結" : "連結 Google 日曆"}
+            {gcalStatus === "loading"
+              ? "Google 日曆 · 同步中…"
+              : gcalStatus === "error"
+                ? "Google 日曆 · 重試"
+                : gcalOn
+                  ? "Google 日曆 · 已連結"
+                  : "連結 Google 日曆"}
           </button>
           <button
             type="button"
@@ -840,7 +876,15 @@ export default function JournalPage() {
           noteId={selectedEntry?.id}
           noteTitle={selectedEntry?.title}
           tagDefs={tagDefs}
+          agenda={agendaEvents}
           onAskAi={askAi}
+          onMeetingMode={(ev) => {
+            void startMeetingMode(ev);
+          }}
+          onOpenNote={(ev) => {
+            void openEventNote(ev);
+          }}
+          onJoin={onJoinEvent}
         />
       </div>
     </div>

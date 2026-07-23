@@ -26,6 +26,8 @@ export type ScheduleEvent = {
   allDay?: boolean;
   title: string;
   conferenceUrl?: string;
+  /** Optional calendar description (e.g. Google) for pre-meeting brief */
+  description?: string;
   provider: ScheduleProvider;
   externalId?: string;
   noteId?: string;

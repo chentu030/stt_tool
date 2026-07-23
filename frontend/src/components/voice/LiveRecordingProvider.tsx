@@ -13,10 +13,12 @@ import LiveNoteRecorder, {
   type LiveRecordMode,
   type LiveAudioSource,
 } from "@/components/voice/LiveNoteRecorder";
-import { appendNoteMarkdown } from "@/lib/firebase";
+import { appendNoteMarkdown, getNote, updateNote } from "@/lib/firebase";
 import { toast } from "@/lib/toast";
 import { askChoice, askConfirm } from "@/lib/dialogs";
 import {
+  appendMeetingTranscriptChunk,
+  appendMeetingTranscriptSection,
   finishMeetingWithPack,
   getMeetingAiContext,
   setMeetingAiContext,
@@ -119,7 +121,7 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
             cancelLabel: "稍後",
           });
           if (!ok) {
-            setMeetingAiContext(null);
+            // Keep session so MeetingNoteBar / dock can pack later.
             return;
           }
 
@@ -170,6 +172,38 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
       if (!md) return;
       const noteId = session?.noteId;
       if (!noteId) return;
+      const meeting = getMeetingAiContext();
+      if (meeting?.noteId === noteId) {
+        // Feed dock / pack buffer; strip markdown chrome for context.
+        const plain = md
+          .replace(/:::toggle[^\n]*\n?/g, "")
+          .replace(/:::/g, "")
+          .replace(/#{1,6}\s+/g, "")
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+          .replace(/!?\[[^\]]*\]\([^)]*\)/g, "")
+          .trim();
+        if (plain.length > 8) appendMeetingTranscriptChunk(plain.slice(0, 4000));
+
+        // Route STT into collapsible TX section — keep 筆記 / 會後整理 clean.
+        const keepInBody =
+          /###\s*(整理|音檔|整段錄音)/.test(md) || /audio\/|\.webm|\.mp3|\.m4a/i.test(md);
+        if (!keepInBody && plain.length > 4) {
+          writeChain.current = writeChain.current
+            .then(async () => {
+              const note = await getNote(noteId);
+              if (!note) return;
+              const next = appendMeetingTranscriptSection(
+                note.body_md || "",
+                plain.slice(0, 8000)
+              );
+              if (next !== note.body_md) await updateNote(noteId, { body_md: next });
+            })
+            .catch((e) => {
+              toast(e instanceof Error ? e.message : "無法寫入逐字稿來源");
+            });
+          return;
+        }
+      }
       const local = insertRef.current;
       if (local && local.noteId === noteId) {
         local.insert(md);

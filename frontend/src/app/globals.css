@@ -5761,6 +5761,69 @@ a.sidebar-user-name:hover {
   color: var(--accent);
   margin-right: 0.25rem;
 }
+.meeting-note-bar-tx {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.jn-agenda-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.jn-agenda-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+.jn-agenda-item.is-live {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
+}
+.jn-agenda-item.is-soon {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+.jn-agenda-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.jn-agenda-src,
+.jn-agenda-badge {
+  font-size: 0.62rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+}
+.jn-agenda-badge {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.jn-agenda-title {
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.jn-agenda-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.jn-stat-grid-compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .jn-timeline-head h3 {
   margin: 0;
   font-size: 0.82rem;

@@ -187,6 +187,7 @@ function mapItems(dateKey: string, items: GCalEvent[]): ScheduleEvent[] {
         allDay,
         title: (ev.summary || "（無標題）").trim(),
         conferenceUrl: conferenceFromEvent(ev),
+        description: (ev.description || "").trim().slice(0, 2000) || undefined,
         provider: "google" as const,
         externalId: ev.id,
       };

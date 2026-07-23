@@ -36,6 +36,8 @@ export default function MeetingNoteBar({
   const show = active || ctx?.noteId === noteId;
   if (!show) return null;
 
+  const txChars = ctx?.noteId === noteId ? (ctx.transcript || "").trim().length : 0;
+
   const run = async (kind: "summary" | "actions" | "pack" | "journal") => {
     if (busy) return;
     setBusy(true);
@@ -55,7 +57,7 @@ export default function MeetingNoteBar({
           noteId,
           title: noteTitle || ctx?.title || "會議",
           event: ctx?.event,
-          writeToJournal: Boolean(writeToJournal && ctx?.event?.dateKey),
+          writeToJournal: Boolean(writeToJournal),
         });
         toast(journalNoteId ? "已整理並寫進今天" : "會後整理已寫入");
         onBodyPatched?.();
@@ -85,6 +87,11 @@ export default function MeetingNoteBar({
   return (
     <div className="meeting-note-bar">
       <span className="meeting-note-bar-label">會議</span>
+      {txChars > 0 && (
+        <span className="meeting-note-bar-tx" title="已緩衝的即時逐字稿（供會後整理）">
+          逐字稿 {txChars > 999 ? `${Math.round(txChars / 1000)}k` : txChars} 字
+        </span>
+      )}
       <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void run("summary")}>
         目前摘要
       </button>

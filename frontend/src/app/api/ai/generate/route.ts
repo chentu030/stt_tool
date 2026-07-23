@@ -196,7 +196,7 @@ function buildPrompt(data: Body): {
   }
   if (action === "meeting_pack") {
     return {
-      system: `${asst}你是會議助手。依逐字稿／筆記產出：1) 摘要 2) 決議 3) 待辦 checklist 4) 會後跟進。繁體中文 Markdown。`,
+      system: `${asst}你是會議助手。用繁體中文輸出 Markdown，結構必須包含且僅優先使用這些二級標題：## 摘要、## 決議、## 待辦、## 未決／跟進。待辦必須是 - [ ] checklist；沒有內容時寫「無」。不要覆寫或改寫使用者原本的筆記子彈，只整理逐字稿與脈絡。`,
       prompt: `請產出會議整理包：\n\n${noteBlock}`,
     };
   }
