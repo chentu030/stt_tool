@@ -79,23 +79,24 @@ export default function CanvasSelectionChrome({
       )}
 
       {multi && onAlign && (
-        <span className="cv-sel-chrome-align" title="對齊">
+        <span className="cv-sel-chrome-align" title="對齊／均分（重疊時會自動拉開）">
           {(
             [
-              ["left", "左"],
-              ["centerX", "中"],
-              ["right", "右"],
-              ["top", "上"],
-              ["centerY", "直中"],
-              ["bottom", "下"],
-              ["distributeX", "橫距"],
-              ["distributeY", "直距"],
-            ] as [AlignMode, string][]
-          ).map(([mode, label]) => (
+              ["left", "左", "左對齊"],
+              ["centerX", "中", "水平置中"],
+              ["right", "右", "右對齊"],
+              ["top", "上", "上對齊"],
+              ["centerY", "直中", "垂直置中"],
+              ["bottom", "下", "下對齊"],
+              ["distributeX", "橫距", "水平均分（間距不足會拉開）"],
+              ["distributeY", "直距", "垂直均分（間距不足會拉開）"],
+            ] as [AlignMode, string, string][]
+          ).map(([mode, label, tip]) => (
             <button
               key={mode}
               type="button"
               className="cv-sel-chrome-btn is-tiny"
+              title={tip}
               onClick={() => onAlign(mode)}
             >
               {label}

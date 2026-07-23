@@ -73,6 +73,9 @@ import {
   createSection,
   alignBoxes,
   itemsInsideSection,
+  stickyHeightForText,
+  AI_STICKY_W,
+  AI_STICKY_GAP,
   type AlignMode,
   copySelection,
   pasteClipboard,
@@ -508,27 +511,49 @@ function CanvasIdPageInner() {
   };
 
   const landStickiesFromAi = (texts: string[], connect = true) => {
-    const chunks = texts.map((t) => t.trim()).filter(Boolean);
+    let chunks = texts.map((t) => t.trim()).filter(Boolean);
     if (!chunks.length) return;
+    // Mind-map drafts often repeat the selected center as line 1 — keep selection, only land branches.
+    if (
+      connect &&
+      selected.length === 1 &&
+      selected[0].type === "sticky" &&
+      chunks.length > 1
+    ) {
+      const center = doc.stickies.find((s) => s.id === selected[0].id);
+      const head = chunks[0];
+      if (
+        center &&
+        (head === center.text.trim() ||
+          head.replace(/\s+/g, "") === center.text.trim().replace(/\s+/g, ""))
+      ) {
+        chunks = chunks.slice(1);
+      }
+    }
     const box = selectionInfo?.box;
-    const origin = box
-      ? { x: box.x + box.w + 36, y: box.y }
-      : viewportCenterWorld();
+    const originX = box ? box.x + box.w + 48 : viewportCenterWorld().x;
+    const heights = chunks.map((t) => stickyHeightForText(t, AI_STICKY_W));
+    const totalH =
+      heights.reduce((a, h) => a + h, 0) + AI_STICKY_GAP * Math.max(0, chunks.length - 1);
+    const midY = box ? box.y + box.h / 2 : viewportCenterWorld().y;
+    let cursorY = midY - totalH / 2;
     const fromRef = connect ? selectionAnchorRef() : null;
     const created: string[] = [];
     updateDoc((d) => {
       let next = { ...d, stickies: [...d.stickies], edges: [...d.edges] };
       chunks.forEach((text, i) => {
+        const h = heights[i];
         const sticky = createSticky({
-          x: snapVal(origin.x + (i % 3) * 28, 22, d.snap),
-          y: snapVal(origin.y + i * 48, 22, d.snap),
-          w: 280,
-          h: Math.min(340, 100 + Math.ceil(text.length / 36) * 24),
+          x: snapVal(originX, 22, d.snap),
+          y: snapVal(cursorY, 22, d.snap),
+          w: AI_STICKY_W,
+          h,
           text,
           color: stickyColor,
         });
         created.push(sticky.id);
         next.stickies.push(sticky);
+        cursorY += h + AI_STICKY_GAP;
         if (fromRef) {
           next.edges.push({
             id: uid("e"),

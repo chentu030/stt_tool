@@ -751,6 +751,53 @@ export type AlignMode =
 
 type BoxItem = { id: string; x: number; y: number; w: number; h: number };
 
+/** Minimum clear gap between boxes when using 橫距／直距 (or when they currently overlap). */
+export const DISTRIBUTE_MIN_GAP = 28;
+
+/** Default width / gap for AI-landed stickies (mind map, summary cards). */
+export const AI_STICKY_W = 280;
+export const AI_STICKY_GAP = 28;
+
+export function stickyHeightForText(text: string, w = AI_STICKY_W): number {
+  const cols = Math.max(24, Math.floor(w / 8));
+  return Math.min(340, 100 + Math.ceil(text.length / cols) * 24);
+}
+
+/**
+ * Pack boxes along an axis with equal gaps.
+ * If the current outer span is too tight (overlap / tiny spacing), expand past the
+ * original bounds using at least `minGap`. If there is spare room, keep the outer
+ * extent and equalize gaps.
+ */
+function packAlongAxis(
+  items: BoxItem[],
+  axis: "x" | "y",
+  minGap: number
+): Map<string, { x: number; y: number; w: number; h: number }> {
+  const out = new Map<string, { x: number; y: number; w: number; h: number }>();
+  const sorted = [...items].sort((a, b) => (axis === "x" ? a.x - b.x : a.y - b.y));
+  if (sorted.length < 2) return out;
+  const sizeOf = (it: BoxItem) => (axis === "x" ? it.w : it.h);
+  const posOf = (it: BoxItem) => (axis === "x" ? it.x : it.y);
+  const totalSize = sorted.reduce((s, it) => s + sizeOf(it), 0);
+  const gaps = sorted.length - 1;
+  const firstPos = posOf(sorted[0]);
+  const last = sorted[sorted.length - 1];
+  const available = posOf(last) + sizeOf(last) - firstPos;
+  const minNeeded = totalSize + minGap * gaps;
+  const gap = available > minNeeded ? (available - totalSize) / gaps : minGap;
+  let cursor = firstPos;
+  for (const it of sorted) {
+    if (axis === "x") {
+      out.set(it.id, { x: cursor, y: it.y, w: it.w, h: it.h });
+    } else {
+      out.set(it.id, { x: it.x, y: cursor, w: it.w, h: it.h });
+    }
+    cursor += sizeOf(it) + gap;
+  }
+  return out;
+}
+
 /** Align / distribute selected boxes relative to the selection bounding box. */
 export function alignBoxes(items: BoxItem[], mode: AlignMode): Map<string, { x: number; y: number; w: number; h: number }> {
   const out = new Map<string, { x: number; y: number; w: number; h: number }>();
@@ -763,24 +810,8 @@ export function alignBoxes(items: BoxItem[], mode: AlignMode): Map<string, { x: 
   const midX = (minX + maxX) / 2;
   const midY = (minY + maxY) / 2;
 
-  if (mode === "distributeX" || mode === "distributeY") {
-    const sorted = [...items].sort((a, b) => (mode === "distributeX" ? a.x - b.x : a.y - b.y));
-    if (sorted.length < 3) return out;
-    if (mode === "distributeX") {
-      const span = sorted[sorted.length - 1].x - sorted[0].x;
-      const step = span / (sorted.length - 1);
-      sorted.forEach((it, i) => {
-        out.set(it.id, { x: sorted[0].x + step * i, y: it.y, w: it.w, h: it.h });
-      });
-    } else {
-      const span = sorted[sorted.length - 1].y - sorted[0].y;
-      const step = span / (sorted.length - 1);
-      sorted.forEach((it, i) => {
-        out.set(it.id, { x: it.x, y: sorted[0].y + step * i, w: it.w, h: it.h });
-      });
-    }
-    return out;
-  }
+  if (mode === "distributeX") return packAlongAxis(items, "x", DISTRIBUTE_MIN_GAP);
+  if (mode === "distributeY") return packAlongAxis(items, "y", DISTRIBUTE_MIN_GAP);
 
   const baseW = items[0].w;
   const baseH = items[0].h;
