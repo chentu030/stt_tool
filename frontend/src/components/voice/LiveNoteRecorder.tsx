@@ -120,6 +120,10 @@ export default function LiveNoteRecorder({
   const [pendingOrg, setPendingOrg] = useState(0);
   const [orgBusy, setOrgBusy] = useState(false);
   const [dockHidden, setDockHidden] = useState(false);
+  /** After stop finishes: keep panel open with a clear summary so it doesn't feel frozen/empty. */
+  const [doneSummary, setDoneSummary] = useState<string | null>(null);
+  const segOkRef = useRef(0);
+  const segFailRef = useRef(0);
 
   const recRef = useRef<ContinuousDualRecorder | null>(null);
   const tickRef = useRef<number | null>(null);
@@ -312,14 +316,17 @@ export default function LiveNoteRecorder({
         const streaming = streamOnRef.current && modeRef.current !== "audio";
         if (modeRef.current === "audio") {
           insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}`);
+          segOkRef.current += 1;
           setStatus(`「${job.label}」音檔已寫入`);
         } else if (streaming && !got.transcript.trim()) {
           // Text already streamed in; keep a compact audio bookmark per cut.
           if (audioBlock) insertMd(`\n<!-- ${job.label} · ${time} -->\n${audioBlock}`);
+          segOkRef.current += 1;
           setStatus(`「${job.label}」音檔已附上`);
         } else {
           insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}${got.transcript}\n`);
           queueTranscriptForOrganize(got.transcript);
+          segOkRef.current += 1;
           setStatus(
             modeRef.current === "organize"
               ? `「${job.label}」已寫入 · 待整理 ${pendingOrgTextsRef.current.length} 段`
@@ -382,6 +389,7 @@ export default function LiveNoteRecorder({
       } catch (e) {
         const msg = e instanceof Error ? e.message : m === "audio" ? "上傳失敗" : "轉錄失敗";
         upsertLine(lineId, { text: msg, state: "error" });
+        segFailRef.current += 1;
         setStatus(`「${label}」失敗：${msg}`);
         toast(`${label}：${msg}`);
         return null;
@@ -545,6 +553,9 @@ export default function LiveNoteRecorder({
     setPendingOrg(0);
     pendingOrgTextsRef.current = [];
     setStopping(false);
+    setDoneSummary(null);
+    segOkRef.current = 0;
+    segFailRef.current = 0;
     jobsRef.current = [];
     secsRef.current = 0;
     try {
@@ -633,6 +644,8 @@ export default function LiveNoteRecorder({
   const stop = async () => {
     if (stopping) return;
     setStopping(true);
+    setDoneSummary(null);
+    setDockHidden(false);
     setStarting(false);
     clearTimers();
     stopSilenceMonitor();
@@ -640,9 +653,13 @@ export default function LiveNoteRecorder({
     const rec = recRef.current;
     liveRef.current = false;
     setLive(false);
-    setStatus("結束錄音，處理剩餘段落…");
+    setStatus("結束錄音，正在處理…請稍候，不要關閉頁面");
+    toast("正在處理錄音…完成後會寫入筆記");
     if (!rec) {
-      onClose();
+      setStopping(false);
+      setDoneSummary("沒有可處理的錄音");
+      setStatus("沒有可處理的錄音");
+      toast("沒有可處理的錄音");
       return;
     }
     try {
@@ -664,15 +681,25 @@ export default function LiveNoteRecorder({
             state: "pending",
           },
         ]);
+        setStatus(
+          modeRef.current === "audio" || streamOnRef.current
+            ? `處理「${label}」音檔中…`
+            : `批次辨識「${label}」中…可能需要數十秒`
+        );
         startSegJob(lastSegment, label, lineId);
       }
       await drainJobs();
       while (jobsRef.current.length) {
+        setStatus(`還有 ${jobsRef.current.length} 段處理中…`);
         await drainJobs();
       }
+      let organizedN = 0;
       if (modeRef.current === "organize" && pendingOrgTextsRef.current.length) {
+        organizedN = pendingOrgTextsRef.current.length;
+        setStatus(`AI 整理 ${organizedN} 段中…`);
         await flushOrganize(true);
       }
+      let fullOk = false;
       if (full && full.size > 1000) {
         setStatus("儲存完整音檔…");
         try {
@@ -684,16 +711,34 @@ export default function LiveNoteRecorder({
           insertMd(
             `\n\n---\n\n**整場錄音**\n\n<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${up.url}" title="${file.name}"></audio>\n`
           );
-          toast("完整音檔已附在筆記");
+          fullOk = true;
         } catch {
           toast("完整音檔上傳失敗，段落音檔仍保留");
         }
       }
-      setStatus("已結束");
-      onClose();
+      const okN = segOkRef.current;
+      const failN = segFailRef.current;
+      const parts: string[] = [];
+      if (okN > 0) {
+        parts.push(
+          modeRef.current === "audio" ? `已寫入 ${okN} 段音檔` : `已寫入 ${okN} 段文字`
+        );
+      }
+      if (organizedN > 0) parts.push(`已整理 ${organizedN} 段`);
+      if (fullOk) parts.push("完整音檔已附上");
+      if (failN > 0) parts.push(`${failN} 段失敗`);
+      const summary =
+        parts.length > 0
+          ? parts.join(" · ")
+          : "這次沒有寫入內容（錄音可能太短，或尚未達到切段長度）";
+      setStatus(summary);
+      setDoneSummary(summary);
+      toast(summary);
+      setStopping(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : "結束失敗");
       setStopping(false);
+      setDoneSummary(null);
       setStatus("結束失敗，可再試一次");
     }
   };
@@ -716,6 +761,7 @@ export default function LiveNoteRecorder({
       startedRef.current = false;
       setDockHidden(false);
       setStopping(false);
+      setDoneSummary(null);
       setStarting(false);
       setLive(false);
       liveRef.current = false;
@@ -775,10 +821,10 @@ export default function LiveNoteRecorder({
   const orgHint = doOrganize && pendingOrg > 0 ? ` · 待整理 ${pendingOrg}` : "";
   const title =
     mode === "audio" ? "錄音" : mode === "transcribe" ? "錄音 · 轉錄" : "錄音 · 轉錄整理";
-  const booting = starting || (autoStart && !live && !stopping);
-  const canPickSource = !live && !stopping && !booting;
+  const booting = starting || (autoStart && !live && !stopping && !doneSummary);
+  const canPickSource = !live && !stopping && !booting && !doneSummary;
   const idle = !live && !stopping && !booting;
-  const showPreview = lines.length > 0 || live || stopping;
+  const showPreview = lines.length > 0 || live || stopping || Boolean(doneSummary);
   const streamActive = doStt && streamOn && streamLive;
   const streamWanted = doStt && streamOn;
   const quotaLabel = formatStreamQuota(streamUsedSecs);
@@ -795,23 +841,31 @@ export default function LiveNoteRecorder({
       {dockHidden ? (
         <button
           type="button"
-          className="voice-live-hidden-pill"
-          title={`錄音進行中 · ${hideLabel} 或點此顯示面板`}
-          aria-label="顯示錄製面板"
+          className={`voice-live-hidden-pill${stopping ? " is-busy" : ""}`}
+          title={
+            stopping
+              ? "正在處理錄音…點此顯示進度"
+              : `錄音進行中 · ${hideLabel} 或點此顯示面板`
+          }
+          aria-label={stopping ? "顯示處理進度" : "顯示錄製面板"}
           onClick={() => setDockHidden(false)}
         />
       ) : (
         <div
-          className={`voice-live-dock${idle || booting ? " is-compact" : ""}${showPreview ? "" : " is-bare"}`}
+          className={`voice-live-dock${idle || booting ? " is-compact" : ""}${showPreview ? "" : " is-bare"}${stopping ? " is-processing" : ""}${doneSummary ? " is-done" : ""}`}
           role="dialog"
           aria-label={title}
+          aria-busy={stopping || booting}
         >
           <div className="voice-live-dock-top">
             <div className="voice-live-dock-main">
-              <div className={`voice-live-dock-pulse${live ? "" : " is-off"}`} aria-hidden />
+              <div
+                className={`voice-live-dock-pulse${live ? "" : " is-off"}${stopping ? " is-busy" : ""}`}
+                aria-hidden
+              />
               <div className="voice-live-dock-meta">
                 <strong>
-                  {title}
+                  {stopping ? "處理中" : doneSummary ? "已完成" : title}
                   {live || stopping ? (
                     <span className="voice-live-source-badge">{liveAudioSourceLabel(audioSource)}</span>
                   ) : null}
@@ -821,9 +875,9 @@ export default function LiveNoteRecorder({
                     <span className="voice-live-source-badge">批次</span>
                   ) : null}
                 </strong>
-                {live || stopping || booting ? (
+                {live || stopping || booting || doneSummary ? (
                   <span>
-                    {live || stopping ? formatRecClock(secs) : "—"} · 本段{" "}
+                    {live || stopping ? formatRecClock(secs) : doneSummary ? "—" : "—"} · 本段{" "}
                     {formatRecClock(segSecs)}
                     {cutMode === "auto" ? ` · ≥${minSecs}s` : " · 手動"}
                     {streamWanted || streamActive || streamUsedSecs > 0
@@ -837,7 +891,9 @@ export default function LiveNoteRecorder({
                     即時額度 {quotaLabel}
                   </span>
                 ) : null}
-                {(live || stopping || booting) && status ? <em title={status}>{status}</em> : null}
+                {(live || stopping || booting || doneSummary) && status ? (
+                  <em title={status}>{status}</em>
+                ) : null}
               </div>
             </div>
 
@@ -902,6 +958,35 @@ export default function LiveNoteRecorder({
                     取消
                   </button>
                 </>
+              ) : doneSummary ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      setDoneSummary(null);
+                      setLines([]);
+                      setStatus(
+                        `選擇來源後開始（目前：${liveAudioSourceLabel(audioSource)}）`
+                      );
+                      void start().catch((e) => {
+                        toast(e instanceof Error ? e.message : "無法開始錄音");
+                      });
+                    }}
+                  >
+                    再錄一段
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    onClick={() => {
+                      setDoneSummary(null);
+                      onClose();
+                    }}
+                  >
+                    關閉
+                  </button>
+                </>
               ) : !live && !stopping ? (
                 <>
                   <button
@@ -929,7 +1014,11 @@ export default function LiveNoteRecorder({
                     title={`隱藏（${hideLabel}）`}
                     onClick={() => {
                       setDockHidden(true);
-                      toast(`錄製面板已隱藏 · ${hideLabel} 可再顯示`);
+                      toast(
+                        stopping
+                          ? "面板已隱藏 · 仍在背景處理，點紅點可看進度"
+                          : `錄製面板已隱藏 · ${hideLabel} 可再顯示`
+                      );
                     }}
                   >
                     隱藏
@@ -978,17 +1067,31 @@ export default function LiveNoteRecorder({
                     disabled={stopping}
                     onClick={() => void stop()}
                   >
-                    {stopping ? "收尾中…" : "結束"}
+                    {stopping ? "處理中…" : "結束"}
                   </button>
                 </>
               )}
             </div>
           </div>
 
+          {stopping || doneSummary ? (
+            <div
+              className={`voice-live-progress${doneSummary ? " is-done" : " is-busy"}`}
+              role="status"
+              aria-live="polite"
+            >
+              <strong>{doneSummary ? "已寫入筆記" : "請稍候，正在處理"}</strong>
+              <span>{doneSummary || status || "辨識／上傳中…"}</span>
+              {stopping && pending > 0 ? <em>{pending} 段還在跑</em> : null}
+            </div>
+          ) : null}
+
           {showPreview ? (
             <div className="voice-live-preview" ref={previewScrollRef} aria-label="預覽">
               {lines.length === 0 ? (
-                <p className="voice-live-preview-empty">{emptyHint}</p>
+                <p className="voice-live-preview-empty">
+                  {stopping ? "正在整理最後一段…" : emptyHint}
+                </p>
               ) : (
                 lines.map((line) => (
                   <div key={line.id} className={`voice-live-line is-${line.state}`}>
