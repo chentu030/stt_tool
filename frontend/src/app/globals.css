@@ -7917,6 +7917,21 @@ a.sidebar-user-name:hover {
   overflow: auto;
   padding: 0.5rem 0.75rem 2rem;
 }
+.note-split-pane.is-app .note-split-editor.is-app {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.note-split-pane.is-app .note-app-surface,
+.note-split-pane.is-app .note-app-frame {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border-radius: 0;
+  border: none;
+  margin: 0;
+}
 .note-split-error,
 .note-split-loading {
   padding: 1rem;

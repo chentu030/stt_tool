@@ -4,12 +4,15 @@ import PageLoading from "@/components/motion/PageLoading";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { getNote } from "@/lib/firebase";
+import { getNote, type Note } from "@/lib/firebase";
 import { loadPendingNoteDraft, saveNoteWithSync } from "@/lib/offlineSync";
 import RichNoteEditor from "@/components/RichNoteEditor";
 import PageChromeIcon from "@/components/PageChromeIcon";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 import { normalizePageIcon } from "@/lib/pageChrome";
+import { useAuth } from "@/components/AuthProvider";
+import NoteAppSurface from "@/components/workspace/NoteAppSurface";
+import { isNoteAppSurface, noteOpenHref } from "@/lib/workspacePages";
 
 type Props = {
   noteId: string;
@@ -19,7 +22,7 @@ type Props = {
   onCollapse?: () => void;
 };
 
-/** Compact secondary editor for side-by-side note view */
+/** Compact secondary pane for side-by-side view (notes or specialty apps). */
 export default function NoteSplitPane({
   noteId,
   onClose,
@@ -27,7 +30,9 @@ export default function NoteSplitPane({
   onExpand,
   onCollapse,
 }: Props) {
+  const { user } = useAuth();
   const tabs = useNoteTabsOptional();
+  const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [icon, setIcon] = useState("");
@@ -43,10 +48,14 @@ export default function NoteSplitPane({
   titleRef.current = title;
   bodyRef.current = body;
 
+  const isApp = isNoteAppSurface(note?.app_link);
+  const openHref = note ? noteOpenHref(note) : `/notes/${noteId}`;
+
   useEffect(() => {
     let cancelled = false;
     setReady(false);
     setError("");
+    setNote(null);
     dirty.current = false;
     void (async () => {
       try {
@@ -68,6 +77,7 @@ export default function NoteSplitPane({
           setStatus("idle");
         }
         baseUpdatedAt.current = pending?.baseUpdatedAt ?? n.updated_at.getTime();
+        setNote(n);
         setTitle(nextTitle);
         setBody(nextBody);
         setIcon(n.icon || "");
@@ -88,8 +98,10 @@ export default function NoteSplitPane({
       void getNote(noteId).then((n) => {
         if (!n) return;
         baseUpdatedAt.current = n.updated_at.getTime();
+        setNote(n);
         setTitle(n.title || "");
         setBody(n.body_md || "");
+        setIcon(n.icon || "");
         dirty.current = false;
         setStatus("saved");
       });
@@ -108,7 +120,7 @@ export default function NoteSplitPane({
   }, [noteId]);
 
   useEffect(() => {
-    if (!ready || !dirty.current) return;
+    if (!ready || isApp || !dirty.current) return;
     setStatus("dirty");
     const t = window.setTimeout(() => {
       const job = saveChain.current.then(async () => {
@@ -156,7 +168,7 @@ export default function NoteSplitPane({
       });
     }, 700);
     return () => window.clearTimeout(t);
-  }, [title, body, ready, noteId, saveKick]);
+  }, [title, body, ready, noteId, saveKick, isApp]);
 
   const markDirty = () => {
     dirty.current = true;
@@ -180,24 +192,26 @@ export default function NoteSplitPane({
   }
 
   return (
-    <div className="note-split-pane">
+    <div className={`note-split-pane${isApp ? " is-app" : ""}`}>
       <div className="note-split-head">
-        <Link href={`/notes/${noteId}`} className="note-split-title" title="設為主要分頁">
+        <Link href={openHref} className="note-split-title" title="設為主要分頁">
           {normalizePageIcon(icon) ? (
             <PageChromeIcon icon={icon} fallback="description" className="note-split-title-icon" />
           ) : null}
           <span className="note-split-title-text">{title || "未命名"}</span>
         </Link>
         <span className="note-split-status">
-          {status === "saving"
-            ? "儲存中"
-            : status === "saved"
-              ? "已存"
-              : status === "offline"
-                ? "離線已存"
-                : status === "dirty"
-                  ? "未存"
-                  : ""}
+          {isApp
+            ? ""
+            : status === "saving"
+              ? "儲存中"
+              : status === "saved"
+                ? "已存"
+                : status === "offline"
+                  ? "離線已存"
+                  : status === "dirty"
+                    ? "未存"
+                    : ""}
         </span>
         <button
           type="button"
@@ -233,6 +247,17 @@ export default function NoteSplitPane({
         <p className="note-split-error">{error}</p>
       ) : !ready ? (
         <PageLoading fill={false} />
+      ) : isApp && note && user ? (
+        <div className="note-split-editor is-app">
+          <NoteAppSurface
+            note={{ ...note, title }}
+            userId={user.uid}
+            onTitleHint={(t) => {
+              setTitle(t);
+              setNote((prev) => (prev ? { ...prev, title: t } : prev));
+            }}
+          />
+        </div>
       ) : (
         <>
           <input
