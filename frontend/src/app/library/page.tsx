@@ -108,10 +108,31 @@ function LibraryPageInner() {
     };
   }, [user]);
 
-  const stats = useMemo(() => computeLibraryStats(notes, jobs), [notes, jobs]);
+  const scopedNotes = useMemo(() => {
+    if (!folderFilter) return notes;
+    if (folderFilter === "__none__") {
+      return notes.filter((n) => !(n.folder || "").trim());
+    }
+    const f = folderFilter.trim().replace(/\\/g, "/");
+    return notes.filter((n) => {
+      const nf = (n.folder || "").trim().replace(/\\/g, "/");
+      return nf === f || nf.startsWith(`${f}/`);
+    });
+  }, [notes, folderFilter]);
+
+  const stats = useMemo(
+    () => computeLibraryStats(scopedNotes, folderFilter ? [] : jobs),
+    [scopedNotes, jobs, folderFilter]
+  );
   const folders = useMemo(() => folderBuckets(notes), [notes]);
-  const tags = useMemo(() => tagBuckets(notes), [notes]);
-  const activity = useMemo(() => recentActivity(notes, jobs, 10), [notes, jobs]);
+  const tags = useMemo(() => tagBuckets(scopedNotes), [scopedNotes]);
+  const activity = useMemo(
+    () => recentActivity(scopedNotes, folderFilter ? [] : jobs, 10),
+    [scopedNotes, jobs, folderFilter]
+  );
+
+  const folderLabel =
+    folderFilter === "__none__" ? "未分類" : folderFilter.trim();
 
   const filteredNotes = useMemo(() => {
     let list = searchNotes(notes, q, {
@@ -305,9 +326,16 @@ function LibraryPageInner() {
       ) : null}
       <header className="kb-hero">
         <div>
-          <ScrambleText words="知識庫" as="h1" className="page-title font-display" speed={22} />
+          <ScrambleText
+            words={folderLabel || "知識庫"}
+            as="h1"
+            className="page-title font-display"
+            speed={22}
+          />
           <p className="page-sub">
-            {stats.noteCount} 筆記 · {stats.jobCount} 轉錄
+            {folderFilter
+              ? `${stats.noteCount} 筆記 · ${stats.tagCount} 標籤`
+              : `${stats.noteCount} 筆記 · ${stats.jobCount} 轉錄`}
           </p>
         </div>
         <div className="kb-hero-actions">

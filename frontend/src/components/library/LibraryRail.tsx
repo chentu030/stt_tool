@@ -33,13 +33,16 @@ export default function LibraryRail({
   onTag,
   onStatus,
 }: Props) {
+  const totalNotes = folders.reduce((sum, f) => sum + f.count, 0);
+  const scoped = Boolean(folderFilter);
+
   return (
     <aside className="kb-rail">
       <section className="kb-rail-section">
-        <h3>總覽</h3>
+        <h3>{scoped ? "此資料夾" : "總覽"}</h3>
         <div className="kb-stat-grid">
           <Stat label="筆記" value={stats.noteCount} />
-          <Stat label="轉錄" value={stats.jobCount} />
+          {!scoped ? <Stat label="轉錄" value={stats.jobCount} /> : null}
           <Stat label="標籤" value={stats.tagCount} />
           <Stat label="資料夾" value={stats.folderCount} />
           <Stat label="字數" value={formatNum(stats.wordCount)} />
@@ -75,7 +78,7 @@ export default function LibraryRail({
           onClick={() => onFolder("")}
         >
           <span>全部</span>
-          <em>{stats.noteCount}</em>
+          <em>{totalNotes}</em>
         </button>
         {(() => {
           const pinned = folders.find((f) => f.name === "深度研究");
