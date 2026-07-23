@@ -22060,6 +22060,26 @@ body.is-sidebar-resizing iframe {
   color: #c44;
 }
 
+.voice-quick-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.voice-quick-bg-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #b45309;
+  line-height: 1.35;
+  max-width: 16rem;
+}
+.voice-quick-btn.is-bg-warn,
+.voice-quick-btn--hero.is-bg-warn {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, #f59e0b 55%, transparent),
+    0 10px 28px color-mix(in srgb, var(--accent) 38%, transparent);
+}
 .voice-quick-btn {
   appearance: none;
   display: inline-flex;

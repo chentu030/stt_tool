@@ -26,6 +26,7 @@ import {
   liveAudioSourceLabel,
   type LiveAudioSource,
 } from "@/lib/voiceSession";
+import { attachRecordingGuard, isLikelyMobileBrowser, type RecordingGuard } from "@/lib/voiceRecordingGuard";
 import { toast } from "@/lib/toast";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import {
@@ -160,6 +161,7 @@ export default function LiveNoteRecorder({
   const segFailRef = useRef(0);
 
   const recRef = useRef<ContinuousDualRecorder | null>(null);
+  const recordingGuardRef = useRef<RecordingGuard | null>(null);
   const tickRef = useRef<number | null>(null);
   const silencePollRef = useRef<number | null>(null);
   const startedRef = useRef(false);
@@ -770,6 +772,13 @@ export default function LiveNoteRecorder({
       }
       liveRef.current = true;
       setLive(true);
+      recordingGuardRef.current?.release();
+      recordingGuardRef.current = attachRecordingGuard(rec.mediaStream, {
+        onHidden: () => rec.flush(),
+      });
+      if (isLikelyMobileBrowser()) {
+        toast("會議錄音中請盡量保持畫面開啟；切換 App 可能被系統暫停");
+      }
       setSecs(0);
       setSegSecs(0);
       segSecsRef.current = 0;
@@ -842,6 +851,8 @@ export default function LiveNoteRecorder({
     clearTimers();
     stopSilenceMonitor();
     await stopStreamSession();
+    recordingGuardRef.current?.release();
+    recordingGuardRef.current = null;
     const rec = recRef.current;
     liveRef.current = false;
     setLive(false);
@@ -949,6 +960,8 @@ export default function LiveNoteRecorder({
     void stopStreamSession();
     void recRef.current?.stopAll();
     recRef.current = null;
+    recordingGuardRef.current?.release();
+    recordingGuardRef.current = null;
     liveRef.current = false;
     setLive(false);
     setStarting(false);

@@ -196,6 +196,20 @@ export class ContinuousDualRecorder {
     return this.mime.mimeType || "audio/webm";
   }
 
+  /** Flush both recorders (e.g. when tab goes to background). */
+  flush(): void {
+    try {
+      if (this.fullRec && this.fullRec.state === "recording") this.fullRec.requestData();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (this.segRec && this.segRec.state === "recording") this.segRec.requestData();
+    } catch {
+      /* ignore */
+    }
+  }
+
   /** Stop current segment, return blob, immediately start the next segment (recording continues). */
   async rotateSegment(): Promise<Blob | null> {
     if (!this.media || !this.segRec || this.rotating) return null;
@@ -293,6 +307,12 @@ export class SimpleVoiceRecorder {
   private rec: MediaRecorder | null = null;
   private chunks: Blob[] = [];
   private mime: VoiceMime = pickRecorderMime();
+  private onChunk: ((chunks: Blob[], mime: VoiceMime) => void) | null = null;
+
+  /** Optional: called after each timeslice (for IndexedDB draft persistence). */
+  setChunkListener(cb: ((chunks: Blob[], mime: VoiceMime) => void) | null) {
+    this.onChunk = cb;
+  }
 
   async start(): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -303,13 +323,38 @@ export class SimpleVoiceRecorder {
     this.chunks = [];
     this.rec = new MediaRecorder(this.stream, opts);
     this.rec.ondataavailable = (e) => {
-      if (e.data.size) this.chunks.push(e.data);
+      if (e.data.size) {
+        this.chunks.push(e.data);
+        try {
+          this.onChunk?.(this.chunks.slice(), this.mime);
+        } catch {
+          /* ignore */
+        }
+      }
     };
-    this.rec.start(250);
+    // 1s slices: better for draft persistence + hide flush on mobile.
+    this.rec.start(1000);
   }
 
   get extension(): string {
     return this.mime.ext;
+  }
+
+  get mediaStream(): MediaStream | null {
+    return this.stream;
+  }
+
+  get contentType(): string {
+    return this.mime.mimeType || "audio/webm";
+  }
+
+  /** Force MediaRecorder to emit the current buffer (e.g. on visibility hidden). */
+  flush(): void {
+    try {
+      if (this.rec && this.rec.state === "recording") this.rec.requestData();
+    } catch {
+      /* ignore */
+    }
   }
 
   async stop(): Promise<Blob | null> {
@@ -328,6 +373,7 @@ export class SimpleVoiceRecorder {
     this.stream = null;
     this.rec = null;
     this.chunks = [];
+    this.onChunk = null;
     return blob.size >= 400 ? blob : null;
   }
 }
