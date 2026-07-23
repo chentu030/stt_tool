@@ -95,13 +95,34 @@ export class GoogleLiveSttSession {
       });
       this.ownsMic = true;
     }
+    await this.openAudioGraph();
+    try {
+      await this.openSocket();
+    } catch (e) {
+      await this.teardownAudioGraph();
+      throw e;
+    }
+    // Restart stream under 5-minute Google limit
+    this.restartTimer = window.setInterval(() => {
+      if (this.stopped) return;
+      void this.reopenSocket();
+    }, 4 * 60 * 1000);
+  }
+
+  /** Temporarily pause sending (e.g. while swapping recorders) — uncommon. */
+  setMuted(v: boolean) {
+    this.mute = v;
+  }
+
+  private intentionalClose = false;
+
+  private async openAudioGraph() {
+    if (!this.stream) throw new Error("沒有音訊串流");
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new Ctx();
-    // Some browsers start suspended
     if (this.ctx.state === "suspended") await this.ctx.resume();
 
     this.source = this.ctx.createMediaStreamSource(this.stream);
-    // 4096 ≈ 85–250ms depending on sample rate
     this.processor = this.ctx.createScriptProcessor(4096, 1, 1);
     const fromRate = this.ctx.sampleRate;
     this.processor.onaudioprocess = (ev) => {
@@ -120,21 +141,24 @@ export class GoogleLiveSttSession {
     silent.gain.value = 0;
     this.processor.connect(silent);
     silent.connect(this.ctx.destination);
-
-    await this.openSocket();
-    // Restart stream under 5-minute Google limit
-    this.restartTimer = window.setInterval(() => {
-      if (this.stopped) return;
-      void this.reopenSocket();
-    }, 4 * 60 * 1000);
   }
 
-  /** Temporarily pause sending (e.g. while swapping recorders) — uncommon. */
-  setMuted(v: boolean) {
-    this.mute = v;
+  private async teardownAudioGraph() {
+    try {
+      this.processor?.disconnect();
+      this.source?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.processor = null;
+    this.source = null;
+    try {
+      await this.ctx?.close();
+    } catch {
+      /* ignore */
+    }
+    this.ctx = null;
   }
-
-  private intentionalClose = false;
 
   private async openSocket(): Promise<void> {
     const url = googleSttStreamUrl();
@@ -210,20 +234,7 @@ export class GoogleLiveSttSession {
       /* ignore */
     }
     this.ws = null;
-    try {
-      this.processor?.disconnect();
-      this.source?.disconnect();
-    } catch {
-      /* ignore */
-    }
-    this.processor = null;
-    this.source = null;
-    try {
-      await this.ctx?.close();
-    } catch {
-      /* ignore */
-    }
-    this.ctx = null;
+    await this.teardownAudioGraph();
     if (this.ownsMic) {
       this.stream?.getTracks().forEach((t) => t.stop());
     }

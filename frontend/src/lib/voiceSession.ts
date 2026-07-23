@@ -204,17 +204,45 @@ export class ContinuousDualRecorder {
     try {
       const blob = await this.stopRecorder(this.segRec, this.segChunks);
       this.segChunks = [];
-      const opts = this.mime.mimeType ? { mimeType: this.mime.mimeType } : undefined;
-      this.segRec = new MediaRecorder(this.media, opts);
-      this.segRec.ondataavailable = (e) => {
-        if (e.data.size) this.segChunks.push(e.data);
-      };
-      this.segRec.start(1000);
+      this.startSegRecorder();
       if (!blob || blob.size < 800) return null;
       return blob;
     } finally {
       this.rotating = false;
     }
+  }
+
+  /**
+   * Drop the in-progress segment buffer and start a fresh MediaRecorder.
+   * Used after realtime STT teardown — sharing the stream with an AudioContext
+   * can leave the segment recorder producing empty/corrupt chunks.
+   */
+  async rearmSegmentRecorder(): Promise<void> {
+    if (!this.media || this.rotating) return;
+    this.rotating = true;
+    try {
+      if (this.segRec && this.segRec.state !== "inactive") {
+        try {
+          await this.stopRecorder(this.segRec, this.segChunks);
+        } catch {
+          /* ignore */
+        }
+      }
+      this.segChunks = [];
+      this.startSegRecorder();
+    } finally {
+      this.rotating = false;
+    }
+  }
+
+  private startSegRecorder() {
+    if (!this.media) return;
+    const opts = this.mime.mimeType ? { mimeType: this.mime.mimeType } : undefined;
+    this.segRec = new MediaRecorder(this.media, opts);
+    this.segRec.ondataavailable = (e) => {
+      if (e.data.size) this.segChunks.push(e.data);
+    };
+    this.segRec.start(1000);
   }
 
   async stopAll(): Promise<{ full: Blob | null; lastSegment: Blob | null }> {

@@ -67,7 +67,7 @@ type PreviewLine = {
 type SegJob = {
   id: string;
   label: string;
-  result: Promise<{ transcript: string; url: string } | null>;
+  result: Promise<{ transcript: string; url: string; audioOnly?: boolean } | null>;
 };
 
 type CutMode = "auto" | "manual";
@@ -151,6 +151,8 @@ export default function LiveNoteRecorder({
   const streamInterimIdRef = useRef<string | null>(null);
   const streamSessionStartedAtRef = useRef(0);
   const secsRef = useRef(0);
+  /** After realtime fails, always use batch STT for cuts (even if UI lagged). */
+  const forceBatchSttRef = useRef(false);
   const stopRef = useRef<() => Promise<void>>(async () => {});
   const fallbackToBatchRef = useRef<(reason: "quota" | "error", detail?: string) => Promise<void>>(
     async () => {}
@@ -315,16 +317,16 @@ export default function LiveNoteRecorder({
         const audioBlock = got.url
           ? `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${got.url}" title="${job.label}"></audio>\n\n`
           : "";
-        const streaming = streamOnRef.current && modeRef.current !== "audio";
-        if (modeRef.current === "audio") {
-          insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}`);
+        if (modeRef.current === "audio" || got.audioOnly) {
+          if (modeRef.current === "audio") {
+            insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}`);
+            setStatus(`「${job.label}」音檔已寫入`);
+          } else {
+            // Text already streamed in; keep a compact audio bookmark per cut.
+            if (audioBlock) insertMd(`\n<!-- ${job.label} · ${time} -->\n${audioBlock}`);
+            setStatus(`「${job.label}」音檔已附上`);
+          }
           segOkRef.current += 1;
-          setStatus(`「${job.label}」音檔已寫入`);
-        } else if (streaming && !got.transcript.trim()) {
-          // Text already streamed in; keep a compact audio bookmark per cut.
-          if (audioBlock) insertMd(`\n<!-- ${job.label} · ${time} -->\n${audioBlock}`);
-          segOkRef.current += 1;
-          setStatus(`「${job.label}」音檔已附上`);
         } else {
           insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}${got.transcript}\n`);
           queueTranscriptForOrganize(got.transcript);
@@ -349,7 +351,13 @@ export default function LiveNoteRecorder({
   const startSegJob = (blob: Blob, label: string, lineId: string) => {
     setPending((n) => n + 1);
     const m = modeRef.current;
-    const streaming = streamOnRef.current && m !== "audio";
+    // Only skip batch while realtime is actually live. After fallback (or if stream
+    // never produced text), cuts must go through Google batch STT.
+    const streaming =
+      !forceBatchSttRef.current &&
+      streamLiveRef.current &&
+      streamOnRef.current &&
+      m !== "audio";
     setStatus(
       m === "audio"
         ? `儲存「${label}」音檔…`
@@ -358,7 +366,11 @@ export default function LiveNoteRecorder({
           : `批次辨識「${label}」中…`
     );
 
-    const result = (async (): Promise<{ transcript: string; url: string } | null> => {
+    const result = (async (): Promise<{
+      transcript: string;
+      url: string;
+      audioOnly?: boolean;
+    } | null> => {
       try {
         const ext = extRef.current || "webm";
         const file = new File([blob], `live-${noteId}-${Date.now()}.${ext}`, {
@@ -369,14 +381,14 @@ export default function LiveNoteRecorder({
         if (m === "audio") {
           const up = await upPromise;
           upsertLine(lineId, { text: "音檔已儲存", state: "ready" });
-          return { transcript: "", url: up?.url || "" };
+          return { transcript: "", url: up?.url || "", audioOnly: true };
         }
 
         // Streaming already wrote finals into the note — only keep audio for this cut.
         if (streaming) {
           const up = await upPromise;
           upsertLine(lineId, { text: "音檔已附上（文字已由串流出）", state: "ready" });
-          return { transcript: "", url: up?.url || "" };
+          return { transcript: "", url: up?.url || "", audioOnly: true };
         }
 
         const sttPromise = transcribeWithGoogle(blob, {
@@ -423,10 +435,19 @@ export default function LiveNoteRecorder({
 
   /** Drop realtime STT but keep mic/system recording + batch cuts running. */
   const fallbackToBatch = async (reason: "quota" | "error", detail?: string) => {
-    if (!streamLiveRef.current && !streamSessionRef.current) return;
-    await stopStreamSession();
+    if (!streamLiveRef.current && !streamSessionRef.current && !streamOnRef.current) return;
+    forceBatchSttRef.current = true;
     streamOnRef.current = false;
     setStreamOn(false);
+    await stopStreamSession();
+    // Rebuild segment MediaRecorder — STT AudioContext on the same stream can poison it.
+    try {
+      await recRef.current?.rearmSegmentRecorder();
+      segSecsRef.current = 0;
+      setSegSecs(0);
+    } catch {
+      /* ignore */
+    }
     const detailBit = detail?.trim() ? `（${detail.trim()}）` : "";
     const msg =
       reason === "quota"
@@ -441,6 +462,11 @@ export default function LiveNoteRecorder({
     await stopStreamSession();
     if (streamRemainingSecs() <= 0) {
       throw new Error("即時串流額度已用完");
+    }
+    // Clone tracks so ScriptProcessor/AudioContext never shares the MediaRecorder stream.
+    const sttStream = new MediaStream(media.getAudioTracks().map((t) => t.clone()));
+    if (!sttStream.getAudioTracks().length) {
+      throw new Error("無法複製音訊軌道供即時辨識");
     }
     const session = new GoogleLiveSttSession({
       language,
@@ -487,7 +513,13 @@ export default function LiveNoteRecorder({
       },
     });
     streamSessionRef.current = session;
-    await session.start({ language, stream: media, ownStream: false });
+    try {
+      await session.start({ language, stream: sttStream, ownStream: true });
+    } catch (e) {
+      sttStream.getTracks().forEach((t) => t.stop());
+      streamSessionRef.current = null;
+      throw e;
+    }
     streamSessionStartedAtRef.current = Date.now();
     streamLiveRef.current = true;
     setStreamLive(true);
@@ -526,7 +558,8 @@ export default function LiveNoteRecorder({
           id: lineId,
           label,
           text:
-            modeRef.current === "audio" || streamOnRef.current
+            modeRef.current === "audio" ||
+            (!forceBatchSttRef.current && streamLiveRef.current && streamOnRef.current)
               ? "儲存音檔中…"
               : "批次辨識中…",
           state: "pending",
@@ -559,6 +592,7 @@ export default function LiveNoteRecorder({
     setDoneSummary(null);
     segOkRef.current = 0;
     segFailRef.current = 0;
+    forceBatchSttRef.current = false;
     jobsRef.current = [];
     secsRef.current = 0;
     try {
@@ -570,6 +604,7 @@ export default function LiveNoteRecorder({
       if (rec.mediaStream) startSilenceMonitor(rec.mediaStream);
       if (useStream && rec.mediaStream) {
         if (streamRemainingSecs() <= 0) {
+          forceBatchSttRef.current = true;
           streamOnRef.current = false;
           setStreamOn(false);
           toast("即時額度已用完，改用切段批次");
@@ -578,13 +613,21 @@ export default function LiveNoteRecorder({
           try {
             await startStreamSession(rec.mediaStream);
           } catch (e) {
-            await stopStreamSession();
-            const msg = e instanceof Error ? e.message : "無法開啟即時串流";
-            toast(`${msg} · 已改用切段批次`);
+            forceBatchSttRef.current = true;
             streamOnRef.current = false;
             setStreamOn(false);
+            await stopStreamSession();
+            try {
+              await rec.rearmSegmentRecorder();
+            } catch {
+              /* ignore */
+            }
+            const msg = e instanceof Error ? e.message : "無法開啟即時串流";
+            toast(`${msg} · 已改用切段批次`);
           }
         }
+      } else {
+        forceBatchSttRef.current = true;
       }
       liveRef.current = true;
       setLive(true);
