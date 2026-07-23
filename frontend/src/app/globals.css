@@ -6412,6 +6412,16 @@ a.sidebar-user-name:hover {
   flex: 0 0 auto;
   min-width: 0;
 }
+.jn-schedule-chrome-left {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.jn-schedule-focus-btn {
+  white-space: nowrap;
+}
 .jn-schedule-tabs {
   display: flex;
   gap: 0.35rem;
@@ -6457,6 +6467,94 @@ a.sidebar-user-name:hover {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.jn-schedule-focus-placeholder {
+  flex: 1 1 auto;
+  min-height: 12rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 40%, var(--bg-elevated));
+}
+.jn-schedule-focus-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: clamp(0.35rem, 1.4vh, 0.85rem) clamp(0.35rem, 1.2vw, 0.85rem);
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(5px);
+  animation: cadence-dialog-fade 0.15s ease;
+}
+[data-theme="light"] .jn-schedule-focus-backdrop {
+  background: rgba(55, 53, 47, 0.28);
+}
+.jn-schedule-focus {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: clamp(0.65rem, 1.4vh, 1rem) clamp(0.7rem, 1.4vw, 1.15rem);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow), 0 24px 64px rgba(15, 23, 42, 0.18);
+  animation: cadence-dialog-pop 0.18s ease;
+}
+.jn-schedule-focus-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem 0.85rem;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.jn-schedule-focus-left,
+.jn-schedule-focus-right {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.jn-schedule-focus-right {
+  justify-content: flex-end;
+  flex: 1 1 auto;
+}
+.jn-schedule-focus-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+.jn-schedule-focus-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.jn-schedule-focus-body .jn-week,
+.jn-schedule-focus-body .jn-month,
+.jn-schedule-focus-body .jn-day {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  max-height: none;
 }
 .jn-ev-note {
   resize: vertical;
