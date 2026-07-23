@@ -101,6 +101,12 @@ export type CanvasMedia = {
   transcriptStatus?: CanvasMediaTranscriptStatus;
   jobId?: string;
   transcriptError?: string;
+  /** Scraped / unfurled body text for AI */
+  extractedText?: string;
+  /** Open Graph / preview image */
+  previewImage?: string;
+  /** Short description from unfurl */
+  description?: string;
 };
 
 /** Soft grouping region on the canvas (moves contained items with it). */
@@ -150,7 +156,7 @@ export const MEDIA_DEFAULT_SIZE: Record<CanvasMediaKind, { w: number; h: number 
   pdf: { w: 480, h: 640 },
   ppt: { w: 560, h: 360 },
   file: { w: 300, h: 110 },
-  link: { w: 320, h: 110 },
+  link: { w: 380, h: 240 },
   web: { w: 560, h: 400 },
 };
 

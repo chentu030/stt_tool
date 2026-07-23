@@ -11,6 +11,8 @@ type Props = {
   color?: string;
   canTranscribe?: boolean;
   hasTranscript?: boolean;
+  /** Allow 摘要／心智圖／拆卡 without transcript (YouTube multimodal / PDF text). */
+  canOrganize?: boolean;
   onDuplicate: () => void;
   onDelete: () => void;
   onAi: () => void;
@@ -37,6 +39,7 @@ export default function CanvasSelectionChrome({
   color,
   canTranscribe,
   hasTranscript,
+  canOrganize,
   onDuplicate,
   onDelete,
   onAi,
@@ -106,7 +109,7 @@ export default function CanvasSelectionChrome({
           轉錄
         </button>
       )}
-      {kind === "media" && hasTranscript && (
+      {kind === "media" && (hasTranscript || canOrganize) && (
         <>
           {onSummarize && (
             <button type="button" className="cv-sel-chrome-btn" onClick={onSummarize}>

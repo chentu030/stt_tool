@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { vertexConfigStatus, vertexGenerateContent, VertexChatMessage } from "@/lib/vertex";
+import {
+  vertexConfigStatus,
+  vertexGenerateContent,
+  VertexChatMessage,
+  type VertexContentPart,
+} from "@/lib/vertex";
 import {
   assistantSystemPrefix,
   resolveAiTextModel,
@@ -52,6 +57,13 @@ type Body = {
   messages?: VertexChatMessage[];
   model?: string;
   grounding?: boolean;
+  /** Multimodal refs (YouTube public URL, PDF URL, …) */
+  mediaRefs?: Array<{
+    kind?: string;
+    url: string;
+    mimeType?: string;
+    title?: string;
+  }>;
   /** When true, system prompt allows albireus-note-edit fences for the open note. */
   allowNoteEdit?: boolean;
   /** When true, system prompt allows albireus-db-edit fences for the open database. */
@@ -115,8 +127,9 @@ function buildPrompt(data: Body): {
   }
   if (action === "ask_selection") {
     return {
-      system: "你是 Albireus 筆記助手。依使用者問題，針對框選文字作答，使用繁體中文。可給出可直接貼回筆記的 Markdown。",
-      prompt: `${context ? `${context}\n\n` : ""}筆記標題：${title}\n\n框選文字：\n${selection}\n\n使用者問題：\n${data.prompt?.trim() || "請說明這段在說什麼"}`,
+      system:
+        "你是 Albireus 筆記／白板助手。依使用者問題作答，使用繁體中文。若有附上影片、PDF 或網頁網址／內文，請依實際內容回答，不要說「只有平台名稱」或「看不到連結」。可給出可直接貼回白板的 Markdown。",
+      prompt: `${context ? `${context}\n\n` : ""}白板／筆記標題：${title}\n\n選取內容：\n${selection}\n\n使用者問題：\n${data.prompt?.trim() || "請說明這段在說什麼"}`,
       temperature: 0.55,
     };
   }
@@ -325,6 +338,25 @@ export async function POST(req: NextRequest) {
       data.action === "transcript_study_notes" || data.action === "expand";
     const model = resolveAiTextModel(data.assistant?.model || data.model);
     const grounding = !!(data.assistant?.grounding ?? data.grounding);
+
+    const mediaParts: VertexContentPart[] = [];
+    for (const ref of data.mediaRefs || []) {
+      const u = (ref.url || "").trim();
+      if (!/^https?:\/\//i.test(u)) continue;
+      if (ref.kind === "youtube" || /youtube\.com|youtu\.be/i.test(u)) {
+        mediaParts.push({
+          fileData: { fileUri: u, mimeType: ref.mimeType || "video/mp4" },
+        });
+        // Vertex accepts one YouTube URL per request in practice for many models
+        break;
+      }
+      if (ref.kind === "pdf" || /\.pdf(\?|#|$)/i.test(u)) {
+        mediaParts.push({
+          fileData: { fileUri: u, mimeType: ref.mimeType || "application/pdf" },
+        });
+      }
+    }
+
     const result = await vertexGenerateContent(built.prompt, {
       system: built.system,
       history: built.history,
@@ -332,6 +364,7 @@ export async function POST(req: NextRequest) {
       maxOutputTokens: multi ? 6144 : longForm ? 8192 : 4096,
       model,
       grounding,
+      parts: mediaParts.length ? mediaParts : undefined,
     });
     const text = appendGroundingSources(result.text, result.sources);
     return NextResponse.json({

@@ -16,7 +16,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { loginWithGoogle, getNote, uploadCanvasMedia, type Note } from "@/lib/firebase";
+import { loginWithGoogle, getNote, uploadCanvasMedia, fetchYoutubeTitle, type Note } from "@/lib/firebase";
 import {
   loadJobPlainTranscript,
   startTranscriptionJob,
@@ -41,6 +41,8 @@ import {
   type CanvasShare,
 } from "@/lib/canvasShare";
 import { resolveEmbedUrl } from "@/lib/embedUrls";
+import { embedProxySrc, canEmbedProxy } from "@/lib/embedProxy";
+import { extractFirstHttpUrl, packCanvasSelectionForAi, type CanvasAiMediaRef } from "@/lib/canvasAiContext";
 import { toast } from "@/lib/toast";
 import {
   type CanvasDoc,
@@ -167,7 +169,17 @@ function CanvasIdPageInner() {
   const [spaceDown, setSpaceDown] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [stageAiOpen, setStageAiOpen] = useState(false);
-  const [stageAiAnchor, setStageAiAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [stageAiAnchor, setStageAiAnchor] = useState<{
+    top: number;
+    left: number;
+    prefer?: "right" | "below";
+  } | null>(null);
+  const [stageAiBox, setStageAiBox] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [aiPreview, setAiPreview] = useState<{
     title: string;
@@ -460,7 +472,6 @@ function CanvasIdPageInner() {
     let minY = Infinity;
     let maxX = -Infinity;
     let maxY = -Infinity;
-    const texts: string[] = [];
     for (const s of selected) {
       const b = boxOf(s);
       if (b) {
@@ -469,27 +480,24 @@ function CanvasIdPageInner() {
         maxX = Math.max(maxX, b.x + b.w);
         maxY = Math.max(maxY, b.y + b.h);
       }
-      if (s.type === "sticky") {
-        const st = doc.stickies.find((x) => x.id === s.id);
-        if (st?.text.trim()) texts.push(st.text.trim());
-      } else if (s.type === "shape") {
-        const sh = doc.shapes.find((x) => x.id === s.id);
-        if (sh?.label.trim()) texts.push(sh.label.trim());
-      } else if (s.type === "note") {
-        const n = noteMap.get(s.id);
-        if (n?.title.trim()) texts.push(n.title.trim());
-      } else if (s.type === "media") {
-        const m = (doc.media || []).find((x) => x.id === s.id);
-        if (m?.transcript?.trim()) texts.push(m.transcript.trim());
-        else if (m?.title?.trim()) texts.push(m.title.trim());
-      }
     }
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+    const noteTitles = new Map<string, string>();
+    for (const s of selected) {
+      if (s.type === "note") {
+        const n = noteMap.get(s.id);
+        if (n?.title) noteTitles.set(s.id, n.title);
+      }
+    }
+    const packed = packCanvasSelectionForAi(doc, selected, noteTitles);
     return {
       box: { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) },
-      text: texts.join("\n"),
+      text: packed?.selection || "",
+      context: packed?.context || "",
+      label: packed?.label || "",
+      mediaRefs: packed?.mediaRefs || [],
     };
-  }, [selected, doc.stickies, doc.shapes, doc.media, noteMap, boxOf]);
+  }, [selected, doc, noteMap, boxOf]);
 
   const selectionAnchorRef = (): string | null => {
     if (selected.length !== 1) return null;
@@ -560,29 +568,31 @@ function CanvasIdPageInner() {
   };
 
   const runSelectionSummarize = async () => {
-    const src = (selectionInfo?.text || "").trim();
-    if (!src) {
+    const src = (selectionInfo?.context || selectionInfo?.text || "").trim();
+    if (!src && !selectionInfo?.mediaRefs?.length) {
       toast("請先選取內容");
       return;
     }
     await runAiPreview(
       "摘要到白板",
-      src,
-      "請用繁體中文產出簡潔摘要，每行一個重點，最多 6 行。不要編號、不要 markdown。"
+      src || selectionInfo?.label || "選取媒體",
+      "請用繁體中文產出簡潔摘要，每行一個重點，最多 6 行。不要編號、不要 markdown。",
+      selectionInfo?.mediaRefs
     );
     setStageAiOpen(false);
   };
 
   const runSelectionMindMap = async () => {
-    const src = (selectionInfo?.text || "").trim();
-    if (!src) {
+    const src = (selectionInfo?.context || selectionInfo?.text || "").trim();
+    if (!src && !selectionInfo?.mediaRefs?.length) {
       toast("請先選取內容");
       return;
     }
     await runAiPreview(
       "心智圖草稿",
-      src,
-      "請把內容整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。"
+      src || selectionInfo?.label || "選取媒體",
+      "請把內容整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。",
+      selectionInfo?.mediaRefs
     );
     setStageAiOpen(false);
   };
@@ -660,41 +670,91 @@ function CanvasIdPageInner() {
     }
   };
 
-  const summarizeMedia = async (mediaId: string) => {
-    const item = (doc.media || []).find((m) => m.id === mediaId);
-    if (!item?.transcript?.trim()) {
-      toast("尚無逐字稿");
-      return;
-    }
-    setSelected([{ type: "media", id: mediaId }]);
+  const ensureMediaTextForAi = async (item: CanvasMedia): Promise<CanvasMedia> => {
+    if (item.extractedText?.trim() || item.transcript?.trim()) return item;
+    const url = (item.originalUrl || item.url || "").trim();
+    if (!url) return item;
     try {
-      const summary = await summarizeTranscript({
-        title: item.title || "媒體",
-        transcript: item.transcript,
-        assistant: {
-          name: prefs.aiAssistantName,
-          style: prefs.aiStyle,
-          model: prefs.aiModel,
-          grounding: prefs.aiGrounding,
-        },
-      });
-      if (summary) landStickiesFromAi([summary], true);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "摘要失敗");
+      if (item.media === "pdf" || /\.pdf(\?|#|$)/i.test(url)) {
+        const res = await fetch(`/api/web/pdf-text?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        if (res.ok && data.text) {
+          const next = { ...item, extractedText: String(data.text) };
+          patchMedia(item.id, { extractedText: next.extractedText });
+          return next;
+        }
+      }
+      if (item.media === "link" || item.media === "web") {
+        const res = await fetch(`/api/web/unfurl?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        if (res.ok) {
+          const patch: Partial<CanvasMedia> = {};
+          if (data.title) patch.title = String(data.title);
+          if (data.description) patch.description = String(data.description);
+          if (data.image) patch.previewImage = String(data.image);
+          if (data.extractedText) patch.extractedText = String(data.extractedText);
+          if (Object.keys(patch).length) {
+            patchMedia(item.id, patch);
+            return { ...item, ...patch };
+          }
+        }
+      }
+    } catch {
+      /* ignore */
     }
+    return item;
+  };
+
+  const summarizeMedia = async (mediaId: string) => {
+    let item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item) return;
+    setSelected([{ type: "media", id: mediaId }]);
+    item = await ensureMediaTextForAi(item);
+    const packed = packCanvasSelectionForAi(
+      { ...doc, media: (doc.media || []).map((m) => (m.id === mediaId ? item! : m)) },
+      [{ type: "media", id: mediaId }]
+    );
+    if (item.transcript?.trim()) {
+      try {
+        const summary = await summarizeTranscript({
+          title: item.title || "媒體",
+          transcript: item.transcript,
+          assistant: {
+            name: prefs.aiAssistantName,
+            style: prefs.aiStyle,
+            model: prefs.aiModel,
+            grounding: prefs.aiGrounding,
+          },
+        });
+        if (summary) landStickiesFromAi([summary], true);
+        return;
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "摘要失敗");
+        return;
+      }
+    }
+    await runAiPreview(
+      "摘要到白板",
+      packed?.context || packed?.selection || item.title,
+      "請用繁體中文產出簡潔摘要，每行一個重點，最多 6 行。不要編號、不要 markdown。",
+      packed?.mediaRefs
+    );
   };
 
   const mindMapMedia = async (mediaId: string) => {
-    const item = (doc.media || []).find((m) => m.id === mediaId);
-    if (!item?.transcript?.trim()) {
-      toast("尚無逐字稿");
-      return;
-    }
+    let item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item) return;
     setSelected([{ type: "media", id: mediaId }]);
+    item = await ensureMediaTextForAi(item);
+    const packed = packCanvasSelectionForAi(
+      { ...doc, media: (doc.media || []).map((m) => (m.id === mediaId ? item! : m)) },
+      [{ type: "media", id: mediaId }]
+    );
     await runAiPreview(
       "心智圖草稿",
-      item.transcript,
-      "請把逐字稿整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。"
+      packed?.context || item.transcript || item.extractedText || item.title,
+      "請把內容整理成心智圖草稿：第一行是中心主題，其後每行一個節點（短句、不要編號、不要 markdown）。最多 8 行。",
+      packed?.mediaRefs
     );
   };
 
@@ -738,7 +798,12 @@ function CanvasIdPageInner() {
     });
   };
 
-  const runAiPreview = async (title: string, sourceText: string, prompt: string) => {
+  const runAiPreview = async (
+    title: string,
+    sourceText: string,
+    prompt: string,
+    mediaRefs?: CanvasAiMediaRef[]
+  ) => {
     setAiPreview({ title, busy: true, lines: [] });
     try {
       const res = await aiFetch("/api/ai/generate", {
@@ -749,7 +814,9 @@ function CanvasIdPageInner() {
           title,
           selection: sourceText.slice(0, 14000),
           body: sourceText.slice(0, 14000),
+          context: sourceText.slice(0, 16000),
           prompt,
+          mediaRefs: mediaRefs || undefined,
           assistant: {
             name: prefs.aiAssistantName,
             style: prefs.aiStyle,
@@ -778,16 +845,19 @@ function CanvasIdPageInner() {
   };
 
   const splitMediaToCards = async (mediaId: string) => {
-    const item = (doc.media || []).find((m) => m.id === mediaId);
-    if (!item?.transcript?.trim()) {
-      toast("尚無逐字稿");
-      return;
-    }
+    let item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item) return;
     setSelected([{ type: "media", id: mediaId }]);
+    item = await ensureMediaTextForAi(item);
+    const packed = packCanvasSelectionForAi(
+      { ...doc, media: (doc.media || []).map((m) => (m.id === mediaId ? item! : m)) },
+      [{ type: "media", id: mediaId }]
+    );
     await runAiPreview(
       "拆成知識卡",
-      item.transcript,
-      "請把逐字稿拆成 5 到 8 張知識卡。每行一張：標題必須是可直接引用的短句（論點），不要編號、不要 markdown。只輸出標題行。"
+      packed?.context || item.transcript || item.extractedText || item.title,
+      "請把內容拆成 5 到 8 張知識卡。每行一張：標題必須是可直接引用的短句（論點），不要編號、不要 markdown。只輸出標題行。",
+      packed?.mediaRefs
     );
   };
 
@@ -851,6 +921,84 @@ function CanvasIdPageInner() {
     setSelected([{ type: "media", id: m.id }]);
     setTool("select");
     toast(`已插入${item.title || "媒體"}`);
+    void enrichMediaCard(m.id, m);
+    return m;
+  };
+
+  const enrichMediaCard = async (id: string, seed: CanvasMedia) => {
+    const url = (seed.originalUrl || seed.url || "").trim();
+    if (!url) return;
+    try {
+      if (seed.media === "youtube") {
+        const title = await fetchYoutubeTitle(seed.originalUrl || url);
+        if (title) patchMedia(id, { title });
+        return;
+      }
+      if (seed.media === "pdf") {
+        const res = await fetch(`/api/web/pdf-text?url=${encodeURIComponent(url)}`);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.text) patchMedia(id, { extractedText: String(data.text) });
+        return;
+      }
+      if (seed.media === "link" || seed.media === "web") {
+        const res = await fetch(`/api/web/unfurl?url=${encodeURIComponent(url)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const patch: Partial<CanvasMedia> = {};
+        if (data.title) patch.title = String(data.title);
+        if (data.description) patch.description = String(data.description);
+        if (data.image) {
+          patch.previewImage = String(data.image);
+          // Rich preview cards read better larger
+          patch.h = Math.max(seed.h, 280);
+          patch.w = Math.max(seed.w, 360);
+        }
+        if (data.extractedText) patch.extractedText = String(data.extractedText);
+        if (Object.keys(patch).length) patchMedia(id, patch);
+      }
+    } catch {
+      /* ignore enrichment errors */
+    }
+  };
+
+  const insertResolvedUrl = (raw: string, at?: { x: number; y: number }) => {
+    const resolved = resolveEmbedUrl(raw.trim());
+    if (!resolved) {
+      toast("無法解析網址");
+      return;
+    }
+    const mediaMap: Record<string, CanvasMediaKind> = {
+      youtube: "youtube",
+      vimeo: "video",
+      loom: "video",
+      pdf: "pdf",
+      ppt: "ppt",
+      web: "web",
+      drive: "web",
+      figma: "web",
+      office: "web",
+      link: "link",
+    };
+    const media = mediaMap[resolved.kind] || "link";
+    const size = MEDIA_DEFAULT_SIZE[media];
+    const center = at ?? viewportCenterWorld();
+    let url = resolved.src;
+    let frameable = resolved.frameable;
+    if (media === "pdf" && resolved.original && canEmbedProxy(resolved.original)) {
+      url = embedProxySrc(resolved.original);
+      frameable = true;
+    }
+    placeMedia({
+      media,
+      x: snapVal(center.x - size.w / 2, 22, doc.snap),
+      y: snapVal(center.y - size.h / 2, 22, doc.snap),
+      w: size.w,
+      h: media === "link" ? Math.max(size.h, 200) : size.h,
+      url,
+      originalUrl: resolved.original,
+      title: resolved.title || resolved.original,
+      frameable,
+    });
   };
 
   const insertFiles = async (files: FileList | File[], at?: { x: number; y: number }) => {
@@ -903,37 +1051,7 @@ function CanvasIdPageInner() {
       placeholder: "https://…",
     });
     if (!raw?.trim()) return;
-    const resolved = resolveEmbedUrl(raw.trim());
-    if (!resolved) {
-      toast("無法解析網址");
-      return;
-    }
-    const mediaMap: Record<string, CanvasMediaKind> = {
-      youtube: "youtube",
-      vimeo: "video",
-      loom: "video",
-      pdf: "pdf",
-      ppt: "ppt",
-      web: "web",
-      drive: "web",
-      figma: "web",
-      office: "web",
-      link: "link",
-    };
-    const media = mediaMap[resolved.kind] || "link";
-    const size = MEDIA_DEFAULT_SIZE[media];
-    const center = viewportCenterWorld();
-    placeMedia({
-      media,
-      x: snapVal(center.x - size.w / 2, 22, doc.snap),
-      y: snapVal(center.y - size.h / 2, 22, doc.snap),
-      w: size.w,
-      h: size.h,
-      url: resolved.src,
-      originalUrl: resolved.original,
-      title: resolved.title || resolved.original,
-      frameable: resolved.frameable,
-    });
+    insertResolvedUrl(raw.trim());
   };
 
   const onPointerDown = (e: REPointerEvent) => {
@@ -1488,6 +1606,20 @@ function CanvasIdPageInner() {
     toast("已貼上");
   }, [clipboard, doc, updateDoc]);
 
+  const pasteFromSystemClipboard = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const url = extractFirstHttpUrl(text);
+      if (url) {
+        insertResolvedUrl(url);
+        return true;
+      }
+    } catch {
+      /* permission / empty */
+    }
+    return false;
+  }, [doc.pan, doc.scale, doc.snap]);
+
   const startEdit = () => {
     const s = selected[0];
     if (!s) return;
@@ -1685,7 +1817,10 @@ function CanvasIdPageInner() {
       }
       if (k === "v") {
         e.preventDefault();
-        doPaste();
+        void (async () => {
+          const fromOs = await pasteFromSystemClipboard();
+          if (!fromOs) doPaste();
+        })();
       }
       if (k === "d") {
         e.preventDefault();
@@ -1702,7 +1837,7 @@ function CanvasIdPageInner() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [deleteSelected, doCopy, doCut, doPaste, fitAll, resetZoom, spaceDown]);
+  }, [deleteSelected, doCopy, doCut, doPaste, pasteFromSystemClipboard, fitAll, resetZoom, spaceDown]);
 
   // Non-passive wheel so Ctrl+wheel zooms the canvas instead of the browser page
   useEffect(() => {
@@ -1780,8 +1915,22 @@ function CanvasIdPageInner() {
 
   const openStageAi = () => {
     if (!selectionInfo) return;
-    const p = worldToClient(selectionInfo.box.x, selectionInfo.box.y + selectionInfo.box.h);
-    setStageAiAnchor({ top: p.y + 8, left: p.x });
+    const right = worldToClient(
+      selectionInfo.box.x + selectionInfo.box.w,
+      selectionInfo.box.y
+    );
+    const topLeft = worldToClient(selectionInfo.box.x, selectionInfo.box.y);
+    const bottomRight = worldToClient(
+      selectionInfo.box.x + selectionInfo.box.w,
+      selectionInfo.box.y + selectionInfo.box.h
+    );
+    setStageAiAnchor({ top: right.y, left: right.x + 12, prefer: "right" });
+    setStageAiBox({
+      top: topLeft.y,
+      left: topLeft.x,
+      width: Math.max(24, bottomRight.x - topLeft.x),
+      height: Math.max(24, bottomRight.y - topLeft.y),
+    });
     setStageAiOpen(true);
   };
 
@@ -1957,11 +2106,29 @@ function CanvasIdPageInner() {
             e.preventDefault();
             e.dataTransfer.dropEffect = "copy";
           }}
+          onPaste={(e) => {
+            const text = e.clipboardData?.getData("text") || "";
+            const url = extractFirstHttpUrl(text);
+            if (url) {
+              e.preventDefault();
+              insertResolvedUrl(url);
+            }
+          }}
           onDrop={(e) => {
             e.preventDefault();
             if (e.dataTransfer.files?.length) {
               const at = clientToWorld(e.clientX, e.clientY);
               void insertFiles(e.dataTransfer.files, at);
+              return;
+            }
+            const uri =
+              e.dataTransfer.getData("text/uri-list") ||
+              e.dataTransfer.getData("text/plain") ||
+              "";
+            const url = extractFirstHttpUrl(uri);
+            if (url) {
+              const at = clientToWorld(e.clientX, e.clientY);
+              insertResolvedUrl(url, at);
             }
           }}
         >
@@ -2285,6 +2452,14 @@ function CanvasIdPageInner() {
                   color={colorNow}
                   canTranscribe={Boolean(mediaSel && (mediaSel.media === "youtube" || mediaSel.media === "video" || mediaSel.media === "audio"))}
                   hasTranscript={Boolean(mediaSel?.transcript?.trim())}
+                  canOrganize={Boolean(
+                    mediaSel &&
+                      (mediaSel.media === "youtube" ||
+                        mediaSel.media === "pdf" ||
+                        mediaSel.media === "web" ||
+                        mediaSel.media === "link" ||
+                        mediaSel.extractedText?.trim())
+                  )}
                   onDuplicate={() => { doCopy(); doPaste(); }}
                   onDelete={deleteSelected}
                   onAi={openStageAi}
@@ -2365,8 +2540,12 @@ function CanvasIdPageInner() {
           open={stageAiOpen}
           onClose={() => setStageAiOpen(false)}
           selectionText={selectionInfo.text}
+          context={selectionInfo.context}
+          snippetLabel={selectionInfo.label}
+          mediaRefs={selectionInfo.mediaRefs}
           title={doc.name}
           anchor={stageAiAnchor}
+          selectionBox={stageAiBox || undefined}
           onApplyReplace={applyStageAiReplace}
           onApplyInsert={applyStageAiInsert}
           onGenerateImage={applyStageAiImage}

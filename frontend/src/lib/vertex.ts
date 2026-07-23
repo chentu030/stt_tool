@@ -107,6 +107,10 @@ function parseGroundingMetadata(data: unknown): {
   };
 }
 
+export type VertexContentPart =
+  | { text: string }
+  | { fileData: { fileUri: string; mimeType: string } };
+
 export async function vertexGenerateContent(prompt: string, opts?: {
   system?: string;
   temperature?: number;
@@ -119,6 +123,8 @@ export async function vertexGenerateContent(prompt: string, opts?: {
   grounding?: boolean;
   /** Abort in-flight Vertex fetch (client cancel / disconnect). */
   signal?: AbortSignal;
+  /** Extra multimodal parts (YouTube URI, PDF URL, etc.) prepended before the text prompt. */
+  parts?: VertexContentPart[];
 }): Promise<VertexGenerateResult> {
   const keys = getKeys();
   if (!keys.length) {
@@ -134,12 +140,27 @@ export async function vertexGenerateContent(prompt: string, opts?: {
       parts: [{ text: m.text.trim() }],
     }));
 
+  const extraParts = (opts?.parts || [])
+    .map((p) => {
+      if ("text" in p && p.text?.trim()) return { text: p.text.trim() };
+      if ("fileData" in p && p.fileData?.fileUri) {
+        return {
+          fileData: {
+            fileUri: p.fileData.fileUri,
+            mimeType: p.fileData.mimeType || "application/octet-stream",
+          },
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as Array<{ text: string } | { fileData: { fileUri: string; mimeType: string } }>;
+
   const body = {
     contents: [
       ...history,
       {
         role: "user",
-        parts: [{ text: prompt }],
+        parts: [...extraParts, { text: prompt }],
       },
     ],
     ...(opts?.system

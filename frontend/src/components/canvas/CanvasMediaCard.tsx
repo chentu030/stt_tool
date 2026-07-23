@@ -193,19 +193,27 @@ export default function CanvasMediaCard({
             onPointerDown={(e) => e.stopPropagation()}
           />
         )}
-        {(item.media === "file" ||
-          item.media === "link" ||
-          (item.media !== "image" && item.media !== "audio" && item.media !== "video" && !showFrame)) && (
+        {!showFrame &&
+          item.media !== "image" &&
+          item.media !== "audio" &&
+          item.media !== "video" && (
           <a
-            className="cv-media-file"
+            className={`cv-media-file${item.previewImage ? " cv-media-file--rich" : ""}`}
             href={href}
             target="_blank"
             rel="noreferrer"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            <strong>{item.title || "開啟檔案"}</strong>
-            <span>{href.replace(/^https?:\/\//, "").slice(0, 72)}</span>
+            {item.previewImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="cv-media-og" src={item.previewImage} alt="" />
+            ) : null}
+            <div className="cv-media-file-meta">
+              <strong>{item.title || "開啟連結"}</strong>
+              {item.description ? <p className="cv-media-desc">{item.description}</p> : null}
+              <span>{href.replace(/^https?:\/\//, "").slice(0, 72)}</span>
+            </div>
           </a>
         )}
       </div>

@@ -9788,9 +9788,40 @@ button.jn-heat-cell:disabled {
   text-decoration: none;
   color: var(--text-main);
   justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.cv-media-file--rich {
+  padding: 0;
+  justify-content: flex-start;
+}
+.cv-media-og {
+  width: 100%;
+  max-height: 55%;
+  object-fit: cover;
+  background: var(--bg-muted);
+  flex-shrink: 0;
+}
+.cv-media-file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.65rem 0.75rem;
+  min-height: 0;
 }
 .cv-media-file strong {
-  font-size: 0.88rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.cv-media-desc {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .cv-media-file span {
   font-size: 0.72rem;

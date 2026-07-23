@@ -1,11 +1,12 @@
 "use client";
 import { aiFetch } from "@/lib/aiFetch";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { askPrompt } from "@/lib/dialogs";
 import { generateAiImageFile } from "@/lib/aiImage";
 import AiMarkdown from "@/components/AiMarkdown";
+import type { CanvasAiMediaRef } from "@/lib/canvasAiContext";
 
 export type StageAiAction =
   | "improve"
@@ -31,15 +32,20 @@ type Props = {
   selectionText: string;
   context?: string;
   title?: string;
-  anchor: { top: number; left: number };
+  /** Preferred placement: right of selection (fallback left if no room). */
+  anchor: { top: number; left: number; prefer?: "right" | "below" };
+  selectionBox?: { top: number; left: number; width: number; height: number };
+  mediaRefs?: CanvasAiMediaRef[];
+  snippetLabel?: string;
   onApplyReplace: (text: string) => void;
   onApplyInsert: (text: string) => void;
   onGenerateImage?: (file: File) => void | Promise<void>;
-  /** Extra quick actions for canvas (摘要 / 心智圖草稿) */
   onSummarizeSelection?: () => void | Promise<void>;
   onMindMapSelection?: () => void | Promise<void>;
   insertLabel?: string;
 };
+
+const PANEL_W = 360;
 
 export default function StageSelectionAi({
   open,
@@ -48,6 +54,9 @@ export default function StageSelectionAi({
   context,
   title,
   anchor,
+  selectionBox,
+  mediaRefs,
+  snippetLabel,
   onApplyReplace,
   onApplyInsert,
   onGenerateImage,
@@ -61,6 +70,7 @@ export default function StageSelectionAi({
   const [imgBusy, setImgBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
+  const [pos, setPos] = useState({ top: anchor.top, left: anchor.left });
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -71,6 +81,45 @@ export default function StageSelectionAi({
     setResult("");
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [open, selectionText]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const el = panelRef.current;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const pw = el?.offsetWidth || PANEL_W;
+      const ph = el?.offsetHeight || 360;
+      const gap = 12;
+      const box = selectionBox;
+      let left = anchor.left;
+      let top = anchor.top;
+
+      if (box) {
+        // Prefer right of selection
+        left = box.left + box.width + gap;
+        top = box.top;
+        if (left + pw > vw - 12) {
+          left = Math.max(12, box.left - pw - gap);
+        }
+        if (top + ph > vh - 12) {
+          top = Math.max(12, vh - ph - 12);
+        }
+        if (top < 12) top = 12;
+      } else {
+        left = Math.max(12, Math.min(anchor.left, vw - pw - 12));
+        top = Math.max(12, Math.min(anchor.top, vh - ph - 12));
+      }
+      setPos({ top, left });
+    };
+    place();
+    const t = window.setTimeout(place, 50);
+    window.addEventListener("resize", place);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, anchor.left, anchor.top, selectionBox, result, busy, error]);
 
   useEffect(() => {
     if (!open) return;
@@ -83,7 +132,6 @@ export default function StageSelectionAi({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    // Capture so empty-canvas / aside clicks close without needing the 關閉 button
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -96,6 +144,7 @@ export default function StageSelectionAi({
 
   const hasSelection = !!selectionText.trim();
   const fallback = (context || "").trim().slice(0, 4000) || title || "（無內容）";
+  const snip = (snippetLabel || selectionText || title || "").trim();
 
   const run = async (action: StageAiAction, ask?: string) => {
     const sel = selectionText.trim() || fallback;
@@ -120,7 +169,8 @@ export default function StageSelectionAi({
           grounding: prefsCtx?.prefs.aiGrounding,
         },
       };
-      if (context) payload.context = context.slice(0, 6000);
+      if (context) payload.context = context.slice(0, 16000);
+      if (mediaRefs?.length) payload.mediaRefs = mediaRefs;
       if (action === "ask_selection") {
         payload.prompt =
           ask?.trim() ||
@@ -128,7 +178,7 @@ export default function StageSelectionAi({
           (hasSelection ? "請說明這段在說什麼" : "根據內容幫我整理重點");
       }
       if (action === "expand" || action === "explain") {
-        payload.body = context?.slice(0, 8000) || sel;
+        payload.body = context?.slice(0, 12000) || sel;
       }
       const res = await aiFetch("/api/ai/generate", {
         method: "POST",
@@ -175,14 +225,11 @@ export default function StageSelectionAi({
     }
   };
 
-  const left = Math.max(12, Math.min(anchor.left, typeof window !== "undefined" ? window.innerWidth - 380 : 80));
-  const top = Math.min(anchor.top, typeof window !== "undefined" ? window.innerHeight - 360 : 120);
-
   return (
     <div
       ref={panelRef}
       className="sel-ai-panel"
-      style={{ top, left }}
+      style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -192,9 +239,9 @@ export default function StageSelectionAi({
           關閉
         </button>
       </div>
-      <p className="sel-ai-snip" title={selectionText || title || ""}>
-        {hasSelection
-          ? `「${selectionText.slice(0, 120)}${selectionText.length > 120 ? "…" : ""}」`
+      <p className="sel-ai-snip" title={snip}>
+        {snip
+          ? `「${snip.slice(0, 120)}${snip.length > 120 ? "…" : ""}」`
           : "（未選取 — 可直接提問或生圖）"}
       </p>
       <div className="sel-ai-quick">
