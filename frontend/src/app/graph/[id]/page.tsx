@@ -107,9 +107,11 @@ export default function GraphDetailPage() {
     new GraphForceSim({
       centerX: 700,
       centerY: 450,
-      charge: -980,
-      centerStrength: 0.035,
-      collidePadding: 26,
+      charge: -1680,
+      centerStrength: 0.012,
+      collidePadding: 34,
+      componentGap: 340,
+      componentStrength: 0.09,
     })
   );
   const simStructureKey = useRef("");
@@ -361,11 +363,16 @@ export default function GraphDetailPage() {
       bundle.edges.map((e) => ({
         source: e.from,
         target: e.to,
-        distance: e.kind === "wiki" ? 155 : e.kind === "tag" ? 210 : 245,
-        strength: e.kind === "wiki" ? 0.8 : 0.45,
+        // Wiki = tight communities; tag/folder = long weak ties so they don't glue everything into one ball
+        distance: e.kind === "wiki" ? 175 : e.kind === "tag" ? 340 : 400,
+        strength: e.kind === "wiki" ? 0.62 : e.kind === "tag" ? 0.12 : 0.08,
+        strong: e.kind === "wiki",
       }))
     );
-    if (isNew) simRef.current.reheat(bundle.nodes.length > 40 ? 0.7 : 0.95);
+    if (isNew) {
+      simRef.current.seedComponentsApart(Math.max(380, 90 + bundle.nodes.length * 4));
+      simRef.current.reheat(bundle.nodes.length > 40 ? 0.85 : 1);
+    }
   }, [full, filters, layout, configReady, relayoutNonce]);
 
   // Continuous Obsidian-like force loop

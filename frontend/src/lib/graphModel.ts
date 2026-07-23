@@ -101,7 +101,7 @@ export const DEFAULT_FILTERS: GraphFilters = {
 };
 
 export const LAYOUT_OPTIONS: { id: LayoutMode; label: string; hint: string }[] = [
-  { id: "force", label: "力導向", hint: "持續物理：互斥、連線張力、聚成一球" },
+  { id: "force", label: "力導向", hint: "相關聚攏、不相關分量拉開距離" },
   { id: "radial", label: "放射", hint: "以樞紐為中心向外" },
   { id: "cluster", label: "資料夾簇", hint: "同資料夾聚在一起" },
   { id: "grid", label: "網格", hint: "依度數排序整齊排列" },
@@ -631,8 +631,8 @@ export function layoutGraph(
         let dy = a.y - b.y;
         let dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
         const minDist = 44;
-        let force = (4600 / (dist * dist)) * cooling;
-        if (dist < minDist) force += ((minDist - dist) / dist) * 10 * cooling;
+        let force = (7200 / (dist * dist)) * cooling;
+        if (dist < minDist) force += ((minDist - dist) / dist) * 12 * cooling;
         dx = (dx / dist) * force;
         dy = (dy / dist) * force;
         a.vx += dx;
@@ -649,8 +649,9 @@ export function layoutGraph(
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const ideal = e.kind === "wiki" ? 160 : e.kind === "tag" ? 210 : 250;
-      const force = (dist - ideal) * 0.035 * e.weight * cooling;
+      const ideal = e.kind === "wiki" ? 180 : e.kind === "tag" ? 320 : 380;
+      const spring = e.kind === "wiki" ? 0.028 : 0.01;
+      const force = (dist - ideal) * spring * e.weight * cooling;
       dx = (dx / dist) * force;
       dy = (dy / dist) * force;
       a.vx += dx;
@@ -658,10 +659,10 @@ export function layoutGraph(
       b.vx -= dx;
       b.vy -= dy;
     }
-    // center gravity → ball
+    // light center gravity (avoid collapsing all components into one ball)
     for (const n of nodes) {
-      n.vx += (cx - n.x) * 0.012 * cooling;
-      n.vy += (cy - n.y) * 0.012 * cooling;
+      n.vx += (cx - n.x) * 0.005 * cooling;
+      n.vy += (cy - n.y) * 0.005 * cooling;
       n.vx *= 0.82;
       n.vy *= 0.82;
       n.x += n.vx;
