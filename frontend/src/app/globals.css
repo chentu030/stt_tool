@@ -6449,6 +6449,40 @@ a.sidebar-user-name:hover {
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
+  touch-action: none;
+  user-select: none;
+}
+.jn-week-event.is-editable {
+  cursor: grab;
+}
+.jn-week-event.is-gesture {
+  cursor: grabbing;
+  z-index: 3;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 22%, transparent);
+  opacity: 0.92;
+}
+.jn-week-event-handle {
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  height: 9px;
+  z-index: 2;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 55%, var(--bg-elevated));
+  opacity: 0.55;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.jn-week-event-handle:hover,
+.jn-week-event.is-on .jn-week-event-handle,
+.jn-week.is-editing .jn-week-event-handle {
+  opacity: 0.9;
+}
+.jn-week-event-handle.is-start {
+  top: 2px;
+}
+.jn-week-event-handle.is-end {
+  bottom: 2px;
 }
 .jn-week-event strong {
   font-size: 0.68rem;

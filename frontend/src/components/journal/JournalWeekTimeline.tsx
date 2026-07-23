@@ -30,6 +30,25 @@ const GRID_MINS = (HOUR_END - HOUR_START) * 60 + PAD_MINS * 2;
 const HOUR_PX = 60 * PX_PER_MIN;
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 const SLIDER_SPAN = 90;
+const LONG_PRESS_MS = 380;
+const MIN_EVENT_MINS = 15;
+
+type EventGestureMode = "move" | "resize-start" | "resize-end";
+
+type EventGesture = {
+  mode: EventGestureMode;
+  id: string;
+  dateKey: string;
+  originStart: number;
+  originEnd: number;
+  startMin: number;
+  endMin: number;
+  startClientY: number;
+  colTop: number;
+  armed: boolean;
+  moved: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+};
 
 type Props = {
   uid: string;
@@ -106,8 +125,15 @@ export default function JournalWeekTimeline({
     moved: boolean;
     startClientY: number;
   } | null>(null);
+  const eventGestureRef = useRef<EventGesture | null>(null);
   const [draft, setDraft] = useState<{
     dateKey: string;
+    startMin: number;
+    endMin: number;
+  } | null>(null);
+  /** Live preview while moving / resizing an existing event. */
+  const [eventPreview, setEventPreview] = useState<{
+    id: string;
     startMin: number;
     endMin: number;
   } | null>(null);
@@ -115,6 +141,30 @@ export default function JournalWeekTimeline({
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const editModeRef = useRef(editMode);
   editModeRef.current = editMode;
+
+  const clearEventGesture = (opts?: { keepPreview?: boolean }) => {
+    const g = eventGestureRef.current;
+    if (g?.timer) clearTimeout(g.timer);
+    eventGestureRef.current = null;
+    if (!opts?.keepPreview) setEventPreview(null);
+  };
+
+  const clampRange = (startMin: number, endMin: number) => {
+    let s = snapMin(startMin);
+    let e = snapMin(endMin);
+    if (e - s < MIN_EVENT_MINS) e = s + MIN_EVENT_MINS;
+    if (s < HOUR_START * 60) {
+      e += HOUR_START * 60 - s;
+      s = HOUR_START * 60;
+    }
+    if (e > HOUR_END * 60) {
+      s -= e - HOUR_END * 60;
+      e = HOUR_END * 60;
+    }
+    s = Math.max(HOUR_START * 60, Math.min(s, HOUR_END * 60 - MIN_EVENT_MINS));
+    e = Math.max(s + MIN_EVENT_MINS, Math.min(e, HOUR_END * 60));
+    return { startMin: s, endMin: e };
+  };
 
   useEffect(() => {
     return listenScheduleEventsForDates(uid, dayKeys, setLocalEvents, (e) =>
@@ -135,6 +185,17 @@ export default function JournalWeekTimeline({
     const el = bodyRef.current?.querySelector(".jn-week-now");
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [dayKeys, todayKey]);
+
+  useEffect(() => {
+    const sc = bodyRef.current;
+    if (!sc) return;
+    const onScroll = () => {
+      const g = eventGestureRef.current;
+      if (g && !g.armed) clearEventGesture();
+    };
+    sc.addEventListener("scroll", onScroll, { passive: true });
+    return () => sc.removeEventListener("scroll", onScroll);
+  }, [dayKeys]);
 
   const merged = useMemo(() => {
     const map = new Map<string, ScheduleEvent>();
@@ -196,7 +257,7 @@ export default function JournalWeekTimeline({
 
   const onSwipeTouchEnd = (e: React.TouchEvent) => {
     if (!compact || !touchRef.current) return;
-    if (editModeRef.current && dragRef.current?.moved) {
+    if (editModeRef.current && (dragRef.current?.moved || eventGestureRef.current?.moved)) {
       touchRef.current = null;
       return;
     }
@@ -207,6 +268,150 @@ export default function JournalWeekTimeline({
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
     // Swipe left → later days; swipe right → earlier days (page of 4).
     shiftDay(dx < 0 ? 4 : -4);
+  };
+
+  const applyEventGestureAtY = (g: EventGesture, clientY: number) => {
+    if (g.mode === "move") {
+      const dur = g.originEnd - g.originStart;
+      const dMin = snapMin((clientY - g.startClientY) / PX_PER_MIN);
+      return clampRange(g.originStart + dMin, g.originStart + dMin + dur);
+    }
+    const cur = yToMin(clientY, g.colTop);
+    if (g.mode === "resize-start") {
+      return clampRange(Math.min(cur, g.originEnd - MIN_EVENT_MINS), g.originEnd);
+    }
+    return clampRange(g.originStart, Math.max(cur, g.originStart + MIN_EVENT_MINS));
+  };
+
+  const armEventGesture = (g: EventGesture) => {
+    g.armed = true;
+    if (g.timer) {
+      clearTimeout(g.timer);
+      g.timer = null;
+    }
+    setEventPreview({ id: g.id, startMin: g.startMin, endMin: g.endMin });
+    try {
+      navigator.vibrate?.(12);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onEventPointerDown = (
+    ev: ScheduleEvent,
+    dk: string,
+    mode: EventGestureMode,
+    e: React.PointerEvent<HTMLElement>
+  ) => {
+    e.stopPropagation();
+    onSelectDay?.(dk);
+    onSelectEvent?.(ev);
+    if (!editModeRef.current || ev.provider !== "local") return;
+    if (ev.allDay) return;
+
+    const col = (e.currentTarget as HTMLElement).closest(".jn-week-col") as HTMLElement | null;
+    const colTop = col?.getBoundingClientRect().top ?? 0;
+    clearEventGesture();
+    dragRef.current = null;
+    setDraft(null);
+
+    const gesture: EventGesture = {
+      mode,
+      id: ev.id,
+      dateKey: dk,
+      originStart: ev.startMin,
+      originEnd: ev.endMin,
+      startMin: ev.startMin,
+      endMin: ev.endMin,
+      startClientY: e.clientY,
+      colTop,
+      armed: mode !== "move",
+      moved: false,
+      timer: null,
+    };
+    eventGestureRef.current = gesture;
+
+    // Resize handles arm immediately; move needs long-press.
+    if (mode === "move") {
+      gesture.timer = setTimeout(() => {
+        if (eventGestureRef.current === gesture) armEventGesture(gesture);
+      }, LONG_PRESS_MS);
+    } else {
+      armEventGesture(gesture);
+    }
+
+    try {
+      const card =
+        (e.currentTarget as HTMLElement).closest(".jn-week-event") ||
+        (e.currentTarget as HTMLElement);
+      card.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onEventPointerMove = (e: React.PointerEvent<HTMLElement>) => {
+    const g = eventGestureRef.current;
+    if (!g) return;
+    const dy = Math.abs(e.clientY - g.startClientY);
+    if (!g.armed) {
+      if (dy > 10) {
+        // Cancel long-press if finger slips before arming.
+        clearEventGesture();
+      }
+      return;
+    }
+    if (!g.moved && dy < 4) return;
+    g.moved = true;
+    // Refresh col top in case of scroll mid-drag.
+    const col = (e.currentTarget as HTMLElement).closest(".jn-week-col") as HTMLElement | null;
+    if (col) g.colTop = col.getBoundingClientRect().top;
+    const next = applyEventGestureAtY(g, e.clientY);
+    g.startMin = next.startMin;
+    g.endMin = next.endMin;
+    setEventPreview({ id: g.id, startMin: next.startMin, endMin: next.endMin });
+  };
+
+  const finishEventGesture = async () => {
+    const g = eventGestureRef.current;
+    if (!g) return;
+    const snapshot = {
+      id: g.id,
+      dateKey: g.dateKey,
+      startMin: g.startMin,
+      endMin: g.endMin,
+      originStart: g.originStart,
+      originEnd: g.originEnd,
+      armed: g.armed,
+      moved: g.moved,
+    };
+    const shouldSave =
+      snapshot.armed &&
+      snapshot.moved &&
+      (snapshot.startMin !== snapshot.originStart || snapshot.endMin !== snapshot.originEnd);
+    clearEventGesture({ keepPreview: shouldSave });
+    if (!shouldSave) {
+      setEventPreview(null);
+      return;
+    }
+    const prev = merged.find((x) => x.id === snapshot.id);
+    try {
+      await updateScheduleEvent(uid, snapshot.id, {
+        startMin: snapshot.startMin,
+        endMin: snapshot.endMin,
+      });
+      if (prev) {
+        onSelectEvent?.({
+          ...prev,
+          startMin: snapshot.startMin,
+          endMin: snapshot.endMin,
+        });
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "更新失敗");
+    } finally {
+      setEventPreview(null);
+    }
   };
 
   const finishCreate = async () => {
@@ -344,9 +549,14 @@ export default function JournalWeekTimeline({
               if (editMode) {
                 dragRef.current = null;
                 setDraft(null);
+                clearEventGesture();
               }
             }}
-            title={editMode ? "關閉拖曳編輯，避免誤觸" : "開啟後可拖曳新增行程"}
+            title={
+              editMode
+                ? "關閉拖曳編輯，避免誤觸"
+                : "開啟後可拖曳新增；長按行程可移動，拖上下緣可拉長"
+            }
           >
             {editMode ? "完成編輯" : "編輯行程"}
           </button>
@@ -498,22 +708,27 @@ export default function JournalWeekTimeline({
                   {dayEvents.map((ev) => {
                     const readonly = ev.provider !== "local";
                     const status = eventStatus(ev, nowMin, isToday);
+                    const preview =
+                      eventPreview?.id === ev.id ? eventPreview : null;
+                    const startMin = preview?.startMin ?? ev.startMin;
+                    const endMin = preview?.endMin ?? ev.endMin;
+                    const gesturing = eventPreview?.id === ev.id;
                     return (
                       <div
                         key={ev.id}
-                        className={`jn-week-event${selectedEventId === ev.id ? " is-on" : ""}${readonly ? " is-sync" : ""}`}
+                        className={`jn-week-event${selectedEventId === ev.id ? " is-on" : ""}${readonly ? " is-sync" : ""}${gesturing ? " is-gesture" : ""}${editMode && !readonly ? " is-editable" : ""}`}
                         style={{
-                          top: topFor(Math.max(ev.startMin, HOUR_START * 60)),
-                          height: heightFor(ev.startMin, ev.endMin),
+                          top: topFor(Math.max(startMin, HOUR_START * 60)),
+                          height: heightFor(startMin, endMin),
                         }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          onSelectDay?.(dk);
-                          onSelectEvent?.(ev);
-                        }}
+                        onPointerDown={(e) => onEventPointerDown(ev, dk, "move", e)}
+                        onPointerMove={onEventPointerMove}
+                        onPointerUp={() => void finishEventGesture()}
+                        onPointerCancel={() => clearEventGesture()}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          if (eventGestureRef.current?.armed) return;
                           onSelectDay?.(dk);
                           openEventEditor(ev);
                         }}
@@ -522,10 +737,29 @@ export default function JournalWeekTimeline({
                           openEventEditor(ev);
                         }}
                       >
+                        {editMode && !readonly && (
+                          <>
+                            <span
+                              className="jn-week-event-handle is-start"
+                              title="拖曳調整開始時間"
+                              onPointerDown={(e) =>
+                                onEventPointerDown(ev, dk, "resize-start", e)
+                              }
+                            />
+                            <span
+                              className="jn-week-event-handle is-end"
+                              title="拖曳調整結束時間"
+                              onPointerDown={(e) =>
+                                onEventPointerDown(ev, dk, "resize-end", e)
+                              }
+                            />
+                          </>
+                        )}
                         <strong>{ev.title}</strong>
                         <span>
-                          {formatClock(ev.startMin)}
-                          {status ? ` · ${status}` : ""}
+                          {formatClock(startMin)}
+                          {!preview && status ? ` · ${status}` : ""}
+                          {preview ? `–${formatClock(endMin)}` : ""}
                         </span>
                       </div>
                     );
@@ -566,11 +800,11 @@ export default function JournalWeekTimeline({
       <p className="jn-tl-hint">
         {compact
           ? editMode
-            ? "編輯中：拖曳新增。左右滑動可換下／上四天。"
+            ? "編輯中：拖曳空白新增；長按行程移動；拖上下緣拉長。左右滑換四天。"
             : "手機一次顯示四天；左右滑動換頁，或用 ‹ ›。"
           : editMode
-            ? "編輯中：拖曳空白處新增（00:00–24:00）。右鍵或雙擊行程可詳細設定。"
-            : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增。"}
+            ? "編輯中：拖空白新增；長按行程可移動；拖上下緣可拉長。右鍵／雙擊開詳細設定。"
+            : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增或調整。"}
       </p>
 
       {selected && (
