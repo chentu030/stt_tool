@@ -20,6 +20,7 @@ import { toast } from "@/lib/toast";
 import { requestScheduleNotificationPermission } from "@/lib/scheduleReminders";
 import { shiftDateKey } from "@/lib/journalMeta";
 import CadenceDateField from "@/components/CadenceDateField";
+import MenuSelect from "@/components/MenuSelect";
 
 type CreateInitial = {
   dateKey: string;
@@ -39,7 +40,7 @@ type Props = {
   onDeleted?: () => void;
 };
 
-const REMIND_OPTIONS: { value: string; label: string }[] = [
+const REMIND_OPTIONS = [
   { value: "", label: "不提醒" },
   { value: "0", label: "開始時" },
   { value: "5", label: "5 分鐘前" },
@@ -47,6 +48,12 @@ const REMIND_OPTIONS: { value: string; label: string }[] = [
   { value: "30", label: "30 分鐘前" },
   { value: "60", label: "1 小時前" },
   { value: "1440", label: "1 天前" },
+] as const;
+
+const FREQ_OPTIONS: { value: ScheduleRecurrenceFreq; label: string }[] = [
+  { value: "daily", label: "每天" },
+  { value: "weekly", label: "每週" },
+  { value: "monthly", label: "每月" },
 ];
 
 function pad2(n: number) {
@@ -406,19 +413,17 @@ export default function ScheduleEventEditDialog({
             {repeatOn && (
               <div className="jn-ev-repeat">
                 <div className="jn-ev-time-row">
-                  <label className="jn-ev-field">
+                  <div className="jn-ev-field">
                     <span>頻率</span>
-                    <select
-                      className="input"
+                    <MenuSelect
+                      variant="soft"
+                      ariaLabel="重複頻率"
                       value={freq}
+                      options={FREQ_OPTIONS}
                       disabled={busy}
-                      onChange={(e) => setFreq(e.target.value as ScheduleRecurrenceFreq)}
-                    >
-                      <option value="daily">每天</option>
-                      <option value="weekly">每週</option>
-                      <option value="monthly">每月</option>
-                    </select>
-                  </label>
+                      onChange={setFreq}
+                    />
+                  </div>
                   <label className="jn-ev-field">
                     <span>間隔</span>
                     <input
@@ -479,21 +484,17 @@ export default function ScheduleEventEditDialog({
               </div>
             )}
 
-            <label className="jn-ev-field">
+            <div className="jn-ev-field">
               <span>提醒</span>
-              <select
-                className="input"
+              <MenuSelect
+                variant="soft"
+                ariaLabel="提醒"
                 value={remind}
+                options={[...REMIND_OPTIONS]}
                 disabled={busy}
-                onChange={(e) => void onRemindChange(e.target.value)}
-              >
-                {REMIND_OPTIONS.map((o) => (
-                  <option key={o.value || "off"} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={(v) => void onRemindChange(v)}
+              />
+            </div>
             {remind !== "" && (
               <p className="jn-muted" style={{ margin: 0, fontSize: "0.7rem" }}>
                 提醒需允許瀏覽器通知；分頁開啟時會準時提醒。

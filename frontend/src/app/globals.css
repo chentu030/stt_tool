@@ -6888,6 +6888,14 @@ a.sidebar-user-name:hover {
 .jn-ev-field .input {
   color: var(--text-main);
 }
+.jn-ev-field .menu-select {
+  display: flex;
+  width: 100%;
+}
+.jn-ev-field .menu-select-trigger {
+  width: 100%;
+  justify-content: space-between;
+}
 .jn-ev-check {
   display: flex;
   align-items: center;
