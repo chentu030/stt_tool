@@ -94,6 +94,8 @@ export default function JournalWeekTimeline({
   onJoin,
 }: Props) {
   const [compact, setCompact] = useState(false);
+  /** Stable start of the 4-day window on mobile — not forced to the selected day. */
+  const [rangeStart, setRangeStart] = useState(dateKey);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const mq = window.matchMedia("(max-width: 900px)");
@@ -103,9 +105,17 @@ export default function JournalWeekTimeline({
     return () => mq.removeEventListener("change", sync);
   }, []);
 
+  useEffect(() => {
+    if (!compact) return;
+    const end = shiftDateKey(rangeStart, 3);
+    if (dateKey < rangeStart || dateKey > end) {
+      setRangeStart(dateKey);
+    }
+  }, [compact, dateKey, rangeStart]);
+
   const dayKeys = useMemo(
-    () => (compact ? rollingDateKeys(dateKey, 4) : weekDateKeys(dateKey)),
-    [compact, dateKey]
+    () => (compact ? rollingDateKeys(rangeStart, 4) : weekDateKeys(dateKey)),
+    [compact, rangeStart, dateKey]
   );
   const [localEvents, setLocalEvents] = useState<ScheduleEvent[]>([]);
   const [nowMin, setNowMin] = useState(() => {
@@ -186,9 +196,14 @@ export default function JournalWeekTimeline({
   }, []);
 
   useEffect(() => {
+    // Only scroll to the now-line once when today enters the view — not on every day change.
     if (!dayKeys.includes(todayKey)) return;
-    const el = bodyRef.current?.querySelector(".jn-week-now");
-    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const sc = bodyRef.current;
+    if (!sc || sc.dataset.scrolledNow === "1") return;
+    const el = sc.querySelector(".jn-week-now");
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    sc.dataset.scrolledNow = "1";
   }, [dayKeys, todayKey]);
 
   useEffect(() => {
@@ -247,7 +262,12 @@ export default function JournalWeekTimeline({
   const sliderClamped = Math.max(-SLIDER_SPAN, Math.min(SLIDER_SPAN, sliderOffset));
 
   const shiftDay = (delta: number) => {
-    onSelectDay?.(shiftDateKey(dateKey, delta));
+    const next = shiftDateKey(dateKey, delta);
+    if (compact) {
+      // Slide the 4-day window by the same step so ◀▶ moves one day like desktop.
+      setRangeStart((s) => shiftDateKey(s, delta));
+    }
+    onSelectDay?.(next);
   };
 
   const goToday = () => {
@@ -271,8 +291,8 @@ export default function JournalWeekTimeline({
     const dy = t.clientY - touchRef.current.y;
     touchRef.current = null;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-    // Swipe left → later days; swipe right → earlier days (page of 4).
-    shiftDay(dx < 0 ? 4 : -4);
+    // Swipe left → later day; swipe right → earlier day (1 day, same as ◀▶).
+    shiftDay(dx < 0 ? 1 : -1);
   };
 
   const applyEventGestureAtY = (g: EventGesture, clientY: number) => {
@@ -504,8 +524,8 @@ export default function JournalWeekTimeline({
           <button
             type="button"
             className="jn-icon-btn"
-            onClick={() => shiftDay(compact ? -4 : -1)}
-            aria-label={compact ? "前四天" : "前一天"}
+            onClick={() => shiftDay(-1)}
+            aria-label="前一天"
           >
             ‹
           </button>
@@ -516,8 +536,8 @@ export default function JournalWeekTimeline({
           <button
             type="button"
             className="jn-icon-btn"
-            onClick={() => shiftDay(compact ? 4 : 1)}
-            aria-label={compact ? "後四天" : "後一天"}
+            onClick={() => shiftDay(1)}
+            aria-label="後一天"
           >
             ›
           </button>
@@ -780,8 +800,8 @@ export default function JournalWeekTimeline({
       <p className="jn-tl-hint">
         {compact
           ? editMode
-            ? "編輯中：拖曳空白新增；長按行程移動；拖上下緣拉長。左右滑換四天。"
-            : "手機一次顯示四天；左右滑動換頁，或用 ‹ ›。"
+            ? "編輯中：拖空白新增後可設重複／提醒；長按移動；拖上下緣拉長。左右滑或 ‹ › 一次一天。"
+            : "手機一次顯示四天；‹ › 與左右滑一次移動一天。"
           : editMode
             ? "編輯中：拖空白新增後可設重複／提醒；長按移動；拖上下緣拉長。點行程開啟編輯／刪除。"
             : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增或調整。"}

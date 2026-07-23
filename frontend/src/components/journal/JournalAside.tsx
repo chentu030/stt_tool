@@ -1,12 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   JournalStats,
   type JournalTagDef,
   dateKeyFromDate,
 } from "@/lib/journalMeta";
-import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 import { formatClock, type ScheduleEvent } from "@/lib/scheduleEvents";
 import JournalHeatmap from "@/components/journal/JournalHeatmap";
 
@@ -18,9 +17,9 @@ type Props = {
   tagDefs?: JournalTagDef[];
   agenda?: ScheduleEvent[];
   wordsByDate?: Map<string, number> | Record<string, number>;
-  /** agenda = 今日議程+筆記；secondary = 節奏/熱力/AI；all = 兩者 */
+  /** agenda = 今日議程；secondary = 節奏/熱力；all = 兩者 */
   mode?: "agenda" | "secondary" | "all";
-  onAskAi: (prompt: string) => Promise<string>;
+  onAskAi?: (prompt: string) => Promise<string>;
   onMeetingMode?: (ev: ScheduleEvent) => void;
   onOpenNote?: (ev: ScheduleEvent) => void;
   onJoin?: (ev: ScheduleEvent) => void;
@@ -30,37 +29,17 @@ type Props = {
 export default function JournalAside({
   stats,
   dateKey,
-  noteId,
-  noteTitle,
   tagDefs = [],
   agenda = [],
   wordsByDate,
   mode = "all",
-  onAskAi,
   onMeetingMode,
   onOpenNote,
   onJoin,
   onSelectDay,
 }: Props) {
-  const [aiText, setAiText] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [showHeat, setShowHeat] = useState(false);
   const showAgenda = mode === "agenda" || mode === "all";
   const showSecondary = mode === "secondary" || mode === "all";
-
-  const run = async (prompt: string) => {
-    setAiBusy(true);
-    setAiError("");
-    try {
-      const text = await onAskAi(prompt);
-      setAiText(text);
-    } catch (e) {
-      setAiError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAiBusy(false);
-    }
-  };
 
   const sortedAgenda = useMemo(
     () =>
@@ -94,84 +73,72 @@ export default function JournalAside({
   return (
     <aside className={`jn-aside${mode !== "all" ? ` is-${mode}` : ""}`}>
       {showAgenda && (
-        <>
-          <section className="jn-aside-block">
-            <h3>今日議程</h3>
-            {sortedAgenda.length === 0 ? (
-              <p className="jn-muted">這天還沒有行程。可在中間週視圖拖曳新增。</p>
-            ) : (
-              <ul className="jn-agenda-list">
-                {sortedAgenda.map((ev) => {
-                  const isToday = dateKey === dateKeyFromDate(new Date());
-                  const upcoming =
-                    isToday &&
-                    !ev.allDay &&
-                    ev.startMin > nowMin &&
-                    ev.startMin - nowMin <= 60;
-                  const live =
-                    isToday && !ev.allDay && ev.startMin <= nowMin && nowMin < ev.endMin;
-                  return (
-                    <li
-                      key={ev.id}
-                      className={`jn-agenda-item${live ? " is-live" : ""}${upcoming ? " is-soon" : ""}`}
-                    >
-                      <div className="jn-agenda-meta">
-                        <span className="jn-agenda-time">
-                          {ev.allDay
-                            ? "全天"
-                            : `${formatClock(ev.startMin)}–${formatClock(ev.endMin)}`}
-                        </span>
-                        {ev.provider === "google" && (
-                          <span className="jn-agenda-src">Google</span>
-                        )}
-                        {live && <span className="jn-agenda-badge">進行中</span>}
-                        {upcoming && !live && (
-                          <span className="jn-agenda-badge">即將</span>
-                        )}
-                      </div>
-                      <strong className="jn-agenda-title">{ev.title}</strong>
-                      <div className="jn-agenda-actions">
-                        <button
-                          type="button"
-                          className="btn btn-soft btn-sm"
-                          onClick={() => onMeetingMode?.(ev)}
-                        >
-                          會議模式
-                        </button>
-                        {ev.conferenceUrl && (
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => onJoin?.(ev)}
-                          >
-                            加入
-                          </button>
-                        )}
+        <section className="jn-aside-block">
+          <h3>今日議程</h3>
+          {sortedAgenda.length === 0 ? (
+            <p className="jn-muted">這天還沒有行程。可在中間週視圖拖曳新增。</p>
+          ) : (
+            <ul className="jn-agenda-list">
+              {sortedAgenda.map((ev) => {
+                const isToday = dateKey === dateKeyFromDate(new Date());
+                const upcoming =
+                  isToday &&
+                  !ev.allDay &&
+                  ev.startMin > nowMin &&
+                  ev.startMin - nowMin <= 60;
+                const live =
+                  isToday && !ev.allDay && ev.startMin <= nowMin && nowMin < ev.endMin;
+                return (
+                  <li
+                    key={ev.id}
+                    className={`jn-agenda-item${live ? " is-live" : ""}${upcoming ? " is-soon" : ""}`}
+                  >
+                    <div className="jn-agenda-meta">
+                      <span className="jn-agenda-time">
+                        {ev.allDay
+                          ? "全天"
+                          : `${formatClock(ev.startMin)}–${formatClock(ev.endMin)}`}
+                      </span>
+                      {ev.provider === "google" && (
+                        <span className="jn-agenda-src">Google</span>
+                      )}
+                      {live && <span className="jn-agenda-badge">進行中</span>}
+                      {upcoming && !live && (
+                        <span className="jn-agenda-badge">即將</span>
+                      )}
+                    </div>
+                    <strong className="jn-agenda-title">{ev.title}</strong>
+                    <div className="jn-agenda-actions">
+                      <button
+                        type="button"
+                        className="btn btn-soft btn-sm"
+                        onClick={() => onMeetingMode?.(ev)}
+                      >
+                        會議模式
+                      </button>
+                      {ev.conferenceUrl && (
                         <button
                           type="button"
                           className="btn btn-ghost btn-sm"
-                          onClick={() => onOpenNote?.(ev)}
+                          onClick={() => onJoin?.(ev)}
                         >
-                          筆記
+                          加入
                         </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          {noteId && (
-            <section className="jn-aside-block">
-              <h3>今日筆記</h3>
-              <p className="jn-muted" style={{ marginBottom: "0.4rem" }}>
-                {noteTitle || dateKey}
-              </p>
-              <NoteHandoffLinks noteId={noteId} title={noteTitle || dateKey} />
-            </section>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => onOpenNote?.(ev)}
+                      >
+                        筆記
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </>
+        </section>
       )}
 
       {showSecondary && (
@@ -192,23 +159,13 @@ export default function JournalAside({
                 <span>本月</span>
               </div>
             </div>
-            <button
-              type="button"
-              className="jn-text-btn"
-              style={{ marginTop: "0.45rem" }}
-              onClick={() => setShowHeat((v) => !v)}
-            >
-              {showHeat ? "收合熱力圖" : "展開年度熱力圖"}
-            </button>
-            {showHeat && (
-              <div style={{ marginTop: "0.55rem" }}>
-                <JournalHeatmap
-                  stats={stats}
-                  wordsByDate={wordsByDate}
-                  onSelectDay={onSelectDay}
-                />
-              </div>
-            )}
+            <div style={{ marginTop: "0.55rem" }}>
+              <JournalHeatmap
+                stats={stats}
+                wordsByDate={wordsByDate}
+                onSelectDay={onSelectDay}
+              />
+            </div>
           </section>
 
           {tagRows.length > 0 && (
@@ -225,37 +182,6 @@ export default function JournalAside({
               </ul>
             </section>
           )}
-
-          <section className="jn-aside-block">
-            <h3>AI 回顧</h3>
-            <div className="jn-ai-actions">
-              <button
-                type="button"
-                className="btn btn-soft btn-sm"
-                disabled={aiBusy}
-                onClick={() =>
-                  void run(
-                    `請用繁體中文，為 ${dateKey} 這天寫一段溫和的日誌開場白（3-5 句），不要說教。`
-                  )
-                }
-              >
-                開場白
-              </button>
-              <button
-                type="button"
-                className="btn btn-soft btn-sm"
-                disabled={aiBusy}
-                onClick={() =>
-                  void run(`用繁體中文給我 5 個適合在 ${dateKey} 寫的反思問題。`)
-                }
-              >
-                反思問題
-              </button>
-            </div>
-            {aiBusy && <p className="jn-muted">產生中…</p>}
-            {aiError && <p className="jn-error">{aiError}</p>}
-            {aiText && <div className="jn-ai-out">{aiText}</div>}
-          </section>
         </>
       )}
     </aside>

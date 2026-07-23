@@ -80,6 +80,7 @@ export default function JournalPage() {
   const [gcalOn, setGcalOn] = useState(false);
   const [gcalStatus, setGcalStatus] = useState<"off" | "loading" | "ok" | "error">("off");
   const [railOpen, setRailOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
   const liveRec = useLiveRecordingOptional();
   const weekKeys = useMemo(() => weekDateKeys(selected), [selected]);
   const gcalRangeKeys = useMemo(() => {
@@ -104,6 +105,17 @@ export default function JournalPage() {
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1100px)");
+    const sync = () => setIsNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const railVisible = isNarrow || railOpen;
 
   const toggleRail = () => {
     setRailOpen((v) => {
@@ -761,7 +773,7 @@ export default function JournalPage() {
         </div>
       </header>
 
-      <div className={`jn-layout${railOpen ? " is-rail-open" : ""}`}>
+      <div className={`jn-layout${railVisible ? " is-rail-open" : ""}${isNarrow ? " is-narrow" : ""}`}>
         <div className="jn-left">
           <JournalCalendar
             year={cursor.year}
@@ -779,15 +791,17 @@ export default function JournalPage() {
             }}
           />
 
-          <button
-            type="button"
-            className="btn btn-soft jn-open-journal-rail"
-            onClick={() => {
-              if (!railOpen) toggleRail();
-            }}
-          >
-            寫這天日誌
-          </button>
+          {!isNarrow && (
+            <button
+              type="button"
+              className="btn btn-soft jn-open-journal-rail"
+              onClick={() => {
+                if (!railOpen) toggleRail();
+              }}
+            >
+              寫這天日誌
+            </button>
+          )}
 
           <JournalAside
             mode="agenda"
@@ -835,18 +849,23 @@ export default function JournalPage() {
           />
         </div>
 
-        <button
-          type="button"
-          className={`jn-rail-toggle${railOpen ? " is-open" : ""}`}
-          onClick={toggleRail}
-          title={railOpen ? "收合側欄" : "展開側欄（日誌／過往／節奏）"}
-          aria-expanded={railOpen}
-        >
-          {railOpen ? "›" : "‹"}
-        </button>
+        {!isNarrow && (
+          <button
+            type="button"
+            className={`jn-rail-toggle${railOpen ? " is-open" : ""}`}
+            onClick={toggleRail}
+            title={railOpen ? "收合側欄" : "展開側欄（日誌／過往／節奏）"}
+            aria-expanded={railOpen}
+          >
+            {railOpen ? "›" : "‹"}
+          </button>
+        )}
 
-        <aside className={`jn-rail${railOpen ? " is-open" : ""}`} aria-hidden={!railOpen}>
-          {railOpen && (
+        <aside
+          className={`jn-rail${railVisible ? " is-open" : ""}`}
+          aria-hidden={!railVisible}
+        >
+          {railVisible && (
             <>
               <div className="jn-center-stack">
                 <JournalComposer
