@@ -10491,10 +10491,11 @@ body.rich-media-float-dragging * {
 .rich-prose mark {
   border-radius: 2px;
   padding: 0 0.1em;
-  background: rgba(250, 204, 21, 0.45);
+  background: rgba(250, 204, 21, 0.55);
 }
 .rich-prose mark[data-color] {
-  background-color: var(--hl, rgba(250, 204, 21, 0.45));
+  /* TipTap multicolor sets inline background-color; this is only a fallback. */
+  background-color: var(--hl-color, rgba(250, 204, 21, 0.55));
 }
 .hl-wrap {
   position: relative;

@@ -387,15 +387,16 @@ export default function RichNoteEditor({
   const applyHighlight = (color?: string) => {
     const ed = editorRef.current;
     if (!ed) return;
-    const c = color || hlColor;
-    if (ed.isActive("highlight") && !color) {
-      const cur = ed.getAttributes("highlight").color as string | undefined;
+    const c = normalizeHex(color || hlColor) || hlColor;
+    // Main toolbar click (no explicit color): toggle off when already this highlight.
+    if (!color && ed.isActive("highlight")) {
+      const cur = normalizeHex(String(ed.getAttributes("highlight").color || ""));
       if (!cur || cur === c) {
         ed.chain().focus().unsetHighlight().run();
         return;
       }
     }
-    ed.chain().focus().toggleHighlight({ color: c }).run();
+    ed.chain().focus().setHighlight({ color: c }).run();
   };
 
   const setHighlightColor = (color: string) => {
@@ -1992,9 +1993,9 @@ export default function RichNoteEditor({
             active={editor.isActive("highlight") || hlOpen}
             onClick={() => {
               setTxOpen(false);
-              setHlOpen((v) => !v);
+              applyHighlight();
             }}
-            title="螢光筆顏色"
+            title="螢光筆（再點一次可取消）"
           >
             <span className="hl-swatch" style={{ background: hlColor }} />
             螢
@@ -2002,7 +2003,7 @@ export default function RichNoteEditor({
           <button
             type="button"
             className={`rich-tool-btn hl-caret${hlOpen ? " is-active" : ""}`}
-            title="螢光筆顏色"
+            title="選擇螢光筆顏色"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               setTxOpen(false);
