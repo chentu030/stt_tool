@@ -104,7 +104,22 @@ turndown.addRule("noteVideo", {
     const el = node as HTMLElement;
     const src = el.getAttribute("src") || "";
     const title = el.getAttribute("title") || "video";
-    return `\n\n![video|${title}](${src})\n\n`;
+    // Single leading newline — avoids empty <p> between toggle/heading and media on reload.
+    return `\n![video|${title}](${src})\n`;
+  },
+});
+
+turndown.addRule("noteAudioWrap", {
+  filter: (node) =>
+    node.nodeName === "DIV" &&
+    (node as HTMLElement).getAttribute("data-note-audio-wrap") === "1",
+  replacement: (_content, node) => {
+    const wrap = node as HTMLElement;
+    const audio = wrap.querySelector("audio[src]") as HTMLAudioElement | null;
+    if (!audio?.getAttribute("src")) return "";
+    const src = audio.getAttribute("src") || "";
+    const title = audio.getAttribute("title") || "audio";
+    return `\n![audio|${title}](${src})\n`;
   },
 });
 
@@ -113,9 +128,11 @@ turndown.addRule("noteAudio", {
     node.nodeName === "AUDIO" && !!(node as HTMLElement).getAttribute("src"),
   replacement: (_content, node) => {
     const el = node as HTMLElement;
+    // Prefer wrap rule when present
+    if (el.closest("[data-note-audio-wrap]")) return "";
     const src = el.getAttribute("src") || "";
     const title = el.getAttribute("title") || "audio";
-    return `\n\n![audio|${title}](${src})\n\n`;
+    return `\n![audio|${title}](${src})\n`;
   },
 });
 
@@ -323,7 +340,8 @@ turndown.addRule("toggleBlock", {
     const title = el.getAttribute("data-title") || "詳細內容";
     const open = el.getAttribute("data-open") !== "0" ? " open" : "";
     const body = content.trim();
-    return `\n\n:::toggle${open} ${title}\n${body}\n:::\n\n`;
+    // No trailing blank line — keeps audio/video flush under the toggle after reload.
+    return `\n\n:::toggle${open} ${title}\n${body}\n:::`;
   },
 });
 
@@ -337,7 +355,7 @@ turndown.addRule("toggleHeading", {
     const level = el.getAttribute("data-level") || "1";
     const open = el.getAttribute("data-open") !== "0" ? " open" : "";
     const body = content.trim();
-    return `\n\n:::toggle-h${level}${open} ${title}\n${body}\n:::\n\n`;
+    return `\n\n:::toggle-h${level}${open} ${title}\n${body}\n:::`;
   },
 });
 
@@ -856,7 +874,7 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
 }
 
 export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
-  const raw = (md || "").trim();
+  const raw = tightenMediaAdjacencyMd((md || "").trim());
   if (!raw) return "<p></p>";
   // Colored / plain highlights: ==text== or ==text=={#rrggbb}
   const withMarks = raw.replace(
@@ -872,7 +890,9 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   );
   const withMedia = enrichMarkdown(withMarks, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
-  return wrapBareTablesHtml(normalizeTableColWidths(normalizeTaskListHtml(html)));
+  return wrapBareTablesHtml(
+    normalizeTableColWidths(normalizeTaskListHtml(normalizeBlockMediaHtml(html)))
+  );
 }
 
 /** TipTap parseColwidth reads col[width] / td[colwidth], not style="width:…px". */
@@ -1133,16 +1153,27 @@ export function htmlToMarkdown(html: string): string {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(park(`\n\n![video|${title}](${src})\n\n`)));
+        el.replaceWith(doc.createTextNode(park(`\n![video|${title}](${src})\n`)));
+      });
+      doc.querySelectorAll("[data-note-audio-wrap]").forEach((el) => {
+        const audio = el.querySelector("audio[src]");
+        const src = audio?.getAttribute("src") || "";
+        const title = audio?.getAttribute("title") || "audio";
+        if (!src) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(doc.createTextNode(park(`\n![audio|${title}](${src})\n`)));
       });
       doc.querySelectorAll("[data-note-audio]").forEach((el) => {
+        if (el.closest("[data-note-audio-wrap]")) return;
         const src = el.getAttribute("src") || "";
         const title = el.getAttribute("title") || "audio";
         if (!src) {
           el.remove();
           return;
         }
-        el.replaceWith(doc.createTextNode(park(`\n\n![audio|${title}](${src})\n\n`)));
+        el.replaceWith(doc.createTextNode(park(`\n![audio|${title}](${src})\n`)));
       });
       // Park tables as HTML so TipTap colgroup / colwidth survive refresh
       // (GFM pipe tables cannot store column widths).
@@ -1237,7 +1268,83 @@ export function htmlToMarkdown(html: string): string {
   }
   let md = turndown.turndown(input).trim();
   md = md.replace(/@@ATOM(\d+)@@/g, (_m, i) => atoms[Number(i)] ?? "");
-  return md.trim();
+  return tightenMediaAdjacencyMd(md.trim());
+}
+
+/** Keep toggle / heading flush against following audio|video (no blank line). */
+function tightenMediaAdjacencyMd(md: string): string {
+  return md
+    .replace(/:::\n{2,}(?=!\[(?:audio|video))/g, ":::\n")
+    .replace(/(^#{1,6}[^\n]*)\n{2,}(?=!\[(?:audio|video))/gm, "$1\n");
+}
+
+/**
+ * marked wraps lone <audio>/<video> in <p> when preceded by a blank line, and TipTap
+ * then lifts the atom out leaving an empty paragraph — which reappears on every reload.
+ */
+function normalizeBlockMediaHtml(html: string): string {
+  if (!html || typeof DOMParser === "undefined") {
+    return html
+      .replace(
+        /<p>\s*((?:<audio\b[\s\S]*?<\/audio>|<video\b[\s\S]*?<\/video>|<div\b[^>]*data-note-audio-wrap[\s\S]*?<\/div>))\s*<\/p>/gi,
+        "$1"
+      )
+      .replace(
+        /((?:<\/div>|<\/audio>|<\/video>))\s*(?:<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)+(?=(?:<div\b[^>]*(?:data-note-toggle|data-note-audio-wrap|rich-toggle)|<audio\b|<video\b|<hr\b))/gi,
+        "$1"
+      );
+  }
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const isMedia = (el: Element | null) =>
+      !!el &&
+      (el.matches(
+        "audio, video, hr, div[data-note-toggle], div[data-note-toggle-heading], div[data-note-audio-wrap], .rich-toggle, .rich-audio-wrap"
+      ) ||
+        el.tagName === "AUDIO" ||
+        el.tagName === "VIDEO");
+
+    // Unwrap block media from <p>
+    Array.from(doc.querySelectorAll("p")).forEach((p) => {
+      const kids = Array.from(p.childNodes).filter(
+        (n) => !(n.nodeType === 3 && !String(n.textContent || "").trim())
+      );
+      if (kids.length !== 1 || kids[0].nodeType !== 1) return;
+      const only = kids[0] as HTMLElement;
+      if (
+        only.tagName === "AUDIO" ||
+        only.tagName === "VIDEO" ||
+        only.getAttribute("data-note-audio-wrap") === "1"
+      ) {
+        p.replaceWith(only);
+      }
+    });
+
+    // Drop empty paragraphs sandwiched between block widgets (toggle ↔ audio).
+    Array.from(doc.querySelectorAll("p")).forEach((p) => {
+      const text = (p.textContent || "").replace(/\u00a0/g, " ").trim();
+      const hasMedia = !!p.querySelector("img, audio, video, iframe, object, table");
+      if (text || hasMedia) return;
+      const prev = p.previousElementSibling;
+      const next = p.nextElementSibling;
+      if (isMedia(prev) && isMedia(next)) {
+        p.remove();
+        return;
+      }
+      // Empty p directly under a heading before media
+      if (
+        prev &&
+        /^H[1-6]$/.test(prev.tagName) &&
+        isMedia(next)
+      ) {
+        p.remove();
+      }
+    });
+
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
 }
 
 export function formatFileSize(bytes: number): string {
