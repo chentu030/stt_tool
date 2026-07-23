@@ -13,6 +13,7 @@ import {
   dateKeyFromDate,
   daysBetween,
   parseDateKey,
+  rollingDateKeys,
   shiftDateKey,
   weekDateKeys,
 } from "@/lib/journalMeta";
@@ -69,7 +70,20 @@ export default function JournalWeekTimeline({
   onOpenNote,
   onJoin,
 }: Props) {
-  const weekKeys = useMemo(() => weekDateKeys(dateKey), [dateKey]);
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 900px)");
+    const sync = () => setCompact(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const dayKeys = useMemo(
+    () => (compact ? rollingDateKeys(dateKey, 4) : weekDateKeys(dateKey)),
+    [compact, dateKey]
+  );
   const [localEvents, setLocalEvents] = useState<ScheduleEvent[]>([]);
   const [nowMin, setNowMin] = useState(() => {
     const d = new Date();
@@ -77,6 +91,7 @@ export default function JournalWeekTimeline({
   });
   const todayKey = dateKeyFromDate(new Date());
   const bodyRef = useRef<HTMLDivElement>(null);
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{
     dateKey: string;
     originMin: number;
@@ -96,10 +111,10 @@ export default function JournalWeekTimeline({
   editModeRef.current = editMode;
 
   useEffect(() => {
-    return listenScheduleEventsForDates(uid, weekKeys, setLocalEvents, (e) =>
+    return listenScheduleEventsForDates(uid, dayKeys, setLocalEvents, (e) =>
       toast(e.message || "行程同步失敗")
     );
-  }, [uid, weekKeys]);
+  }, [uid, dayKeys]);
 
   useEffect(() => {
     const t = window.setInterval(() => {
@@ -110,23 +125,23 @@ export default function JournalWeekTimeline({
   }, []);
 
   useEffect(() => {
-    if (!weekKeys.includes(todayKey)) return;
+    if (!dayKeys.includes(todayKey)) return;
     const el = bodyRef.current?.querySelector(".jn-week-now");
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [weekKeys, todayKey]);
+  }, [dayKeys, todayKey]);
 
   const merged = useMemo(() => {
     const map = new Map<string, ScheduleEvent>();
     for (const e of localEvents) map.set(e.id, e);
     for (const e of overlays) {
-      if (weekKeys.includes(e.dateKey)) map.set(e.id, e);
+      if (dayKeys.includes(e.dateKey)) map.set(e.id, e);
     }
     return [...map.values()];
-  }, [localEvents, overlays, weekKeys]);
+  }, [localEvents, overlays, dayKeys]);
 
   const byDay = useMemo(() => {
     const m = new Map<string, ScheduleEvent[]>();
-    for (const k of weekKeys) m.set(k, []);
+    for (const k of dayKeys) m.set(k, []);
     for (const e of merged) {
       const list = m.get(e.dateKey);
       if (list) list.push(e);
@@ -135,13 +150,13 @@ export default function JournalWeekTimeline({
       list.sort((a, b) => a.startMin - b.startMin || a.title.localeCompare(b.title));
     }
     return m;
-  }, [merged, weekKeys]);
+  }, [merged, dayKeys]);
 
   const rangeLabel = useMemo(() => {
-    const a = weekKeys[0]?.slice(5).replace("-", "/") || "";
-    const b = weekKeys[6]?.slice(5).replace("-", "/") || "";
+    const a = dayKeys[0]?.slice(5).replace("-", "/") || "";
+    const b = dayKeys[dayKeys.length - 1]?.slice(5).replace("-", "/") || "";
     return `${a} – ${b}`;
-  }, [weekKeys]);
+  }, [dayKeys]);
 
   const selectedLabel = useMemo(() => {
     const d = parseDateKey(dateKey);
@@ -164,6 +179,27 @@ export default function JournalWeekTimeline({
 
   const goToday = () => {
     onSelectDay?.(todayKey);
+  };
+
+  const onSwipeTouchStart = (e: React.TouchEvent) => {
+    if (!compact) return;
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY };
+  };
+
+  const onSwipeTouchEnd = (e: React.TouchEvent) => {
+    if (!compact || !touchRef.current) return;
+    if (editModeRef.current && dragRef.current?.moved) {
+      touchRef.current = null;
+      return;
+    }
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    touchRef.current = null;
+    if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    // Swipe left → later days; swipe right → earlier days (page of 4).
+    shiftDay(dx < 0 ? 4 : -4);
   };
 
   const finishCreate = async () => {
@@ -259,17 +295,31 @@ export default function JournalWeekTimeline({
   const selected = merged.find((e) => e.id === selectedEventId) || null;
 
   return (
-    <div className={`jn-week${editMode ? " is-editing" : ""}`}>
+    <div
+      className={`jn-week${editMode ? " is-editing" : ""}${compact ? " is-compact" : ""}`}
+      onTouchStart={onSwipeTouchStart}
+      onTouchEnd={onSwipeTouchEnd}
+    >
       <div className="jn-week-head">
         <div className="jn-week-head-left">
-          <button type="button" className="jn-icon-btn" onClick={() => shiftDay(-1)} aria-label="前一天">
+          <button
+            type="button"
+            className="jn-icon-btn"
+            onClick={() => shiftDay(compact ? -4 : -1)}
+            aria-label={compact ? "前四天" : "前一天"}
+          >
             ‹
           </button>
           <h3>
             {selectedLabel}
             <span className="jn-week-range"> · {rangeLabel}</span>
           </h3>
-          <button type="button" className="jn-icon-btn" onClick={() => shiftDay(1)} aria-label="後一天">
+          <button
+            type="button"
+            className="jn-icon-btn"
+            onClick={() => shiftDay(compact ? 4 : 1)}
+            aria-label={compact ? "後四天" : "後一天"}
+          >
             ›
           </button>
         </div>
@@ -299,10 +349,11 @@ export default function JournalWeekTimeline({
       <div className="jn-week-dayheads">
         <div className="jn-week-dayheads-gutter" aria-hidden />
         <div className="jn-week-dayheads-cols">
-          {weekKeys.map((dk, i) => {
+          {dayKeys.map((dk) => {
             const d = parseDateKey(dk);
             const isToday = dk === todayKey;
             const isSel = dk === dateKey;
+            const wd = d ? WEEKDAY_LABELS[(d.getDay() + 6) % 7] : "";
             return (
               <button
                 key={dk}
@@ -310,7 +361,7 @@ export default function JournalWeekTimeline({
                 className={`jn-week-dayhead${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}`}
                 onClick={() => onSelectDay?.(dk)}
               >
-                <span>{WEEKDAY_LABELS[i]}</span>
+                <span>{wd}</span>
                 <strong>{d ? d.getDate() : dk.slice(8)}</strong>
               </button>
             );
@@ -321,7 +372,7 @@ export default function JournalWeekTimeline({
       <div className="jn-week-allday">
         <div className="jn-week-allday-label">全天</div>
         <div className="jn-week-allday-cols">
-          {weekKeys.map((dk) => {
+          {dayKeys.map((dk) => {
             const allDay = (byDay.get(dk) || []).filter((e) => e.allDay);
             return (
               <div key={dk} className={`jn-week-allday-col${dk === dateKey ? " is-sel" : ""}`}>
@@ -389,7 +440,7 @@ export default function JournalWeekTimeline({
           </div>
 
           <div className="jn-week-cols">
-            {weekKeys.map((dk) => {
+            {dayKeys.map((dk) => {
               const dayEvents = (byDay.get(dk) || []).filter((e) => !e.allDay);
               const isToday = dk === todayKey;
               const isSel = dk === dateKey;
@@ -488,9 +539,13 @@ export default function JournalWeekTimeline({
       </p>
 
       <p className="jn-tl-hint">
-        {editMode
-          ? "編輯中：拖曳空白處新增（00:00–24:00）。右鍵或雙擊行程可詳細設定。"
-          : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增。"}
+        {compact
+          ? editMode
+            ? "編輯中：拖曳新增。左右滑動可換下／上四天。"
+            : "手機一次顯示四天；左右滑動換頁，或用 ‹ ›。"
+          : editMode
+            ? "編輯中：拖曳空白處新增（00:00–24:00）。右鍵或雙擊行程可詳細設定。"
+            : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增。"}
       </p>
 
       {selected && (

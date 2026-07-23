@@ -5553,9 +5553,17 @@ a.sidebar-user-name:hover {
   display: flex;
   gap: 0.35rem;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
   max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.1rem;
+  scrollbar-gutter: stable;
+}
+.jn-hero-actions > * {
+  flex: 0 0 auto;
 }
 .jn-layout {
   display: grid;
@@ -6183,8 +6191,13 @@ a.sidebar-user-name:hover {
 .jn-week-col.is-sel {
   background-color: color-mix(in srgb, var(--accent) 9%, transparent);
 }
-.jn-week-col-head {
-  display: none;
+.jn-week.is-compact .jn-week-grid {
+  min-width: 0;
+}
+.jn-week.is-compact .jn-week-dayheads-cols,
+.jn-week.is-compact .jn-week-allday-cols,
+.jn-week.is-compact .jn-week-cols {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .jn-week-slider {
   display: grid;
@@ -7077,6 +7090,15 @@ button.jn-heat-cell:disabled {
     overflow-x: clip;
     overflow-y: auto;
   }
+  /* Journal header scrolls away with content (not sticky). */
+  .jn-page .jn-hero {
+    position: static;
+    top: auto;
+    z-index: auto;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    flex-shrink: 0;
+  }
   .jn-page {
     flex: none;
     min-height: 0;
@@ -7136,13 +7158,20 @@ button.jn-heat-cell:disabled {
   .jn-page {
     gap: 0.15rem;
   }
+  .jn-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .jn-hero-actions {
     width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
   }
   .jn-hero-actions .btn,
   .jn-hero-actions .shiny-pill,
   .jn-hero-actions button {
     font-size: 0.78rem;
+    white-space: nowrap;
   }
   .jn-cal,
   .jn-composer,

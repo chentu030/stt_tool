@@ -157,6 +157,12 @@ export function shiftDateKey(dateKey: string, days: number): string {
   return dateKeyFromDate(d);
 }
 
+/** N consecutive dateKeys starting at `dateKey` (inclusive). */
+export function rollingDateKeys(dateKey: string, count: number): string[] {
+  const n = Math.max(1, Math.floor(count));
+  return Array.from({ length: n }, (_, i) => shiftDateKey(dateKey, i));
+}
+
 export function parseDateKey(key: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
   if (!m) return null;
