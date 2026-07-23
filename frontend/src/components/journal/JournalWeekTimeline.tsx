@@ -787,7 +787,9 @@ export default function JournalWeekTimeline({
           aria-label="快速移動日子"
           onChange={(e) => {
             const off = Number(e.target.value);
-            onSelectDay?.(shiftDateKey(todayKey, off));
+            const next = shiftDateKey(todayKey, off);
+            if (next === dateKey) return;
+            onSelectDay?.(next);
           }}
         />
         <span className="jn-week-slider-label">

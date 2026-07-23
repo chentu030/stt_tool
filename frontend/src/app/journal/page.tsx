@@ -301,6 +301,13 @@ export default function JournalPage() {
     return byDate.get(selected) || null;
   }, [selectedId, entries, byDate, selected]);
 
+  // After notes hydrate, pin today's primary entry without going through discard confirm.
+  useEffect(() => {
+    if (selectedId) return;
+    const primary = byDate.get(selected);
+    if (primary) setSelectedId(primary.id);
+  }, [byDate, selected, selectedId]);
+
   const tagDefs = prefsCtx?.prefs.journalTags || [];
 
   const filtered = useMemo(() => {
@@ -444,11 +451,13 @@ export default function JournalPage() {
   };
 
   const goToday = async () => {
+    const todayId = byDate.get(today)?.id ?? null;
+    if (selected === today && selectedId === todayId) return;
     if (!(await confirmLeaveComposer())) return;
     const d = new Date();
     setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setSelected(today);
-    setSelectedId(byDate.get(today)?.id ?? null);
+    setSelectedId(todayId);
     setComposerDirty(false);
     setComposerKey((k) => k + 1);
   };
@@ -457,6 +466,17 @@ export default function JournalPage() {
     const primary = byDate.get(dateKey);
     const nextId = primary?.id ?? null;
     if (dateKey === selected && nextId === selectedId) return;
+    // Same day (e.g. notes just loaded / mobile slider re-fired): sync entry, no discard prompt.
+    if (dateKey === selected) {
+      if (composerDirty) {
+        if (!(await confirmLeaveComposer())) return;
+      }
+      setSelectedId(nextId);
+      setSelectedEventId(null);
+      setComposerDirty(false);
+      setComposerKey((k) => k + 1);
+      return;
+    }
     if (!(await confirmLeaveComposer())) return;
     setSelected(dateKey);
     setSelectedId(nextId);

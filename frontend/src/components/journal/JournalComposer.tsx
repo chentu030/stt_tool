@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useImperativeHandle, forwardRef, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useImperativeHandle, forwardRef, useRef, useState } from "react";
 import {
   journalTagIdFromLabel,
   nextJournalTagColor,
@@ -55,6 +55,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   const [selected, setSelected] = useState<string[]>(initialTags);
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const seedRef = useRef({ text: initialText, tags: initialTags });
   const prompt = promptForDate(dateKey);
 
   const enterEdit = () => {
@@ -66,6 +67,17 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   };
 
   const dirty = text !== initialText || !sameIds(selected, initialTags);
+
+  // Notes load async after mount — adopt the new seed if the user hasn't edited yet.
+  useLayoutEffect(() => {
+    const prev = seedRef.current;
+    const untouched = text === prev.text && sameIds(selected, prev.tags);
+    seedRef.current = { text: initialText, tags: initialTags };
+    if (!untouched) return;
+    if (text === initialText && sameIds(selected, initialTags)) return;
+    setText(initialText);
+    setSelected(initialTags);
+  }, [initialText, initialTags, text, selected]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
