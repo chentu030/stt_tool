@@ -33,7 +33,7 @@ import {
   formatShortcutLabel,
 } from "@/lib/shortcutSpec";
 
-/** audio = 純錄製；transcribe = 錄+轉字；organize = 轉字+AI 整理 */
+/** audio = 純錄製；transcribe = 錄+轉字；organize = 錄+轉字+AI 整理 */
 export type LiveRecordMode = "audio" | "transcribe" | "organize";
 
 export type { LiveAudioSource };
@@ -41,7 +41,7 @@ export type { LiveAudioSource };
 export function liveModeLabel(mode: LiveRecordMode): string {
   if (mode === "audio") return "純錄製";
   if (mode === "transcribe") return "錄製 + 轉錄";
-  return "轉錄 + 整理";
+  return "錄製 + 轉錄 + 整理";
 }
 
 const AUDIO_SOURCES: LiveAudioSource[] = ["mic", "system", "both"];
