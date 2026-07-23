@@ -6,6 +6,7 @@ import WebPageView from "@/components/workspace/WebPageView";
 import {
   extensionEntryFromNote,
   noteAppEmbedHref,
+  webUrlFromNote,
   type NoteAppLink,
 } from "@/lib/workspacePages";
 import type { Note } from "@/lib/firebase";
@@ -115,6 +116,31 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
   }
 
   if (link.type === "extension") {
+    // web-browser-pack: always navigable (even if installed manifest predates the flag)
+    const navigable =
+      Boolean(installed?.manifest.pageType.navigable) || link.id === "web-browser-pack";
+    if (navigable) {
+      const url =
+        webUrlFromNote(note) ||
+        extensionEntryFromNote(note) ||
+        installed?.manifest.pageType.entry ||
+        "";
+      const browserNote: Note = {
+        ...note,
+        app_link: { type: "web", id: note.id },
+        props: {
+          ...(note.props || {}),
+          web_url: url,
+        },
+      };
+      return (
+        <WebPageView
+          note={browserNote}
+          compact={compact || Boolean(settings.compact)}
+          onTitleHint={onTitleHint}
+        />
+      );
+    }
     if (!frameSrc) {
       return (
         <div className="web-page-blocked">

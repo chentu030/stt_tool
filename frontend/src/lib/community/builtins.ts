@@ -33,15 +33,15 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
     },
     readme: `# 快速瀏覽頁
 
-示範擴充功能：安裝後側欄「頁面」會多一個入口，建立的頁面以 iframe 開啟 Wikipedia 首頁（可在套件中改成你的 https 入口）。
+安裝後側欄「頁面」會多一個「瀏覽」入口。建立的「新瀏覽頁」可在頁面上方網址列輸入或更改網址（預設 Wikipedia）。
 `,
     manifest: {
       schema: 1,
       kind: "extension",
       id: "web-browser-pack",
       name: "快速瀏覽頁",
-      version: "1.1.0",
-      description: "示範 iframe 頁面類型，安裝後出現在側欄頁面格線。",
+      version: "1.2.0",
+      description: "可改網址的瀏覽頁，安裝後出現在側欄頁面格線。",
       author: "Albireus",
       authorUrl: "https://github.com/chentu030/stt_tool",
       homepage: "https://github.com/chentu030/stt_tool",
@@ -56,6 +56,7 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
       minAppVersion: "0.1.0",
       permissions: ["iframe", "network", "settings", "storage", "clipboard"],
       changelog: [
+        { version: "1.2.0", date: "2026-07-23", notes: "新瀏覽頁支援網址列導覽與預設首頁設定。" },
         { version: "1.1.0", date: "2026-07-18", notes: "新增擴充設定與截圖。" },
         { version: "1.0.0", date: "2026-07-01", notes: "初版示範擴充。" },
       ],
@@ -64,14 +65,23 @@ const BUILTINS: Record<string, () => ResolvedPackage> = {
         type: "iframe",
         entry: "https://zh.wikipedia.org/",
         createLabel: "新瀏覽頁",
+        navigable: true,
       },
       settings: [
+        {
+          key: "home_url",
+          label: "預設首頁網址",
+          type: "string",
+          default: "https://zh.wikipedia.org/",
+          wide: true,
+          description: "建立新瀏覽頁時開啟的網址",
+        },
         {
           key: "home_hint",
           label: "首頁提示文字",
           type: "string",
           default: "在擴充頁面中瀏覽",
-          description: "會以 query 傳給 iframe（示範用）",
+          description: "示範用提示（精簡模式等）",
         },
         {
           key: "compact",

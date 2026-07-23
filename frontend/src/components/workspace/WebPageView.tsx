@@ -550,6 +550,9 @@ export default function WebPageView({
           props: {
             ...(note.props || {}),
             web_url: next,
+            ...(typeof note.props?.extension_id === "string"
+              ? { extension_entry: next }
+              : {}),
             browser_mode: useVirt ? "virtual" : "auto",
           },
           ...(title && title !== note.title ? { title } : {}),

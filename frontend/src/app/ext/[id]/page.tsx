@@ -18,6 +18,7 @@ import ScrambleText from "@/components/motion/ScrambleText";
 import ExtensionSettingsPanel, {
   hasExtensionSettings,
 } from "@/components/community/ExtensionSettingsPanel";
+import { mergeExtensionSettings } from "@/lib/community/extensionSettings";
 import { toast } from "@/lib/toast";
 import { touchRecentId } from "@/lib/userPrefs";
 import { usePrefs } from "@/components/PrefsProvider";
@@ -60,7 +61,12 @@ export default function ExtensionHubPage() {
     if (!user || !ext) return;
     setBusy(true);
     try {
-      const { noteId, href } = await createExtensionWorkspacePage(user.uid, ext.manifest);
+      const merged = mergeExtensionSettings(ext.manifest, ext.settings);
+      const homeUrl =
+        typeof merged.home_url === "string" ? merged.home_url.trim() : "";
+      const { noteId, href } = await createExtensionWorkspacePage(user.uid, ext.manifest, {
+        entryUrl: homeUrl || undefined,
+      });
       prefsCtx.setPrefs((p) => touchRecentId(p, noteId));
       router.push(href);
     } catch (e) {

@@ -225,21 +225,29 @@ export async function createExtensionWorkspacePage(
     parentId?: string;
     tags?: string[];
     status?: Note["status"];
+    /** Override pageType.entry (e.g. extension home_url setting) */
+    entryUrl?: string;
   }
 ): Promise<{ noteId: string; href: string }> {
   const folder = opts?.parentId ? "" : opts?.folder || "";
   const parentId = opts?.parentId || "";
   const title = ext.pageType.createLabel || ext.name;
+  const entry =
+    (typeof opts?.entryUrl === "string" && opts.entryUrl.trim()) || ext.pageType.entry;
+  const props: Record<string, unknown> = {
+    extension_id: ext.id,
+    extension_entry: entry,
+    extension_name: ext.name,
+  };
+  if (ext.pageType.navigable || ext.id === "web-browser-pack") {
+    props.web_url = entry;
+  }
   const noteId = await createNote(uid, title, "", undefined, opts?.tags || [], {
     folder,
     status: opts?.status || "backlog",
     parent_id: parentId,
     icon: ext.icon || "extension",
-    props: {
-      extension_id: ext.id,
-      extension_entry: ext.pageType.entry,
-      extension_name: ext.name,
-    },
+    props,
     app_link: { type: "extension", id: ext.id },
   });
   return { noteId, href: noteOpenHref({ id: noteId, app_link: { type: "extension", id: ext.id } }) };

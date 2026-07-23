@@ -197,6 +197,7 @@ export function parseCommunityManifest(raw: unknown): CommunityManifest {
         type: "iframe",
         entry,
         createLabel: str(page.createLabel) || `新${name}`,
+        navigable: page.navigable === true,
       },
     };
     return manifest;

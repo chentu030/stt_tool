@@ -3,7 +3,7 @@
     "id": "web-browser-pack",
     "kind": "extension",
     "name": "快速瀏覽頁",
-    "description": "示範擴充：以沙箱 iframe 開啟自訂首頁，安裝後出現在側欄「頁面」。",
+    "description": "可改網址的瀏覽頁，安裝後出現在側欄「頁面」。",
     "author": "Albireus",
     "icon": "language",
     "cover": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=60",

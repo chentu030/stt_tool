@@ -35,6 +35,11 @@ export type ExtensionPageType = {
   /** HTTPS entry URL for sandboxed iframe */
   entry: string;
   createLabel?: string;
+  /**
+   * When true, each page gets a browser address bar (WebPageView)
+   * instead of a locked iframe at `entry`.
+   */
+  navigable?: boolean;
 };
 
 export type ExtensionSettingDef = {
