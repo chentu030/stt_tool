@@ -24,7 +24,10 @@ import ScheduleEventEditDialog from "@/components/journal/ScheduleEventEditDialo
 const HOUR_START = 0;
 const HOUR_END = 24;
 const PX_PER_MIN = 0.55;
-const GRID_MINS = (HOUR_END - HOUR_START) * 60;
+/** Extra mins above 00:00 / below 24:00 so the day reads continuous. */
+const PAD_MINS = 40;
+const GRID_MINS = (HOUR_END - HOUR_START) * 60 + PAD_MINS * 2;
+const HOUR_PX = 60 * PX_PER_MIN;
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 const SLIDER_SPAN = 90;
 
@@ -41,15 +44,18 @@ type Props = {
 };
 
 function topFor(min: number) {
-  return Math.max(0, (min - HOUR_START * 60) * PX_PER_MIN);
+  return (PAD_MINS + (min - HOUR_START * 60)) * PX_PER_MIN;
 }
 
 function heightFor(startMin: number, endMin: number) {
-  return Math.max(18, (Math.min(endMin, HOUR_END * 60) - Math.max(startMin, HOUR_START * 60)) * PX_PER_MIN);
+  return Math.max(
+    18,
+    (Math.min(endMin, HOUR_END * 60) - Math.max(startMin, HOUR_START * 60)) * PX_PER_MIN
+  );
 }
 
 function yToMin(clientY: number, gridTop: number) {
-  return snapMin(HOUR_START * 60 + (clientY - gridTop) / PX_PER_MIN);
+  return snapMin(HOUR_START * 60 + (clientY - gridTop) / PX_PER_MIN - PAD_MINS);
 }
 
 function eventStatus(ev: ScheduleEvent, nowMin: number, isToday: boolean) {
@@ -165,8 +171,9 @@ export default function JournalWeekTimeline({
     return `${d.getMonth() + 1}/${d.getDate()}（${wd}）`;
   }, [dateKey]);
 
-  const hours = useMemo(
-    () => Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i),
+  /** Hour marks 0–24 (line + label at each full hour). */
+  const hourMarks = useMemo(
+    () => Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i),
     []
   );
 
@@ -426,13 +433,20 @@ export default function JournalWeekTimeline({
       </div>
 
       <div className="jn-week-scroll" ref={bodyRef}>
-        <div className="jn-week-grid" style={{ height: GRID_MINS * PX_PER_MIN }}>
+        <div
+          className="jn-week-grid"
+          style={{
+            height: GRID_MINS * PX_PER_MIN,
+            ["--jn-hour-h" as string]: `${HOUR_PX}px`,
+            ["--jn-pad-h" as string]: `${PAD_MINS * PX_PER_MIN}px`,
+          }}
+        >
           <div className="jn-week-hours">
-            {hours.map((h) => (
+            {hourMarks.map((h) => (
               <div
                 key={h}
-                className="jn-week-hour"
-                style={{ top: (h - HOUR_START) * 60 * PX_PER_MIN }}
+                className={`jn-week-hour${h === 0 || h === 24 ? " is-edge" : ""}`}
+                style={{ top: topFor(h * 60) }}
               >
                 {String(h).padStart(2, "0")}
               </div>
@@ -440,6 +454,17 @@ export default function JournalWeekTimeline({
           </div>
 
           <div className="jn-week-cols">
+            <div className="jn-week-hlines" aria-hidden>
+              <div className="jn-week-hline is-pad" style={{ top: 0 }} />
+              {hourMarks.map((h) => (
+                <div
+                  key={h}
+                  className={`jn-week-hline${h === 0 || h === 24 ? " is-edge" : ""}`}
+                  style={{ top: topFor(h * 60) }}
+                />
+              ))}
+              <div className="jn-week-hline is-pad" style={{ top: GRID_MINS * PX_PER_MIN - 1 }} />
+            </div>
             {dayKeys.map((dk) => {
               const dayEvents = (byDay.get(dk) || []).filter((e) => !e.allDay);
               const isToday = dk === todayKey;

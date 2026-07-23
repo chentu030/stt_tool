@@ -6161,8 +6161,15 @@ a.sidebar-user-name:hover {
   right: 0;
   font-size: 0.62rem;
   color: var(--text-muted);
-  transform: translateY(-0.4em);
+  transform: translateY(-50%);
   text-align: center;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 1;
+}
+.jn-week-hour.is-edge {
+  color: color-mix(in srgb, var(--text-muted) 85%, var(--accent));
+  font-weight: 600;
 }
 .jn-week-cols {
   display: grid;
@@ -6170,15 +6177,37 @@ a.sidebar-user-name:hover {
   position: relative;
   border-left: 1px solid var(--border);
 }
+.jn-week-hlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.jn-week-hline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+}
+.jn-week-hline.is-edge {
+  background: color-mix(in srgb, var(--border) 85%, var(--accent));
+}
+.jn-week-hline.is-pad {
+  background: color-mix(in srgb, var(--border) 35%, transparent);
+}
 .jn-week-col {
   position: relative;
   border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  background-image: repeating-linear-gradient(
+  /* Soft wash on pad zones (before 00:00 / after 24:00) */
+  background-image: linear-gradient(
     to bottom,
-    transparent 0,
-    transparent calc(60px * 0.72 - 1px),
-    color-mix(in srgb, var(--border) 55%, transparent) calc(60px * 0.72 - 1px),
-    color-mix(in srgb, var(--border) 55%, transparent) calc(60px * 0.72)
+    color-mix(in srgb, var(--border) 18%, transparent) 0,
+    color-mix(in srgb, var(--border) 18%, transparent) var(--jn-pad-h, 22px),
+    transparent var(--jn-pad-h, 22px),
+    transparent calc(100% - var(--jn-pad-h, 22px)),
+    color-mix(in srgb, var(--border) 18%, transparent) calc(100% - var(--jn-pad-h, 22px)),
+    color-mix(in srgb, var(--border) 18%, transparent) 100%
   );
   touch-action: none;
 }
