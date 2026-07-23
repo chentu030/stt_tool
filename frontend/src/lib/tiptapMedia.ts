@@ -1,4 +1,7 @@
 import { Node, mergeAttributes } from "@tiptap/core";
+import { noteAudioNodeView } from "@/lib/tiptapNoteAudio";
+import type { TranscribableMedia } from "@/lib/noteMediaIngest";
+import type { NoteAudioTranscribeOpts } from "@/lib/tiptapNoteAudio";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -12,6 +15,13 @@ declare module "@tiptap/core" {
       setNoteFile: (attrs: { href: string; name: string; size?: string }) => ReturnType;
     };
   }
+  interface Storage {
+    noteAudio: {
+      requestTranscribe:
+        | null
+        | ((media: TranscribableMedia, opts?: NoteAudioTranscribeOpts) => void);
+    };
+  }
 }
 
 export const NoteAudio = Node.create({
@@ -19,6 +29,13 @@ export const NoteAudio = Node.create({
   group: "block",
   atom: true,
   draggable: true,
+  addStorage() {
+    return {
+      requestTranscribe: null as
+        | null
+        | ((media: TranscribableMedia, opts?: NoteAudioTranscribeOpts) => void),
+    };
+  },
   addAttributes() {
     return {
       src: { default: null },
@@ -26,7 +43,21 @@ export const NoteAudio = Node.create({
     };
   },
   parseHTML() {
-    return [{ tag: "audio[data-note-audio]" }, { tag: 'audio.rich-audio' }];
+    return [
+      {
+        tag: "div[data-note-audio-wrap]",
+        getAttrs: (el) => {
+          const audio = (el as HTMLElement).querySelector("audio");
+          if (!audio) return false;
+          return {
+            src: audio.getAttribute("src"),
+            title: audio.getAttribute("title"),
+          };
+        },
+      },
+      { tag: "audio[data-note-audio]" },
+      { tag: "audio.rich-audio" },
+    ];
   },
   renderHTML({ HTMLAttributes }) {
     return [
@@ -38,6 +69,9 @@ export const NoteAudio = Node.create({
         preload: "metadata",
       }),
     ];
+  },
+  addNodeView() {
+    return noteAudioNodeView();
   },
   addCommands() {
     return {
@@ -51,7 +85,6 @@ export const NoteAudio = Node.create({
     };
   },
 });
-
 export const NoteVideo = Node.create({
   name: "noteVideo",
   group: "block",

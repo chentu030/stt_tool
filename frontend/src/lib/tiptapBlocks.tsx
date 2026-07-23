@@ -9,6 +9,8 @@ import {
 } from "@tiptap/react";
 import React, { useEffect, useState } from "react";
 import MenuSelect from "@/components/MenuSelect";
+import { downloadText } from "@/lib/transcript";
+import type { Node as ProseNode } from "@tiptap/pm/model";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -100,6 +102,86 @@ export const Callout = Node.create({
   },
 });
 
+function blockNodePlainText(node: ProseNode): string {
+  const parts: string[] = [];
+  node.forEach((child) => {
+    if (child.isTextblock) {
+      parts.push(child.textContent);
+    } else if (child.isBlock) {
+      const inner = blockNodePlainText(child).trim();
+      if (inner) parts.push(inner);
+    }
+  });
+  return parts.join("\n").trim();
+}
+
+function safeExportName(title: string, ext: string) {
+  const base = (title || "逐字稿").replace(/[\\/:*?"<>|]+/g, "_").trim().slice(0, 60) || "逐字稿";
+  return `${base}.${ext}`;
+}
+
+export function ToggleExportMenu({
+  title,
+  getText,
+}: {
+  title: string;
+  getText: () => string;
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("pointerdown", close, true);
+    return () => window.removeEventListener("pointerdown", close, true);
+  }, [open]);
+
+  const exportAs = (kind: "txt" | "md") => {
+    const body = getText();
+    if (!body) return;
+    if (kind === "txt") {
+      downloadText(safeExportName(title, "txt"), body, "text/plain;charset=utf-8");
+    } else {
+      const md = `# ${title || "逐字稿"}\n\n${body}\n`;
+      downloadText(safeExportName(title, "md"), md, "text/markdown;charset=utf-8");
+    }
+    setOpen(false);
+  };
+
+  return (
+    <div className="rich-toggle-export" contentEditable={false}>
+      <button
+        type="button"
+        className="rich-toggle-export-btn"
+        title="匯出"
+        aria-label="匯出"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        匯出
+      </button>
+      {open ? (
+        <div
+          className="rich-toggle-export-menu"
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button type="button" role="menuitem" onClick={() => exportAs("txt")}>
+            匯出 .txt
+          </button>
+          <button type="button" role="menuitem" onClick={() => exportAs("md")}>
+            匯出 .md
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ToggleView({
   node,
   updateAttributes,
@@ -107,12 +189,13 @@ function ToggleView({
   getPos,
 }: ReactNodeViewProps) {
   const open = !!node.attrs.open;
+  const title = String(node.attrs.title || "詳細內容");
   return (
     <NodeViewWrapper
       className={`rich-toggle${open ? " is-open" : ""}`}
       data-note-toggle="1"
       data-open={open ? "1" : "0"}
-      data-title={node.attrs.title || "詳細"}
+      data-title={title}
     >
       <div className="rich-toggle-head" contentEditable={false}>
         <button
@@ -134,6 +217,15 @@ function ToggleView({
             }
           }}
           placeholder="折疊標題"
+        />
+        <ToggleExportMenu
+          title={title}
+          getText={() => {
+            const pos = typeof getPos === "function" ? getPos() : null;
+            if (typeof pos !== "number" || !editor) return "";
+            const n = editor.state.doc.nodeAt(pos);
+            return n ? blockNodePlainText(n) : "";
+          }}
         />
       </div>
       <NodeViewContent

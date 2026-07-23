@@ -276,13 +276,14 @@ export function formatIngestBlock(opts: {
   summary?: string;
   jobId: string;
 }): string {
+  const body = (opts.transcript || "（無內容）").trim();
   const parts = [
-    `## 逐字稿（${opts.label}）`,
-    "",
-    opts.transcript || "（無內容）",
+    `:::toggle 逐字稿（${opts.label}）`,
+    body,
+    `:::`,
   ];
   if (opts.summary) {
-    parts.push("", "## AI 摘要", "", opts.summary);
+    parts.push("", `:::toggle AI 摘要`, opts.summary.trim(), `:::`);
   }
   parts.push("", `> 來源轉錄：[開啟工作](/job/${opts.jobId})`, "");
   return parts.join("\n");

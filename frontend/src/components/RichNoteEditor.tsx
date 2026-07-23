@@ -90,7 +90,10 @@ type Props = {
   /** Run a named AI action (api action id) */
   onRunAiAction?: (apiAction: string, prompt?: string) => void;
   /** After inserting audio/video/YouTube — parent may offer transcription */
-  onTranscribableMedia?: (media: TranscribableMedia) => void;
+  onTranscribableMedia?: (
+    media: TranscribableMedia,
+    opts?: { forceChoice?: "transcribe" | "transcribe_summarize" }
+  ) => void;
   /** Parent registers insert helper. Default = cursor; pass `{ at: "end" }` to append. */
   insertMdRef?: MutableRefObject<
     ((md: string, opts?: { at?: "cursor" | "end" }) => void) | null
@@ -1603,6 +1606,16 @@ export default function RichNoteEditor({
   });
 
   editorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.storage.noteAudio.requestTranscribe = (media, opts) => {
+      onTranscribableMediaRef.current?.(media, opts);
+    };
+    return () => {
+      editor.storage.noteAudio.requestTranscribe = null;
+    };
+  }, [editor]);
 
   useEffect(() => {
     editor?.setEditable(!readOnly);

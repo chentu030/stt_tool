@@ -965,8 +965,20 @@ function NotePageInner() {
   );
 
   const handleTranscribableMedia = useCallback(
-    (media: TranscribableMedia) => {
+    (
+      media: TranscribableMedia,
+      opts?: { forceChoice?: "transcribe" | "transcribe_summarize" }
+    ) => {
       if (!user || !note) return;
+      if (opts?.forceChoice) {
+        if (ingestBusy.current) {
+          ingestQueue.current.push(media);
+          toast("已排入下一批轉錄");
+          return;
+        }
+        void runIngestPipeline([media], opts.forceChoice);
+        return;
+      }
       ingestQueue.current.push(media);
       if (ingestAskTimer.current) clearTimeout(ingestAskTimer.current);
       ingestAskTimer.current = setTimeout(() => {

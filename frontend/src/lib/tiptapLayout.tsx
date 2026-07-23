@@ -8,7 +8,20 @@ import {
   type ReactNodeViewProps,
 } from "@tiptap/react";
 import React from "react";
-import { enterToggleBody } from "@/lib/tiptapBlocks";
+import { enterToggleBody, ToggleExportMenu } from "@/lib/tiptapBlocks";
+import type { Node as ProseNode } from "@tiptap/pm/model";
+
+function headingBodyText(node: ProseNode): string {
+  const parts: string[] = [];
+  node.forEach((child) => {
+    if (child.isTextblock) parts.push(child.textContent);
+    else if (child.isBlock) {
+      const inner = headingBodyText(child).trim();
+      if (inner) parts.push(inner);
+    }
+  });
+  return parts.join("\n").trim();
+}
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -104,13 +117,14 @@ function ToggleHeadingView({
 }: ReactNodeViewProps) {
   const open = !!node.attrs.open;
   const level = Math.min(4, Math.max(1, Number(node.attrs.level) || 1));
+  const title = String(node.attrs.title || "摺疊標題");
   return (
     <NodeViewWrapper
       className={`rich-toggle-heading rich-toggle-heading--h${level}${open ? " is-open" : ""}`}
       data-note-toggle-heading="1"
       data-level={level}
       data-open={open ? "1" : "0"}
-      data-title={node.attrs.title || ""}
+      data-title={title}
     >
       <div className="rich-toggle-heading-head" contentEditable={false}>
         <button
@@ -133,6 +147,15 @@ function ToggleHeadingView({
             }
           }}
           placeholder={`摺疊標題 ${level}`}
+        />
+        <ToggleExportMenu
+          title={title}
+          getText={() => {
+            const pos = typeof getPos === "function" ? getPos() : null;
+            if (typeof pos !== "number" || !editor) return "";
+            const n = editor.state.doc.nodeAt(pos);
+            return n ? headingBodyText(n) : "";
+          }}
         />
       </div>
       <NodeViewContent
