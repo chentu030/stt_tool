@@ -475,6 +475,7 @@ button, input, textarea, select {
 }
 .share-status.is-error { color: var(--danger); }
 .share-doc {
+  position: relative;
   max-width: min(840px, 100%);
   margin: 0 auto;
   padding: 1.5rem 1.25rem 3rem;
@@ -8465,6 +8466,7 @@ body.is-split-resizing iframe {
   z-index: 2;
 }
 .doc-page {
+  position: relative;
   max-width: min(var(--page-max), 100%);
   width: 100%;
   margin: 0 auto;
@@ -18585,9 +18587,17 @@ body.is-sidebar-resizing iframe {
 }
 .note-presence-avatar:first-child { margin-left: 0; }
 .note-presence-more { background: var(--bg-muted) !important; color: var(--text-muted) !important; }
+/* Overlay inside .doc-page / .share-doc — coords are page-relative, not viewport. */
+.note-presence-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  overflow: visible;
+}
 .note-presence-cursor {
-  position: fixed;
-  z-index: 500;
+  position: absolute;
+  z-index: 41;
   width: 10px;
   height: 10px;
   border-radius: 50%;
