@@ -11175,8 +11175,22 @@ body.rich-media-float-dragging * {
   overflow: visible;
   background: transparent;
 }
+/* Keep vertical spacing on the shell; horizontal margins come from data-align / data-wrap. */
 .rich-image-shell > .rich-media-frame {
-  margin: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.rich-image-shell > .rich-media-frame[data-align="left"]:not([data-wrap="floatLeft"]):not([data-wrap="floatRight"]):not([data-wrap="front"]):not([data-wrap="behind"]) {
+  margin-left: 0;
+  margin-right: auto;
+}
+.rich-image-shell > .rich-media-frame[data-align="center"]:not([data-wrap="floatLeft"]):not([data-wrap="floatRight"]):not([data-wrap="front"]):not([data-wrap="behind"]) {
+  margin-left: auto;
+  margin-right: auto;
+}
+.rich-image-shell > .rich-media-frame[data-align="right"]:not([data-wrap="floatLeft"]):not([data-wrap="floatRight"]):not([data-wrap="front"]):not([data-wrap="behind"]) {
+  margin-left: auto;
+  margin-right: 0;
 }
 .rich-image-shell .rich-image {
   display: block;

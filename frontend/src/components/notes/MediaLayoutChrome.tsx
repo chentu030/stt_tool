@@ -184,6 +184,7 @@ export default function MediaLayoutChrome({
 
   const showChrome = selected && !readOnly;
   const isOverlay = layout.wrap === "front" || layout.wrap === "behind";
+  const isFloat = layout.wrap === "floatLeft" || layout.wrap === "floatRight";
 
   const style: CSSProperties = {
     width: `${layout.widthPct}%`,
@@ -192,6 +193,13 @@ export default function MediaLayoutChrome({
       ? {
           left: `${layout.offsetX}%`,
           top: `${layout.offsetY}%`,
+        }
+      : null),
+    // Inline margins beat CSS specificity wars (e.g. shell > frame { margin: 0 }).
+    ...(!isOverlay && !isFloat
+      ? {
+          marginLeft: layout.align === "left" ? 0 : "auto",
+          marginRight: layout.align === "right" ? 0 : "auto",
         }
       : null),
   };
