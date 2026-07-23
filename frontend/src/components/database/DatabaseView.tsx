@@ -136,12 +136,13 @@ function CdbPortalMenu({
       if (e.key === "Escape") onClose();
     };
     const onReposition = () => updatePos();
-    document.addEventListener("mousedown", onDoc);
+    // Use click (not mousedown) so menu item handlers can run first
+    document.addEventListener("click", onDoc);
     document.addEventListener("keydown", onKey);
     window.addEventListener("resize", onReposition);
     window.addEventListener("scroll", onReposition, true);
     return () => {
-      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("click", onDoc);
       document.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
@@ -174,6 +175,8 @@ type Props = {
   userId: string;
   viewId?: string;
   compact?: boolean;
+  /** Persist view switch (e.g. TipTap embed attrs). */
+  onViewChange?: (viewId: string) => void;
 };
 
 const ADDABLE: { type: DbPropType; label: string; group: string }[] = [
@@ -229,7 +232,7 @@ const ROLLUP_CALCS: { value: DbRollupCalc; label: string }[] = [
   { value: "show", label: "顯示原值" },
 ];
 
-export default function DatabaseView({ databaseId, userId, viewId, compact }: Props) {
+export default function DatabaseView({ databaseId, userId, viewId, compact, onViewChange }: Props) {
   const router = useRouter();
   const [db, setDb] = useState<CadenceDatabase | null>(null);
   const [rows, setRows] = useState<Note[]>([]);
@@ -294,8 +297,21 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
   }, [db, rows]);
   useEffect(() => {
     if (viewId) setActiveViewId(viewId);
-    else if (db?.views?.[0] && !activeViewId) setActiveViewId(db.views[0].id);
+  }, [viewId]);
+
+  useEffect(() => {
+    if (!viewId && db?.views?.[0] && !activeViewId) {
+      setActiveViewId(db.views[0].id);
+    }
   }, [db, viewId, activeViewId]);
+
+  const selectView = (id: string) => {
+    setActiveViewId(id);
+    setPanel(null);
+    setSettingsOpen(false);
+    setLayoutOpen(false);
+    onViewChange?.(id);
+  };
 
   const view: DbView | undefined = useMemo(
     () => db?.views.find((v) => v.id === activeViewId) || db?.views[0],
@@ -801,7 +817,9 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     setSettingsOpen(false);
     const next = addDatabaseView(db.views, type);
     await updateDatabase(db.id, { views: next });
-    setActiveViewId(next[next.length - 1].id);
+    const id = next[next.length - 1].id;
+    setActiveViewId(id);
+    onViewChange?.(id);
   };
 
   const openPanel = (next: "filter" | "sort" | "props") => {
@@ -887,21 +905,31 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
           align="right"
         >
           <p className="cdb-settings-label">瀏覽</p>
-          {db.views.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              className={view?.id === v.id ? "is-on" : ""}
-              onClick={() => {
-                setActiveViewId(v.id);
-                setPanel(null);
-                setSettingsOpen(false);
-              }}
-            >
-              {v.name}
-              <em>{VIEW_TYPES.find((t) => t.type === v.type)?.label || v.type}</em>
-            </button>
-          ))}
+          {db.views.map((v) => {
+            const typeLabel = VIEW_TYPES.find((t) => t.type === v.type)?.label || v.type;
+            const showType = v.name.trim() !== typeLabel;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                className={view?.id === v.id ? "is-on" : ""}
+                onMouseDown={(e) => {
+                  // Beat TipTap / drag-handle which may swallow click
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectView(v.id);
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectView(v.id);
+                }}
+              >
+                <span>{v.name}</span>
+                {showType ? <em>{typeLabel}</em> : null}
+              </button>
+            );
+          })}
           <div className="cdb-settings-sub">
             <button
               ref={layoutBtnRef}

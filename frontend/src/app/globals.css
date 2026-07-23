@@ -521,7 +521,26 @@ button, input, textarea, select {
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  position: relative;
 }
+.cdb-node-drag {
+  position: absolute;
+  left: -1.1rem;
+  top: 0.55rem;
+  width: 1rem;
+  height: 1.4rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  letter-spacing: -0.12em;
+  color: var(--text-muted);
+  cursor: grab;
+  user-select: none;
+  opacity: 0.55;
+  z-index: 2;
+}
+.cdb-node-drag:hover { opacity: 1; color: var(--accent); }
+.cdb-node-drag:active { cursor: grabbing; }
 .cdb-embed-shell, .cdb {
   border: 1px solid var(--border);
   border-radius: 12px;

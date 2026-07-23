@@ -17,7 +17,7 @@ declare module "@tiptap/core" {
   }
 }
 
-function DatabaseNodeView({ node }: ReactNodeViewProps) {
+function DatabaseNodeView({ node, updateAttributes }: ReactNodeViewProps) {
   const { user } = useAuth();
   const databaseId = String(node.attrs.databaseId || "");
   const viewId = node.attrs.viewId ? String(node.attrs.viewId) : undefined;
@@ -36,12 +36,16 @@ function DatabaseNodeView({ node }: ReactNodeViewProps) {
     );
   }
   return (
-    <NodeViewWrapper className="cdb-node" data-drag-handle>
+    <NodeViewWrapper className="cdb-node">
+      <span className="cdb-node-drag" data-drag-handle contentEditable={false} title="拖曳區塊" aria-hidden>
+        ⋮⋮
+      </span>
       <DatabaseView
         databaseId={databaseId}
         userId={user.uid}
         viewId={viewId}
         compact
+        onViewChange={(id) => updateAttributes({ viewId: id })}
       />
     </NodeViewWrapper>
   );
