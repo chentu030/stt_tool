@@ -5642,10 +5642,12 @@ a.sidebar-user-name:hover {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 0.75rem;
+  /* Padding >= radius so overflow clip does not shave the week board edge. */
+  padding: 0.85rem;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: hidden;
 }
 .jn-schedule-panel .jn-week,
 .jn-schedule-panel .jn-month,
@@ -6121,6 +6123,12 @@ a.sidebar-user-name:hover {
 
 .jn-week-board {
   --jn-week-gutter: 2.4rem;
+  --jn-week-col-min: 5.5rem;
+  --jn-week-min-cols: 7;
+  --jn-week-board-min: max(
+    100%,
+    calc(var(--jn-week-gutter) + var(--jn-week-min-cols) * var(--jn-week-col-min))
+  );
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
@@ -6131,6 +6139,8 @@ a.sidebar-user-name:hover {
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+  /* Radius lives on the schedule panel — nested radius + overflow looked like a right-edge mask. */
+  border-radius: 0;
 }
 .jn-week-board::-webkit-scrollbar {
   height: 6px;
@@ -6147,10 +6157,10 @@ a.sidebar-user-name:hover {
   flex: 0 0 auto;
   border: 1px solid var(--border);
   border-bottom: none;
-  border-radius: 12px 12px 0 0;
+  border-radius: 0;
   background: var(--bg-elevated);
-  overflow: hidden;
-  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 7 * 5.5rem));
+  overflow: visible;
+  min-width: var(--jn-week-board-min);
 }
 .jn-week-dayheads-gutter {
   border-right: 1px solid var(--border);
@@ -6199,7 +6209,7 @@ a.sidebar-user-name:hover {
   border-radius: 0;
   padding: 0;
   background: color-mix(in srgb, var(--bg) 35%, var(--bg-elevated));
-  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 7 * 5.5rem));
+  min-width: var(--jn-week-board-min);
 }
 .jn-week-allday-label {
   font-size: 0.68rem;
@@ -6244,17 +6254,20 @@ a.sidebar-user-name:hover {
 .jn-week-scroll {
   flex: 1;
   min-height: 280px;
+  /* Explicit min-width: overflow ≠ visible zeroes flex min-width:auto, so the body
+     used to stay viewport-wide while dayheads grew — empty elevated strip = “mask”. */
+  min-width: var(--jn-week-board-min);
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 0 0 12px 12px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--bg) 40%, var(--bg-elevated));
 }
 .jn-week-grid {
   position: relative;
   display: grid;
   grid-template-columns: var(--jn-week-gutter, 2.4rem) minmax(0, 1fr);
-  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 7 * 5.5rem));
+  min-width: var(--jn-week-board-min);
   width: 100%;
 }
 .jn-week-hours {
@@ -6326,10 +6339,8 @@ a.sidebar-user-name:hover {
   background-color: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
-.jn-week.is-compact .jn-week-dayheads,
-.jn-week.is-compact .jn-week-allday,
-.jn-week.is-compact .jn-week-grid {
-  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 4 * 5.5rem));
+.jn-week.is-compact .jn-week-board {
+  --jn-week-min-cols: 4;
 }
 
 .jn-week.is-compact .jn-week-dayheads-cols,
@@ -6370,10 +6381,12 @@ a.sidebar-user-name:hover {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 0.75rem;
+  /* Padding >= radius so overflow clip does not shave the week board edge. */
+  padding: 0.85rem;
   min-width: 0;
   max-width: 100%;
-  overflow: hidden;
+  overflow-x: clip;
+  overflow-y: hidden;
 }
 .jn-schedule-panel .jn-week,
 .jn-schedule-panel .jn-month,
