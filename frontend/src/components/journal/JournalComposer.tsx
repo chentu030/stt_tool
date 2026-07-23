@@ -113,24 +113,36 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
     toast("已刪除標籤");
   };
 
-  const addTemplate = async () => {
+  const addTemplateFromDraft = async () => {
     if (!prefsCtx) return;
-    const label = await askPrompt({ title: "模板名稱", placeholder: "例如：週報、會議後", defaultValue: "" });
-    if (!label) return;
-    const body = await askPrompt({
-      title: "模板內容（Markdown）",
-      placeholder: "## 標題\n- ",
-      defaultValue: `## ${label}\n- \n`,
+    const body = text.trim();
+    if (!body) {
+      toast("請先在下方輸入內容，再添加為模板");
+      setMode("edit");
+      return;
+    }
+    const label = await askPrompt({
+      title: "為模板命名",
+      placeholder: "例如：週報、會議後、晨間反思",
+      defaultValue: "",
     });
-    if (body == null) return;
+    if (!label?.trim()) return;
+    const name = label.trim();
     const existing = prefsCtx.prefs.journalTemplates || [];
+    if (existing.some((t) => t.label === name)) {
+      toast("已有同名模板");
+      return;
+    }
     const next: JournalTemplateDef = {
-      id: journalTagIdFromLabel(label, existing.map((t) => ({ id: t.id, label: t.label, color: "" }))),
-      label,
-      body: body.trim() ? `${body.trim()}\n` : `## ${label}\n- \n`,
+      id: journalTagIdFromLabel(
+        name,
+        existing.map((t) => ({ id: t.id, label: t.label, color: "" }))
+      ),
+      label: name,
+      body: body.endsWith("\n") ? body : `${body}\n`,
     };
     prefsCtx.setPrefs({ journalTemplates: [...existing, next] });
-    toast("已新增模板");
+    toast(`已添加模板「${name}」`);
   };
 
   const removeTemplate = async (tpl: JournalTemplateDef) => {
@@ -211,43 +223,50 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
       </div>
 
       <div className="jn-checkins">
-        {templates.map((t) => (
-          <span key={t.id} className="jn-chip-wrap">
-            <button
-              type="button"
-              className="jn-chip"
-              disabled={busy}
-              onClick={() => onSave({ text, tags: selected, appendTemplate: t.body })}
-            >
-              + {t.label}
-            </button>
-            <button
-              type="button"
-              className="jn-chip-x"
-              title={`刪除模板「${t.label}」`}
-              aria-label={`刪除模板 ${t.label}`}
-              onClick={(ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                void removeTemplate(t);
-              }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <button type="button" className="jn-chip jn-chip-add" onClick={() => void addTemplate()}>
-          + 模板
-        </button>
+        <div className="jn-checkins-main">
+          {templates.map((t) => (
+            <span key={t.id} className="jn-chip-wrap">
+              <button
+                type="button"
+                className="jn-chip"
+                disabled={busy}
+                onClick={() => onSave({ text, tags: selected, appendTemplate: t.body })}
+              >
+                + {t.label}
+              </button>
+              <button
+                type="button"
+                className="jn-chip-x"
+                title={`刪除模板「${t.label}」`}
+                aria-label={`刪除模板 ${t.label}`}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  void removeTemplate(t);
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            className="jn-chip"
+            onClick={() => {
+              setMode("edit");
+              setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`);
+            }}
+          >
+            插入今日提問
+          </button>
+        </div>
         <button
           type="button"
-          className="jn-chip"
-          onClick={() => {
-            setMode("edit");
-            setText((prev) => `${prev.trim()}${prev.trim() ? "\n\n" : ""}## 提問回應\n${prompt}\n\n`);
-          }}
+          className="jn-chip jn-chip-add jn-chip-save-tpl"
+          title="把目前輸入框內容存成模板"
+          onClick={() => void addTemplateFromDraft()}
         >
-          插入今日提問
+          添加為模板
         </button>
       </div>
 

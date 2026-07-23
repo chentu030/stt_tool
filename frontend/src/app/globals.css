@@ -5869,10 +5869,22 @@ a.sidebar-user-name:hover {
 .jn-checkins {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
   margin-bottom: 0.65rem;
   min-width: 0;
   max-width: 100%;
+}
+.jn-checkins-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.jn-chip-save-tpl {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .jn-chip {
   border: 1px dashed var(--border);
