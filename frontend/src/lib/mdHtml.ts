@@ -772,10 +772,15 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   );
 
   // Toggle fence: :::toggle open Title\n...\n:::
+  // Without `open` → collapsed. Preserve line breaks inside the body.
   s = s.replace(/:::toggle(?!-h)(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g, (_m, openFlag, title, body) => {
     const open = openFlag ? "1" : "0";
-    const inner = String(body).trim();
-    return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}"><p>${escapeHtml(inner)}</p></div>`;
+    const inner = String(body)
+      .trim()
+      .split(/\n/)
+      .map((line) => `<p>${escapeHtml(line) || "<br>"}</p>`)
+      .join("");
+    return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}">${inner || "<p></p>"}</div>`;
   });
 
   // Columns: ::::columns 2 … :::: (4-colon outer so :::column closers don't truncate)

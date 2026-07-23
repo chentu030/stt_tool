@@ -75,6 +75,23 @@ type CutMode = "auto" | "manual";
 
 /** Safety ceiling so a never-ending talk still cuts for Google batch limits. */
 const MAX_CHUNK_MULT = 6;
+/** Realtime mode: AI organize interval (not silence cuts). */
+const STREAM_ORGANIZE_EVERY_SECS = 5 * 60;
+
+function clockNow(): string {
+  return new Date().toLocaleTimeString("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** Collapsed toggle titled 逐字稿, with timestamped body. */
+function transcriptToggleMd(body: string): string {
+  const inner = body.trim();
+  if (!inner) return "";
+  return `\n\n:::toggle 逐字稿\n${inner}\n:::\n\n`;
+}
 
 export default function LiveNoteRecorder({
   uid,
@@ -156,6 +173,12 @@ export default function LiveNoteRecorder({
   const secsRef = useRef(0);
   /** After realtime fails, always use batch STT for cuts (even if UI lagged). */
   const forceBatchSttRef = useRef(false);
+  /** Buffered realtime finals → flushed into a 逐字稿 toggle. */
+  const streamTranscriptBufRef = useRef<Array<{ stamp: string; text: string }>>([]);
+  const lastStreamOrgAtRef = useRef(0);
+  /** True if this session used realtime (even briefly) — skip re-STT on stop. */
+  const usedStreamThisSessionRef = useRef(false);
+  const maybeStreamTimedOrganizeRef = useRef(() => {});
   const stopRef = useRef<() => Promise<void>>(async () => {});
   const fallbackToBatchRef = useRef<(reason: "quota" | "error", detail?: string) => Promise<void>>(
     async () => {}
@@ -259,6 +282,14 @@ export default function LiveNoteRecorder({
       const silentFor =
         silenceSinceRef.current != null ? now - silenceSinceRef.current : 0;
       const dur = segSecsRef.current;
+      // Realtime mode: no silence/30s auto-cuts (text streams continuously).
+      if (
+        !forceBatchSttRef.current &&
+        streamOnRef.current &&
+        streamLiveRef.current
+      ) {
+        return;
+      }
       if (dur >= maxSecs) {
         void cutParagraph(false, "max");
         return;
@@ -289,12 +320,13 @@ export default function LiveNoteRecorder({
     pendingOrgTextsRef.current = [];
     setPendingOrg(0);
     setOrgBusy(true);
-    setStatus(manual ? "手動 AI 整理中…" : `每 ${organizeEvery} 段自動整理中…`);
+    setStatus(manual ? "手動 AI 整理中…" : "AI 整理中…");
     try {
       const packed = texts.map((t, i) => `【段 ${i + 1}】\n${t}`).join("\n\n");
       const organized = await organizeLiveSegment(packed);
       if (organized.trim()) {
-        insertMd(`\n**整理（${texts.length} 段）**\n\n${organized}\n`);
+        const time = clockNow();
+        insertMd(`\n### 整理 · ${time}\n\n${organized}\n`);
         toast(`已整理 ${texts.length} 段`);
       }
       setStatus("整理完成 · 繼續錄製");
@@ -308,12 +340,48 @@ export default function LiveNoteRecorder({
     }
   };
 
+  /** Flush buffered realtime lines into a collapsed 逐字稿 toggle. */
+  const flushStreamTranscriptToggle = () => {
+    const buf = streamTranscriptBufRef.current;
+    if (!buf.length) return;
+    streamTranscriptBufRef.current = [];
+    const body = buf.map((x) => `${x.stamp}\n${x.text}`).join("\n\n");
+    insertMd(transcriptToggleMd(body));
+  };
+
   const maybeAutoOrganize = () => {
     if (modeRef.current !== "organize") return;
     if (cutModeRef.current === "manual") return;
+    // Realtime uses a 5-minute timer instead of chunk count.
+    if (
+      !forceBatchSttRef.current &&
+      streamOnRef.current &&
+      streamLiveRef.current
+    ) {
+      return;
+    }
     if (pendingOrgTextsRef.current.length < organizeEvery) return;
     void flushOrganize(false);
   };
+
+  const maybeStreamTimedOrganize = () => {
+    if (modeRef.current !== "organize") return;
+    if (forceBatchSttRef.current || !streamOnRef.current || !streamLiveRef.current) return;
+    if (!lastStreamOrgAtRef.current) {
+      lastStreamOrgAtRef.current = Date.now();
+      return;
+    }
+    const elapsed = (Date.now() - lastStreamOrgAtRef.current) / 1000;
+    if (elapsed < STREAM_ORGANIZE_EVERY_SECS) return;
+    if (!pendingOrgTextsRef.current.length && !streamTranscriptBufRef.current.length) {
+      lastStreamOrgAtRef.current = Date.now();
+      return;
+    }
+    lastStreamOrgAtRef.current = Date.now();
+    flushStreamTranscriptToggle();
+    void flushOrganize(false);
+  };
+  maybeStreamTimedOrganizeRef.current = maybeStreamTimedOrganize;
 
   const queueTranscriptForOrganize = (transcript: string) => {
     if (modeRef.current !== "organize") return;
@@ -334,25 +402,23 @@ export default function LiveNoteRecorder({
         jobsRef.current.shift();
         setPending(jobsRef.current.length);
         if (!got) continue;
-        const time = new Date().toLocaleTimeString("zh-TW", {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        const time = clockNow();
         const audioBlock = got.url
           ? `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${got.url}" title="${job.label}"></audio>\n\n`
           : "";
         if (modeRef.current === "audio" || got.audioOnly) {
           if (modeRef.current === "audio") {
-            insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}`);
+            insertMd(`\n### 音檔 · ${time}\n\n${audioBlock}`);
             setStatus(`「${job.label}」音檔已寫入`);
           } else {
             // Text already streamed in; keep a compact audio bookmark per cut.
-            if (audioBlock) insertMd(`\n<!-- ${job.label} · ${time} -->\n${audioBlock}`);
+            if (audioBlock) insertMd(`\n${audioBlock}`);
             setStatus(`「${job.label}」音檔已附上`);
           }
           segOkRef.current += 1;
         } else {
-          insertMd(`\n### ${job.label} · ${time}\n\n${audioBlock}${got.transcript}\n`);
+          const toggle = transcriptToggleMd(`${time}\n\n${got.transcript}`);
+          insertMd(`${toggle}${audioBlock}`);
           queueTranscriptForOrganize(got.transcript);
           segOkRef.current += 1;
           setStatus(
@@ -463,6 +529,7 @@ export default function LiveNoteRecorder({
     forceBatchSttRef.current = true;
     streamOnRef.current = false;
     setStreamOn(false);
+    flushStreamTranscriptToggle();
     await stopStreamSession();
     // Rebuild segment MediaRecorder — STT AudioContext on the same stream can poison it.
     try {
@@ -520,9 +587,10 @@ export default function LiveNoteRecorder({
             streamInterimIdRef.current = null;
           }
           if (!text) return;
+          const stamp = formatRecClock(secsRef.current);
           const lineId = `stream-final-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-          setLines((prev) => [...prev, { id: lineId, label: "串流", text, state: "ready" }]);
-          insertMd(`${text} `);
+          setLines((prev) => [...prev, { id: lineId, label: stamp, text, state: "ready" }]);
+          streamTranscriptBufRef.current.push({ stamp, text });
           queueTranscriptForOrganize(text);
           setStatus("即時出字中…");
           return;
@@ -546,6 +614,8 @@ export default function LiveNoteRecorder({
     }
     streamSessionStartedAtRef.current = Date.now();
     streamLiveRef.current = true;
+    usedStreamThisSessionRef.current = true;
+    lastStreamOrgAtRef.current = Date.now();
     setStreamLive(true);
   };
 
@@ -617,6 +687,9 @@ export default function LiveNoteRecorder({
     segOkRef.current = 0;
     segFailRef.current = 0;
     forceBatchSttRef.current = false;
+    streamTranscriptBufRef.current = [];
+    lastStreamOrgAtRef.current = 0;
+    usedStreamThisSessionRef.current = false;
     jobsRef.current = [];
     secsRef.current = 0;
     try {
@@ -679,19 +752,25 @@ export default function LiveNoteRecorder({
         setStatus(
           cutModeRef.current === "auto"
             ? `${srcBit} · 純錄製：講超過 ${minSecs}s 且停頓後切段存檔`
-            : `${srcBit} · 純錄製：按「段落結束」存音檔`
+            : `${srcBit} · 純錄製：按「切段」存音檔`
+        );
+      } else if (streamOnRef.current && modeRef.current !== "audio") {
+        setStatus(
+          modeRef.current === "organize"
+            ? `${srcBit}${streamBit} · 邊講邊出字；每 ${STREAM_ORGANIZE_EVERY_SECS / 60} 分鐘 AI 整理`
+            : `${srcBit}${streamBit} · 邊講邊出字（不自動切段）`
         );
       } else if (modeRef.current === "transcribe") {
         setStatus(
           cutModeRef.current === "auto"
-            ? `${srcBit}${streamBit} · 講超過 ${minSecs}s 且停頓後切段`
-            : `${srcBit}${streamBit} · 按「段落結束」切段`
+            ? `${srcBit} · 講超過 ${minSecs}s 且停頓後切段`
+            : `${srcBit} · 按「切段」`
         );
       } else {
         setStatus(
           cutModeRef.current === "auto"
-            ? `${srcBit}${streamBit} · ≥${minSecs}s 停頓切段；每 ${organizeEvery} 段整理`
-            : `${srcBit}${streamBit} · 手動切段；需要時按「AI 整理」`
+            ? `${srcBit} · ≥${minSecs}s 停頓切段；每 ${organizeEvery} 段整理`
+            : `${srcBit} · 手動切段；需要時按「AI 整理」`
         );
       }
       tickRef.current = window.setInterval(() => {
@@ -705,6 +784,7 @@ export default function LiveNoteRecorder({
           segSecsRef.current = n;
           return n;
         });
+        maybeStreamTimedOrganizeRef.current();
         if (streamLiveRef.current && streamSessionStartedAtRef.current) {
           const sessionElapsed = Math.floor(
             (Date.now() - streamSessionStartedAtRef.current) / 1000
@@ -747,9 +827,12 @@ export default function LiveNoteRecorder({
       return;
     }
     try {
+      const wasStreaming = usedStreamThisSessionRef.current;
       const { full, lastSegment } = await rec.stopAll();
       recRef.current = null;
-      if (lastSegment) {
+      // Flush any buffered realtime lines before final organize / audio.
+      flushStreamTranscriptToggle();
+      if (lastSegment && !wasStreaming) {
         labelSeqRef.current += 1;
         const lineId = `seg-final-${Date.now()}`;
         const label = `段落 ${labelSeqRef.current}`;
@@ -758,15 +841,12 @@ export default function LiveNoteRecorder({
           {
             id: lineId,
             label,
-            text:
-              modeRef.current === "audio" || streamOnRef.current
-                ? "儲存音檔中…"
-                : "批次辨識中…",
+            text: modeRef.current === "audio" ? "儲存音檔中…" : "批次辨識中…",
             state: "pending",
           },
         ]);
         setStatus(
-          modeRef.current === "audio" || streamOnRef.current
+          modeRef.current === "audio"
             ? `處理「${label}」音檔中…`
             : `批次辨識「${label}」中…可能需要數十秒`
         );
@@ -915,7 +995,7 @@ export default function LiveNoteRecorder({
   const emptyHint = !doStt
     ? `≥${minSecs}s 停頓切段存檔`
     : streamWanted
-      ? `即時串流 · ${quotaLabel}（目前先提供 5 小時額度）`
+      ? `即時串流 · ${quotaLabel} · 每 ${STREAM_ORGANIZE_EVERY_SECS / 60} 分鐘整理`
       : mode === "transcribe"
         ? `≥${minSecs}s 停頓切段轉字（批次）`
         : `≥${minSecs}s 切段批次 · 每 ${organizeEvery} 段整理`;
@@ -1141,8 +1221,12 @@ export default function LiveNoteRecorder({
                   <button
                     type="button"
                     className={`btn btn-sm btn-ghost${cutMode === "manual" ? " is-on" : ""}`}
-                    disabled={stopping}
-                    title="切換自動／手動切段"
+                    disabled={stopping || streamActive}
+                    title={
+                      streamActive
+                        ? "即時模式不自動切段"
+                        : "切換自動／手動切段"
+                    }
                     onClick={() => {
                       setCutMode((m) => {
                         const next = m === "auto" ? "manual" : "auto";
@@ -1160,7 +1244,8 @@ export default function LiveNoteRecorder({
                   <button
                     type="button"
                     className="btn btn-sm btn-soft"
-                    disabled={!live || stopping}
+                    disabled={!live || stopping || streamActive}
+                    title={streamActive ? "即時模式不切段" : "手動切段"}
                     onClick={() => void cutParagraph(true, "manual")}
                   >
                     切段
