@@ -86,11 +86,15 @@ function clockNow(): string {
   });
 }
 
-/** Collapsed toggle titled 逐字稿, with timestamped body. */
+/** Collapsed toggle titled 逐段逐字稿, with timestamped body. */
 function transcriptToggleMd(body: string): string {
   const inner = body.trim();
   if (!inner) return "";
-  return `\n\n:::toggle 逐字稿\n${inner}\n:::\n\n`;
+  return `:::toggle 逐段逐字稿\n${inner}\n:::`;
+}
+
+function audioMd(url: string, title: string): string {
+  return `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${url}" title="${title}"></audio>`;
 }
 
 export default function LiveNoteRecorder({
@@ -173,7 +177,7 @@ export default function LiveNoteRecorder({
   const secsRef = useRef(0);
   /** After realtime fails, always use batch STT for cuts (even if UI lagged). */
   const forceBatchSttRef = useRef(false);
-  /** Buffered realtime finals → flushed into a 逐字稿 toggle. */
+  /** Buffered realtime finals → flushed into a 逐段逐字稿 toggle. */
   const streamTranscriptBufRef = useRef<Array<{ stamp: string; text: string }>>([]);
   const lastStreamOrgAtRef = useRef(0);
   /** True if this session used realtime (even briefly) — skip re-STT on stop. */
@@ -340,13 +344,14 @@ export default function LiveNoteRecorder({
     }
   };
 
-  /** Flush buffered realtime lines into a collapsed 逐字稿 toggle. */
+  /** Flush buffered realtime lines into a collapsed 逐段逐字稿 toggle. */
   const flushStreamTranscriptToggle = () => {
     const buf = streamTranscriptBufRef.current;
     if (!buf.length) return;
     streamTranscriptBufRef.current = [];
     const body = buf.map((x) => `${x.stamp}\n${x.text}`).join("\n\n");
-    insertMd(transcriptToggleMd(body));
+    const toggle = transcriptToggleMd(body);
+    if (toggle) insertMd(`\n\n${toggle}`);
   };
 
   const maybeAutoOrganize = () => {
@@ -403,22 +408,24 @@ export default function LiveNoteRecorder({
         setPending(jobsRef.current.length);
         if (!got) continue;
         const time = clockNow();
-        const audioBlock = got.url
-          ? `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${got.url}" title="${job.label}"></audio>\n\n`
-          : "";
+        const audioBlock = got.url ? audioMd(got.url, job.label) : "";
         if (modeRef.current === "audio" || got.audioOnly) {
           if (modeRef.current === "audio") {
-            insertMd(`\n### 音檔 · ${time}\n\n${audioBlock}`);
+            // H3 tight against the player (no blank line).
+            insertMd(audioBlock ? `\n\n### 音檔 · ${time}\n${audioBlock}\n` : `\n\n### 音檔 · ${time}\n`);
             setStatus(`「${job.label}」音檔已寫入`);
           } else {
             // Text already streamed in; keep a compact audio bookmark per cut.
-            if (audioBlock) insertMd(`\n${audioBlock}`);
+            if (audioBlock) insertMd(`\n${audioBlock}\n`);
             setStatus(`「${job.label}」音檔已附上`);
           }
           segOkRef.current += 1;
         } else {
           const toggle = transcriptToggleMd(`${time}\n\n${got.transcript}`);
-          insertMd(`${toggle}${audioBlock}`);
+          // Toggle + audio with no blank line between.
+          insertMd(
+            audioBlock ? `\n\n${toggle}\n${audioBlock}\n` : toggle ? `\n\n${toggle}\n` : ""
+          );
           queueTranscriptForOrganize(got.transcript);
           segOkRef.current += 1;
           setStatus(
@@ -872,9 +879,7 @@ export default function LiveNoteRecorder({
             type: full.type || "audio/webm",
           });
           const up = await uploadNoteMedia(uid, noteId, file);
-          insertMd(
-            `\n\n---\n\n**整場錄音**\n\n<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${up.url}" title="${file.name}"></audio>\n`
-          );
+          insertMd(`\n\n---\n\n### 整段錄音\n${audioMd(up.url, file.name)}\n`);
           fullOk = true;
         } catch {
           toast("完整音檔上傳失敗，段落音檔仍保留");

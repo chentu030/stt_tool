@@ -10980,6 +10980,23 @@ body.rich-media-float-dragging * {
   border-radius: 10px;
   background: var(--bg-muted);
 }
+/* Live recording: title / toggle sits flush against the player below. */
+.rich-prose h3:has(+ .rich-audio),
+.rich-prose h3:has(+ audio.rich-audio) {
+  margin-bottom: 0.12em;
+}
+.rich-prose h3 + .rich-audio,
+.rich-prose h3 + audio.rich-audio {
+  margin-top: 0.12em;
+}
+.rich-prose .rich-toggle:has(+ .rich-audio),
+.rich-prose .rich-toggle:has(+ audio.rich-audio) {
+  margin-bottom: 0.12em;
+}
+.rich-prose .rich-toggle + .rich-audio,
+.rich-prose .rich-toggle + audio.rich-audio {
+  margin-top: 0.12em;
+}
 .rich-prose .rich-video {
   max-height: 420px;
 }
