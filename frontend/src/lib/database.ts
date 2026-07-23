@@ -540,6 +540,29 @@ export function listenDatabaseRows(
   });
 }
 
+export async function listDatabaseRowsOnce(
+  uid: string,
+  databaseId: string
+): Promise<Note[]> {
+  const q = query(
+    collection(db, "notes"),
+    where("user_id", "==", uid),
+    where("database_id", "==", databaseId)
+  );
+  const snap = await getDocs(q);
+  const rows = snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      id: d.id,
+      ...data,
+      created_at: data.created_at?.toDate?.() || new Date(),
+      updated_at: data.updated_at?.toDate?.() || new Date(),
+    } as Note;
+  });
+  rows.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+  return rows;
+}
+
 export async function createDatabaseRow(
   uid: string,
   databaseId: string,

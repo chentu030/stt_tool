@@ -7,6 +7,7 @@ import {
   appendGroundingSources,
 } from "@/lib/aiPrefs";
 import { NOTE_EDIT_SYSTEM_RULES } from "@/lib/noteAiEdit";
+import { DB_EDIT_SYSTEM_RULES } from "@/lib/dbAiEdit";
 
 export const runtime = "nodejs";
 
@@ -51,8 +52,12 @@ type Body = {
   grounding?: boolean;
   /** When true, system prompt allows albireus-note-edit fences for the open note. */
   allowNoteEdit?: boolean;
+  /** When true, system prompt allows albireus-db-edit fences for the open database. */
+  allowDbEdit?: boolean;
   /** Focus note id (for edit targeting hints). */
   focusNoteId?: string;
+  /** Focus database id (for edit targeting hints). */
+  focusDatabaseId?: string;
   assistant?: {
     name?: string;
     style?: "concise" | "balanced" | "detailed";
@@ -241,15 +246,29 @@ ops 可用：
   if (action === "chat" || action === "library" || action === "note") {
     const history = (data.messages || []).slice(-12);
     const allowEdit = !!data.allowNoteEdit;
+    const allowDb = !!data.allowDbEdit;
+    const editRules = [
+      allowDb
+        ? `使用者已授權你在「明確要求修改資料庫」時直接產出可套用的資料庫編輯區塊。目前資料庫 ID：${data.focusDatabaseId || "（未知）"}。\n${DB_EDIT_SYSTEM_RULES}`
+        : "",
+      allowEdit
+        ? `使用者已授權你在「明確要求修改筆記」時直接產出可套用的編輯區塊。目前對焦筆記 ID：${data.focusNoteId || "（未知）"}。\n${NOTE_EDIT_SYSTEM_RULES}`
+        : "",
+      !allowDb && !allowEdit
+        ? "你目前沒有寫入筆記或資料庫的權限；只能在對話中給出建議，不要假裝已修改。"
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
     const system = [
       asst,
-      "優先根據提供的筆記／知識庫脈絡作答；不要捏造沒有的事實。",
+      allowDb
+        ? "優先根據提供的資料庫脈絡作答；改資料時用列 id／屬性 id（或清楚的顯示名稱），不要捏造不存在的列。"
+        : "優先根據提供的筆記／知識庫脈絡作答；不要捏造沒有的事實。",
       "若使用者要求改寫／插入內容，用 Markdown 清楚標出建議文字。",
       "可用標題、清單、粗體、表格。",
       "提到具體筆記時，盡量附上路徑如 /notes/ID。",
-      allowEdit
-        ? `使用者已授權你在「明確要求修改筆記」時直接產出可套用的編輯區塊。目前對焦筆記 ID：${data.focusNoteId || "（未知）"}。\n${NOTE_EDIT_SYSTEM_RULES}`
-        : "你目前沒有寫入筆記的權限；只能在對話中給出建議，不要假裝已修改筆記。",
+      editRules,
     ].join("\n");
 
     const ctxBlock = context || note

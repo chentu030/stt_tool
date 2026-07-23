@@ -41,6 +41,11 @@ import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/components/AuthProvider";
 import { resolvePersonLabel } from "@/lib/userProfile";
+import {
+  buildDbLiveSnapshot,
+  clearDbLiveSnapshot,
+  publishDbLiveSnapshot,
+} from "@/lib/dbAiEdit";
 
 const SELECT_COL_W = 28;
 const ADD_COL_W = 40;
@@ -282,6 +287,11 @@ export default function DatabaseView({ databaseId, userId, viewId, compact }: Pr
     [databaseId]
   );
   useEffect(() => listenDatabaseRows(userId, databaseId, setRows), [userId, databaseId]);
+  useEffect(() => {
+    if (!db) return;
+    publishDbLiveSnapshot(buildDbLiveSnapshot(db, rows));
+    return () => clearDbLiveSnapshot(db.id);
+  }, [db, rows]);
   useEffect(() => {
     if (viewId) setActiveViewId(viewId);
     else if (db?.views?.[0] && !activeViewId) setActiveViewId(db.views[0].id);

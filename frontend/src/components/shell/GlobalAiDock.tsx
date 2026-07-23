@@ -20,6 +20,14 @@ import {
   readNoteLiveDraft,
   type NoteAiEdit,
 } from "@/lib/noteAiEdit";
+import {
+  applyDbAiEdit,
+  packDbContextForAi,
+  parseDbAiEdit,
+  readDbLiveSnapshot,
+  type DbAiEdit,
+} from "@/lib/dbAiEdit";
+import { getDatabase, listDatabaseRowsOnce } from "@/lib/database";
 import { toast } from "@/lib/toast";
 
 type Msg = {
@@ -28,6 +36,7 @@ type Msg = {
   text: string;
   edit?: NoteAiEdit | null;
   editNoteId?: string;
+  dbEdit?: DbAiEdit | null;
   editApplied?: boolean;
 };
 type RailMode = "dock" | "float";
@@ -63,6 +72,15 @@ const NOTE_PAGE_SUGGESTIONS = [
   { label: "只問不改", prompt: "先不要改筆記，只說明這篇在講什麼" },
 ];
 
+const DB_PAGE_SUGGESTIONS = [
+  { label: "總結資料庫", prompt: "請總結目前這個資料庫有哪些欄位與資料概況" },
+  { label: "整理狀態", prompt: "請檢視各列狀態，把明顯已完成的改成完成，並直接更新資料庫" },
+  { label: "補缺漏", prompt: "找出空白或明顯缺漏的欄位，合理補上後直接更新資料庫" },
+  { label: "批次改欄", prompt: "依我的描述批次修改多列的同一個欄位，並直接寫入資料庫" },
+  { label: "新增一列", prompt: "依我的描述新增一列到資料庫並填好欄位" },
+  { label: "只問不改", prompt: "先不要改資料庫，只說明目前表格內容" },
+];
+
 const LIBRARY_SUGGESTIONS = AI_SUGGESTIONS;
 
 const CANVAS_SUGGESTIONS = [
@@ -85,6 +103,18 @@ function readFocusNoteId(pathname: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function readFocusDatabaseId(
+  pathname: string | null,
+  focusNote: Note | null | undefined
+): string | null {
+  const m = pathname?.match(/^\/db\/([^/?#]+)/);
+  if (m?.[1]) return m[1];
+  if (focusNote?.app_link?.type === "database" && focusNote.app_link.id) {
+    return focusNote.app_link.id;
+  }
+  return null;
 }
 
 function saveOpen(open: boolean) {
@@ -204,6 +234,7 @@ export default function GlobalAiDock() {
   const [webSearch, setWebSearch] = useState(false);
   const [focusNoteId, setFocusNoteId] = useState<string | null>(null);
   const [jobCtx, setJobCtx] = useState<JobAiContext | null>(null);
+  const [dbLiveTick, setDbLiveTick] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
   const listRef = useRef<HTMLDivElement>(null);
@@ -215,20 +246,33 @@ export default function GlobalAiDock() {
   const onLibraryPage = pathname === "/library" || pathname?.startsWith("/library/");
   const onCanvasPage = pathname?.startsWith("/canvas/");
   const onJobPage = pathname?.startsWith("/job/");
+  const onDbPage = pathname?.startsWith("/db/");
   const allowNoteEdit = prefsCtx?.prefs.aiAllowNoteEdit !== false;
   const focusNote = useMemo(
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
     [focusNoteId, notes]
   );
-  const dockSuggestions = onJobPage && jobCtx
-    ? JOB_AI_SUGGESTIONS
-    : onNotePage && focusNote
-      ? NOTE_PAGE_SUGGESTIONS
-      : onLibraryPage
-        ? LIBRARY_SUGGESTIONS
-        : onCanvasPage
-          ? CANVAS_SUGGESTIONS
-          : DOCK_SUGGESTIONS;
+  const focusDatabaseId = useMemo(
+    () => readFocusDatabaseId(pathname, focusNote),
+    [pathname, focusNote]
+  );
+  const liveDb = useMemo(() => {
+    return readDbLiveSnapshot(focusDatabaseId) || (focusDatabaseId ? null : readDbLiveSnapshot());
+  }, [focusDatabaseId, dbLiveTick, open]);
+  const activeDbSnap =
+    liveDb && (!focusDatabaseId || liveDb.databaseId === focusDatabaseId) ? liveDb : null;
+  const dockSuggestions =
+    activeDbSnap || onDbPage
+      ? DB_PAGE_SUGGESTIONS
+      : onJobPage && jobCtx
+      ? JOB_AI_SUGGESTIONS
+      : onNotePage && focusNote
+        ? NOTE_PAGE_SUGGESTIONS
+        : onLibraryPage
+          ? LIBRARY_SUGGESTIONS
+          : onCanvasPage
+            ? CANVAS_SUGGESTIONS
+            : DOCK_SUGGESTIONS;
   const assistantName = prefsCtx?.prefs.aiAssistantName || "Albireus AI";
 
   const active = useMemo(
@@ -349,6 +393,12 @@ export default function GlobalAiDock() {
   }, []);
 
   useEffect(() => {
+    const on = () => setDbLiveTick((n) => n + 1);
+    window.addEventListener("albireus:db-live", on);
+    return () => window.removeEventListener("albireus:db-live", on);
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setNotes([]);
       return;
@@ -410,6 +460,10 @@ export default function GlobalAiDock() {
   }, [notes, pinnedIds, atQ]);
 
   const scopeLabel = useMemo(() => {
+    if (activeDbSnap) {
+      const t = activeDbSnap.name || "資料庫";
+      return t.length > 28 ? `${t.slice(0, 28)}…` : t;
+    }
     if (onJobPage && jobCtx) {
       const t = jobCtx.filename || jobCtx.title || "逐字稿";
       return t.length > 28 ? `${t.slice(0, 28)}…` : t;
@@ -418,7 +472,7 @@ export default function GlobalAiDock() {
     if (focusNote) return focusNote.title || "筆記";
     if (onNotePage) return "跨庫提問 · 本篇可用 Ctrl+J";
     return `知識庫 ${notes.length} 篇`;
-  }, [onJobPage, jobCtx, onNotePage, notes.length, pinnedNotes.length, focusNote]);
+  }, [activeDbSnap, onJobPage, jobCtx, onNotePage, notes.length, pinnedNotes.length, focusNote]);
 
   const historySorted = useMemo(
     () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -504,6 +558,38 @@ export default function GlobalAiDock() {
     toast(edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
   };
 
+  const applyDbEdit = async (msgId: string, edit: DbAiEdit) => {
+    if (!user) {
+      toast("請先登入");
+      return;
+    }
+    try {
+      const dbDoc = await getDatabase(edit.databaseId);
+      if (!dbDoc) throw new Error("找不到資料庫");
+      const rows = await listDatabaseRowsOnce(user.uid, edit.databaseId);
+      const result = await applyDbAiEdit(edit, {
+        db: dbDoc,
+        rows,
+        userId: user.uid,
+      });
+      patchActive((t) => ({
+        ...t,
+        msgs: t.msgs.map((m) =>
+          m.id === msgId ? { ...m, editApplied: true } : m
+        ),
+      }));
+      if (result.ok && !result.failed) {
+        toast(`已更新資料庫（${result.ok} 項）`);
+      } else if (result.ok) {
+        toast(`已套用 ${result.ok} 項，失敗 ${result.failed} 項`);
+      } else {
+        toast(result.messages[0] || "無法套用資料庫修改");
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "無法套用資料庫修改");
+    }
+  };
+
   const send = async (text: string) => {
     const prompt = text.trim();
     if (!prompt || busy) return;
@@ -540,9 +626,28 @@ export default function GlobalAiDock() {
       };
 
       let body: Record<string, unknown>;
-      const canEditHere = allowNoteEdit && !!focusNote && onNotePage;
+      const dbSnap =
+        readDbLiveSnapshot(focusDatabaseId) ||
+        (focusDatabaseId ? null : readDbLiveSnapshot());
+      if (focusDatabaseId && !dbSnap) {
+        throw new Error("資料庫脈絡尚未就緒，請等表格載入後再試");
+      }
+      const canEditDb = allowNoteEdit && !!dbSnap;
+      const canEditHere = allowNoteEdit && !!focusNote && onNotePage && !dbSnap;
 
-      if (onJobPage && jobCtx) {
+      if (dbSnap) {
+        body = {
+          action: "note",
+          title: dbSnap.name,
+          prompt,
+          context: packDbContextForAi(dbSnap),
+          messages: history,
+          assistant,
+          allowNoteEdit: false,
+          allowDbEdit: canEditDb,
+          focusDatabaseId: dbSnap.databaseId,
+        };
+      } else if (onJobPage && jobCtx) {
         const packed = packTranscriptForAi(jobCtx.transcript);
         if (!packed.trim()) throw new Error("尚無逐字稿內容可詢問");
         body = {
@@ -612,25 +717,57 @@ export default function GlobalAiDock() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "失敗");
       const rawText = String(data.text || "（無回覆）");
-      const parsed = canEditHere ? parseNoteAiEdit(rawText) : { edit: null, displayText: rawText };
+
+      let displayText = rawText;
+      let noteEdit: NoteAiEdit | null = null;
+      let dbEdit: DbAiEdit | null = null;
       let editApplied = false;
-      if (parsed.edit && focusNote && canEditHere) {
-        dispatchNoteAiEdit({
-          noteId: focusNote.id,
-          mode: parsed.edit.mode,
-          bodyMd: parsed.edit.bodyMd,
-          title: parsed.edit.title,
-          source: "global-ai",
-        });
-        editApplied = true;
-        toast(parsed.edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
+
+      if (canEditDb && dbSnap) {
+        const parsedDb = parseDbAiEdit(rawText);
+        displayText = parsedDb.displayText;
+        dbEdit = parsedDb.edit;
+        if (dbEdit && dbEdit.databaseId === dbSnap.databaseId && user) {
+          const dbDoc = await getDatabase(dbEdit.databaseId);
+          if (dbDoc) {
+            const rows = await listDatabaseRowsOnce(user.uid, dbEdit.databaseId);
+            const result = await applyDbAiEdit(dbEdit, {
+              db: dbDoc,
+              rows,
+              userId: user.uid,
+            });
+            editApplied = result.ok > 0;
+            if (result.ok && !result.failed) {
+              toast(`已更新資料庫（${result.ok} 項）`);
+            } else if (result.ok) {
+              toast(`已套用 ${result.ok} 項，失敗 ${result.failed} 項`);
+            }
+          }
+        }
+      } else if (canEditHere) {
+        const parsed = parseNoteAiEdit(rawText);
+        displayText = parsed.displayText;
+        noteEdit = parsed.edit;
+        if (parsed.edit && focusNote) {
+          dispatchNoteAiEdit({
+            noteId: focusNote.id,
+            mode: parsed.edit.mode,
+            bodyMd: parsed.edit.bodyMd,
+            title: parsed.edit.title,
+            source: "global-ai",
+          });
+          editApplied = true;
+          toast(parsed.edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
+        }
       }
+
       const assistantMsg: Msg = {
         id: uid(),
         role: "assistant",
-        text: parsed.displayText,
-        edit: parsed.edit,
-        editNoteId: parsed.edit && focusNote ? focusNote.id : undefined,
+        text: displayText,
+        edit: noteEdit,
+        editNoteId: noteEdit && focusNote ? focusNote.id : undefined,
+        dbEdit,
         editApplied,
       };
       patchActive((t) => ({
@@ -919,6 +1056,22 @@ export default function GlobalAiDock() {
                   ) : (
                     <p>{m.text}</p>
                   )}
+                  {m.role === "assistant" && m.dbEdit ? (
+                    <div className="cadence-ai-edit-bar">
+                      <span>
+                        {m.editApplied
+                          ? `已寫入資料庫（${m.dbEdit.ops.length} 項）`
+                          : `建議修改資料庫（${m.dbEdit.ops.length} 項）`}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => void applyDbEdit(m.id, m.dbEdit!)}
+                      >
+                        {m.editApplied ? "再次套用" : "套用到資料庫"}
+                      </button>
+                    </div>
+                  ) : null}
                   {m.role === "assistant" && m.edit && m.editNoteId ? (
                     <div className="cadence-ai-edit-bar">
                       <span>
