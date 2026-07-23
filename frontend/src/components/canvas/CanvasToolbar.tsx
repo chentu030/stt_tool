@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { STICKY_COLORS, ToolId, colorToShapeHex, resolveStickyStyle } from "@/lib/canvasStore";
 import CanvasColorPicker from "@/components/canvas/CanvasColorPicker";
 
 type DockPanel = "insert" | "color" | "view" | "more" | null;
 
 const TOOLS: { id: ToolId; label: string; hint: string; icon: string }[] = [
-  { id: "select", label: "選取", hint: "V", icon: "↖" },
-  { id: "pan", label: "平移", hint: "H · Space", icon: "✋" },
-  { id: "sticky", label: "便利貼", hint: "S", icon: "🗒" },
-  { id: "text", label: "文字", hint: "T", icon: "T" },
-  { id: "rect", label: "矩形", hint: "R", icon: "▭" },
-  { id: "ellipse", label: "圓形", hint: "O", icon: "○" },
-  { id: "frame", label: "框架", hint: "F", icon: "▢" },
-  { id: "connect", label: "連線", hint: "C", icon: "⤴" },
+  { id: "select", label: "選取", hint: "V", icon: "arrow_selector_tool" },
+  { id: "pan", label: "平移", hint: "H · Space", icon: "pan_tool" },
+  { id: "sticky", label: "便利貼", hint: "S", icon: "sticky_note_2" },
+  { id: "text", label: "文字", hint: "T", icon: "title" },
+  { id: "rect", label: "矩形", hint: "R", icon: "rectangle" },
+  { id: "ellipse", label: "圓形", hint: "O", icon: "circle" },
+  { id: "frame", label: "框架", hint: "F", icon: "crop_square" },
+  { id: "connect", label: "連線", hint: "C", icon: "timeline" },
 ];
 
 type Props = {
@@ -52,6 +52,55 @@ function DockTip({ label, hint }: { label: string; hint: string }) {
       <strong>{label}</strong>
       <em>{hint}</em>
     </span>
+  );
+}
+
+function DockGlyph({ name, filled }: { name: string; filled?: boolean }) {
+  return (
+    <span
+      className="material-symbols-outlined cv-dock-glyph"
+      style={{
+        fontVariationSettings: `'FILL' ${filled ? 1 : 0}, 'wght' 450, 'GRAD' 0, 'opsz' 20`,
+      }}
+      aria-hidden
+    >
+      {name}
+    </span>
+  );
+}
+
+function DockBtn({
+  label,
+  hint,
+  active,
+  disabled,
+  expanded,
+  onClick,
+  children,
+  className = "",
+}: {
+  label: string;
+  hint: string;
+  active?: boolean;
+  disabled?: boolean;
+  expanded?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`cv-dock-btn${active ? " is-on" : ""}${className ? ` ${className}` : ""}`}
+      aria-label={`${label}${hint ? `（${hint}）` : ""}`}
+      aria-expanded={expanded}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+      <span className="cv-dock-label">{label}</span>
+      <DockTip label={label} hint={hint} />
+    </button>
   );
 }
 
@@ -103,6 +152,7 @@ export default function CanvasToolbar({
   const isCustom = !STICKY_COLORS.some((c) => c.id === stickyColor);
   const hasSelection = selectionCount > 0;
   const editMode = hasSelection && canEditSelection;
+  const zoomPct = Math.round(scale * 100);
 
   const togglePanel = (id: DockPanel) => {
     setPanel((p) => (p === id ? null : id));
@@ -196,7 +246,7 @@ export default function CanvasToolbar({
 
   const viewPanel = panel === "view" && (
     <div className="cv-dock-panel" role="menu">
-      <p className="cv-dock-panel-title">檢視 · {Math.round(scale * 100)}%</p>
+      <p className="cv-dock-panel-title">檢視 · {zoomPct}%</p>
       <div className="cv-dock-panel-row">
         <button type="button" className="cv-dock-panel-item" onClick={onZoomOut}>縮小</button>
         <button type="button" className="cv-dock-panel-item" onClick={onZoomIn}>放大</button>
@@ -232,32 +282,30 @@ export default function CanvasToolbar({
         ? TOOLS.filter((t) => t.id === "select" || t.id === "pan")
         : TOOLS
       ).map((t) => (
-        <button
+        <DockBtn
           key={t.id}
-          type="button"
-          className={`cv-dock-btn${tool === t.id ? " is-on" : ""}`}
-          aria-label={`${t.label}（${t.hint}）`}
+          label={t.label}
+          hint={t.hint}
+          active={tool === t.id}
           onClick={() => {
             onTool(t.id);
             setPanel(null);
             setMobileOpen(false);
           }}
         >
-          <span className="cv-dock-icon" aria-hidden>
-            {t.icon}
-          </span>
-          <DockTip label={t.label} hint={t.hint} />
-        </button>
+          <DockGlyph name={t.icon} filled={tool === t.id} />
+        </DockBtn>
       ))}
 
       <span className="cv-dock-sep" aria-hidden />
 
       {editMode ? (
         <>
-          <button
-            type="button"
-            className={`cv-dock-btn${panel === "color" ? " is-on" : ""}`}
-            aria-label="顏色"
+          <DockBtn
+            label="顏色"
+            hint="套用到選取"
+            active={panel === "color"}
+            expanded={panel === "color"}
             onClick={() => togglePanel("color")}
           >
             <span
@@ -265,28 +313,23 @@ export default function CanvasToolbar({
               style={{ background: customStyle.bg, borderColor: customStyle.border }}
               aria-hidden
             />
-            <DockTip label="顏色" hint="套用到選取" />
-          </button>
-          <button
-            type="button"
-            className="cv-dock-btn"
-            aria-label="複製"
+          </DockBtn>
+          <DockBtn
+            label="複製"
+            hint="Ctrl+D"
             disabled={!canEditSelection}
             onClick={onDuplicate}
           >
-            <span className="cv-dock-icon" aria-hidden>⧉</span>
-            <DockTip label="複製" hint="Ctrl+D" />
-          </button>
-          <button
-            type="button"
-            className="cv-dock-btn"
-            aria-label="刪除"
+            <DockGlyph name="content_copy" />
+          </DockBtn>
+          <DockBtn
+            label="刪除"
+            hint="Del"
             disabled={!canEditSelection}
             onClick={onDelete}
           >
-            <span className="cv-dock-icon" aria-hidden>×</span>
-            <DockTip label="刪除" hint="Del" />
-          </button>
+            <DockGlyph name="delete" />
+          </DockBtn>
           {selectionCount > 1 && (
             <span className="cv-dock-badge" title={`已選 ${selectionCount} 個`}>
               {selectionCount}
@@ -295,20 +338,20 @@ export default function CanvasToolbar({
         </>
       ) : (
         <>
-          <button
-            type="button"
-            className={`cv-dock-btn${panel === "insert" ? " is-on" : ""}`}
-            aria-label="插入"
-            aria-expanded={panel === "insert"}
+          <DockBtn
+            label="插入"
+            hint="媒體／網址"
+            active={panel === "insert"}
+            expanded={panel === "insert"}
             onClick={() => togglePanel("insert")}
           >
-            <span className="cv-dock-icon" aria-hidden>+</span>
-            <DockTip label="插入" hint="媒體／網址" />
-          </button>
-          <button
-            type="button"
-            className={`cv-dock-btn${panel === "color" ? " is-on" : ""}`}
-            aria-label="顏色"
+            <DockGlyph name="add" />
+          </DockBtn>
+          <DockBtn
+            label="顏色"
+            hint="便利貼／形狀"
+            active={panel === "color"}
+            expanded={panel === "color"}
             onClick={() => togglePanel("color")}
           >
             <span
@@ -316,33 +359,32 @@ export default function CanvasToolbar({
               style={{ background: customStyle.bg, borderColor: customStyle.border }}
               aria-hidden
             />
-            <DockTip label="顏色" hint="便利貼／形狀" />
-          </button>
+          </DockBtn>
         </>
       )}
 
       <span className="cv-dock-sep" aria-hidden />
 
-      <button
-        type="button"
-        className={`cv-dock-btn${panel === "view" ? " is-on" : ""}`}
-        aria-label="檢視"
+      <DockBtn
+        label="檢視"
+        hint={`${zoomPct}%`}
+        active={panel === "view"}
+        expanded={panel === "view"}
         onClick={() => togglePanel("view")}
       >
-        <span className="cv-dock-icon cv-dock-icon--sm" aria-hidden>
-          {Math.round(scale * 100)}
+        <span className="cv-dock-zoom" aria-hidden>
+          {zoomPct}
         </span>
-        <DockTip label="檢視" hint={`${Math.round(scale * 100)}%`} />
-      </button>
-      <button
-        type="button"
-        className={`cv-dock-btn${panel === "more" ? " is-on" : ""}`}
-        aria-label="更多"
+      </DockBtn>
+      <DockBtn
+        label="更多"
+        hint="網格／匯出／分享"
+        active={panel === "more"}
+        expanded={panel === "more"}
         onClick={() => togglePanel("more")}
       >
-        <span className="cv-dock-icon" aria-hidden>⋯</span>
-        <DockTip label="更多" hint="網格／匯出／分享" />
-      </button>
+        <DockGlyph name="more_horiz" />
+      </DockBtn>
     </div>
   );
 
@@ -357,7 +399,7 @@ export default function CanvasToolbar({
           setPanel(null);
         }}
       >
-        {mobileOpen ? "×" : "+"}
+        <DockGlyph name={mobileOpen ? "close" : "construction"} />
       </button>
 
       <div className="cv-dock-body">

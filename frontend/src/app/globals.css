@@ -8722,9 +8722,9 @@ button.jn-heat-cell:disabled {
 .cv-dock-rail {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 2px;
-  padding: 0.35rem 0.28rem;
+  padding: 0.4rem 0.3rem;
   background: color-mix(in srgb, var(--bg-card) 94%, transparent);
   backdrop-filter: blur(10px);
   border: 1px solid var(--border);
@@ -8734,20 +8734,25 @@ button.jn-heat-cell:disabled {
   overflow-x: visible;
   scrollbar-width: thin;
   max-height: 100%;
+  width: 58px;
 }
 .cv-dock-btn {
   position: relative;
-  width: 36px;
-  height: 36px;
+  width: 100%;
+  min-height: 44px;
+  height: auto;
   border: none;
   border-radius: 10px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
   flex: 0 0 auto;
-  padding: 0;
+  padding: 0.28rem 0.12rem 0.22rem;
 }
 .cv-dock-btn:hover {
   background: var(--bg-muted);
@@ -8761,6 +8766,35 @@ button.jn-heat-cell:disabled {
 .cv-dock-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+.cv-dock-glyph {
+  font-size: 20px;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.cv-dock-label {
+  font-size: 0.58rem;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  color: inherit;
+  opacity: 0.88;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-dock-btn.is-on .cv-dock-label {
+  opacity: 1;
+}
+.cv-dock-zoom {
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.1;
+  pointer-events: none;
 }
 .cv-dock-icon {
   font-size: 0.95rem;
@@ -8779,12 +8813,14 @@ button.jn-heat-cell:disabled {
   border-radius: 50%;
   border: 2px solid var(--border);
   display: block;
+  margin-top: 2px;
+  margin-bottom: 1px;
 }
 .cv-dock-sep {
-  width: 22px;
+  width: calc(100% - 10px);
   height: 1px;
   background: var(--border);
-  margin: 0.2rem 0;
+  margin: 0.22rem auto;
   flex: 0 0 auto;
 }
 .cv-dock-badge {
@@ -8798,6 +8834,7 @@ button.jn-heat-cell:disabled {
   font-weight: 700;
   display: grid;
   place-items: center;
+  align-self: center;
   margin-top: 0.15rem;
 }
 .cv-dock-tip {
