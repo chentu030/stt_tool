@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createScheduleEvent,
-  deleteScheduleEvent,
   formatClock,
   listenScheduleEventsForDates,
   snapMin,
@@ -18,6 +17,7 @@ import {
 } from "@/lib/journalMeta";
 import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import ScheduleEventEditDialog from "@/components/journal/ScheduleEventEditDialog";
 
 const HOUR_START = 6;
 const HOUR_END = 22;
@@ -88,6 +88,10 @@ export default function JournalWeekTimeline({
     startMin: number;
     endMin: number;
   } | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const editModeRef = useRef(editMode);
+  editModeRef.current = editMode;
 
   useEffect(() => {
     return listenScheduleEventsForDates(uid, weekKeys, setLocalEvents, (e) =>
@@ -153,7 +157,7 @@ export default function JournalWeekTimeline({
   const finishCreate = async () => {
     const drag = dragRef.current;
     dragRef.current = null;
-    if (!drag || !drag.moved) {
+    if (!editModeRef.current || !drag || !drag.moved) {
       setDraft(null);
       return;
     }
@@ -190,6 +194,12 @@ export default function JournalWeekTimeline({
   };
 
   const onColPointerDown = (dk: string, e: React.PointerEvent<HTMLDivElement>) => {
+    if (!editModeRef.current) {
+      if (!(e.target as HTMLElement).closest(".jn-week-event")) {
+        onSelectDay?.(dk);
+      }
+      return;
+    }
     if ((e.target as HTMLElement).closest(".jn-week-event")) return;
     const col = e.currentTarget;
     const rect = col.getBoundingClientRect();
@@ -211,6 +221,7 @@ export default function JournalWeekTimeline({
   };
 
   const onColPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!editModeRef.current) return;
     const drag = dragRef.current;
     if (!drag) return;
     const dy = Math.abs(e.clientY - drag.startClientY);
@@ -228,10 +239,15 @@ export default function JournalWeekTimeline({
     setDraft({ dateKey: drag.dateKey, startMin, endMin });
   };
 
+  const openEventEditor = (ev: ScheduleEvent) => {
+    onSelectEvent?.(ev);
+    setEditingEvent(ev);
+  };
+
   const selected = merged.find((e) => e.id === selectedEventId) || null;
 
   return (
-    <div className="jn-week">
+    <div className={`jn-week${editMode ? " is-editing" : ""}`}>
       <div className="jn-week-head">
         <div className="jn-week-head-left">
           <button type="button" className="jn-icon-btn" onClick={() => shiftWeek(-1)} aria-label="上一週">
@@ -248,6 +264,20 @@ export default function JournalWeekTimeline({
               回到本週
             </button>
           )}
+          <button
+            type="button"
+            className={`btn btn-sm${editMode ? "" : " btn-soft"}`}
+            onClick={() => {
+              setEditMode((v) => !v);
+              if (editMode) {
+                dragRef.current = null;
+                setDraft(null);
+              }
+            }}
+            title={editMode ? "關閉拖曳編輯，避免誤觸" : "開啟後可拖曳新增行程"}
+          >
+            {editMode ? "完成編輯" : "編輯行程"}
+          </button>
         </div>
       </div>
 
@@ -267,33 +297,40 @@ export default function JournalWeekTimeline({
                       onSelectDay?.(dk);
                       onSelectEvent?.(ev);
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      onSelectDay?.(dk);
+                      openEventEditor(ev);
+                    }}
                   >
                     {ev.title}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  className="jn-text-btn"
-                  title={`新增 ${dk} 全天`}
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        await createScheduleEvent(uid, {
-                          dateKey: dk,
-                          startMin: 0,
-                          endMin: 24 * 60,
-                          allDay: true,
-                          title: "全天",
-                        });
-                        onSelectDay?.(dk);
-                      } catch (err) {
-                        toast(err instanceof Error ? err.message : "新增失敗");
-                      }
-                    })();
-                  }}
-                >
-                  ＋
-                </button>
+                {editMode && (
+                  <button
+                    type="button"
+                    className="jn-text-btn"
+                    title={`新增 ${dk} 全天`}
+                    onClick={() => {
+                      void (async () => {
+                        try {
+                          await createScheduleEvent(uid, {
+                            dateKey: dk,
+                            startMin: 0,
+                            endMin: 24 * 60,
+                            allDay: true,
+                            title: "全天",
+                          });
+                          onSelectDay?.(dk);
+                        } catch (err) {
+                          toast(err instanceof Error ? err.message : "新增失敗");
+                        }
+                      })();
+                    }}
+                  >
+                    ＋
+                  </button>
+                )}
                 <span className="jn-week-allday-wd">{WEEKDAY_LABELS[i]}</span>
               </div>
             );
@@ -324,7 +361,7 @@ export default function JournalWeekTimeline({
               return (
                 <div
                   key={dk}
-                  className={`jn-week-col${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}`}
+                  className={`jn-week-col${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}${editMode ? " is-edit" : ""}`}
                   onPointerDown={(e) => onColPointerDown(dk, e)}
                   onPointerMove={onColPointerMove}
                   onPointerUp={() => void finishCreate()}
@@ -349,7 +386,7 @@ export default function JournalWeekTimeline({
                     <div className="jn-week-now" style={{ top: topFor(nowMin) }} />
                   )}
 
-                  {draft?.dateKey === dk && (
+                  {editMode && draft?.dateKey === dk && (
                     <div
                       className="jn-week-event is-draft"
                       style={{
@@ -378,6 +415,16 @@ export default function JournalWeekTimeline({
                           onSelectDay?.(dk);
                           onSelectEvent?.(ev);
                         }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onSelectDay?.(dk);
+                          openEventEditor(ev);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          openEventEditor(ev);
+                        }}
                       >
                         <strong>{ev.title}</strong>
                         <span>
@@ -394,7 +441,11 @@ export default function JournalWeekTimeline({
         </div>
       </div>
 
-      <p className="jn-tl-hint">點日期切換日誌；在欄內拖曳新增行程</p>
+      <p className="jn-tl-hint">
+        {editMode
+          ? "編輯中：拖曳空白處新增行程。右鍵或雙擊行程可詳細設定。"
+          : "點「編輯行程」後才能拖曳新增。右鍵／雙擊行程可改名稱與時間。"}
+      </p>
 
       {selected && (
         <div className="jn-tl-actions">
@@ -419,49 +470,28 @@ export default function JournalWeekTimeline({
                 加入
               </button>
             )}
-            {selected.provider === "local" && (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        const t = await askPrompt({
-                          title: "重新命名",
-                          defaultValue: selected.title,
-                        });
-                        if (t == null) return;
-                        await updateScheduleEvent(uid, selected.id, { title: t.trim() || "未命名" });
-                      } catch (err) {
-                        toast(err instanceof Error ? err.message : "更新失敗");
-                      }
-                    })();
-                  }}
-                >
-                  改名
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    void (async () => {
-                      try {
-                        await deleteScheduleEvent(uid, selected.id);
-                        onSelectEvent?.(null);
-                        toast("已刪除");
-                      } catch (err) {
-                        toast(err instanceof Error ? err.message : "刪除失敗");
-                      }
-                    })();
-                  }}
-                >
-                  刪除
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => openEventEditor(selected)}
+            >
+              詳細設定
+            </button>
           </div>
         </div>
+      )}
+
+      {editingEvent && (
+        <ScheduleEventEditDialog
+          uid={uid}
+          event={editingEvent}
+          onClose={() => setEditingEvent(null)}
+          onSaved={() => setEditingEvent(null)}
+          onDeleted={() => {
+            if (selectedEventId === editingEvent.id) onSelectEvent?.(null);
+            setEditingEvent(null);
+          }}
+        />
       )}
     </div>
   );

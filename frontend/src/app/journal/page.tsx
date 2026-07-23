@@ -395,7 +395,10 @@ export default function JournalPage() {
   };
 
   const onSelectEntry = async (entry: (typeof entries)[0]) => {
-    if (entry.id === selectedId) return;
+    if (entry.id === selectedId) {
+      if (!railOpen) toggleRail();
+      return;
+    }
     if (!(await confirmLeaveComposer())) return;
     setSelected(entry.dateKey);
     setSelectedId(entry.id);
@@ -403,6 +406,14 @@ export default function JournalPage() {
     if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setComposerDirty(false);
     setComposerKey((k) => k + 1);
+    if (!railOpen) {
+      try {
+        localStorage.setItem("cadence_jn_rail", "1");
+      } catch {
+        /* ignore */
+      }
+      setRailOpen(true);
+    }
   };
 
   const deleteEntry = async (id: string, dateKey: string) => {
@@ -649,7 +660,7 @@ export default function JournalPage() {
         <div className="jn-hero-actions">
           <QuickVoiceButton
             uid={user.uid}
-            compact
+            hero
             onAppendJournal={(md) => {
               void (async () => {
                 try {
@@ -671,16 +682,14 @@ export default function JournalPage() {
                   setSelectedId(id);
                   setComposerDirty(false);
                   setComposerKey((k) => k + 1);
-                  toast("快速錄音已寫入目前日誌");
+                  toast("快速錄音紀錄已寫入目前日誌");
                 } catch (e) {
                   toast(e instanceof Error ? e.message : "寫入日誌失敗");
                 }
               })();
             }}
-            onCreatedNote={(noteId) => {
-              toast("已另存快速筆記");
-              // keep user on journal; they can open from toast flow later
-              void noteId;
+            onCreatedNote={() => {
+              /* note saved in background; toast already shown by queue */
             }}
           />
           <button type="button" className="btn btn-ghost btn-sm" onClick={exportMonth}>
@@ -747,29 +756,15 @@ export default function JournalPage() {
             }}
           />
 
-          <div className="jn-center-stack">
-            <JournalComposer
-              key={`${selectedId || "empty"}-${selected}-${composerKey}`}
-              ref={composerRef}
-              dateKey={selected}
-              initialText={composerBody}
-              tags={
-                selectedEntry?.meta.tags?.length
-                  ? selectedEntry.meta.tags
-                  : selectedEntry?.meta.mood
-                    ? [selectedEntry.meta.mood]
-                    : []
-              }
-              busy={busy}
-              onSave={(p) => {
-                void saveComposer(p);
-              }}
-              onOpenFull={() => {
-                void openOrCreate(selected);
-              }}
-              onDirtyChange={setComposerDirty}
-            />
-          </div>
+          <button
+            type="button"
+            className="btn btn-soft jn-open-journal-rail"
+            onClick={() => {
+              if (!railOpen) toggleRail();
+            }}
+          >
+            寫這天日誌
+          </button>
 
           <JournalAside
             mode="agenda"
@@ -816,7 +811,7 @@ export default function JournalPage() {
           type="button"
           className={`jn-rail-toggle${railOpen ? " is-open" : ""}`}
           onClick={toggleRail}
-          title={railOpen ? "收合側欄" : "展開側欄（過往日誌／節奏／AI）"}
+          title={railOpen ? "收合側欄" : "展開側欄（日誌／過往／節奏）"}
           aria-expanded={railOpen}
         >
           {railOpen ? "›" : "‹"}
@@ -825,6 +820,30 @@ export default function JournalPage() {
         <aside className={`jn-rail${railOpen ? " is-open" : ""}`} aria-hidden={!railOpen}>
           {railOpen && (
             <>
+              <div className="jn-center-stack">
+                <JournalComposer
+                  key={`${selectedId || "empty"}-${selected}-${composerKey}`}
+                  ref={composerRef}
+                  dateKey={selected}
+                  initialText={composerBody}
+                  tags={
+                    selectedEntry?.meta.tags?.length
+                      ? selectedEntry.meta.tags
+                      : selectedEntry?.meta.mood
+                        ? [selectedEntry.meta.mood]
+                        : []
+                  }
+                  busy={busy}
+                  onSave={(p) => {
+                    void saveComposer(p);
+                  }}
+                  onOpenFull={() => {
+                    void openOrCreate(selected);
+                  }}
+                  onDirtyChange={setComposerDirty}
+                />
+              </div>
+
               <section className="jn-list-section">
                 <div className="jn-list-head">
                   <h3>過往日誌</h3>
