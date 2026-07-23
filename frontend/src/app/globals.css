@@ -18707,6 +18707,12 @@ body.is-sidebar-resizing iframe {
   margin-bottom: 0.5rem;
 }
 .note-huddle-hint { font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; margin: 0 0 0.7rem; }
+.note-huddle-status {
+  font-size: 0.78rem;
+  color: var(--accent);
+  line-height: 1.4;
+  margin: 0 0 0.65rem;
+}
 .note-huddle-controls { display: flex; flex-direction: column; gap: 0.4rem; }
 
 /* Block discussion threads */
