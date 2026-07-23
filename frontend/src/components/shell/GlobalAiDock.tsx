@@ -14,6 +14,11 @@ import {
   subscribeJobAiContext,
   type JobAiContext,
 } from "@/lib/jobAiContext";
+import {
+  MEETING_AI_SUGGESTIONS,
+  subscribeMeetingAiContext,
+  type MeetingAiContext,
+} from "@/lib/meetingSession";
 import AiMarkdown from "@/components/AiMarkdown";
 import AiThinkingMorph from "@/components/motion/AiThinkingMorph";
 import {
@@ -249,6 +254,7 @@ export default function GlobalAiDock() {
   const [webSearch, setWebSearch] = useState(false);
   const [focusNoteId, setFocusNoteId] = useState<string | null>(null);
   const [jobCtx, setJobCtx] = useState<JobAiContext | null>(null);
+  const [meetingCtx, setMeetingCtx] = useState<MeetingAiContext | null>(null);
   const [dbLiveTick, setDbLiveTick] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
@@ -279,6 +285,8 @@ export default function GlobalAiDock() {
   const dockSuggestions =
     activeDbSnap || onDbPage
       ? DB_PAGE_SUGGESTIONS
+      : meetingCtx
+        ? MEETING_AI_SUGGESTIONS
       : onJobPage && jobCtx
       ? JOB_AI_SUGGESTIONS
       : onNotePage && focusNote
@@ -405,6 +413,10 @@ export default function GlobalAiDock() {
 
   useEffect(() => {
     return subscribeJobAiContext(setJobCtx);
+  }, []);
+
+  useEffect(() => {
+    return subscribeMeetingAiContext(setMeetingCtx);
   }, []);
 
   useEffect(() => {
@@ -685,6 +697,27 @@ export default function GlobalAiDock() {
           allowNoteEdit: false,
           allowDbEdit: canEditDb,
           focusDatabaseId: dbSnap.databaseId,
+        };
+      } else if (meetingCtx) {
+        const packed = packTranscriptForAi(meetingCtx.transcript || "");
+        const note = notes.find((n) => n.id === meetingCtx.noteId);
+        const bodyMd = note?.body_md || "";
+        body = {
+          action: "note",
+          title: meetingCtx.title || "會議",
+          prompt,
+          context: withChatSummaryContext(
+            `來源：會議模式\n標題：${meetingCtx.title}\n日期：${meetingCtx.dateKey || "—"}\n\n${
+              packed.trim()
+                ? `—— 會議脈絡（暫存）——\n${packed}\n`
+                : ""
+            }—— 會議筆記 ——\n${bodyMd.slice(0, 14000)}`,
+            memory
+          ),
+          messages: history,
+          assistant,
+          allowNoteEdit: allowNoteEdit,
+          focusNoteId: meetingCtx.noteId,
         };
       } else if (onJobPage && jobCtx) {
         const packed = packTranscriptForAi(jobCtx.transcript);

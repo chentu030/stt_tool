@@ -15,6 +15,12 @@ import LiveNoteRecorder, {
 } from "@/components/voice/LiveNoteRecorder";
 import { appendNoteMarkdown } from "@/lib/firebase";
 import { toast } from "@/lib/toast";
+import { askConfirm } from "@/lib/dialogs";
+import {
+  getMeetingAiContext,
+  runMeetingPackOnNote,
+  setMeetingAiContext,
+} from "@/lib/meetingSession";
 
 export type LiveRecordingStart = {
   uid: string;
@@ -94,8 +100,30 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
   }, []);
 
   const closeLive = useCallback(() => {
+    const noteId = sessionRef.current?.noteId;
+    const meeting = getMeetingAiContext();
     setSession(null);
     setActive(false);
+    if (noteId && meeting?.noteId === noteId) {
+      void (async () => {
+        const ok = await askConfirm({
+          title: "產生會後整理？",
+          message: "會把摘要、決議與待辦寫入筆記的「會後整理」區塊（不覆蓋你寫的正文）。",
+          confirmLabel: "產生整理",
+          cancelLabel: "稍後",
+        });
+        if (!ok) return;
+        try {
+          toast("正在產生會後整理…");
+          await runMeetingPackOnNote(noteId, meeting.title);
+          toast("會後整理已寫入筆記");
+        } catch (e) {
+          toast(e instanceof Error ? e.message : "會後整理失敗");
+        } finally {
+          setMeetingAiContext(null);
+        }
+      })();
+    }
   }, []);
 
   const registerNoteInsert = useCallback((noteId: string, insert: (md: string) => void) => {

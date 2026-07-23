@@ -415,6 +415,18 @@ service cloud.firestore {
       allow delete: if signedIn() && isTeamAdmin(resource.data.team_id);
     }
 
+    match /users/{uid}/schedule_events/{eventId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/meeting_sessions/{sessionId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid}/integrations/{integrationId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     match /users/{uid}/teams/{teamId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
 

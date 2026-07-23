@@ -5559,7 +5559,7 @@ a.sidebar-user-name:hover {
 }
 .jn-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(220px, 260px);
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(220px, 260px);
   gap: 0.75rem;
   align-items: stretch;
   flex: 1;
@@ -5592,7 +5592,8 @@ a.sidebar-user-name:hover {
 .jn-composer,
 .jn-aside-block,
 .jn-list-section,
-.jn-week-strip {
+.jn-week-strip,
+.jn-timeline {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -5708,6 +5709,162 @@ a.sidebar-user-name:hover {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
+
+/* Day timeline (schedule blocks on journal) */
+.jn-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-bottom: 0.65rem;
+}
+.jn-timeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.jn-timeline-head h3 {
+  margin: 0;
+  font-size: 0.82rem;
+}
+.jn-tl-allday {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+.jn-tl-allday-label {
+  flex: 0 0 2.2rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding-top: 0.2rem;
+}
+.jn-tl-allday-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+  flex: 1;
+}
+.jn-tl-chip {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.jn-tl-chip.is-on {
+  outline: 1.5px solid var(--accent);
+}
+.jn-tl-grid {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(66px - 1px),
+      color-mix(in srgb, var(--border) 70%, transparent) calc(66px - 1px),
+      color-mix(in srgb, var(--border) 70%, transparent) 66px
+    );
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.jn-tl-hour {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  pointer-events: none;
+}
+.jn-tl-hour span {
+  position: absolute;
+  left: 0.35rem;
+  top: -0.55rem;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 0 0.15rem;
+}
+.jn-tl-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #dc2626;
+  z-index: 3;
+  pointer-events: none;
+}
+.jn-tl-now::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #dc2626;
+}
+.jn-tl-event {
+  position: absolute;
+  left: 2.6rem;
+  right: 0.35rem;
+  border-radius: 8px;
+  padding: 0.25rem 0.4rem;
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-elevated));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  overflow: hidden;
+  cursor: pointer;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.jn-tl-event strong {
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+.jn-tl-event span {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+.jn-tl-event.is-on {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.jn-tl-event.is-draft {
+  opacity: 0.55;
+  border-style: dashed;
+  pointer-events: none;
+}
+.jn-tl-event.is-sync {
+  background: color-mix(in srgb, #64748b 18%, var(--bg-elevated));
+  border-color: color-mix(in srgb, #64748b 40%, transparent);
+}
+.jn-tl-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.jn-tl-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+.jn-tl-actions-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.jn-tl-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
 .jn-list-head {
   display: flex;
   justify-content: space-between;

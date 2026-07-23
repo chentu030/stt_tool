@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   JournalStats,
-  JOURNAL_PROMPTS,
   heatWeeks,
   type JournalTagDef,
 } from "@/lib/journalMeta";
@@ -113,17 +112,6 @@ export default function JournalAside({
           </ul>
         </section>
       )}
-
-      <section className="jn-aside-block">
-        <h3>靈感庫</h3>
-        <div className="jn-prompt-list">
-          {JOURNAL_PROMPTS.slice(0, 6).map((p) => (
-            <button key={p} type="button" className="jn-prompt-item" onClick={() => { void run(`用繁體中文，根據提問「${p}」給我 3 個寫日誌的切入角度（簡短）。日期：${dateKey}`); }}>
-              {p}
-            </button>
-          ))}
-        </div>
-      </section>
 
       <section className="jn-aside-block">
         <h3>AI 回顧</h3>

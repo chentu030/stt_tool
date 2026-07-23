@@ -20,7 +20,9 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import JournalCalendar from "@/components/journal/JournalCalendar";
 import JournalComposer, { type JournalComposerHandle } from "@/components/journal/JournalComposer";
 import JournalAside from "@/components/journal/JournalAside";
+import JournalDayTimeline from "@/components/journal/JournalDayTimeline";
 import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
+import { useLiveRecordingOptional } from "@/components/voice/LiveRecordingProvider";
 import {
   buildMonthGrid,
   computeJournalStats,
@@ -31,6 +33,19 @@ import {
   toJournalEntries,
   upsertJournalMeta,
 } from "@/lib/journalMeta";
+import {
+  ensureMeetingNote,
+  joinMeeting,
+  setMeetingAiContext,
+} from "@/lib/meetingSession";
+import type { ScheduleEvent } from "@/lib/scheduleEvents";
+import {
+  connectGoogleCalendar,
+  disconnectGoogleCalendar,
+  fetchGoogleDayEvents,
+  getStoredGoogleAccessToken,
+  googleCalendarConfigured,
+} from "@/lib/googleCalendar";
 import { downloadText } from "@/lib/libraryIndex";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { askConfirm } from "@/lib/dialogs";
@@ -54,6 +69,58 @@ export default function JournalPage() {
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [composerKey, setComposerKey] = useState(0);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [gcalEvents, setGcalEvents] = useState<ScheduleEvent[]>([]);
+  const [gcalOn, setGcalOn] = useState(false);
+  const liveRec = useLiveRecordingOptional();
+
+  useEffect(() => {
+    setGcalOn(Boolean(getStoredGoogleAccessToken()));
+  }, []);
+
+  useEffect(() => {
+    if (!gcalOn || !user) {
+      setGcalEvents([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await fetchGoogleDayEvents(selected);
+        if (!cancelled) setGcalEvents(rows);
+      } catch (e) {
+        if (!cancelled) {
+          setGcalOn(false);
+          setGcalEvents([]);
+          toast(e instanceof Error ? e.message : "Google 日曆同步失敗");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gcalOn, selected, user]);
+
+  const toggleGoogleCal = async () => {
+    if (gcalOn) {
+      disconnectGoogleCalendar();
+      setGcalOn(false);
+      setGcalEvents([]);
+      toast("已解除 Google 日曆");
+      return;
+    }
+    if (!googleCalendarConfigured()) {
+      toast("尚未設定 NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID，無法連結日曆");
+      return;
+    }
+    try {
+      await connectGoogleCalendar();
+      setGcalOn(true);
+      toast("已連結 Google 日曆");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "連結失敗");
+    }
+  };
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -269,6 +336,7 @@ export default function JournalPage() {
     if (!(await confirmLeaveComposer())) return;
     setSelected(dateKey);
     setSelectedId(nextId);
+    setSelectedEventId(null);
     const d = parseDateKey(dateKey);
     if (d) setCursor({ year: d.getFullYear(), month: d.getMonth() });
     setComposerDirty(false);
@@ -394,17 +462,75 @@ export default function JournalPage() {
     }
   };
 
-  const weekNeighbors = useMemo(() => {
-    const d = parseDateKey(selected);
-    if (!d) return [];
-    const keys: string[] = [];
-    for (let i = -3; i <= 3; i++) {
-      const x = new Date(d);
-      x.setDate(d.getDate() + i);
-      keys.push(dateKeyFromDate(x));
+  const startMeetingMode = useCallback(
+    async (ev: ScheduleEvent) => {
+      if (!user) return;
+      try {
+        const { noteId, created } = await ensureMeetingNote(user.uid, ev);
+        setSelectedEventId(ev.id);
+        try {
+          if (ev.conferenceUrl) joinMeeting(ev);
+        } catch {
+          /* optional join */
+        }
+        const goLive = await askConfirm({
+          title: "開始即時轉錄？",
+          message:
+            "會開啟會議筆記並開始錄製此裝置麥克風（建議外放會議，或之後在錄音面板改用「分享分頁音訊」以錄到對方）。結束後可在筆記內產生會後整理。",
+          confirmLabel: "開始轉錄",
+          cancelLabel: "只開筆記",
+        });
+        if (goLive) {
+          setMeetingAiContext({
+            sessionId: ev.id,
+            eventId: ev.id,
+            noteId,
+            title: ev.title,
+            transcript: "",
+            dateKey: ev.dateKey,
+          });
+          if (liveRec) {
+            liveRec.startLive({
+              uid: user.uid,
+              noteId,
+              mode: "transcribe",
+              audioSource: "mic",
+              autoStart: true,
+            });
+          }
+          toast(created ? "已建立會議筆記並開始轉錄" : "已開始即時轉錄");
+          router.push(`/notes/${noteId}?live=1&liveMode=transcribe`);
+          return;
+        }
+        toast(created ? "已建立會議筆記" : "已開啟會議筆記");
+        router.push(`/notes/${noteId}`);
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "無法進入會議模式");
+      }
+    },
+    [user, liveRec, router]
+  );
+
+  const openEventNote = useCallback(
+    async (ev: ScheduleEvent) => {
+      if (!user) return;
+      try {
+        const { noteId } = await ensureMeetingNote(user.uid, ev);
+        router.push(`/notes/${noteId}`);
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "無法開啟筆記");
+      }
+    },
+    [user, router]
+  );
+
+  const onJoinEvent = useCallback((ev: ScheduleEvent) => {
+    try {
+      joinMeeting(ev);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "無法加入");
     }
-    return keys.map((k) => ({ dateKey: k, entry: byDate.get(k) }));
-  }, [selected, byDate]);
+  }, []);
 
   if (loading) return <PageLoading />;
   if (!user) {
@@ -475,6 +601,20 @@ export default function JournalPage() {
           <button
             type="button"
             className="btn btn-ghost btn-sm"
+            onClick={() => {
+              void toggleGoogleCal();
+            }}
+            title={
+              googleCalendarConfigured()
+                ? "同步今日 Google 日曆行程（唯讀）"
+                : "需設定 NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID"
+            }
+          >
+            {gcalOn ? "Google 日曆 · 已連結" : "連結 Google 日曆"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
             disabled={busy}
             onClick={() => {
               void monthlyReview();
@@ -513,27 +653,22 @@ export default function JournalPage() {
             }}
           />
 
-          <div className="jn-week-strip">
-            <h3>鄰近日子</h3>
-            <div className="jn-week-row">
-              {weekNeighbors.map(({ dateKey }) => {
-                const words = wordsByDate.get(dateKey) || 0;
-                return (
-                <button
-                  key={dateKey}
-                  type="button"
-                  className={`jn-week-pill${dateKey === selected ? " is-on" : ""}${words > 0 ? " has" : ""}`}
-                  onClick={() => {
-                    void onSelectDay(dateKey);
-                  }}
-                >
-                  <strong>{dateKey.slice(5)}</strong>
-                  <span>{words > 0 ? `${words} 字` : "空"}</span>
-                </button>
-                );
-              })}
-            </div>
-          </div>
+          <JournalDayTimeline
+            uid={user.uid}
+            dateKey={selected}
+            selectedEventId={selectedEventId}
+            overlays={gcalEvents}
+            onSelectEvent={(ev) => {
+              setSelectedEventId(ev?.id ?? null);
+            }}
+            onMeetingMode={(ev) => {
+              void startMeetingMode(ev);
+            }}
+            onOpenNote={(ev) => {
+              void openEventNote(ev);
+            }}
+            onJoin={onJoinEvent}
+          />
 
           <section className="jn-list-section">
             <div className="jn-list-head">
