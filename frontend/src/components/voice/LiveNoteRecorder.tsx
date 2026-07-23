@@ -152,7 +152,9 @@ export default function LiveNoteRecorder({
   const streamSessionStartedAtRef = useRef(0);
   const secsRef = useRef(0);
   const stopRef = useRef<() => Promise<void>>(async () => {});
-  const fallbackToBatchRef = useRef<(reason: "quota" | "error") => Promise<void>>(async () => {});
+  const fallbackToBatchRef = useRef<(reason: "quota" | "error", detail?: string) => Promise<void>>(
+    async () => {}
+  );
 
   cutModeRef.current = cutMode;
   modeRef.current = mode;
@@ -420,15 +422,16 @@ export default function LiveNoteRecorder({
   };
 
   /** Drop realtime STT but keep mic/system recording + batch cuts running. */
-  const fallbackToBatch = async (reason: "quota" | "error") => {
+  const fallbackToBatch = async (reason: "quota" | "error", detail?: string) => {
     if (!streamLiveRef.current && !streamSessionRef.current) return;
     await stopStreamSession();
     streamOnRef.current = false;
     setStreamOn(false);
+    const detailBit = detail?.trim() ? `（${detail.trim()}）` : "";
     const msg =
       reason === "quota"
         ? "即時額度已用完，已改切段批次（錄音未中斷）"
-        : "即時串流中斷，已改切段批次（錄音未中斷）";
+        : `即時串流中斷，已改切段批次（錄音未中斷）${detailBit}`;
     setStatus(msg);
     toast(msg);
   };
@@ -479,7 +482,7 @@ export default function LiveNoteRecorder({
           return;
         }
         if (ev.type === "error") {
-          void fallbackToBatchRef.current("error");
+          void fallbackToBatchRef.current("error", ev.message);
         }
       },
     });
