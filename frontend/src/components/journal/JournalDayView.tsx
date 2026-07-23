@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   formatClock,
   listenScheduleEvents,
@@ -72,6 +72,7 @@ export default function JournalDayView({
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
   });
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
   const todayKey = dateKeyFromDate(new Date());
   const isToday = dateKey === todayKey;
 
@@ -125,6 +126,22 @@ export default function JournalDayView({
 
   const shift = (delta: number) => onSelectDay?.(shiftDateKey(dateKey, delta));
 
+  const onSwipeTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY };
+  };
+
+  const onSwipeTouchEnd = (e: React.TouchEvent) => {
+    if (!touchRef.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    touchRef.current = null;
+    // Prefer vertical scroll; only change day on a clear horizontal swipe.
+    if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+    shift(dx < 0 ? 1 : -1);
+  };
+
   const onGridPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!editMode) return;
     if ((e.target as HTMLElement).closest(".jn-day-block")) return;
@@ -143,7 +160,11 @@ export default function JournalDayView({
   };
 
   return (
-    <div className={`jn-day${editMode ? " is-editing" : ""}`}>
+    <div
+      className={`jn-day${editMode ? " is-editing" : ""}`}
+      onTouchStart={onSwipeTouchStart}
+      onTouchEnd={onSwipeTouchEnd}
+    >
       <div className="jn-day-head">
         <div className="jn-day-head-left">
           <button type="button" className="jn-icon-btn" onClick={() => shift(-1)} aria-label="前一天">
@@ -357,7 +378,7 @@ export default function JournalDayView({
       <p className="jn-tl-hint">
         {editMode
           ? "編輯中：點「新增」或時間軸空白處建立；點卡片可改備註、時間、重複。"
-          : "日視圖方便看細項與備註；點行程可編輯。"}
+          : "左右滑可換日；上下滑可捲動整頁。點行程可編輯。"}
       </p>
 
       {editingEvent && (

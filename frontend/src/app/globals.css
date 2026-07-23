@@ -6610,8 +6610,22 @@ a.sidebar-user-name:hover {
 }
 .jn-day-block.is-on { border-color: var(--accent); }
 @media (max-width: 900px) {
-  .jn-day-body { grid-template-columns: 1fr; }
-  .jn-day-timeline { min-height: 320px; }
+  .jn-day {
+    /* One continuous surface: vertical page scroll + horizontal day swipe */
+    touch-action: pan-y;
+  }
+  .jn-day-body {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .jn-day-list,
+  .jn-day-timeline {
+    overflow: visible;
+    max-height: none;
+  }
+  .jn-day-timeline {
+    min-height: 0;
+  }
 }
 .jn-month {
   display: flex;
