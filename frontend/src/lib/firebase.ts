@@ -644,6 +644,28 @@ export async function appendNoteMarkdown(noteId: string, md: string): Promise<vo
     .catch(() => {});
 }
 
+/** Append one live recording segment into note.props.live_segments (sidebar timeline). */
+export async function appendLiveSegmentToNote(
+  noteId: string,
+  segment: import("@/lib/liveSegments").LiveSegment
+): Promise<void> {
+  const { LIVE_SEGMENTS_PROP, liveSegmentsFromProps } = await import("@/lib/liveSegments");
+  const ref = doc(db, "notes", noteId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error("筆記不存在");
+    const data = snap.data() as Record<string, unknown>;
+    const props = { ...((data.props as Record<string, unknown>) || {}) };
+    const list = liveSegmentsFromProps(props);
+    list.push(segment);
+    props[LIVE_SEGMENTS_PROP] = list;
+    tx.update(ref, {
+      props,
+      updated_at: Timestamp.now(),
+    });
+  });
+}
+
 export async function getNote(noteId: string): Promise<Note | null> {
   const snap = await getDoc(doc(db, "notes", noteId));
   if (!snap.exists()) return null;

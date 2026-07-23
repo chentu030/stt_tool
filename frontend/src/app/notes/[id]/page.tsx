@@ -34,6 +34,7 @@ import {
   listNoteVersions,
   createNote,
   deleteNote,
+  listenToNote,
   Note,
   NoteVersion,
 } from "@/lib/firebase";
@@ -57,6 +58,12 @@ import { parseNoteShare, type NoteShare } from "@/lib/share";
 import { getNoteAclRole, listenNoteAcl, type NoteAclRole } from "@/lib/noteAcl";
 import { useNoteCollab } from "@/hooks/useNoteCollab";
 import NoteAside from "@/components/notes/NoteAside";
+import type { NoteAsideTab } from "@/components/notes/NoteAside";
+import {
+  LIVE_SEGMENTS_PROP,
+  liveSegmentsFromProps,
+  migrateInterleavedTranscriptFromBody,
+} from "@/lib/liveSegments";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import {
   NOTE_AI_EDIT_EVENT,
@@ -198,8 +205,10 @@ function NotePageInner() {
     }
     return true;
   });
-  const [asideTab, setAsideTab] = useState<"outline" | "info">("outline");
+  const [asideTab, setAsideTab] = useState<NoteAsideTab>("outline");
   const asideManualRef = useRef(false);
+  const migratedSegmentsRef = useRef<string | null>(null);
+  const [liveRecordingHere, setLiveRecordingHere] = useState(false);
   const [asideWidth, setAsideWidth] = useState(() => {
     if (typeof window === "undefined") return 300;
     try {
@@ -373,7 +382,24 @@ function NotePageInner() {
         void updateNote(id, { body_md: seeded }).catch(() => {});
       }
       baseUpdatedAtRef.current = pending?.baseUpdatedAt ?? n.updated_at.getTime();
-      setNote(n);
+      // One-time: move interleaved 逐段+音檔 out of body into props.live_segments.
+      let noteForState = n;
+      if (migratedSegmentsRef.current !== id) {
+        migratedSegmentsRef.current = id;
+        const existing = liveSegmentsFromProps(n.props as Record<string, unknown>);
+        const mig = migrateInterleavedTranscriptFromBody(bodyMd);
+        if (mig.changed && mig.segments.length) {
+          const merged = [...existing, ...mig.segments];
+          const nextProps = {
+            ...((n.props as Record<string, unknown>) || {}),
+            [LIVE_SEGMENTS_PROP]: merged,
+          };
+          bodyMd = mig.body;
+          noteForState = { ...n, body_md: bodyMd, props: nextProps };
+          void updateNote(id, { body_md: bodyMd, props: nextProps }).catch(() => {});
+        }
+      }
+      setNote(noteForState);
       setTitle(titleMd);
       setBody(bodyMd);
       setTags(tagsMd);
@@ -1268,6 +1294,10 @@ function NotePageInner() {
 
   const stats = useMemo(() => computeNoteStats(body), [body]);
   const outline = useMemo(() => extractOutline(body), [body]);
+  const liveSegments = useMemo(
+    () => liveSegmentsFromProps(note?.props as Record<string, unknown> | undefined),
+    [note?.props]
+  );
   const related = useMemo(
     () =>
       note
@@ -1640,6 +1670,65 @@ function NotePageInner() {
     hit?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const jumpOrganize = () => {
+    const hit = outline.find(
+      (h) => h.text.includes("AI 整理") || h.text.startsWith("整理")
+    );
+    if (hit) {
+      jumpHeading(hit);
+      return;
+    }
+    toast("筆記中尚無 AI 整理標題");
+  };
+
+  useEffect(() => {
+    const onUi = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as
+        | { noteId?: string; recording?: boolean; segmentCount?: number }
+        | undefined;
+      if (!detail?.noteId || detail.noteId !== id) return;
+      setLiveRecordingHere(Boolean(detail.recording));
+      if (detail.recording) {
+        setAsideOpen(true);
+        setAsideTab("recording");
+        try {
+          localStorage.setItem("cadence_note_aside_open", "1");
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener("cadence:live-recording-ui", onUi as EventListener);
+    return () => window.removeEventListener("cadence:live-recording-ui", onUi as EventListener);
+  }, [id]);
+
+  // Keep sidebar timeline in sync while segments are appended from the recorder.
+  useEffect(() => {
+    if (!id || !user) return;
+    return listenToNote(id, (n) => {
+      if (!n) return;
+      setNote((prev) => {
+        if (!prev || prev.id !== n.id) return prev;
+        const a = liveSegmentsFromProps(prev.props as Record<string, unknown>);
+        const b = liveSegmentsFromProps(n.props as Record<string, unknown>);
+        if (
+          a.length === b.length &&
+          (a.length === 0 || a[a.length - 1]?.id === b[b.length - 1]?.id)
+        ) {
+          return prev;
+        }
+        return { ...prev, props: n.props };
+      });
+    });
+  }, [id, user]);
+
+  // If we land on recording tab but segments were cleared and not recording, fall back.
+  useEffect(() => {
+    if (asideTab === "recording" && liveSegments.length === 0 && !liveRecordingHere) {
+      setAsideTab("outline");
+    }
+  }, [asideTab, liveSegments.length, liveRecordingHere]);
+
   const onAsideResize = (px: number) => {
     setAsideWidth(px);
     try {
@@ -1986,7 +2075,9 @@ function NotePageInner() {
             title="側欄 ⌘\\"
             onClick={() => toggleAside()}
           >
-            側欄
+            {liveSegments.length
+              ? `側欄 · 錄音素材 (${liveSegments.length})`
+              : "側欄"}
           </button>
           <div className="doc-more-wrap" ref={moreWrapRef}>
             <button type="button" className="doc-cmd doc-cmd--keep" onClick={() => setMoreOpen((v) => !v)}>
@@ -2729,6 +2820,9 @@ function NotePageInner() {
           stats={stats}
           outline={outline}
           related={related}
+          liveSegments={liveSegments}
+          showRecordingTab={liveRecordingHere}
+          onJumpOrganize={jumpOrganize}
           outbound={outbound.map((t) => {
             const hit = findNoteByTitle(allNotes, t);
             return hit ? { title: t, href: `/notes/${hit.id}` } : { title: t };
@@ -2738,7 +2832,7 @@ function NotePageInner() {
           linkPicker={linkPicker}
           onLinkPickerChange={setLinkPicker}
           linkCandidates={linkCandidates.map((n) => ({ id: n.id, title: n.title }))}
-          onOpenWikiNote={(t, id) => void openWikiNote(t, id)}
+          onOpenWikiNote={(t, nid) => void openWikiNote(t, nid)}
           onInsertWiki={viewMode === "read" ? () => undefined : insertWiki}
           widthPx={asideWidth}
           onResizeWidth={onAsideResize}

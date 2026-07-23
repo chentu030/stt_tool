@@ -186,7 +186,9 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
 
         // Route STT into collapsible TX section — keep 筆記 / 會後整理 clean.
         const keepInBody =
-          /###\s*(整理|音檔|整段錄音)/.test(md) || /audio\/|\.webm|\.mp3|\.m4a/i.test(md);
+          /###\s*(整理|音檔|整段錄音)/.test(md) ||
+          /##\s*AI 整理/.test(md) ||
+          /audio\/|\.webm|\.mp3|\.m4a/i.test(md);
         if (!keepInBody && plain.length > 4) {
           writeChain.current = writeChain.current
             .then(async () => {
@@ -247,6 +249,16 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
           onLiveChange={setActive}
           onClose={closeLive}
           insertMd={insertMd}
+          onRecordingUi={(state) => {
+            // Bubble via custom event so the open note page can focus 錄音 tab
+            // without tight coupling across routes.
+            if (typeof window === "undefined") return;
+            window.dispatchEvent(
+              new CustomEvent("cadence:live-recording-ui", {
+                detail: { noteId: session.noteId, ...state },
+              })
+            );
+          }}
         />
       ) : null}
     </Ctx.Provider>

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { HeadingItem, NoteStats, RelatedNote } from "@/lib/noteMeta";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import NoteAsideRecording from "@/components/notes/NoteAsideRecording";
+import type { LiveSegment } from "@/lib/liveSegments";
 
 type OutboundLink = {
   title: string;
@@ -19,6 +21,8 @@ type LinkCandidate = {
   title: string;
 };
 
+export type NoteAsideTab = "outline" | "info" | "recording";
+
 type Props = {
   stats: NoteStats;
   outline: HeadingItem[];
@@ -33,10 +37,14 @@ type Props = {
   onOpenWikiNote?: (title: string, noteId?: string | null) => void;
   onInsertWiki?: (title: string) => void;
   open: boolean;
-  tab: "outline" | "info";
-  onTab: (t: "outline" | "info") => void;
+  tab: NoteAsideTab;
+  onTab: (t: NoteAsideTab) => void;
   widthPx?: number;
   onResizeWidth?: (px: number) => void;
+  liveSegments?: LiveSegment[];
+  onJumpOrganize?: () => void;
+  /** Keep「錄音」tab visible while a live session is active (even before first segment). */
+  showRecordingTab?: boolean;
 };
 
 export default function NoteAside({
@@ -56,11 +64,27 @@ export default function NoteAside({
   onTab,
   widthPx = 300,
   onResizeWidth,
+  liveSegments = [],
+  onJumpOrganize,
+  showRecordingTab = false,
 }: Props) {
   if (!open) return null;
 
   const q = linkPicker.trim();
   const showLinkSearch = !!onLinkPickerChange;
+  const hasRecording = liveSegments.length > 0 || showRecordingTab;
+  const tabs: { id: NoteAsideTab; label: string }[] = [
+    { id: "outline", label: "大綱" },
+    ...(hasRecording
+      ? [
+          {
+            id: "recording" as const,
+            label: liveSegments.length ? `錄音 (${liveSegments.length})` : "錄音",
+          },
+        ]
+      : []),
+    { id: "info", label: "資訊" },
+  ];
 
   return (
     <aside className="note-aside" style={{ width: widthPx }}>
@@ -92,12 +116,7 @@ export default function NoteAside({
         />
       )}
       <div className="note-aside-tabs">
-        {(
-          [
-            ["outline", "大綱"],
-            ["info", "資訊"],
-          ] as const
-        ).map(([id, label]) => (
+        {tabs.map(({ id, label }) => (
           <button
             key={id}
             type="button"
@@ -178,6 +197,10 @@ export default function NoteAside({
             </div>
           )}
         </div>
+      )}
+
+      {tab === "recording" && (
+        <NoteAsideRecording segments={liveSegments} onJumpOrganize={onJumpOrganize} />
       )}
 
       {tab === "outline" && (

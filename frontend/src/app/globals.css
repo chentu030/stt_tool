@@ -11572,6 +11572,78 @@ body.is-split-resizing iframe {
 .note-aside-ai { min-height: 360px; }
 .note-aside-hint { font-size: 0.72rem; color: var(--text-muted); line-height: 1.45; }
 .note-aside-empty { font-size: 0.8rem; color: var(--text-muted); }
+.note-aside-recording {
+  gap: 0.55rem;
+}
+.note-aside-rec-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.note-aside-rec-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.note-aside-rec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.note-aside-rec-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.note-aside-rec-item.is-open {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.note-aside-rec-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  cursor: pointer;
+  color: inherit;
+}
+.note-aside-rec-time {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.note-aside-rec-preview {
+  font-size: 0.78rem;
+  color: var(--text-main);
+  line-height: 1.35;
+}
+.note-aside-rec-detail {
+  padding: 0 0.65rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  border-top: 1px dashed var(--border);
+}
+.note-aside-rec-text {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.note-aside-rec-audio {
+  width: 100%;
+  height: 32px;
+}
 .note-aside-error { font-size: 0.78rem; color: var(--danger); }
 .note-aside-block h4 {
   font-size: 0.72rem;

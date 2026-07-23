@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { uploadNoteMedia } from "@/lib/firebase";
+import { uploadNoteMedia, appendLiveSegmentToNote } from "@/lib/firebase";
+import {
+  buildLiveSessionBodyMd,
+  formatSegClock,
+  type LiveSegment,
+} from "@/lib/liveSegments";
 import {
   fetchGoogleSttHealth,
   organizeLiveSegment,
@@ -62,6 +67,8 @@ type Props = {
   noteHref?: string;
   /** Notify host when recording / finishing pipeline is active */
   onLiveChange?: (active: boolean) => void;
+  /** Host opens note aside「錄音」tab when recording starts */
+  onRecordingUi?: (state: { recording: boolean; segmentCount: number }) => void;
 };
 
 type PreviewLine = {
@@ -74,6 +81,7 @@ type PreviewLine = {
 type SegJob = {
   id: string;
   label: string;
+  startSec: number;
   result: Promise<{ transcript: string; url: string; audioOnly?: boolean } | null>;
 };
 
@@ -92,17 +100,6 @@ function clockNow(): string {
   });
 }
 
-/** Collapsed toggle for transcript body (逐段 / 整段). */
-function transcriptToggleMd(body: string, title = "逐段逐字稿"): string {
-  const inner = body.trim();
-  if (!inner) return "";
-  return `:::toggle ${title}\n${inner}\n:::`;
-}
-
-function audioMd(url: string, title: string): string {
-  return `<audio class="rich-audio" data-note-audio="1" controls preload="metadata" src="${url}" title="${title}"></audio>`;
-}
-
 export default function LiveNoteRecorder({
   uid,
   noteId,
@@ -114,6 +111,7 @@ export default function LiveNoteRecorder({
   audioSource: audioSourceProp = "mic",
   noteHref,
   onLiveChange,
+  onRecordingUi,
 }: Props) {
   const prefsCtx = usePrefsOptional();
   const prefs = prefsCtx?.prefs;
@@ -178,6 +176,15 @@ export default function LiveNoteRecorder({
   const pendingOrgTextsRef = useRef<string[]>([]);
   /** Full-session transcript pieces → written under ### 整段錄音 before the full audio. */
   const fullSessionTranscriptRef = useRef<string[]>([]);
+  /** Auto AI organize results buffered until stop (body stays clean while recording). */
+  const organizedPartsRef = useRef<string[]>([]);
+  /** Session clock when current segment started. */
+  const segStartSecRef = useRef(0);
+  /** Live segments pushed this session (for UI badge). */
+  const segmentCountRef = useRef(0);
+  const segmentWriteChain = useRef(Promise.resolve());
+  const onRecordingUiRef = useRef(onRecordingUi);
+  onRecordingUiRef.current = onRecordingUi;
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const silenceSinceRef = useRef<number | null>(null);
@@ -343,9 +350,14 @@ export default function LiveNoteRecorder({
       const packed = texts.map((t, i) => `【段 ${i + 1}】\n${t}`).join("\n\n");
       const organized = await organizeLiveSegment(packed);
       if (organized.trim()) {
-        const time = clockNow();
-        writeMd(`\n### 整理 · ${time}\n\n${organized}\n`);
-        toast(`已整理 ${texts.length} 段`);
+        if (manual) {
+          const time = clockNow();
+          writeMd(`\n### 整理 · ${time}\n\n${organized}\n`);
+          toast(`已整理 ${texts.length} 段`);
+        } else {
+          organizedPartsRef.current.push(organized.trim());
+          toast(`已暫存 ${texts.length} 段整理（結束錄音後寫入筆記）`);
+        }
       }
       setStatus("整理完成 · 繼續錄製");
     } catch (e) {
@@ -358,14 +370,44 @@ export default function LiveNoteRecorder({
     }
   };
 
-  /** Flush buffered realtime lines into a collapsed 逐段逐字稿 toggle. */
+  const pushLiveSegment = (partial: Omit<LiveSegment, "id" | "createdAt"> & { id?: string }) => {
+    const segment: LiveSegment = {
+      id: partial.id || `seg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      label: partial.label,
+      startSec: partial.startSec,
+      endSec: partial.endSec,
+      text: partial.text,
+      audioUrl: partial.audioUrl,
+      createdAt: Date.now(),
+    };
+    segmentCountRef.current += 1;
+    onRecordingUiRef.current?.({
+      recording: liveRef.current || stopping,
+      segmentCount: segmentCountRef.current,
+    });
+    segmentWriteChain.current = segmentWriteChain.current
+      .then(() => appendLiveSegmentToNote(noteId, segment))
+      .catch((e) => {
+        toast(e instanceof Error ? e.message : "無法寫入錄音素材");
+      });
+    return segmentWriteChain.current;
+  };
+
+  /** Move buffered realtime lines into the sidebar segment list (no body write). */
   const flushStreamTranscriptToggle = () => {
     const buf = streamTranscriptBufRef.current;
     if (!buf.length) return;
     streamTranscriptBufRef.current = [];
     const body = buf.map((x) => `${x.stamp}\n${x.text}`).join("\n\n");
-    const toggle = transcriptToggleMd(body);
-    if (toggle) writeMd(`\n\n${toggle}`);
+    const endSec = secsRef.current;
+    const startSec = segStartSecRef.current;
+    void pushLiveSegment({
+      label: formatSegClock(startSec),
+      startSec,
+      endSec,
+      text: body,
+    });
+    segStartSecRef.current = endSec;
   };
 
   const maybeAutoOrganize = () => {
@@ -428,34 +470,35 @@ export default function LiveNoteRecorder({
         jobsRef.current.shift();
         setPending(jobsRef.current.length);
         if (!got) continue;
-        const time = clockNow();
-        const audioBlock = got.url ? audioMd(got.url, job.label) : "";
-        if (modeRef.current === "audio" || got.audioOnly) {
-          if (modeRef.current === "audio") {
-            // H3 tight against the player (no blank line).
-            writeMd(audioBlock ? `\n\n### 音檔 · ${time}\n${audioBlock}\n` : `\n\n### 音檔 · ${time}\n`);
-            setStatus(`「${job.label}」音檔已寫入`);
-          } else {
-            // Text already streamed in; keep a compact audio bookmark per cut.
-            if (audioBlock) writeMd(`\n${audioBlock}\n`);
-            setStatus(`「${job.label}」音檔已附上`);
-          }
-          segOkRef.current += 1;
-        } else {
-          // Single newline: toggle body splits each line into a <p>; blank lines become empty gaps.
-          const toggle = transcriptToggleMd(`${time}\n${got.transcript}`);
-          // Toggle + audio with no blank line between.
-          writeMd(
-            audioBlock ? `\n\n${toggle}\n${audioBlock}\n` : toggle ? `\n\n${toggle}\n` : ""
-          );
-          queueTranscriptForOrganize(got.transcript);
-          segOkRef.current += 1;
-          setStatus(
-            modeRef.current === "organize"
-              ? `「${job.label}」已寫入 · 待整理 ${pendingOrgTextsRef.current.length} 段`
-              : `「${job.label}」已寫入`
-          );
+        const endSec = secsRef.current;
+        const startSec = job.startSec;
+        let text = (got.transcript || "").trim();
+        // Realtime: attach buffered finals to this cut's audio bookmark.
+        if (!text && streamTranscriptBufRef.current.length) {
+          text = streamTranscriptBufRef.current
+            .map((x) => `${x.stamp}\n${x.text}`)
+            .join("\n\n");
+          streamTranscriptBufRef.current = [];
         }
+        // Chunks go to sidebar timeline — never interleave into note body.
+        await pushLiveSegment({
+          id: job.id,
+          label: job.label,
+          startSec,
+          endSec,
+          text,
+          audioUrl: got.url || undefined,
+        });
+        if (!(modeRef.current === "audio" || got.audioOnly)) {
+          queueTranscriptForOrganize(got.transcript);
+        }
+        segStartSecRef.current = endSec;
+        segOkRef.current += 1;
+        setStatus(
+          modeRef.current === "organize"
+            ? `「${job.label}」已進側欄 · 待整理 ${pendingOrgTextsRef.current.length} 段`
+            : `「${job.label}」已進側欄`
+        );
       }
     })()
       .catch((e) => {
@@ -529,7 +572,7 @@ export default function LiveNoteRecorder({
       }
     })();
 
-    jobsRef.current.push({ id: lineId, label, result });
+    jobsRef.current.push({ id: lineId, label, startSec: segStartSecRef.current, result });
     void drainJobs();
   };
 
@@ -675,6 +718,10 @@ export default function LiveNoteRecorder({
       labelSeqRef.current += 1;
       const label = `段落 ${labelSeqRef.current}`;
       const lineId = `seg-${Date.now()}-${labelSeqRef.current}`;
+      // Capture segment window start before rotate resets segSecs.
+      if (segStartSecRef.current === 0 && labelSeqRef.current === 1) {
+        segStartSecRef.current = Math.max(0, secsRef.current - segSecsRef.current);
+      }
       setLines((prev) => [
         ...prev,
         {
@@ -712,6 +759,9 @@ export default function LiveNoteRecorder({
     setPendingOrg(0);
     pendingOrgTextsRef.current = [];
     fullSessionTranscriptRef.current = [];
+    organizedPartsRef.current = [];
+    segmentCountRef.current = 0;
+    segStartSecRef.current = 0;
     setStopping(false);
     setDoneSummary(null);
     segOkRef.current = 0;
@@ -722,6 +772,7 @@ export default function LiveNoteRecorder({
     usedStreamThisSessionRef.current = false;
     jobsRef.current = [];
     secsRef.current = 0;
+    onRecordingUiRef.current?.({ recording: true, segmentCount: 0 });
     try {
       const acquired = await acquireLiveAudioStream(src);
       const rec = new ContinuousDualRecorder();
@@ -772,6 +823,8 @@ export default function LiveNoteRecorder({
       }
       liveRef.current = true;
       setLive(true);
+      onRecordingUiRef.current?.({ recording: true, segmentCount: segmentCountRef.current });
+      onLiveChange?.(true);
       recordingGuardRef.current?.release();
       recordingGuardRef.current = attachRecordingGuard(rec.mediaStream, {
         onHidden: () => rec.flush(),
@@ -900,9 +953,12 @@ export default function LiveNoteRecorder({
       if (modeRef.current === "organize" && pendingOrgTextsRef.current.length) {
         organizedN = pendingOrgTextsRef.current.length;
         setStatus(`AI 整理 ${organizedN} 段中…`);
-        await flushOrganize(true);
+        await flushOrganize(false);
       }
+      await segmentWriteChain.current.catch(() => undefined);
       let fullOk = false;
+      let fullUrl = "";
+      let fullName = "";
       if (full && full.size > 1000) {
         setStatus("儲存完整音檔…");
         try {
@@ -911,31 +967,37 @@ export default function LiveNoteRecorder({
             type: full.type || "audio/webm",
           });
           const up = await uploadNoteMedia(uid, noteId, file);
-          const fullText = fullSessionTranscriptRef.current.join("\n").trim();
-          const fullToggle = fullText
-            ? transcriptToggleMd(fullText, "整段逐字稿")
-            : "";
-          // H3 → full transcript toggle → audio, no blank lines between.
-          writeMd(
-            fullToggle
-              ? `\n\n---\n\n### 整段錄音\n${fullToggle}\n${audioMd(up.url, file.name)}\n`
-              : `\n\n---\n\n### 整段錄音\n${audioMd(up.url, file.name)}\n`
-          );
+          fullUrl = up.url;
+          fullName = file.name;
           fullOk = true;
         } catch {
-          toast("完整音檔上傳失敗，段落音檔仍保留");
+          toast("完整音檔上傳失敗，段落音檔仍保留在側欄");
         }
+      }
+      const fullText = fullSessionTranscriptRef.current.join("\n").trim();
+      const aiOrganize = organizedPartsRef.current.join("\n\n").trim();
+      organizedPartsRef.current = [];
+      if (fullOk || fullText || aiOrganize) {
+        writeMd(
+          buildLiveSessionBodyMd({
+            audioUrl: fullUrl || undefined,
+            audioTitle: fullName || undefined,
+            fullTranscript: fullText || undefined,
+            aiOrganize: aiOrganize || undefined,
+          })
+        );
       }
       const okN = segOkRef.current;
       const failN = segFailRef.current;
       const parts: string[] = [];
       if (okN > 0) {
         parts.push(
-          modeRef.current === "audio" ? `已寫入 ${okN} 段音檔` : `已寫入 ${okN} 段文字`
+          modeRef.current === "audio" ? `側欄 ${okN} 段音檔` : `側欄 ${okN} 段素材`
         );
       }
-      if (organizedN > 0) parts.push(`已整理 ${organizedN} 段`);
+      if (organizedN > 0 || aiOrganize) parts.push("AI 整理已寫入筆記");
       if (fullOk) parts.push("完整音檔已附上");
+      if (fullText) parts.push("整段逐字稿已附上");
       if (failN > 0) parts.push(`${failN} 段失敗`);
       const summary =
         parts.length > 0
@@ -945,11 +1007,19 @@ export default function LiveNoteRecorder({
       setDoneSummary(summary);
       toast(summary);
       setStopping(false);
+      onRecordingUiRef.current?.({
+        recording: false,
+        segmentCount: segmentCountRef.current,
+      });
     } catch (e) {
       toast(e instanceof Error ? e.message : "結束失敗");
       setStopping(false);
       setDoneSummary(null);
       setStatus("結束失敗，可再試一次");
+      onRecordingUiRef.current?.({
+        recording: false,
+        segmentCount: segmentCountRef.current,
+      });
     }
   };
   stopRef.current = stop;
