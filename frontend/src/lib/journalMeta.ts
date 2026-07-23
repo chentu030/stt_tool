@@ -129,6 +129,26 @@ export function weekDateKeys(dateKey: string): string[] {
   });
 }
 
+/** All dateKeys in the calendar month of `dateKey`. */
+export function monthDateKeys(dateKey: string): string[] {
+  const d = parseDateKey(dateKey);
+  if (!d) return [dateKey];
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const last = new Date(y, m + 1, 0).getDate();
+  return Array.from({ length: last }, (_, i) => dateKeyFromDate(new Date(y, m, i + 1)));
+}
+
+/** Signed day difference: b − a. */
+export function daysBetween(a: string, b: string): number {
+  const da = parseDateKey(a);
+  const db = parseDateKey(b);
+  if (!da || !db) return 0;
+  const utcA = Date.UTC(da.getFullYear(), da.getMonth(), da.getDate());
+  const utcB = Date.UTC(db.getFullYear(), db.getMonth(), db.getDate());
+  return Math.round((utcB - utcA) / 86_400_000);
+}
+
 /** Shift a dateKey by N days. */
 export function shiftDateKey(dateKey: string, days: number): string {
   const d = parseDateKey(dateKey);

@@ -20,7 +20,7 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import JournalCalendar from "@/components/journal/JournalCalendar";
 import JournalComposer, { type JournalComposerHandle } from "@/components/journal/JournalComposer";
 import JournalAside from "@/components/journal/JournalAside";
-import JournalWeekTimeline from "@/components/journal/JournalWeekTimeline";
+import JournalSchedulePanel from "@/components/journal/JournalSchedulePanel";
 import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import { useLiveRecordingOptional } from "@/components/voice/LiveRecordingProvider";
 import {
@@ -33,6 +33,7 @@ import {
   toJournalEntries,
   upsertJournalMeta,
   weekDateKeys,
+  monthDateKeys,
 } from "@/lib/journalMeta";
 import {
   ensureMeetingNote,
@@ -82,6 +83,19 @@ export default function JournalPage() {
   const [railOpen, setRailOpen] = useState(false);
   const liveRec = useLiveRecordingOptional();
   const weekKeys = useMemo(() => weekDateKeys(selected), [selected]);
+  const gcalRangeKeys = useMemo(() => {
+    const d = parseDateKey(selected);
+    if (!d) return weekKeys;
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    start.setDate(start.getDate() - 7);
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+    end.setDate(end.getDate() + 7);
+    const keys: string[] = [];
+    for (let cur = new Date(start); cur.getTime() <= end.getTime(); cur.setDate(cur.getDate() + 1)) {
+      keys.push(dateKeyFromDate(cur));
+    }
+    return keys;
+  }, [selected, weekKeys]);
 
   useEffect(() => {
     setGcalOn(Boolean(getStoredGoogleAccessToken()));
@@ -122,7 +136,7 @@ export default function JournalPage() {
     setGcalStatus("loading");
     void (async () => {
       try {
-        const rows = await fetchGoogleRangeEvents(weekKeys);
+        const rows = await fetchGoogleRangeEvents(gcalRangeKeys);
         if (!cancelled) {
           setGcalEvents(rows);
           setGcalStatus("ok");
@@ -138,19 +152,26 @@ export default function JournalPage() {
     return () => {
       cancelled = true;
     };
-  }, [gcalOn, weekKeys, user]);
+  }, [gcalOn, gcalRangeKeys, user]);
+
+  const weekGcal = useMemo(
+    () => gcalEvents.filter((e) => weekKeys.includes(e.dateKey)),
+    [gcalEvents, weekKeys]
+  );
 
   const agendaEvents = useMemo(() => {
     const map = new Map<string, ScheduleEvent>();
     for (const e of localEvents) map.set(e.id, e);
-    for (const e of gcalEvents) map.set(e.id, e);
+    for (const e of gcalEvents) {
+      if (e.dateKey === selected) map.set(e.id, e);
+    }
     return [...map.values()].sort(
       (a, b) =>
         Number(Boolean(b.allDay)) - Number(Boolean(a.allDay)) ||
         a.startMin - b.startMin ||
         a.title.localeCompare(b.title)
     );
-  }, [localEvents, gcalEvents]);
+  }, [localEvents, gcalEvents, selected]);
 
   const toggleGoogleCal = async () => {
     if (gcalOn) {
@@ -786,11 +807,12 @@ export default function JournalPage() {
         </div>
 
         <div className="jn-center">
-          <JournalWeekTimeline
+          <JournalSchedulePanel
             uid={user.uid}
             dateKey={selected}
             selectedEventId={selectedEventId}
-            overlays={gcalEvents}
+            weekOverlays={weekGcal}
+            monthOverlays={gcalEvents}
             onSelectDay={(dk) => {
               void onSelectDay(dk);
             }}

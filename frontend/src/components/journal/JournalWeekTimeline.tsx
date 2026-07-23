@@ -11,6 +11,7 @@ import {
 } from "@/lib/scheduleEvents";
 import {
   dateKeyFromDate,
+  daysBetween,
   parseDateKey,
   shiftDateKey,
   weekDateKeys,
@@ -19,11 +20,12 @@ import { askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import ScheduleEventEditDialog from "@/components/journal/ScheduleEventEditDialog";
 
-const HOUR_START = 6;
-const HOUR_END = 22;
-const PX_PER_MIN = 0.72;
+const HOUR_START = 0;
+const HOUR_END = 24;
+const PX_PER_MIN = 0.55;
 const GRID_MINS = (HOUR_END - HOUR_START) * 60;
 const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
+const SLIDER_SPAN = 90;
 
 type Props = {
   uid: string;
@@ -42,7 +44,7 @@ function topFor(min: number) {
 }
 
 function heightFor(startMin: number, endMin: number) {
-  return Math.max(18, (endMin - startMin) * PX_PER_MIN);
+  return Math.max(18, (Math.min(endMin, HOUR_END * 60) - Math.max(startMin, HOUR_START * 60)) * PX_PER_MIN);
 }
 
 function yToMin(clientY: number, gridTop: number) {
@@ -141,16 +143,26 @@ export default function JournalWeekTimeline({
     return `${a} – ${b}`;
   }, [weekKeys]);
 
+  const selectedLabel = useMemo(() => {
+    const d = parseDateKey(dateKey);
+    if (!d) return dateKey;
+    const wd = WEEKDAY_LABELS[(d.getDay() + 6) % 7];
+    return `${d.getMonth() + 1}/${d.getDate()}（${wd}）`;
+  }, [dateKey]);
+
   const hours = useMemo(
     () => Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i),
     []
   );
 
-  const shiftWeek = (delta: number) => {
-    onSelectDay?.(shiftDateKey(dateKey, delta * 7));
+  const sliderOffset = daysBetween(todayKey, dateKey);
+  const sliderClamped = Math.max(-SLIDER_SPAN, Math.min(SLIDER_SPAN, sliderOffset));
+
+  const shiftDay = (delta: number) => {
+    onSelectDay?.(shiftDateKey(dateKey, delta));
   };
 
-  const goThisWeek = () => {
+  const goToday = () => {
     onSelectDay?.(todayKey);
   };
 
@@ -163,7 +175,7 @@ export default function JournalWeekTimeline({
     }
     const startMin = Math.min(drag.startMin, drag.endMin);
     let endMin = Math.max(drag.startMin, drag.endMin);
-    if (endMin - startMin < 15) endMin = startMin + 30;
+    if (endMin - startMin < 15) endMin = Math.min(HOUR_END * 60, startMin + 30);
     setDraft(null);
     try {
       const id = await createScheduleEvent(uid, {
@@ -250,18 +262,21 @@ export default function JournalWeekTimeline({
     <div className={`jn-week${editMode ? " is-editing" : ""}`}>
       <div className="jn-week-head">
         <div className="jn-week-head-left">
-          <button type="button" className="jn-icon-btn" onClick={() => shiftWeek(-1)} aria-label="上一週">
+          <button type="button" className="jn-icon-btn" onClick={() => shiftDay(-1)} aria-label="前一天">
             ‹
           </button>
-          <h3>本週行程 · {rangeLabel}</h3>
-          <button type="button" className="jn-icon-btn" onClick={() => shiftWeek(1)} aria-label="下一週">
+          <h3>
+            {selectedLabel}
+            <span className="jn-week-range"> · {rangeLabel}</span>
+          </h3>
+          <button type="button" className="jn-icon-btn" onClick={() => shiftDay(1)} aria-label="後一天">
             ›
           </button>
         </div>
         <div className="jn-week-head-actions">
-          {!weekKeys.includes(todayKey) && (
-            <button type="button" className="jn-text-btn" onClick={goThisWeek}>
-              回到本週
+          {dateKey !== todayKey && (
+            <button type="button" className="jn-text-btn" onClick={goToday}>
+              今天
             </button>
           )}
           <button
@@ -281,10 +296,32 @@ export default function JournalWeekTimeline({
         </div>
       </div>
 
+      <div className="jn-week-dayheads">
+        <div className="jn-week-dayheads-gutter" aria-hidden />
+        <div className="jn-week-dayheads-cols">
+          {weekKeys.map((dk, i) => {
+            const d = parseDateKey(dk);
+            const isToday = dk === todayKey;
+            const isSel = dk === dateKey;
+            return (
+              <button
+                key={dk}
+                type="button"
+                className={`jn-week-dayhead${isToday ? " is-today" : ""}${isSel ? " is-sel" : ""}`}
+                onClick={() => onSelectDay?.(dk)}
+              >
+                <span>{WEEKDAY_LABELS[i]}</span>
+                <strong>{d ? d.getDate() : dk.slice(8)}</strong>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="jn-week-allday">
         <div className="jn-week-allday-label">全天</div>
         <div className="jn-week-allday-cols">
-          {weekKeys.map((dk, i) => {
+          {weekKeys.map((dk) => {
             const allDay = (byDay.get(dk) || []).filter((e) => e.allDay);
             return (
               <div key={dk} className={`jn-week-allday-col${dk === dateKey ? " is-sel" : ""}`}>
@@ -310,7 +347,7 @@ export default function JournalWeekTimeline({
                   <button
                     type="button"
                     className="jn-text-btn"
-                    title={`新增 ${dk} 全天`}
+                    title={`新增 ${dk} 全天／重要事項`}
                     onClick={() => {
                       void (async () => {
                         try {
@@ -319,7 +356,7 @@ export default function JournalWeekTimeline({
                             startMin: 0,
                             endMin: 24 * 60,
                             allDay: true,
-                            title: "全天",
+                            title: "重要事項",
                           });
                           onSelectDay?.(dk);
                         } catch (err) {
@@ -331,7 +368,6 @@ export default function JournalWeekTimeline({
                     ＋
                   </button>
                 )}
-                <span className="jn-week-allday-wd">{WEEKDAY_LABELS[i]}</span>
               </div>
             );
           })}
@@ -353,11 +389,10 @@ export default function JournalWeekTimeline({
           </div>
 
           <div className="jn-week-cols">
-            {weekKeys.map((dk, i) => {
+            {weekKeys.map((dk) => {
               const dayEvents = (byDay.get(dk) || []).filter((e) => !e.allDay);
               const isToday = dk === todayKey;
               const isSel = dk === dateKey;
-              const d = parseDateKey(dk);
               return (
                 <div
                   key={dk}
@@ -370,19 +405,7 @@ export default function JournalWeekTimeline({
                     setDraft(null);
                   }}
                 >
-                  <button
-                    type="button"
-                    className="jn-week-col-head"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectDay?.(dk);
-                    }}
-                  >
-                    <span>{WEEKDAY_LABELS[i]}</span>
-                    <strong>{d ? d.getDate() : dk.slice(8)}</strong>
-                  </button>
-
-                  {isToday && nowMin >= HOUR_START * 60 && nowMin <= HOUR_END * 60 && (
+                  {isToday && (
                     <div className="jn-week-now" style={{ top: topFor(nowMin) }} />
                   )}
 
@@ -405,10 +428,7 @@ export default function JournalWeekTimeline({
                         className={`jn-week-event${selectedEventId === ev.id ? " is-on" : ""}${readonly ? " is-sync" : ""}`}
                         style={{
                           top: topFor(Math.max(ev.startMin, HOUR_START * 60)),
-                          height: heightFor(
-                            Math.max(ev.startMin, HOUR_START * 60),
-                            Math.min(ev.endMin, HOUR_END * 60)
-                          ),
+                          height: heightFor(ev.startMin, ev.endMin),
                         }}
                         onPointerDown={(e) => {
                           e.stopPropagation();
@@ -441,10 +461,36 @@ export default function JournalWeekTimeline({
         </div>
       </div>
 
+      <div className="jn-week-slider">
+        <span className="jn-week-slider-label">
+          {shiftDateKey(todayKey, -SLIDER_SPAN).slice(5).replace("-", "/")}
+        </span>
+        <input
+          type="range"
+          className="jn-week-slider-input"
+          min={-SLIDER_SPAN}
+          max={SLIDER_SPAN}
+          step={1}
+          value={sliderClamped}
+          aria-label="快速移動日子"
+          onChange={(e) => {
+            const off = Number(e.target.value);
+            onSelectDay?.(shiftDateKey(todayKey, off));
+          }}
+        />
+        <span className="jn-week-slider-label">
+          {shiftDateKey(todayKey, SLIDER_SPAN).slice(5).replace("-", "/")}
+        </span>
+      </div>
+      <p className="jn-week-slider-hint">
+        滑桿快速跳日 · 目前 {dateKey}
+        {sliderOffset !== sliderClamped ? "（已超出滑桿範圍，可點左右繼續）" : ""}
+      </p>
+
       <p className="jn-tl-hint">
         {editMode
-          ? "編輯中：拖曳空白處新增行程。右鍵或雙擊行程可詳細設定。"
-          : "點「編輯行程」後才能拖曳新增。右鍵／雙擊行程可改名稱與時間。"}
+          ? "編輯中：拖曳空白處新增（00:00–24:00）。右鍵或雙擊行程可詳細設定。"
+          : "左右切換一次移動一天。點「編輯行程」後才能拖曳新增。"}
       </p>
 
       {selected && (

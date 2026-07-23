@@ -5647,8 +5647,7 @@ a.sidebar-user-name:hover {
 .jn-aside-block,
 .jn-list-section,
 .jn-week-strip,
-.jn-timeline,
-.jn-week {
+.jn-timeline {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -6031,15 +6030,73 @@ a.sidebar-user-name:hover {
   font-size: 0.88rem;
   white-space: nowrap;
 }
+.jn-week-range {
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
 .jn-week-head-actions {
   display: flex;
   gap: 0.25rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.jn-week-dayheads {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.jn-week-dayheads-gutter {
+  border-right: 1px solid var(--border);
+}
+.jn-week-dayheads-cols {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.jn-week-dayhead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  border: none;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+  padding: 0.35rem 0.1rem;
+  cursor: pointer;
+  color: var(--text-main);
+}
+.jn-week-dayhead:last-child {
+  border-right: none;
+}
+.jn-week-dayhead span {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+.jn-week-dayhead strong {
+  font-size: 0.88rem;
+}
+.jn-week-dayhead.is-today strong {
+  color: var(--accent);
+}
+.jn-week-dayhead.is-sel {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .jn-week-allday {
   display: grid;
   grid-template-columns: 2.2rem minmax(0, 1fr);
   gap: 0.35rem;
   align-items: start;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 0;
+  padding: 0.35rem 0.35rem 0.45rem;
+  background: color-mix(in srgb, var(--bg) 35%, var(--bg-elevated));
 }
 .jn-week-allday-label {
   font-size: 0.68rem;
@@ -6078,7 +6135,7 @@ a.sidebar-user-name:hover {
   min-height: 280px;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0 0 12px 12px;
   background: color-mix(in srgb, var(--bg) 40%, var(--bg-elevated));
 }
 .jn-week-grid {
@@ -6127,30 +6184,195 @@ a.sidebar-user-name:hover {
   background-color: color-mix(in srgb, var(--accent) 9%, transparent);
 }
 .jn-week-col-head {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.05rem;
-  width: 100%;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-  padding: 0.28rem 0.1rem;
-  cursor: pointer;
-  color: var(--text-main);
+  display: none;
 }
-.jn-week-col-head span {
+.jn-week-slider {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.15rem 0.1rem;
+}
+.jn-week-slider-label {
   font-size: 0.62rem;
   color: var(--text-muted);
+  white-space: nowrap;
 }
-.jn-week-col-head strong {
-  font-size: 0.85rem;
+.jn-week-slider-input {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
-.jn-week-col.is-today .jn-week-col-head strong {
+.jn-week-slider-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+.jn-schedule-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 0.75rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.jn-schedule-panel .jn-week,
+.jn-schedule-panel .jn-month {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+}
+.jn-schedule-tabs {
+  display: flex;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+.jn-schedule-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.jn-schedule-tab.is-on {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.jn-month {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  flex: 1;
+}
+.jn-month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.jn-month-head-left {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.jn-month-head h3 {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.jn-month-head-actions {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.jn-month-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+.jn-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-rows: minmax(88px, 1fr);
+  gap: 0.35rem;
+  flex: 1;
+  min-height: 320px;
+  overflow: auto;
+}
+.jn-month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 88px;
+  padding: 0.35rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 45%, var(--bg-elevated));
+  cursor: pointer;
+  text-align: left;
+}
+.jn-month-cell.is-out {
+  opacity: 0.42;
+}
+.jn-month-cell.is-today {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.jn-month-cell.is-sel {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.jn-month-cell-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.2rem;
+}
+.jn-month-cell-top strong {
+  font-size: 0.78rem;
+}
+.jn-month-cell.is-today .jn-month-cell-top strong {
+  color: var(--accent);
+}
+.jn-month-cell-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-height: 0;
+  overflow: hidden;
+}
+.jn-month-chip {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+  border-radius: 6px;
+  padding: 0.12rem 0.28rem;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  text-align: left;
+  color: var(--text-main);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jn-month-chip em {
+  font-style: normal;
+  color: var(--text-muted);
+  margin-right: 0.15rem;
+}
+.jn-month-chip.is-important {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated));
+  font-weight: 650;
+}
+.jn-month-chip.is-on {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.jn-month-chip.is-sync {
+  opacity: 0.85;
+}
+.jn-month-more {
+  font-size: 0.58rem;
+  color: var(--text-muted);
 }
 .jn-week-now {
   position: absolute;
