@@ -141,16 +141,17 @@ export type ToolId =
   | "connect"
   | "text";
 
+/** World-pixel defaults sized for ~100% zoom readability (avoid CSS upscale blur). */
 export const MEDIA_DEFAULT_SIZE: Record<CanvasMediaKind, { w: number; h: number }> = {
-  image: { w: 280, h: 200 },
-  audio: { w: 300, h: 88 },
-  video: { w: 360, h: 220 },
-  youtube: { w: 360, h: 220 },
-  pdf: { w: 320, h: 400 },
-  ppt: { w: 320, h: 400 },
-  file: { w: 260, h: 96 },
-  link: { w: 280, h: 96 },
-  web: { w: 360, h: 280 },
+  image: { w: 520, h: 360 },
+  audio: { w: 360, h: 100 },
+  video: { w: 560, h: 315 },
+  youtube: { w: 560, h: 315 },
+  pdf: { w: 480, h: 640 },
+  ppt: { w: 560, h: 360 },
+  file: { w: 300, h: 110 },
+  link: { w: 320, h: 110 },
+  web: { w: 560, h: 400 },
 };
 
 export const STICKY_COLORS: { id: StickyColor; label: string; bg: string; border: string }[] = [
@@ -229,8 +230,8 @@ export function loadDoc(uid: string): CanvasDoc {
           noteId,
           x: p.x,
           y: p.y,
-          w: 200,
-          h: 120,
+          w: 280,
+          h: 160,
         }));
       }
       return doc;
@@ -576,8 +577,8 @@ export function applyCanvasOps(
           noteId: op.noteId,
           x: op.x ?? 100 + next.notes.length * 40,
           y: op.y ?? 100 + next.notes.length * 30,
-          w: 200,
-          h: 120,
+          w: 280,
+          h: 160,
         });
       }
     }
@@ -697,8 +698,8 @@ export function createSticky(
     kind: "sticky",
     x: partial.x,
     y: partial.y,
-    w: partial.w ?? 200,
-    h: partial.h ?? 160,
+    w: partial.w ?? (partial.variant === "text" ? 320 : 260),
+    h: partial.h ?? (partial.variant === "text" ? 56 : 200),
     text: partial.text ?? "",
     color: partial.color ?? "yellow",
     z: partial.z ?? Date.now(),
@@ -722,8 +723,8 @@ export function createSection(
     kind: "section",
     x: partial.x,
     y: partial.y,
-    w: partial.w ?? 480,
-    h: partial.h ?? 320,
+    w: partial.w ?? 720,
+    h: partial.h ?? 480,
     title: partial.title ?? "分區",
     color: partial.color ?? "#0D9488",
     z: partial.z ?? 0,

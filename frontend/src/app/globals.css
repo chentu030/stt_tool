@@ -9518,8 +9518,8 @@ button.jn-heat-cell:disabled {
   right: 14px;
   bottom: 14px;
   z-index: 40;
-  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
-  backdrop-filter: blur(8px);
+  background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+  backdrop-filter: none;
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow);
@@ -9546,27 +9546,36 @@ button.jn-heat-cell:disabled {
 .cv-minimap-dot {
   position: absolute;
   background: var(--accent);
-  opacity: 0.55;
+  opacity: 0.78;
   border-radius: 2px;
   pointer-events: none;
 }
 .cv-minimap-dot.is-media {
   background: #0369a1;
 }
+.cv-minimap-dot.is-shape {
+  background: #64748b;
+  opacity: 0.55;
+}
+.cv-minimap-dot.is-note {
+  background: #7c3aed;
+  opacity: 0.7;
+}
 .cv-minimap-sec {
   position: absolute;
-  border: 1px solid;
-  background: transparent;
+  border: 1.5px solid;
+  background: color-mix(in srgb, currentColor 6%, transparent);
   border-radius: 3px;
-  opacity: 0.5;
+  opacity: 0.65;
   pointer-events: none;
 }
 .cv-minimap-view {
   position: absolute;
-  border: 1.5px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border-radius: 3px;
   pointer-events: none;
+  box-sizing: border-box;
 }
 .cv-ai-preview-list {
   display: flex;
@@ -9761,6 +9770,9 @@ button.jn-heat-cell:disabled {
   border: none;
   display: block;
   background: #0f172a08;
+  image-rendering: auto;
+  /* Prefer intrinsic pixels; CSS world scale still applies, but avoid forced blur filters */
+  -webkit-backface-visibility: hidden;
 }
 .cv-media-body audio {
   width: calc(100% - 1rem);
@@ -10025,8 +10037,9 @@ button.jn-heat-cell:disabled {
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
-  will-change: transform;
-  backface-visibility: hidden;
+  /* Avoid will-change + backface tricks: they often soft-blur text/images under CSS scale */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
 .cv-edges {
   position: absolute;
@@ -10056,9 +10069,9 @@ button.jn-heat-cell:disabled {
 .cv-sticky {
   border: 1px solid;
   border-radius: 4px 12px 12px 12px;
-  padding: 0.65rem 0.7rem;
+  padding: 0.75rem 0.85rem;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-  font-size: 0.86rem;
+  font-size: 0.98rem;
   line-height: 1.45;
   color: #1f2937;
 }
@@ -10072,10 +10085,10 @@ button.jn-heat-cell:disabled {
 .cv-sticky.cv-sticky--text {
   border: none !important;
   border-radius: 4px;
-  padding: 0.15rem 0.2rem;
+  padding: 0.2rem 0.25rem;
   box-shadow: none !important;
   background: transparent !important;
-  font-size: 1.05rem;
+  font-size: 1.28rem;
   font-weight: 550;
   line-height: 1.4;
   color: var(--text-main);

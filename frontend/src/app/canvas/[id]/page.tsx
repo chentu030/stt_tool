@@ -514,8 +514,8 @@ function CanvasIdPageInner() {
         const sticky = createSticky({
           x: snapVal(origin.x + (i % 3) * 28, 22, d.snap),
           y: snapVal(origin.y + i * 48, 22, d.snap),
-          w: 220,
-          h: Math.min(280, 80 + Math.ceil(text.length / 40) * 22),
+          w: 280,
+          h: Math.min(340, 100 + Math.ceil(text.length / 36) * 24),
           text,
           color: stickyColor,
         });
@@ -794,8 +794,8 @@ function CanvasIdPageInner() {
   const insertSectionAtCenter = () => {
     const center = viewportCenterWorld();
     const sec = createSection({
-      x: snapVal(center.x - 240, 22, doc.snap),
-      y: snapVal(center.y - 160, 22, doc.snap),
+      x: snapVal(center.x - 360, 22, doc.snap),
+      y: snapVal(center.y - 240, 22, doc.snap),
       title: "分區",
       color: colorToShapeHex(stickyColor),
     });
@@ -1037,8 +1037,8 @@ function CanvasIdPageInner() {
         shape: tool === "ellipse" ? "ellipse" : tool === "frame" ? "frame" : "rect",
         x,
         y,
-        w: 160,
-        h: 110,
+        w: tool === "frame" ? 560 : 280,
+        h: tool === "frame" ? 360 : 180,
         label: tool === "frame" ? "區塊" : "",
         color: colorToShapeHex(stickyColor),
         z,
@@ -1505,10 +1505,10 @@ function CanvasIdPageInner() {
           ...d.notes,
           {
             noteId,
-            x: 60 + (i % 5) * 230,
-            y: 60 + Math.floor(i / 5) * 160,
-            w: 200,
-            h: 120,
+            x: 60 + (i % 5) * 300,
+            y: 60 + Math.floor(i / 5) * 200,
+            w: 280,
+            h: 160,
           },
         ],
       };
@@ -1539,10 +1539,10 @@ function CanvasIdPageInner() {
           ...d.notes,
           {
             noteId,
-            x: 60 + (i % 5) * 230,
-            y: 60 + Math.floor(i / 5) * 160,
-            w: 200,
-            h: 120,
+            x: 60 + (i % 5) * 300,
+            y: 60 + Math.floor(i / 5) * 200,
+            w: 280,
+            h: 160,
           },
         ],
       };
@@ -1924,8 +1924,8 @@ function CanvasIdPageInner() {
               const sticky = createSticky({
                 x: snapVal(world.x, 22, doc.snap),
                 y: snapVal(world.y, 22, doc.snap),
-                w: asText ? 220 : 200,
-                h: asText ? 48 : 160,
+                w: asText ? 320 : 260,
+                h: asText ? 56 : 200,
                 text: "",
                 color: asText
                   ? stickyColor === "yellow"

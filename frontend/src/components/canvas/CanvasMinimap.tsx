@@ -11,42 +11,81 @@ type Props = {
   onFit: () => void;
 };
 
-const W = 168;
-const H = 112;
+/** Slightly larger so content + viewport both read clearly. */
+const W = 200;
+const H = 132;
+const PAD = 48;
+
+type Box = { minX: number; minY: number; maxX: number; maxY: number };
+
+function unionBox(a: Box, b: Box): Box {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  };
+}
 
 export default function CanvasMinimap({ doc, viewport, onPan, onFit }: Props) {
   const [open, setOpen] = useState(true);
   const drag = useRef(false);
 
-  const bounds = useMemo(() => boundsOf(doc), [doc]);
-  const worldW = Math.max(400, (bounds?.maxX ?? 400) - (bounds?.minX ?? 0) + 80);
-  const worldH = Math.max(300, (bounds?.maxY ?? 300) - (bounds?.minY ?? 0) + 80);
-  const originX = (bounds?.minX ?? 0) - 40;
-  const originY = (bounds?.minY ?? 0) - 40;
-  const sx = W / worldW;
-  const sy = H / worldH;
-  const s = Math.min(sx, sy);
+  const layout = useMemo(() => {
+    const scale = Math.max(0.05, doc.scale || 1);
+    const viewWorld: Box = {
+      minX: -doc.pan.x / scale,
+      minY: -doc.pan.y / scale,
+      maxX: -doc.pan.x / scale + viewport.w / scale,
+      maxY: -doc.pan.y / scale + viewport.h / scale,
+    };
+    const content = boundsOf(doc);
+    // Always include the live viewport so the blue frame never swallows the whole map
+    // when content is small or the user is zoomed in on a local cluster.
+    let world = content ? unionBox(content, viewWorld) : viewWorld;
+    world = {
+      minX: world.minX - PAD,
+      minY: world.minY - PAD,
+      maxX: world.maxX + PAD,
+      maxY: world.maxY + PAD,
+    };
+    const worldW = Math.max(120, world.maxX - world.minX);
+    const worldH = Math.max(90, world.maxY - world.minY);
+    const s = Math.min(W / worldW, H / worldH);
+    const ox = (W - worldW * s) / 2;
+    const oy = (H - worldH * s) / 2;
+    return { world, worldW, worldH, s, ox, oy, viewWorld, scale };
+  }, [doc, viewport.h, viewport.w]);
+
+  const { world, s, ox, oy, viewWorld } = layout;
 
   const view = {
-    x: (-doc.pan.x / doc.scale - originX) * s,
-    y: (-doc.pan.y / doc.scale - originY) * s,
-    w: (viewport.w / doc.scale) * s,
-    h: (viewport.h / doc.scale) * s,
+    x: ox + (viewWorld.minX - world.minX) * s,
+    y: oy + (viewWorld.minY - world.minY) * s,
+    w: Math.max(10, (viewWorld.maxX - viewWorld.minX) * s),
+    h: Math.max(10, (viewWorld.maxY - viewWorld.minY) * s),
   };
+
+  const toMap = (x: number, y: number, w: number, h: number) => ({
+    left: ox + (x - world.minX) * s,
+    top: oy + (y - world.minY) * s,
+    width: Math.max(4, w * s),
+    height: Math.max(4, h * s),
+  });
 
   const jumpTo = useCallback(
     (clientX: number, clientY: number, el: HTMLElement) => {
       const r = el.getBoundingClientRect();
       const mx = clientX - r.left;
       const my = clientY - r.top;
-      const wx = mx / s + originX;
-      const wy = my / s + originY;
+      const wx = (mx - ox) / s + world.minX;
+      const wy = (my - oy) / s + world.minY;
       onPan({
         x: viewport.w / 2 - wx * doc.scale,
         y: viewport.h / 2 - wy * doc.scale,
       });
     },
-    [doc.scale, onPan, originX, originY, s, viewport.h, viewport.w]
+    [doc.scale, onPan, ox, oy, s, viewport.h, viewport.w, world.minX, world.minY]
   );
 
   useEffect(() => {
@@ -95,37 +134,23 @@ export default function CanvasMinimap({ doc, viewport, onPan, onFit }: Props) {
           <div
             key={sec.id}
             className="cv-minimap-sec"
-            style={{
-              left: (sec.x - originX) * s,
-              top: (sec.y - originY) * s,
-              width: Math.max(4, sec.w * s),
-              height: Math.max(4, sec.h * s),
-              borderColor: sec.color,
-            }}
+            style={{ ...toMap(sec.x, sec.y, sec.w, sec.h), borderColor: sec.color }}
           />
         ))}
         {doc.stickies.map((st) => (
-          <div
-            key={st.id}
-            className="cv-minimap-dot"
-            style={{
-              left: (st.x - originX) * s,
-              top: (st.y - originY) * s,
-              width: Math.max(3, st.w * s),
-              height: Math.max(3, st.h * s),
-            }}
-          />
+          <div key={st.id} className="cv-minimap-dot" style={toMap(st.x, st.y, st.w, st.h)} />
         ))}
         {(doc.media || []).map((m) => (
+          <div key={m.id} className="cv-minimap-dot is-media" style={toMap(m.x, m.y, m.w, m.h)} />
+        ))}
+        {doc.shapes.map((sh) => (
+          <div key={sh.id} className="cv-minimap-dot is-shape" style={toMap(sh.x, sh.y, sh.w, sh.h)} />
+        ))}
+        {doc.notes.map((n) => (
           <div
-            key={m.id}
-            className="cv-minimap-dot is-media"
-            style={{
-              left: (m.x - originX) * s,
-              top: (m.y - originY) * s,
-              width: Math.max(3, m.w * s),
-              height: Math.max(3, m.h * s),
-            }}
+            key={n.noteId}
+            className="cv-minimap-dot is-note"
+            style={toMap(n.x, n.y, n.w, n.h)}
           />
         ))}
         <div
@@ -133,8 +158,8 @@ export default function CanvasMinimap({ doc, viewport, onPan, onFit }: Props) {
           style={{
             left: view.x,
             top: view.y,
-            width: Math.max(12, view.w),
-            height: Math.max(12, view.h),
+            width: view.w,
+            height: view.h,
           }}
         />
       </div>
