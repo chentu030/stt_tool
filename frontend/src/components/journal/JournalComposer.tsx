@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useImperativeHandle, forwardRef, useState } from "react";
+import { useEffect, useImperativeHandle, forwardRef, useRef, useState } from "react";
 import {
   journalTagIdFromLabel,
   nextJournalTagColor,
@@ -53,8 +53,17 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
 
   const [text, setText] = useState(initialText);
   const [selected, setSelected] = useState<string[]>(initialTags);
-  const [mode, setMode] = useState<"preview" | "edit">(initialText.trim() ? "preview" : "edit");
+  const [mode, setMode] = useState<"preview" | "edit">("preview");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prompt = promptForDate(dateKey);
+
+  const enterEdit = () => {
+    setMode("edit");
+    // Avoid scrolling the whole mobile page down to the rail.
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
+  };
 
   const dirty = text !== initialText || !sameIds(selected, initialTags);
 
@@ -174,7 +183,10 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => setMode((x) => (x === "preview" ? "edit" : "preview"))}
+            onClick={() => {
+              if (mode === "preview") enterEdit();
+              else setMode("preview");
+            }}
             title={mode === "preview" ? "編輯 Markdown 原文" : "預覽 Markdown / LaTeX"}
           >
             {mode === "preview" ? "編輯原文" : "預覽"}
@@ -274,7 +286,7 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
         <button
           type="button"
           className="jn-preview"
-          onClick={() => setMode("edit")}
+          onClick={enterEdit}
           title="點擊編輯原文"
         >
           {text.trim() ? (
@@ -285,11 +297,11 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
         </button>
       ) : (
         <textarea
+          ref={textareaRef}
           className="input jn-textarea"
           rows={10}
           placeholder="寫下今天的節奏、卡住的地方、或一句話就好…（支援 Markdown / LaTeX）"
           value={text}
-          autoFocus
           onChange={(ev) => setText(ev.target.value)}
           onKeyDown={(ev) => {
             if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "s") {

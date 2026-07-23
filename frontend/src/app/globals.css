@@ -7708,34 +7708,51 @@ button.jn-heat-cell:disabled {
     padding: 0.25rem 0.15rem 0;
   }
   .jn-hero {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 0.25rem 0.1rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.4rem 0.55rem;
+    padding: 0.3rem 0.1rem 0.45rem;
     margin: 0;
   }
+  .jn-hero-brand {
+    flex: 1 1 auto;
+    min-width: 0;
+    order: 1;
+  }
   .jn-hero-toolbar {
+    display: contents;
+  }
+  /* Sit on the same row as「日誌」, right-aligned */
+  .jn-hero .voice-quick-wrap {
+    order: 2;
+    flex: 0 0 auto;
+    margin-left: auto;
+    max-width: min(52vw, 11.5rem);
+  }
+  .jn-hero .voice-quick-btn--hero {
+    padding: 0.42rem 0.75rem;
+    font-size: 0.78rem;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .jn-hero-actions {
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
     gap: 0.35rem;
+    order: 3;
+    flex: 1 0 100%;
     width: 100%;
+    margin-left: 0;
     min-width: 0;
-    max-width: 100%;
     overflow-x: auto;
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
-    /* Keep pulse glow inside the scrollport */
-    padding: 0.4rem 0.35rem;
-    margin: 0;
-    scrollbar-gutter: stable;
-  }
-  .jn-hero-toolbar > .voice-quick-btn,
-  .jn-hero-toolbar > .voice-quick-btn--hero {
-    margin-right: 0;
-  }
-  .jn-hero-actions {
-    display: contents;
-    margin-left: 0;
+    padding: 0.15rem 0;
   }
   .jn-hero-open-today {
     display: inline-flex !important;

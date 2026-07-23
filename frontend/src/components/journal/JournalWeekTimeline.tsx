@@ -197,12 +197,14 @@ export default function JournalWeekTimeline({
 
   useEffect(() => {
     // Only scroll to the now-line once when today enters the view — not on every day change.
+    // Use container scrollTop (not scrollIntoView) so the page/rail does not jump on mobile.
     if (!dayKeys.includes(todayKey)) return;
     const sc = bodyRef.current;
     if (!sc || sc.dataset.scrolledNow === "1") return;
-    const el = sc.querySelector(".jn-week-now");
+    const el = sc.querySelector(".jn-week-now") as HTMLElement | null;
     if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const top = el.offsetTop - sc.clientHeight / 2 + el.offsetHeight / 2;
+    sc.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
     sc.dataset.scrolledNow = "1";
   }, [dayKeys, todayKey]);
 
