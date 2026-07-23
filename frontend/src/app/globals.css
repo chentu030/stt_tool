@@ -6118,9 +6118,31 @@ a.sidebar-user-name:hover {
   flex-wrap: wrap;
   align-items: center;
 }
+
+.jn-week-board {
+  --jn-week-gutter: 2.4rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.jn-week-board::-webkit-scrollbar {
+  height: 6px;
+}
+.jn-week-board::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
+}
+
 .jn-week-dayheads {
   display: grid;
-  grid-template-columns: 2.2rem minmax(0, 1fr);
+  grid-template-columns: var(--jn-week-gutter, 2.4rem) minmax(0, 1fr);
   gap: 0;
   flex: 0 0 auto;
   border: 1px solid var(--border);
@@ -6128,9 +6150,12 @@ a.sidebar-user-name:hover {
   border-radius: 12px 12px 0 0;
   background: var(--bg-elevated);
   overflow: hidden;
+  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 7 * 5.5rem));
 }
 .jn-week-dayheads-gutter {
   border-right: 1px solid var(--border);
+  width: var(--jn-week-gutter, 2.4rem);
+  box-sizing: border-box;
 }
 .jn-week-dayheads-cols {
   display: grid;
@@ -6166,34 +6191,43 @@ a.sidebar-user-name:hover {
 }
 .jn-week-allday {
   display: grid;
-  grid-template-columns: 2.2rem minmax(0, 1fr);
-  gap: 0.35rem;
+  grid-template-columns: var(--jn-week-gutter, 2.4rem) minmax(0, 1fr);
+  gap: 0;
   align-items: start;
   border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 0;
-  padding: 0.35rem 0.35rem 0.45rem;
+  padding: 0;
   background: color-mix(in srgb, var(--bg) 35%, var(--bg-elevated));
+  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 7 * 5.5rem));
 }
 .jn-week-allday-label {
   font-size: 0.68rem;
   color: var(--text-muted);
-  padding-top: 0.35rem;
+  padding: 0.45rem 0.15rem 0.35rem;
+  border-right: 1px solid var(--border);
+  text-align: center;
+  box-sizing: border-box;
 }
 .jn-week-allday-cols {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.25rem;
+  gap: 0;
+  padding: 0.35rem 0 0.4rem;
 }
 .jn-week-allday-col {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   min-height: 2.2rem;
-  padding: 0.2rem;
-  border-radius: 8px;
+  padding: 0.2rem 0.25rem;
+  border-radius: 0;
   border: 1px solid transparent;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   position: relative;
+}
+.jn-week-allday-col:last-child {
+  border-right: none;
 }
 .jn-week-allday-col.is-sel {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
@@ -6210,7 +6244,8 @@ a.sidebar-user-name:hover {
 .jn-week-scroll {
   flex: 1;
   min-height: 280px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 0 0 12px 12px;
   background: color-mix(in srgb, var(--bg) 40%, var(--bg-elevated));
@@ -6218,8 +6253,9 @@ a.sidebar-user-name:hover {
 .jn-week-grid {
   position: relative;
   display: grid;
-  grid-template-columns: 2.2rem minmax(0, 1fr);
-  min-width: 560px;
+  grid-template-columns: var(--jn-week-gutter, 2.4rem) minmax(0, 1fr);
+  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 7 * 5.5rem));
+  width: 100%;
 }
 .jn-week-hours {
   position: relative;
@@ -6289,9 +6325,13 @@ a.sidebar-user-name:hover {
 .jn-week-col.is-sel {
   background-color: color-mix(in srgb, var(--accent) 9%, transparent);
 }
+
+.jn-week.is-compact .jn-week-dayheads,
+.jn-week.is-compact .jn-week-allday,
 .jn-week.is-compact .jn-week-grid {
-  min-width: 0;
+  min-width: max(100%, calc(var(--jn-week-gutter, 2.4rem) + 4 * 5.5rem));
 }
+
 .jn-week.is-compact .jn-week-dayheads-cols,
 .jn-week.is-compact .jn-week-allday-cols,
 .jn-week.is-compact .jn-week-cols {
@@ -6671,6 +6711,37 @@ a.sidebar-user-name:hover {
   min-height: 0;
   min-width: 0;
 }
+
+/* Month board: keep usable column width; pan horizontally when the viewport is narrow */
+.jn-month-board-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  -ms-overflow-style: auto;
+  padding-bottom: 0.25rem;
+}
+.jn-month-board-scroll::-webkit-scrollbar {
+  display: block;
+  height: 6px;
+  width: auto;
+}
+.jn-month-board-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  border-radius: 999px;
+}
+.jn-month-weekdays,
+.jn-month-grid {
+  width: max(100%, calc(7 * 7rem + 6 * 0.35rem));
+  min-width: calc(7 * 7rem + 6 * 0.35rem);
+  grid-template-columns: repeat(7, minmax(7rem, 1fr));
+}
+.jn-month-grid {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .jn-month-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

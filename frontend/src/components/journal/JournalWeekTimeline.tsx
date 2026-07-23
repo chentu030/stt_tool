@@ -572,6 +572,7 @@ export default function JournalWeekTimeline({
         </div>
       </div>
 
+      <div className="jn-week-board">
       <div className="jn-week-dayheads">
         <div className="jn-week-dayheads-gutter" aria-hidden />
         <div className="jn-week-dayheads-cols">
@@ -773,6 +774,7 @@ export default function JournalWeekTimeline({
         </div>
       </div>
 
+      </div>
       <div className="jn-week-slider">
         <span className="jn-week-slider-label">
           {shiftDateKey(todayKey, -SLIDER_SPAN).slice(5).replace("-", "/")}
