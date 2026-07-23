@@ -794,7 +794,11 @@ export default function JournalPage() {
             noteTitle={selectedEntry?.title}
             tagDefs={tagDefs}
             agenda={agendaEvents}
+            wordsByDate={wordsByDate}
             onAskAi={askAi}
+            onSelectDay={(dk) => {
+              void onSelectDay(dk);
+            }}
             onMeetingMode={(ev) => {
               void startMeetingMode(ev);
             }}
@@ -974,7 +978,11 @@ export default function JournalPage() {
                 noteTitle={selectedEntry?.title}
                 tagDefs={tagDefs}
                 agenda={agendaEvents}
+                wordsByDate={wordsByDate}
                 onAskAi={askAi}
+                onSelectDay={(dk) => {
+                  void onSelectDay(dk);
+                }}
               />
             </>
           )}

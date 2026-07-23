@@ -3,12 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   JournalStats,
-  heatWeeks,
   type JournalTagDef,
   dateKeyFromDate,
 } from "@/lib/journalMeta";
 import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 import { formatClock, type ScheduleEvent } from "@/lib/scheduleEvents";
+import JournalHeatmap from "@/components/journal/JournalHeatmap";
 
 type Props = {
   stats: JournalStats;
@@ -17,12 +17,14 @@ type Props = {
   noteTitle?: string;
   tagDefs?: JournalTagDef[];
   agenda?: ScheduleEvent[];
+  wordsByDate?: Map<string, number> | Record<string, number>;
   /** agenda = 今日議程+筆記；secondary = 節奏/熱力/AI；all = 兩者 */
   mode?: "agenda" | "secondary" | "all";
   onAskAi: (prompt: string) => Promise<string>;
   onMeetingMode?: (ev: ScheduleEvent) => void;
   onOpenNote?: (ev: ScheduleEvent) => void;
   onJoin?: (ev: ScheduleEvent) => void;
+  onSelectDay?: (dateKey: string) => void;
 };
 
 export default function JournalAside({
@@ -32,17 +34,18 @@ export default function JournalAside({
   noteTitle,
   tagDefs = [],
   agenda = [],
+  wordsByDate,
   mode = "all",
   onAskAi,
   onMeetingMode,
   onOpenNote,
   onJoin,
+  onSelectDay,
 }: Props) {
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
   const [showHeat, setShowHeat] = useState(false);
-  const heat = heatWeeks(stats.filledDays, 14);
   const showAgenda = mode === "agenda" || mode === "all";
   const showSecondary = mode === "secondary" || mode === "all";
 
@@ -195,21 +198,15 @@ export default function JournalAside({
               style={{ marginTop: "0.45rem" }}
               onClick={() => setShowHeat((v) => !v)}
             >
-              {showHeat ? "收合熱力" : "近 14 週熱力"}
+              {showHeat ? "收合熱力圖" : "展開年度熱力圖"}
             </button>
             {showHeat && (
-              <div className="jn-heat" title="有寫的日子會亮起" style={{ marginTop: "0.5rem" }}>
-                {heat.map((col, i) => (
-                  <div key={i} className="jn-heat-col">
-                    {col.map((c) => (
-                      <span
-                        key={c.dateKey}
-                        className={`jn-heat-cell${c.level ? " is-on" : ""}`}
-                        title={c.dateKey}
-                      />
-                    ))}
-                  </div>
-                ))}
+              <div style={{ marginTop: "0.55rem" }}>
+                <JournalHeatmap
+                  stats={stats}
+                  wordsByDate={wordsByDate}
+                  onSelectDay={onSelectDay}
+                />
               </div>
             )}
           </section>

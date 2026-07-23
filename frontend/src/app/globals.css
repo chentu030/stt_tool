@@ -6852,14 +6852,171 @@ a.sidebar-user-name:hover {
   max-width: 100%;
   min-width: 0;
 }
-.jn-heat-col { display: flex; flex-direction: column; gap: 3px; }
-.jn-heat-cell {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  background: var(--bg-muted);
+.jn-heat-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
-.jn-heat-cell.is-on { background: var(--accent); opacity: 0.85; }
+.jn-heat-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: none;
+  padding: 0;
+  background: color-mix(in srgb, var(--border) 70%, var(--bg-muted));
+  display: block;
+  flex: 0 0 auto;
+}
+button.jn-heat-cell {
+  cursor: pointer;
+}
+button.jn-heat-cell:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+.jn-heat-cell.level-0 {
+  background: color-mix(in srgb, var(--border) 65%, var(--bg-muted));
+}
+.jn-heat-cell.level-1 {
+  background: color-mix(in srgb, var(--accent) 28%, var(--bg-muted));
+}
+.jn-heat-cell.level-2 {
+  background: color-mix(in srgb, var(--accent) 48%, var(--bg-muted));
+}
+.jn-heat-cell.level-3 {
+  background: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+.jn-heat-cell.level-4 {
+  background: var(--accent);
+}
+.jn-heat-cell.is-on {
+  background: var(--accent);
+  opacity: 0.85;
+}
+.jn-heat-year {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.jn-heat-year-top {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.jn-heat-year-summary {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.jn-heat-year-summary strong {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+.jn-heat-year-years {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.jn-heat-year-year {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 0.18rem 0.45rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.jn-heat-year-year.is-on {
+  color: #fff;
+  border-color: transparent;
+  background: var(--accent);
+}
+.jn-heat-year-frame {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.55rem 0.55rem 0.4rem;
+  background: color-mix(in srgb, var(--bg) 40%, var(--bg-elevated));
+  min-width: 0;
+}
+.jn-heat-year-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+  padding-bottom: 0.25rem;
+}
+.jn-heat-year-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.jn-heat-year-months {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  height: 1rem;
+  align-items: end;
+}
+.jn-heat-year-corner {
+  display: block;
+}
+.jn-heat-year-month-track {
+  position: relative;
+  height: 1rem;
+}
+.jn-heat-year-month {
+  position: absolute;
+  top: 0;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transform: translateX(0);
+}
+.jn-heat-year-body {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 0.2rem;
+  align-items: start;
+}
+.jn-heat-year-wdays {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 0;
+}
+.jn-heat-year-wday {
+  width: 18px;
+  height: 10px;
+  font-size: 0.58rem;
+  line-height: 10px;
+  color: var(--text-muted);
+  text-align: left;
+}
+.jn-heat-year-grid {
+  display: flex;
+  gap: 3px;
+}
+.jn-heat-year-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.45rem;
+  font-size: 0.68rem;
+}
+.jn-heat-year-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-muted);
+}
+.jn-heat-year-legend .jn-heat-cell {
+  pointer-events: none;
+}
 .jn-mood-stats { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
 .jn-mood-stats li {
   display: grid;

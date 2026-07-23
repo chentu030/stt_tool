@@ -378,6 +378,127 @@ export function heatWeeks(
   return grid;
 }
 
+export type HeatCell = {
+  dateKey: string;
+  /** 0 empty · 1–4 intensity */
+  level: number;
+  inYear: boolean;
+  words: number;
+};
+
+export type HeatYearGraph = {
+  year: number;
+  weeks: HeatCell[][];
+  monthLabels: { label: string; weekIndex: number }[];
+  filledCount: number;
+  totalCellsInYear: number;
+};
+
+function heatLevelFromWords(words: number, filled: boolean): number {
+  if (!filled && words <= 0) return 0;
+  if (words <= 0) return 1;
+  if (words < 80) return 1;
+  if (words < 200) return 2;
+  if (words < 450) return 3;
+  return 4;
+}
+
+/** GitHub-style year heatmap (Mon-first columns). */
+export function heatYearGraph(
+  filledDays: Set<string>,
+  opts?: {
+    year?: number;
+    wordsByDate?: Map<string, number> | Record<string, number>;
+    today?: Date;
+  }
+): HeatYearGraph {
+  const today = opts?.today ? new Date(opts.today) : new Date();
+  today.setHours(0, 0, 0, 0);
+  const year = opts?.year ?? today.getFullYear();
+  const wordsMap =
+    opts?.wordsByDate instanceof Map
+      ? opts.wordsByDate
+      : new Map(Object.entries(opts?.wordsByDate || {}));
+
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year, 11, 31);
+  const gridStart = startOfWeek(yearStart);
+  // Include week that contains Dec 31
+  let gridEnd = startOfWeek(yearEnd);
+  gridEnd = new Date(gridEnd.getFullYear(), gridEnd.getMonth(), gridEnd.getDate() + 6);
+
+  const weeks: HeatCell[][] = [];
+  const cursor = new Date(gridStart);
+  while (cursor.getTime() <= gridEnd.getTime()) {
+    const col: HeatCell[] = [];
+    for (let d = 0; d < 7; d++) {
+      const cur = new Date(cursor);
+      cur.setDate(cursor.getDate() + d);
+      const key = dateKeyFromDate(cur);
+      const inYear = cur.getFullYear() === year;
+      const words = Number(wordsMap.get(key) || 0);
+      const filled = filledDays.has(key);
+      const level = inYear ? heatLevelFromWords(words, filled) : 0;
+      col.push({ dateKey: key, level: inYear ? level : 0, inYear, words });
+    }
+    weeks.push(col);
+    cursor.setDate(cursor.getDate() + 7);
+  }
+
+  const monthNames = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+  const monthLabels: { label: string; weekIndex: number }[] = [];
+  const seenMonths = new Set<number>();
+  weeks.forEach((col, weekIndex) => {
+    for (const cell of col) {
+      if (!cell.inYear) continue;
+      const d = parseDateKey(cell.dateKey);
+      if (!d || d.getDate() !== 1) continue;
+      const m = d.getMonth();
+      if (seenMonths.has(m)) continue;
+      seenMonths.add(m);
+      monthLabels.push({ label: monthNames[m], weekIndex });
+    }
+  });
+  // Fallback: if Jan 1 was mid-week and somehow missed, label first in-year week for missing months
+  if (seenMonths.size < 12) {
+    weeks.forEach((col, weekIndex) => {
+      for (const cell of col) {
+        if (!cell.inYear) continue;
+        const d = parseDateKey(cell.dateKey);
+        if (!d) continue;
+        const m = d.getMonth();
+        if (seenMonths.has(m)) continue;
+        seenMonths.add(m);
+        monthLabels.push({ label: monthNames[m], weekIndex });
+        break;
+      }
+    });
+    monthLabels.sort((a, b) => a.weekIndex - b.weekIndex);
+  }
+
+  let filledCount = 0;
+  let totalCellsInYear = 0;
+  for (const col of weeks) {
+    for (const cell of col) {
+      if (!cell.inYear) continue;
+      totalCellsInYear += 1;
+      if (cell.level > 0) filledCount += 1;
+    }
+  }
+
+  return { year, weeks, monthLabels, filledCount, totalCellsInYear };
+}
+
+/** Years that appear in filled days, plus current year. Desc sorted. */
+export function heatAvailableYears(filledDays: Set<string>, today = new Date()): number[] {
+  const years = new Set<number>([today.getFullYear()]);
+  for (const key of filledDays) {
+    const y = Number(key.slice(0, 4));
+    if (y >= 2000 && y <= 2100) years.add(y);
+  }
+  return [...years].sort((a, b) => b - a);
+}
+
 export const JOURNAL_PROMPTS = [
   "今天最想記住的一件事是什麼？",
   "有哪個決定讓你覺得踏實？",
