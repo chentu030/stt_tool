@@ -16125,67 +16125,149 @@ body.is-sidebar-resizing iframe {
   padding-right: 0.15rem;
 }
 .cadence-ai-thinking {
-  min-height: 2.4rem;
+  min-height: 3rem;
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--accent) 10%, transparent),
+      color-mix(in srgb, var(--accent) 3%, var(--bg-muted))
+    );
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
 }
 .ai-thinking-morph {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.45rem;
-  min-height: 1.35rem;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 1.6rem;
   color: var(--text-muted);
-  font-size: 0.86rem;
-  font-weight: 550;
+  font-size: 0.92rem;
+  font-weight: 600;
   letter-spacing: 0.01em;
 }
-.ai-thinking-morph-svg {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-}
-.ai-thinking-globe {
-  display: inline-flex;
+.ai-thinking-orb {
+  position: relative;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  line-height: 0;
+  width: 28px;
+  height: 28px;
 }
-.ai-thinking-globe-svg {
-  display: block;
-  width: 18px;
-  height: 18px;
-  overflow: hidden;
+.ai-thinking-orb-ring {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-top-color: transparent;
+  border-left-color: transparent;
 }
-.ai-thinking-globe-spin {
-  transform-origin: 16px 16px;
-  animation: ai-thinking-globe-spin 7.5s linear infinite;
+.ai-thinking-orb-ring--a {
+  animation: ai-orb-spin 1.1s linear infinite;
 }
-@keyframes ai-thinking-globe-spin {
+.ai-thinking-orb-ring--b {
+  inset: 4px;
+  border-width: 1.25px;
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  border-bottom-color: transparent;
+  border-right-color: transparent;
+  animation: ai-orb-spin 1.7s linear infinite reverse;
+}
+.ai-thinking-orb-core {
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    color-mix(in srgb, #fff 55%, var(--accent)),
+    var(--accent) 55%,
+    color-mix(in srgb, var(--accent) 70%, #0f766e)
+  );
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 0 12px color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: ai-orb-pulse 1.4s ease-in-out infinite;
+}
+.ai-thinking-orb-spark {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, 0.85), transparent 65%);
+  opacity: 0.9;
+}
+.ai-thinking-orb-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 70%, transparent);
+  top: 50%;
+  left: 50%;
+  margin: -2px 0 0 -2px;
+}
+.ai-thinking-orb-dot--1 {
+  animation: ai-orb-orbit 2.2s linear infinite;
+}
+.ai-thinking-orb-dot--2 {
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  animation: ai-orb-orbit 2.2s linear infinite;
+  animation-delay: -0.75s;
+  opacity: 0.75;
+}
+.ai-thinking-orb-dot--3 {
+  width: 2.5px;
+  height: 2.5px;
+  margin: -1.25px 0 0 -1.25px;
+  animation: ai-orb-orbit 2.2s linear infinite;
+  animation-delay: -1.4s;
+  opacity: 0.55;
+}
+@keyframes ai-orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ai-orb-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.06);
+    filter: brightness(1.15);
+  }
+}
+@keyframes ai-orb-orbit {
   from {
-    transform: translateX(0);
+    transform: rotate(0deg) translateX(12px) rotate(0deg);
   }
   to {
-    transform: translateX(-26px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ai-thinking-globe-spin {
-    animation: none;
+    transform: rotate(360deg) translateX(12px) rotate(-360deg);
   }
 }
 .ai-thinking-morph-stage {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  min-width: 4.5rem;
-  min-height: 1.25em;
+  flex: 1;
+  min-width: 0;
+  min-height: 1.45em;
   overflow: hidden;
 }
 .ai-thinking-morph-word {
-  display: inline-block;
+  display: block;
   white-space: nowrap;
   color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-thinking-orb-ring--a,
+  .ai-thinking-orb-ring--b,
+  .ai-thinking-orb-core,
+  .ai-thinking-orb-dot {
+    animation: none;
+  }
 }
 .cadence-ai-edit-bar {
   display: flex;
