@@ -2810,14 +2810,20 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
       const pageRect = pageEl?.getBoundingClientRect();
       const contentPad = parseFloat(getComputedStyle(root).paddingLeft || "0") || 0;
       const contentPadRight = parseFloat(getComputedStyle(root).paddingRight || "0") || 0;
-      // Text column (after block-handle gutter). Side blanks + far page margins start outside this.
+      // Text starts after handle padding. Keep a caret band just before the first glyph
+      // so "click before first char" places the cursor instead of selecting the block.
       const textLeft = rootRect.left + Math.max(contentPad, 8);
       const textRight = rootRect.right - Math.max(contentPadRight, 0);
+      const caretBand = 18;
+      const handleStripRight = Math.max(rootRect.left + 28, textLeft - caretBand);
       const bandTop = canvasRect.top - 24;
       const bandBottom = Math.max(canvasRect.bottom, pageRect?.bottom ?? canvasRect.bottom) + 8;
       const inEditorBand = e.clientY >= bandTop && e.clientY <= bandBottom;
-      const inOutsideColumn =
-        inEditorBand && (e.clientX < textLeft || e.clientX > textRight);
+      const inFarSideMargin =
+        inEditorBand && (e.clientX < rootRect.left || e.clientX > textRight);
+      const inHandleStrip =
+        inEditorBand && e.clientX >= rootRect.left && e.clientX < handleStripRight;
+      const inOutsideColumn = inFarSideMargin || inHandleStrip;
       const outsideProse = !t.closest?.(".ProseMirror");
       const onAtomChrome = !!t.closest?.(
         "[data-note-embed], .rich-embed, .rich-embed-bar, .rich-embed-frame, hr, img, video, .ProseMirror-selectednode"
@@ -2839,9 +2845,20 @@ function BlockDragHandle({ editor }: { editor: Editor }) {
         }
       })();
 
+      // Prefer caret when the click lands in a text block outside the handle strip
+      // (fixes line-start clicks being eaten by block selection).
+      const preferCaret =
+        !e.altKey &&
+        !onAtomChrome &&
+        !inHandleStrip &&
+        !inFarSideMargin &&
+        inTextblock &&
+        !!t.closest?.(".ProseMirror");
+
       // Outside text column, empty page chrome, Alt, or atom chrome → block marquee.
       const forceMarquee =
-        e.altKey || inOutsideColumn || onAtomChrome || (outsideProse && inEditorBand);
+        !preferCaret &&
+        (e.altKey || inOutsideColumn || onAtomChrome || (outsideProse && inEditorBand));
 
       // Inside editable text/content: never preventDefault / setState here — that races the caret.
       if (!forceMarquee && (inTextblock || !!t.closest?.(".ProseMirror"))) {
