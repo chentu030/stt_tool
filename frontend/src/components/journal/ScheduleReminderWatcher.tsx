@@ -20,6 +20,9 @@ export default function ScheduleReminderWatcher() {
 
   useEffect(() => {
     if (!user) return;
+    void import("@/lib/scheduleReminders").then(({ ensureRemindersServiceWorker }) => {
+      void ensureRemindersServiceWorker();
+    });
     return watchScheduleReminders(user.uid);
   }, [user, dayKey]);
 

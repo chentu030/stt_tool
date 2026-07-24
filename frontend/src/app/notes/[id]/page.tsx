@@ -1713,7 +1713,7 @@ function NotePageInner() {
 
   const remove = async () => {
     if (!note) return;
-    if (!(await askConfirm({ title: "刪除此筆記？", message: "此操作無法復原。", danger: true, confirmLabel: "刪除" }))) return;
+    if (!(await askConfirm({ title: "移到垃圾桶？", message: "可之後在知識庫「垃圾桶」還原。", danger: true, confirmLabel: "移到垃圾桶" }))) return;
     await deleteNote(note.id);
     router.push("/library");
   };

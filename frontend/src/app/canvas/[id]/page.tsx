@@ -126,7 +126,10 @@ import {
   renameCanvas,
   deleteCanvas,
   lastCanvasKey,
+  listCanvasVersions,
+  restoreCanvasVersion,
   type CanvasMeta,
+  type CanvasVersion,
 } from "@/lib/canvasCloud";
 import { saveCanvasWithSync } from "@/lib/offlineSync";
 import { usePrefs } from "@/components/PrefsProvider";
@@ -223,6 +226,9 @@ function CanvasIdPageInner() {
     height: number;
   } | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versions, setVersions] = useState<CanvasVersion[]>([]);
   const [aiPreview, setAiPreview] = useState<{
     title: string;
     busy: boolean;
@@ -2547,6 +2553,27 @@ function CanvasIdPageInner() {
           <button type="button" className="btn btn-ghost btn-sm" onClick={undo} disabled={!history.length}>
             復原
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            title="白板版本快照"
+            onClick={() => {
+              if (!user || !canvasId) return;
+              setVersionsOpen(true);
+              setVersionsLoading(true);
+              void (async () => {
+                try {
+                  setVersions(await listCanvasVersions(user.uid, canvasId));
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : "無法載入快照");
+                } finally {
+                  setVersionsLoading(false);
+                }
+              })();
+            }}
+          >
+            快照
+          </button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAsideOpen((v) => !v)}>
             {asideOpen ? "收合側欄" : "側欄"}
           </button>
@@ -3325,6 +3352,74 @@ function CanvasIdPageInner() {
           onShareChange={setCanvasShare}
         />
       )}
+
+      {versionsOpen ? (
+        <div
+          className="cadence-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setVersionsOpen(false);
+          }}
+        >
+          <div
+            className="doc-versions doc-versions--modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="白板快照"
+          >
+            <div className="doc-versions-head">
+              <strong>白板快照</strong>
+              <button
+                type="button"
+                className="doc-cmd"
+                onClick={() => setVersionsOpen(false)}
+              >
+                關閉
+              </button>
+            </div>
+            {versionsLoading ? (
+              <p className="note-aside-empty">載入中…</p>
+            ) : versions.length === 0 ? (
+              <p className="note-aside-empty">尚無快照（編輯一段時間後會自動保存）。</p>
+            ) : (
+              <div className="doc-versions-list">
+                {versions.map((v) => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className="doc-version-row"
+                    onClick={() => {
+                      void (async () => {
+                        if (!user || !canvasId) return;
+                        if (!(await askConfirm({ title: "還原此快照？", confirmLabel: "還原" })))
+                          return;
+                        try {
+                          const restored = await restoreCanvasVersion(
+                            user.uid,
+                            canvasId,
+                            v.id
+                          );
+                          setDoc(restored);
+                          setVersionsOpen(false);
+                          toast("已還原白板快照");
+                        } catch (e) {
+                          toast(e instanceof Error ? e.message : "還原失敗");
+                        }
+                      })();
+                    }}
+                  >
+                    <span>{v.name || "白板"}</span>
+                    <span>
+                      {v.summary ? `${v.summary} · ` : ""}
+                      {v.created_at.toLocaleString("zh-TW")}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {connectFrom && <p className="cv-toast">連線中… 點錨點或物件作為終點</p>}
       </div>

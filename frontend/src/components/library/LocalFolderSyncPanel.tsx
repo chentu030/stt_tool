@@ -93,7 +93,8 @@ export default function LocalFolderSyncPanel({
       const r = await pullFromLocalFolder(uid, notes);
       await refresh();
       const skip = r.skipped.length ? `，略過 ${r.skipped.length}` : "";
-      toast(`知識庫同步：新增 ${r.created}、更新 ${r.updated}${skip}`);
+      const att = r.attachments ? `、附件 ${r.attachments}` : "";
+      toast(`知識庫同步：新增 ${r.created}、更新 ${r.updated}${att}${skip}`);
     } catch (e) {
       toast(e instanceof Error ? e.message : "拉入失敗");
     } finally {
@@ -112,7 +113,8 @@ export default function LocalFolderSyncPanel({
       await refresh();
       const scope = ids ? `選取 ${ids.length} 篇` : "全部筆記";
       const skip = r.skipped.length ? `，略過 ${r.skipped.length}` : "";
-      toast(`已匯出到本機（${scope}）：${r.written} 篇${skip}`);
+      const att = r.attachments ? `、附件 ${r.attachments}` : "";
+      toast(`已匯出到本機（${scope}）：${r.written} 篇${att}${skip}`);
     } catch (e) {
       toast(e instanceof Error ? e.message : "匯出失敗");
     } finally {

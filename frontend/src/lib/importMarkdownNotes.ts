@@ -488,7 +488,7 @@ function noteDirFromRelativePath(rel: string): string {
   return parts.join("/");
 }
 
-function buildAttachmentIndex(files: File[]): Map<string, File> {
+export function buildAttachmentIndex(files: File[]): Map<string, File> {
   const map = new Map<string, File>();
   for (const f of files) {
     if (isMarkdownFile(f)) continue;
@@ -505,7 +505,7 @@ function buildAttachmentIndex(files: File[]): Map<string, File> {
   return map;
 }
 
-async function rewriteAndUploadAttachments(
+export async function rewriteAndUploadAttachments(
   uid: string,
   noteId: string,
   body: string,

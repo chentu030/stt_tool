@@ -831,10 +831,10 @@ export default function SidebarNotesTree() {
     if (
       ask &&
       !(await askConfirm({
-        title: ids.length > 1 ? `刪除選取的 ${ids.length} 篇筆記？` : "刪除此筆記？",
-        message: "此操作無法復原。",
+        title: ids.length > 1 ? `將選取的 ${ids.length} 篇移到垃圾桶？` : "移到垃圾桶？",
+        message: "可之後在知識庫「垃圾桶」還原。",
         danger: true,
-        confirmLabel: "刪除",
+        confirmLabel: "移到垃圾桶",
       }))
     ) {
       return;
@@ -846,7 +846,7 @@ export default function SidebarNotesTree() {
       for (const id of ids) next.delete(id);
       return next;
     });
-    toast(ids.length > 1 ? `已刪除 ${ids.length} 篇` : "已刪除");
+    toast(ids.length > 1 ? `已移到垃圾桶：${ids.length} 篇` : "已移到垃圾桶");
     if (wasActive) router.push("/library");
   };
 

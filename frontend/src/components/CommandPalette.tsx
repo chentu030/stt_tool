@@ -166,16 +166,16 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
           void (async () => {
             if (
               !(await askConfirm({
-                title: "刪除此筆記？",
-                message: "此操作無法復原。",
+                title: "移到垃圾桶？",
+                message: "可之後在知識庫「垃圾桶」還原。",
                 danger: true,
-                confirmLabel: "刪除",
+                confirmLabel: "移到垃圾桶",
               }))
             ) {
               return;
             }
             await deleteNote(n.id);
-            toast("已刪除");
+            toast("已移到垃圾桶");
             onClose();
             if (pathname?.startsWith(`/notes/${n.id}`)) router.push("/library");
           })();

@@ -1,5 +1,7 @@
 /**
- * Browser notifications for local schedule events (when the app tab is open).
+ * Browser notifications for local schedule events.
+ * When the tab is open: timers + desktop Notification.
+ * When closed (Chromium): service worker + TimestampTrigger / periodic check.
  */
 
 import {
@@ -19,6 +21,16 @@ import {
 import { toast } from "@/lib/toast";
 
 const FIRED_KEY = "albireus.scheduleReminders.fired.v1";
+const SW_PATH = "/sw-reminders.js";
+const SW_SCOPE = "/";
+
+type SwReminder = {
+  key: string;
+  title: string;
+  body: string;
+  url: string;
+  fireAt: number;
+};
 
 function readFired(): Set<string> {
   try {
@@ -81,18 +93,78 @@ export async function requestScheduleNotificationPermission(): Promise<boolean> 
   return ok;
 }
 
-function fireReminder(ev: ScheduleEvent) {
-  const key = reminderFireKey(ev);
-  if (wasFired(key)) return;
-  markFired(key);
+function reminderPayload(ev: ScheduleEvent): SwReminder | null {
+  const at = reminderFireAtMs(ev);
+  if (at == null) return null;
   const when = ev.allDay
     ? "全天"
     : `${formatClock(ev.startMin)}–${formatClock(ev.endMin)}`;
   const body = `${ev.dateKey.slice(5).replace("-", "/")} · ${when}`;
+  return {
+    key: reminderFireKey(ev),
+    title: `行程提醒 · ${ev.title}`,
+    body,
+    url: `/journal?date=${encodeURIComponent(ev.dateKey)}`,
+    fireAt: at,
+  };
+}
+
+function fireReminder(ev: ScheduleEvent) {
+  const key = reminderFireKey(ev);
+  if (wasFired(key)) return;
+  markFired(key);
+  const payload = reminderPayload(ev);
+  const body = payload?.body || "";
   toast(`提醒：${ev.title}`);
   showDesktopNotification(`行程提醒 · ${ev.title}`, body, () => {
     window.location.href = `/journal?date=${encodeURIComponent(ev.dateKey)}`;
   });
+}
+
+let swRegisterPromise: Promise<ServiceWorkerRegistration | null> | null = null;
+
+/** Register the reminders service worker (idempotent). */
+export async function ensureRemindersServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return null;
+  if (!swRegisterPromise) {
+    swRegisterPromise = navigator.serviceWorker
+      .register(SW_PATH, { scope: SW_SCOPE })
+      .then((reg) => reg)
+      .catch(() => null);
+  }
+  return swRegisterPromise;
+}
+
+async function syncRemindersToServiceWorker(events: ScheduleEvent[]) {
+  const reg = await ensureRemindersServiceWorker();
+  if (!reg) return;
+  const reminders: SwReminder[] = [];
+  for (const ev of events) {
+    const p = reminderPayload(ev);
+    if (!p) continue;
+    if (wasFired(p.key)) continue;
+    if (p.fireAt < Date.now() - 60_000) continue;
+    if (p.fireAt > Date.now() + 7 * 24 * 60 * 60_000) continue;
+    reminders.push(p);
+  }
+  const worker = reg.active || reg.waiting || reg.installing;
+  if (worker) {
+    worker.postMessage({ type: "SYNC_REMINDERS", reminders });
+  } else if (navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: "SYNC_REMINDERS", reminders });
+  }
+  try {
+    const anyReg = reg as ServiceWorkerRegistration & {
+      periodicSync?: { register: (tag: string, opts?: { minInterval: number }) => Promise<void> };
+    };
+    if (anyReg.periodicSync) {
+      await anyReg.periodicSync.register("cadence-reminders", {
+        minInterval: 60 * 60 * 1000,
+      });
+    }
+  } catch {
+    /* periodic sync optional */
+  }
 }
 
 /**
@@ -104,6 +176,8 @@ export function watchScheduleReminders(uid: string): () => void {
   const keys = [today, shiftDateKey(today, 1), shiftDateKey(today, 2)];
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  void ensureRemindersServiceWorker();
+
   const clearTimers = () => {
     for (const t of timers.values()) clearTimeout(t);
     timers.clear();
@@ -111,6 +185,7 @@ export function watchScheduleReminders(uid: string): () => void {
 
   const schedule = (events: ScheduleEvent[]) => {
     clearTimers();
+    void syncRemindersToServiceWorker(events);
     const now = Date.now();
     for (const ev of events) {
       const at = reminderFireAtMs(ev);
@@ -123,7 +198,7 @@ export function watchScheduleReminders(uid: string): () => void {
         fireReminder(ev);
         continue;
       }
-      if (delay > 48 * 60 * 60_000) continue; // only arm near-term
+      if (delay > 48 * 60 * 60_000) continue; // only arm near-term in-tab
       timers.set(
         key,
         setTimeout(() => fireReminder(ev), delay)
@@ -132,14 +207,10 @@ export function watchScheduleReminders(uid: string): () => void {
   };
 
   const unsub = listenScheduleEventsForDates(uid, keys, schedule);
-  // Re-check every minute in case the tab slept.
+  // Re-check every minute in case the tab slept; nudge SW to fire due items.
   const tick = window.setInterval(() => {
-    // No-op: listeners already hold events; re-pull via date rollover is enough.
-    // Soft re-arm by reading nothing — keep interval for midnight rollover restart.
-    const t = dateKeyFromDate(new Date());
-    if (t !== today) {
-      /* date rolled — parent should remount; still clear stale */
-    }
+    const ctrl = navigator.serviceWorker?.controller;
+    ctrl?.postMessage({ type: "CHECK_DUE" });
   }, 60_000);
 
   return () => {

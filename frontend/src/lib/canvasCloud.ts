@@ -10,6 +10,7 @@ import {
   getDocs,
   onSnapshot,
   Timestamp,
+  deleteField,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db, loadCanvasCloud } from "@/lib/firebase";
@@ -34,6 +35,8 @@ export type CanvasMeta = {
   stickyColors: string[];
   /** Flattened sticky / shape / media text for ⌘K unified search */
   searchText?: string;
+  /** Soft-delete timestamp when in trash */
+  trashed_at?: Date | null;
 };
 
 function canvasesCol(uid: string) {
@@ -116,6 +119,15 @@ export function listenCanvases(
             if (t) searchParts.push(t.slice(0, key === "title" ? 200 : 800));
           }
         }
+        const trashedRaw = data.trashed_at as { toDate?: () => Date } | Date | null | undefined;
+        const trashed_at =
+          trashedRaw == null
+            ? null
+            : trashedRaw && typeof trashedRaw === "object" && "toDate" in trashedRaw && trashedRaw.toDate
+              ? trashedRaw.toDate()
+              : trashedRaw instanceof Date
+                ? trashedRaw
+                : null;
         return {
           id: d.id,
           name: (data.name as string) || "未命名白板",
@@ -128,12 +140,57 @@ export function listenCanvases(
           media: media.length,
           stickyColors,
           searchText: searchParts.join("\n").slice(0, 12000),
+          trashed_at,
         } satisfies CanvasMeta;
-      });
+      }).filter((c) => !c.trashed_at);
       list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
       cb(list);
     },
     (err) => onError?.(err)
+  );
+}
+
+/** Soft-deleted canvases (垃圾桶). */
+export function listenTrashedCanvases(
+  uid: string,
+  cb: (list: CanvasMeta[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    canvasesCol(uid),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => {
+          const data = d.data();
+          const trashedRaw = data.trashed_at as { toDate?: () => Date } | Date | null | undefined;
+          const trashed_at =
+            trashedRaw == null
+              ? null
+              : trashedRaw && typeof trashedRaw === "object" && "toDate" in trashedRaw && trashedRaw.toDate
+                ? trashedRaw.toDate()
+                : trashedRaw instanceof Date
+                  ? trashedRaw
+                  : null;
+          if (!trashed_at) return null;
+          return {
+            id: d.id,
+            name: (data.name as string) || "未命名白板",
+            created_at: data.created_at?.toDate?.() || new Date(),
+            updated_at: data.updated_at?.toDate?.() || new Date(),
+            stickies: Array.isArray(data.stickies) ? data.stickies.length : 0,
+            shapes: Array.isArray(data.shapes) ? data.shapes.length : 0,
+            edges: Array.isArray(data.edges) ? data.edges.length : 0,
+            pins: Array.isArray(data.notes) ? data.notes.length : 0,
+            media: Array.isArray(data.media) ? data.media.length : 0,
+            stickyColors: [],
+            trashed_at,
+          } satisfies CanvasMeta;
+        })
+        .filter(Boolean) as CanvasMeta[];
+      list.sort((a, b) => (b.trashed_at?.getTime() || 0) - (a.trashed_at?.getTime() || 0));
+      cb(list);
+    },
+    (err) => onError?.(err instanceof Error ? err : new Error(String(err)))
   );
 }
 
@@ -183,6 +240,7 @@ export async function saveCanvas(uid: string, id: string, data: CanvasDoc) {
   } catch {
     /* local cache optional */
   }
+  void maybePushCanvasVersion(uid, id, data).catch(() => {});
 }
 
 export async function renameCanvas(uid: string, id: string, name: string) {
@@ -192,8 +250,166 @@ export async function renameCanvas(uid: string, id: string, name: string) {
   });
 }
 
-export async function deleteCanvas(uid: string, id: string) {
+/** Soft-delete canvas into trash. */
+export async function trashCanvas(uid: string, id: string) {
+  await updateDoc(doc(db, "users", uid, "canvases", id), {
+    trashed_at: Timestamp.now(),
+    updated_at: Timestamp.now(),
+  });
+}
+
+export async function restoreCanvas(uid: string, id: string) {
+  await updateDoc(doc(db, "users", uid, "canvases", id), {
+    trashed_at: deleteField(),
+    updated_at: Timestamp.now(),
+  });
+}
+
+/** Permanently delete canvas (+ version snapshots). */
+export async function purgeCanvas(uid: string, id: string) {
+  try {
+    const vers = await getDocs(collection(db, "users", uid, "canvases", id, "versions"));
+    await Promise.all(vers.docs.map((d) => deleteDoc(d.ref)));
+  } catch {
+    /* ignore */
+  }
   await deleteDoc(doc(db, "users", uid, "canvases", id));
+}
+
+/** Soft-delete by default. Use purgeCanvas for permanent. */
+export async function deleteCanvas(uid: string, id: string) {
+  await trashCanvas(uid, id);
+}
+
+const CANVAS_VERSION_KEEP = 20;
+const CANVAS_VERSION_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const canvasVersionCache = new Map<string, { at: number; sig: string }>();
+
+function canvasSnapshotSig(data: CanvasDoc): string {
+  return [
+    data.name || "",
+    data.stickies?.length || 0,
+    data.shapes?.length || 0,
+    data.edges?.length || 0,
+    data.notes?.length || 0,
+    data.media?.length || 0,
+    data.sections?.length || 0,
+    JSON.stringify(data.stickies || []).length,
+    JSON.stringify(data.shapes || []).length,
+  ].join("|");
+}
+
+export type CanvasVersion = {
+  id: string;
+  name: string;
+  summary: string;
+  created_at: Date;
+  doc: CanvasDoc;
+};
+
+/** Sparse full snapshots of a whiteboard for restore. */
+export async function maybePushCanvasVersion(
+  uid: string,
+  canvasId: string,
+  data: CanvasDoc,
+  opts?: { force?: boolean }
+): Promise<{ written: boolean }> {
+  const force = !!opts?.force;
+  const cacheKey = `${uid}:${canvasId}`;
+  const sig = canvasSnapshotSig(data);
+  const prev = canvasVersionCache.get(cacheKey);
+  const now = Date.now();
+  if (!force && prev) {
+    if (prev.sig === sig) return { written: false };
+    if (now - prev.at < CANVAS_VERSION_MIN_INTERVAL_MS) return { written: false };
+  }
+
+  const id = `v_${now}`;
+  const stickyN = data.stickies?.length || 0;
+  const shapeN = data.shapes?.length || 0;
+  const summary = `${stickyN} 便利貼 · ${shapeN} 圖形`;
+  const payload = {
+    name: data.name || "白板",
+    summary,
+    created_at: Timestamp.now(),
+    snap: {
+      name: data.name,
+      pan: data.pan,
+      scale: data.scale,
+      stickies: data.stickies || [],
+      shapes: data.shapes || [],
+      edges: data.edges || [],
+      notes: data.notes || [],
+      media: data.media || [],
+      sections: data.sections || [],
+      grid: data.grid !== false,
+      snap: data.snap !== false,
+      version: 2,
+    },
+  };
+  await setDoc(doc(db, "users", uid, "canvases", canvasId, "versions", id), payload);
+  canvasVersionCache.set(cacheKey, { at: now, sig });
+
+  try {
+    const res = await getDocs(collection(db, "users", uid, "canvases", canvasId, "versions"));
+    if (res.size > CANVAS_VERSION_KEEP) {
+      const sorted = res.docs
+        .map((d) => ({
+          id: d.id,
+          at: (d.data().created_at as { toMillis?: () => number })?.toMillis?.() || 0,
+        }))
+        .sort((a, b) => a.at - b.at);
+      const drop = sorted.slice(0, sorted.length - CANVAS_VERSION_KEEP);
+      await Promise.all(
+        drop.map((v) =>
+          deleteDoc(doc(db, "users", uid, "canvases", canvasId, "versions", v.id))
+        )
+      );
+    }
+  } catch {
+    /* prune best-effort */
+  }
+  return { written: true };
+}
+
+export async function listCanvasVersions(
+  uid: string,
+  canvasId: string
+): Promise<CanvasVersion[]> {
+  const res = await getDocs(collection(db, "users", uid, "canvases", canvasId, "versions"));
+  const list = res.docs.map((d) => {
+    const data = d.data();
+    const snap = (data.snap || {}) as Partial<CanvasDoc>;
+    const created = data.created_at as { toDate?: () => Date } | undefined;
+    return {
+      id: d.id,
+      name: String(data.name || snap.name || "白板"),
+      summary: String(data.summary || "快照"),
+      created_at: created?.toDate?.() || new Date(),
+      doc: docFromData(canvasId, { ...snap, name: snap.name || data.name }) as CanvasDoc,
+    } satisfies CanvasVersion;
+  });
+  list.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+  return list;
+}
+
+export async function restoreCanvasVersion(
+  uid: string,
+  canvasId: string,
+  versionId: string
+): Promise<CanvasDoc> {
+  const snap = await getDoc(
+    doc(db, "users", uid, "canvases", canvasId, "versions", versionId)
+  );
+  if (!snap.exists()) throw new Error("找不到此快照");
+  const data = snap.data();
+  const payload = (data.snap || {}) as Partial<CanvasDoc>;
+  const restored = docFromData(canvasId, {
+    ...payload,
+    name: payload.name || data.name,
+  }) as CanvasDoc;
+  await saveCanvas(uid, canvasId, restored);
+  return restored;
 }
 
 /** Migrate legacy single canvas (workspace/canvas + localStorage) into canvases collection. */

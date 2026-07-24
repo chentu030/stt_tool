@@ -36,6 +36,7 @@ import { isAllowlistedEmail } from "@/lib/accessGate";
 import { formatBytes, USER_STORAGE_LIMIT_BYTES } from "@/lib/storageQuota";
 import StorageManagerDialog from "@/components/shell/StorageManagerDialog";
 import LocalFolderSyncPanel from "@/components/library/LocalFolderSyncPanel";
+import TrashBinPanel from "@/components/library/TrashBinPanel";
 import WorkspacePropertiesSettings from "@/components/settings/WorkspacePropertiesSettings";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 
@@ -1009,6 +1010,9 @@ export default function SettingsPage() {
                 checked={prefs.askBeforeDelete}
                 onChange={(askBeforeDelete) => patch({ askBeforeDelete })}
               />
+            </Row>
+            <Row label="垃圾桶" hint="還原或永久刪除筆記與白板">
+              <TrashBinPanel variant="settings" />
             </Row>
             <Row label="分析資料僅本機" hint="目前不會上傳使用分析">
               <Toggle

@@ -50,6 +50,7 @@ import {
   pickMarkdownFolder,
 } from "@/lib/importMarkdownNotes";
 import LocalFolderSyncPanel from "@/components/library/LocalFolderSyncPanel";
+import TrashBinPanel from "@/components/library/TrashBinPanel";
 import {
   listInboxNotes,
   withOrganizedFlag,
@@ -73,7 +74,7 @@ function LibraryPageInner() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const { notes } = useNotesList();
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState<"notes" | "jobs">("notes");
+  const [tab, setTab] = useState<"notes" | "jobs" | "trash">("notes");
   const [tagFilter, setTagFilter] = useState("");
   const [folderFilter, setFolderFilter] = useState(folderFromUrl);
   const [inboxQueue, setInboxQueue] = useState(queueFromUrl === "inbox");
@@ -101,7 +102,7 @@ function LibraryPageInner() {
 
   useEffect(() => {
     const t = searchParams.get("tab");
-    if (t === "jobs" || t === "notes") setTab(t);
+    if (t === "jobs" || t === "notes" || t === "trash") setTab(t);
   }, [searchParams]);
 
   const inboxNotes = useMemo(() => listInboxNotes(notes), [notes]);
@@ -306,11 +307,11 @@ function LibraryPageInner() {
 
   const runBulkDelete = async () => {
     if (!selected.length) return;
-    if (prefs.askBeforeDelete && !(await askConfirm({ title: `刪除選取的 ${selected.length} 篇筆記？`, danger: true, confirmLabel: "刪除" }))) return;
+    if (prefs.askBeforeDelete && !(await askConfirm({ title: `將選取的 ${selected.length} 篇移到垃圾桶？`, danger: true, confirmLabel: "移到垃圾桶" }))) return;
     const n = selected.length;
     await Promise.all(selected.map((id) => deleteNote(id)));
     setSelected([]);
-    toast(`已刪除 ${n} 篇`);
+    toast(`已移到垃圾桶：${n} 篇`);
   };
 
   const exportSelectedOrFiltered = () => {
@@ -520,6 +521,13 @@ function LibraryPageInner() {
                     轉錄 {filteredJobs.length}
                   </button>
                 )}
+                <button
+                  type="button"
+                  className={tab === "trash" ? "is-active" : ""}
+                  onClick={() => setTab("trash")}
+                >
+                  垃圾桶
+                </button>
               </div>
               <MenuSelect
                 variant="soft"
@@ -811,7 +819,7 @@ function LibraryPageInner() {
                             className="btn btn-ghost btn-sm"
                             onClick={() => {
                               void (async () => {
-                                if (await askConfirm({ title: "刪除此筆記？", danger: true, confirmLabel: "刪除" })) deleteNote(n.id);
+                                if (await askConfirm({ title: "移到垃圾桶？", danger: true, confirmLabel: "移到垃圾桶" })) deleteNote(n.id);
                               })();
                             }}
                           >
@@ -924,6 +932,12 @@ function LibraryPageInner() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+
+          {tab === "trash" && (
+            <section className="kb-trash-section">
+              <TrashBinPanel />
             </section>
           )}
           </div>

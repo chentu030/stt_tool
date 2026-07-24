@@ -445,6 +445,8 @@ export interface Note {
     type: "board" | "canvas" | "graph" | "database" | "web" | "extension";
     id: string;
   };
+  /** Soft-delete timestamp; present = in trash */
+  trashed_at?: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -509,10 +511,20 @@ function noteFromSnap(id: string, data: Record<string, unknown>): Note {
       : undefined;
   const created = data.created_at as { toDate?: () => Date } | Date | undefined;
   const updated = data.updated_at as { toDate?: () => Date } | Date | undefined;
+  const trashed = data.trashed_at as { toDate?: () => Date } | Date | null | undefined;
+  const trashed_at =
+    trashed == null
+      ? null
+      : trashed && typeof trashed === "object" && "toDate" in trashed && trashed.toDate
+        ? trashed.toDate()
+        : trashed instanceof Date
+          ? trashed
+          : null;
   return {
     id,
-    ...(data as Omit<Note, "id" | "created_at" | "updated_at" | "app_link">),
+    ...(data as Omit<Note, "id" | "created_at" | "updated_at" | "app_link" | "trashed_at">),
     app_link: appLink,
+    trashed_at,
     created_at: (created && typeof created === "object" && "toDate" in created && created.toDate
       ? created.toDate()
       : created instanceof Date
@@ -737,14 +749,58 @@ export function listenToNote(
 export function listenToUserNotes(uid: string, callback: (notes: Note[]) => void): Unsubscribe {
   const q = query(collection(db, "notes"), where("user_id", "==", uid));
   return onSnapshot(q, (snap) => {
-    const notes = snap.docs.map((d) => noteFromSnap(d.id, d.data() as Record<string, unknown>));
+    const notes = snap.docs
+      .map((d) => noteFromSnap(d.id, d.data() as Record<string, unknown>))
+      .filter((n) => !n.trashed_at);
     notes.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
     callback(notes);
   });
 }
 
-export async function deleteNote(noteId: string) {
+/** Soft-deleted notes only (垃圾桶). */
+export function listenToTrashedNotes(uid: string, callback: (notes: Note[]) => void): Unsubscribe {
+  const q = query(collection(db, "notes"), where("user_id", "==", uid));
+  return onSnapshot(q, (snap) => {
+    const notes = snap.docs
+      .map((d) => noteFromSnap(d.id, d.data() as Record<string, unknown>))
+      .filter((n) => !!n.trashed_at);
+    notes.sort(
+      (a, b) => (b.trashed_at?.getTime() || 0) - (a.trashed_at?.getTime() || 0)
+    );
+    callback(notes);
+  });
+}
+
+/** Move note to trash (recoverable). */
+export async function trashNote(noteId: string) {
+  await updateDoc(doc(db, "notes", noteId), {
+    trashed_at: Timestamp.now(),
+    updated_at: Timestamp.now(),
+  });
+}
+
+/** Restore note from trash. */
+export async function restoreNote(noteId: string) {
+  await updateDoc(doc(db, "notes", noteId), {
+    trashed_at: deleteField(),
+    updated_at: Timestamp.now(),
+  });
+}
+
+/** Permanently delete a note (and version history). */
+export async function purgeNote(noteId: string) {
+  try {
+    const vers = await getDocs(collection(db, "notes", noteId, "versions"));
+    await Promise.all(vers.docs.map((d) => deleteDoc(d.ref)));
+  } catch {
+    /* ignore */
+  }
   await deleteDoc(doc(db, "notes", noteId));
+}
+
+/** Soft-delete by default (垃圾桶). Use purgeNote for permanent. */
+export async function deleteNote(noteId: string) {
+  await trashNote(noteId);
 }
 
 export type NoteVersion = {

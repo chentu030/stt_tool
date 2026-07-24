@@ -8,11 +8,14 @@ import { createNote, updateNote, type Note } from "@/lib/firebase";
 import {
   ALIASES_PROP,
   FRONTMATTER_PROP,
+  buildAttachmentIndex,
   isMarkdownFile,
+  isMediaAttachmentFile,
   markdownWithFrontmatter,
   normalizeAttachmentPathsInBody,
   normalizeWikilinksInBody,
   parseMarkdownImport,
+  rewriteAndUploadAttachments,
   titleFromMarkdown,
 } from "@/lib/importMarkdownNotes";
 import { frontmatterExtrasFromProps } from "@/lib/noteKnowledge";
@@ -43,11 +46,13 @@ export type BridgeCapability = {
 export type PullResult = {
   created: number;
   updated: number;
+  attachments: number;
   skipped: { path: string; reason: string }[];
 };
 
 export type PushResult = {
   written: number;
+  attachments: number;
   skipped: { noteId: string; title: string; reason: string }[];
 };
 
@@ -254,11 +259,16 @@ type MdEntry = {
   lastModified: number;
 };
 
-async function listMarkdownUnder(
+type FileEntry = {
+  relativePath: string;
+  file: File;
+};
+
+async function listFilesUnder(
   dir: DirectoryHandleWithPermission,
   prefix = ""
-): Promise<MdEntry[]> {
-  const out: MdEntry[] = [];
+): Promise<FileEntry[]> {
+  const out: FileEntry[] = [];
   const iter =
     dir.entries?.() ||
     (async function* () {
@@ -273,9 +283,9 @@ async function listMarkdownUnder(
     const path = prefix ? `${prefix}/${name}` : name;
     if (entry.kind === "directory") {
       out.push(
-        ...(await listMarkdownUnder(entry as DirectoryHandleWithPermission, path))
+        ...(await listFilesUnder(entry as DirectoryHandleWithPermission, path))
       );
-    } else if (entry.kind === "file" && /\.(md|markdown|mdx)$/i.test(name)) {
+    } else if (entry.kind === "file") {
       const fileHandle = entry as FileSystemFileHandle;
       const file = await fileHandle.getFile();
       const named = new File([file], file.name, {
@@ -286,16 +296,99 @@ async function listMarkdownUnder(
         value: path,
         configurable: true,
       });
-      if (isMarkdownFile(named)) {
-        out.push({
-          relativePath: path.replace(/\\/g, "/"),
-          file: named,
-          lastModified: file.lastModified,
-        });
-      }
+      out.push({ relativePath: path.replace(/\\/g, "/"), file: named });
     }
   }
   return out;
+}
+
+async function listMarkdownUnder(
+  dir: DirectoryHandleWithPermission,
+  prefix = ""
+): Promise<MdEntry[]> {
+  const all = await listFilesUnder(dir, prefix);
+  return all
+    .filter((e) => isMarkdownFile(e.file))
+    .map((e) => ({
+      relativePath: e.relativePath,
+      file: e.file,
+      lastModified: e.file.lastModified,
+    }));
+}
+
+async function writeBinaryFile(
+  root: DirectoryHandleWithPermission,
+  relativePath: string,
+  data: ArrayBuffer | Blob
+): Promise<void> {
+  const parts = relativePath.replace(/\\/g, "/").split("/").filter(Boolean);
+  const fileName = parts.pop();
+  if (!fileName) throw new Error("無效路徑");
+  const dir = await ensureDirPath(root, parts);
+  const fh = await dir.getFileHandle(fileName, { create: true });
+  const writable = await fh.createWritable();
+  try {
+    await writable.write(data);
+  } finally {
+    await writable.close();
+  }
+}
+
+function collectRemoteAttachmentUrls(body: string): string[] {
+  const urls = new Set<string>();
+  const re = /!\[[^\]]*\]\(([^)]+)\)|\[[^\]]+\]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body || ""))) {
+    const src = (m[1] || m[2] || "").trim();
+    if (/^https?:\/\//i.test(src)) urls.add(src);
+  }
+  return [...urls];
+}
+
+function filenameFromUrl(url: string, fallback: string): string {
+  try {
+    const u = new URL(url);
+    const last = decodeURIComponent(u.pathname.split("/").pop() || "");
+    const cleaned = last.replace(/[^\w.\u4e00-\u9fff-]+/g, "_").slice(0, 80);
+    if (cleaned && /\.\w{2,8}$/.test(cleaned)) return cleaned;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+/**
+ * Download remote https attachments next to the note and rewrite body to relative paths.
+ */
+async function materializeRemoteAttachments(
+  root: DirectoryHandleWithPermission,
+  noteRel: string,
+  body: string
+): Promise<{ body: string; written: number }> {
+  const urls = collectRemoteAttachmentUrls(body);
+  if (!urls.length) return { body, written: 0 };
+  const noteDir = noteDirFromRel(noteRel);
+  const attachDir = noteDir ? `${noteDir}/attachments` : "attachments";
+  let written = 0;
+  let next = body;
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (blob.size > 12_000_000) continue;
+      const name = filenameFromUrl(url, `file_${i + 1}`);
+      const rel = `${attachDir}/${name}`;
+      await writeBinaryFile(root, rel, blob);
+      const relativeFromNote = noteDir ? `attachments/${name}` : `attachments/${name}`;
+      next = next.split(url).join(relativeFromNote);
+      written += 1;
+    } catch {
+      /* skip failed download */
+    }
+  }
+  return { body: next, written };
 }
 
 function safeFileBase(title: string): string {
@@ -386,19 +479,32 @@ async function writeTextFile(
  * Pull Markdown from the linked folder into Cadence.
  * Match order: cadence_id → stored path map → create new.
  * On match, folder content wins (user-initiated pull).
+ * Also uploads sibling binary attachments referenced by the markdown.
  */
 export async function pullFromLocalFolder(
   uid: string,
   existingNotes: Note[]
 ): Promise<PullResult> {
   const { handle, meta } = await requireLinkedHandle(uid, "read");
-  const entries = await listMarkdownUnder(handle);
+  const allFiles = await listFilesUnder(handle);
+  const entries = allFiles
+    .filter((e) => isMarkdownFile(e.file))
+    .map((e) => ({
+      relativePath: e.relativePath,
+      file: e.file,
+      lastModified: e.file.lastModified,
+    }));
+  const attachmentFiles = allFiles
+    .filter((e) => !isMarkdownFile(e.file) && (isMediaAttachmentFile(e.file) || e.file.size < 12_000_000))
+    .map((e) => e.file);
+  const attachmentIndex = buildAttachmentIndex(attachmentFiles);
+
   const byId = new Map(existingNotes.map((n) => [n.id, n]));
   const pathToNoteId = new Map(
     Object.entries(meta.pathByNoteId).map(([noteId, path]) => [path, noteId])
   );
 
-  const result: PullResult = { created: 0, updated: 0, skipped: [] };
+  const result: PullResult = { created: 0, updated: 0, attachments: 0, skipped: [] };
   const nextMap = { ...meta.pathByNoteId };
 
   for (const entry of entries) {
@@ -429,6 +535,19 @@ export async function pullFromLocalFolder(
         pathToNoteId.get(entry.relativePath);
 
       if (targetId && byId.has(targetId)) {
+        if (attachmentIndex.size) {
+          const rewritten = await rewriteAndUploadAttachments(
+            uid,
+            targetId,
+            body,
+            entry.relativePath,
+            attachmentIndex
+          );
+          if (rewritten !== body) {
+            result.attachments += 1;
+            body = rewritten;
+          }
+        }
         await updateNote(targetId, {
           title,
           body_md: body,
@@ -450,6 +569,20 @@ export async function pullFromLocalFolder(
           status: parsed.kanbanStatus || "backlog",
           props,
         });
+        if (attachmentIndex.size) {
+          const rewritten = await rewriteAndUploadAttachments(
+            uid,
+            id,
+            body,
+            entry.relativePath,
+            attachmentIndex
+          );
+          if (rewritten !== body) {
+            result.attachments += 1;
+            body = rewritten;
+            await updateNote(id, { body_md: body }, { silent: true });
+          }
+        }
         // Stamp cadence_id on disk so the next pull/push matches stably
         try {
           const stamped = markdownWithFrontmatter(body, {
@@ -498,6 +631,7 @@ export async function pullFromLocalFolder(
 
 /**
  * Push Cadence notes into the linked folder as Markdown (+ cadence_id).
+ * Also materializes remote https attachments as local binary files.
  * When `noteIds` is omitted, pushes all notes (excludes app-link shells).
  */
 export async function pushToLocalFolder(
@@ -510,7 +644,7 @@ export async function pushToLocalFolder(
     ? notes.filter((n) => opts.noteIds!.includes(n.id))
     : notes.filter((n) => !n.app_link);
 
-  const result: PushResult = { written: 0, skipped: [] };
+  const result: PushResult = { written: 0, attachments: 0, skipped: [] };
   const nextMap = { ...meta.pathByNoteId };
   const usedPaths = new Set(Object.values(nextMap));
 
@@ -526,7 +660,28 @@ export async function pushToLocalFolder(
         const base = `${safeFileBase(note.title)}_${note.id.slice(-6)}.md`;
         rel = folder ? `${folder}/${base}` : base;
       }
-      const md = buildNoteMarkdown(note);
+      let body = note.body_md || "";
+      const matured = await materializeRemoteAttachments(handle, rel, body);
+      body = matured.body;
+      result.attachments += matured.written;
+      const md = markdownWithFrontmatter(body, {
+        title: note.title,
+        tags: note.tags,
+        aliases: Array.isArray(note.props?.[ALIASES_PROP])
+          ? (note.props![ALIASES_PROP] as string[])
+          : [],
+        journalDate: note.journal_date,
+        folder: note.folder,
+        created: note.created_at,
+        updated: note.updated_at,
+        cadenceId: note.id,
+        extras: (() => {
+          const fmExtras = frontmatterExtrasFromProps(note.props);
+          delete fmExtras[CADENCE_ID_KEY];
+          delete fmExtras.cadenceId;
+          return fmExtras;
+        })(),
+      });
       await writeTextFile(handle, rel, md);
       nextMap[note.id] = rel;
       usedPaths.add(rel);
