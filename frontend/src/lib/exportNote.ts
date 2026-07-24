@@ -21,9 +21,60 @@ import {
   markdownWithFrontmatter,
 } from "@/lib/importMarkdownNotes";
 import { frontmatterExtrasFromProps } from "@/lib/noteKnowledge";
+import { bodyForExport, noteIsSourceMaterial } from "@/lib/writingMaterial";
 
 function safeName(title: string) {
   return (title || "note").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
+}
+
+/** Cadence export style presets (UI labels only — no competitor names). */
+export type ExportStyleId = "report" | "manuscript" | "deck";
+
+export const EXPORT_STYLE_PRESETS: {
+  id: ExportStyleId;
+  label: string;
+  hint: string;
+}[] = [
+  { id: "report", label: "報告", hint: "清晰標題、正式版面" },
+  { id: "manuscript", label: "手稿", hint: "較寬行距、閱讀向" },
+  { id: "deck", label: "簡報大綱", hint: "依標題分節預覽" },
+];
+
+export type ExportFormatId = "md" | "pdf" | "docx" | "ppt";
+
+export type ExportOptions = {
+  style?: ExportStyleId;
+  includeSource?: boolean;
+  props?: Record<string, unknown> | null;
+  meta?: MarkdownExportMeta;
+};
+
+function resolveExportBody(body: string, opts?: ExportOptions): string {
+  return bodyForExport(body || "", {
+    includeSource: !!opts?.includeSource,
+    wholeNoteIsSource: noteIsSourceMaterial(opts?.props),
+  });
+}
+
+function stylePrintCss(style: ExportStyleId = "report"): string {
+  if (style === "manuscript") {
+    return `
+    body{font-family:"Noto Serif TC","Georgia","Microsoft JhengHei",serif;padding:28px;line-height:1.9;color:#1a1a1a;max-width:680px;margin:0 auto;font-size:16px}
+    h1{font-size:26px;font-weight:600;margin:0 0 1.2em} h2{font-size:18px;margin-top:1.6em} h3{font-size:15px}
+    p{margin:0.7em 0} blockquote{border-left:2px solid #94a3b8;padding-left:14px;color:#475569;font-style:italic}`;
+  }
+  if (style === "deck") {
+    return `
+    body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;padding:20px;line-height:1.55;color:#111;max-width:720px;margin:0 auto}
+    h1{font-size:22px;border-bottom:2px solid #0d9488;padding-bottom:8px}
+    h2{font-size:17px;margin-top:1.8em;padding:10px 12px;background:#f0fdfa;border-radius:8px;border-left:4px solid #0d9488}
+    h3{font-size:14px;color:#0f766e} p{margin:0.4em 0 0.4em 0.5em}
+    .deck-sep{border:none;border-top:1px dashed #cbd5e1;margin:1.5em 0}`;
+  }
+  return `
+    body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;padding:24px;line-height:1.65;color:#111;max-width:210mm;margin:0 auto}
+    h1{font-size:24px} h2{font-size:18px;margin-top:1.4em;border-bottom:1px solid #e2e8f0;padding-bottom:4px} h3{font-size:15px}
+    blockquote{border-left:3px solid #0d9488;padding-left:12px;color:#444}`;
 }
 
 export type MarkdownExportMeta = {
@@ -85,20 +136,22 @@ export function buildExportMarkdown(
 export function downloadMarkdown(
   title: string,
   body: string,
-  meta?: MarkdownExportMeta
+  meta?: MarkdownExportMeta,
+  opts?: ExportOptions
 ) {
-  const text = buildExportMarkdown(title, body, meta);
+  const resolved = resolveExportBody(body, { ...opts, meta, props: opts?.props ?? meta?.extras });
+  const text = buildExportMarkdown(title, resolved, meta);
   const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
   saveAs(blob, `${safeName(title)}.md`);
 }
 
-export function downloadPdf(title: string, body: string) {
-  downloadPdfViaPrint(title, body);
+export function downloadPdf(title: string, body: string, opts?: ExportOptions) {
+  downloadPdfViaPrint(title, body, opts);
 }
 
 /** Browser print → PDF (best CJK support without custom fonts) */
-export function downloadPdfViaPrint(title: string, body: string) {
-  const html = markdownToPrintHtml(title, body);
+export function downloadPdfViaPrint(title: string, body: string, opts?: ExportOptions) {
+  const html = buildExportPreviewHtml(title, body, opts);
   const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
   if (!w) {
     toast("請允許彈出視窗以匯出 PDF");
@@ -112,7 +165,18 @@ export function downloadPdfViaPrint(title: string, body: string) {
   }, 350);
 }
 
-function markdownToPrintHtml(title: string, body: string) {
+/** HTML document for preview pane or print/PDF. */
+export function buildExportPreviewHtml(
+  title: string,
+  body: string,
+  opts?: ExportOptions
+): string {
+  const style = opts?.style || "report";
+  const resolved = resolveExportBody(body, opts);
+  return markdownToPrintHtml(title, resolved, style);
+}
+
+function markdownToPrintHtml(title: string, body: string, style: ExportStyleId = "report") {
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const lines = (body || "").split("\n");
@@ -153,8 +217,10 @@ function markdownToPrintHtml(title: string, body: string) {
       continue;
     }
     if (line.startsWith("### ")) out.push(`<h3>${esc(line.slice(4))}</h3>`);
-    else if (line.startsWith("## ")) out.push(`<h2>${esc(line.slice(3))}</h2>`);
-    else if (line.startsWith("# ")) out.push(`<h1>${esc(line.slice(2))}</h1>`);
+    else if (line.startsWith("## ")) {
+      if (style === "deck" && out.length) out.push(`<hr class="deck-sep"/>`);
+      out.push(`<h2>${esc(line.slice(3))}</h2>`);
+    } else if (line.startsWith("# ")) out.push(`<h1>${esc(line.slice(2))}</h1>`);
     else if (line.startsWith("- [x] ") || line.startsWith("- [X] "))
       out.push(`<p>☑ ${esc(line.slice(6))}</p>`);
     else if (line.startsWith("- [ ] ")) out.push(`<p>☐ ${esc(line.slice(6))}</p>`);
@@ -162,7 +228,7 @@ function markdownToPrintHtml(title: string, body: string) {
     else if (/^\d+\.\s+/.test(line))
       out.push(`<p>${esc(line)}</p>`);
     else if (line.startsWith("> ")) out.push(`<blockquote>${esc(line.slice(2))}</blockquote>`);
-    else if (line.trim() === "---") out.push(`<hr/>`);
+    else if (line.trim() === "---") out.push(style === "deck" ? `<hr class="deck-sep"/>` : `<hr/>`);
     else if (!line.trim()) out.push(`<br/>`);
     else out.push(`<p>${esc(line)}</p>`);
     i++;
@@ -171,9 +237,7 @@ function markdownToPrintHtml(title: string, body: string) {
   return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(title)}</title>
   <style>
     @page{size:A4;margin:20mm}
-    body{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;padding:24px;line-height:1.65;color:#111;max-width:210mm;margin:0 auto}
-    h1{font-size:24px} h2{font-size:18px} h3{font-size:15px}
-    blockquote{border-left:3px solid #0d9488;padding-left:12px;color:#444}
+    ${stylePrintCss(style)}
     table{border-collapse:collapse;width:100%}
     th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}
     th{background:#f5f5f5}
@@ -223,7 +287,8 @@ function stripAlign(line: string) {
   return line.replace(/\s*<!--align:(left|center|right|justify)-->\s*$/, "").trim();
 }
 
-export async function downloadDocx(title: string, body: string) {
+export async function downloadDocx(title: string, body: string, opts?: ExportOptions) {
+  const resolved = resolveExportBody(body, opts);
   const children: (Paragraph | Table)[] = [
     new Paragraph({
       children: [new TextRun({ text: title || "未命名筆記", bold: true, size: 36 })],
@@ -231,7 +296,7 @@ export async function downloadDocx(title: string, body: string) {
     }),
   ];
 
-  const lines = (body || "").split("\n");
+  const lines = (resolved || "").split("\n");
   let i = 0;
   while (i < lines.length) {
     const raw = lines[i];
@@ -406,10 +471,11 @@ export async function downloadDocx(title: string, body: string) {
 }
 
 /** PPT-ish: headings become slides exported as Markdown deck */
-export function downloadPptOutline(title: string, body: string) {
+export function downloadPptOutline(title: string, body: string, opts?: ExportOptions) {
+  const resolved = resolveExportBody(body, opts);
   const slides: string[] = [`# ${title || "簡報"}\n`];
   let current = "";
-  for (const line of (body || "").split("\n")) {
+  for (const line of (resolved || "").split("\n")) {
     if (/^##\s+/.test(line) || /^#\s+/.test(line)) {
       if (current) slides.push(current.trim());
       current = `## ${line.replace(/^#+\s+/, "")}\n`;
@@ -418,10 +484,32 @@ export function downloadPptOutline(title: string, body: string) {
     }
   }
   if (current.trim()) slides.push(current.trim());
-  if (slides.length === 1) slides.push("## 內容\n\n" + (body || "(空白)"));
+  if (slides.length === 1) slides.push("## 內容\n\n" + (resolved || "(空白)"));
   const md = slides.join("\n\n---\n\n");
   const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
   saveAs(blob, `${safeName(title)}-slides.md`);
+}
+
+/** Run download for a chosen format (shared by export dialog). */
+export async function runNoteExport(
+  format: ExportFormatId,
+  title: string,
+  body: string,
+  opts?: ExportOptions
+) {
+  if (format === "md") {
+    downloadMarkdown(title, body, opts?.meta, opts);
+    return;
+  }
+  if (format === "pdf") {
+    downloadPdfViaPrint(title, body, opts);
+    return;
+  }
+  if (format === "docx") {
+    await downloadDocx(title, body, opts);
+    return;
+  }
+  downloadPptOutline(title, body, opts);
 }
 
 /** Split note into presentation slides by ## headings */

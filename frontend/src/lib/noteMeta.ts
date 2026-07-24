@@ -1,5 +1,10 @@
 /** Note outline, stats, and related-note helpers */
 
+import {
+  bodyForExport,
+  noteIsSourceMaterial,
+} from "@/lib/writingMaterial";
+
 export type HeadingItem = {
   id: string;
   level: 1 | 2 | 3;
@@ -30,8 +35,23 @@ function countWords(text: string): number {
   return cjk + latin;
 }
 
-export function computeNoteStats(md: string): NoteStats {
-  const body = md || "";
+export type ComputeNoteStatsOptions = {
+  /** Exclude「素材」regions (default true for writing chrome). */
+  excludeSource?: boolean;
+  props?: Record<string, unknown> | null;
+};
+
+export function computeNoteStats(
+  md: string,
+  opts?: ComputeNoteStatsOptions
+): NoteStats {
+  const exclude = opts?.excludeSource !== false;
+  const body = exclude
+    ? bodyForExport(md || "", {
+        includeSource: false,
+        wholeNoteIsSource: noteIsSourceMaterial(opts?.props),
+      })
+    : md || "";
   const plain = body
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/[#>*`\[\]()_-]/g, " ");
@@ -49,7 +69,7 @@ export function computeNoteStats(md: string): NoteStats {
     links,
     todos,
     todosDone,
-    readingMins: Math.max(1, Math.ceil(words / 400)),
+    readingMins: words === 0 ? 0 : Math.max(1, Math.ceil(words / 400)),
   };
 }
 

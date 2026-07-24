@@ -341,7 +341,22 @@ turndown.addRule("callout", {
   replacement: (content, node) => {
     const tone = (node as HTMLElement).getAttribute("data-tone") || "info";
     const body = content.replace(/^\s+|\s+$/g, "").replace(/\n+/g, "\n> ");
+    // Multi-block 素材: prefer fence so paragraphs survive round-trip
+    if (tone === "source" && body.includes("\n> ")) {
+      const plain = content.replace(/^\s+|\s+$/g, "");
+      return `\n\n:::source\n${plain}\n:::\n\n`;
+    }
     return `\n\n> [!${tone}] ${body}\n\n`;
+  },
+});
+
+turndown.addRule("sourceFence", {
+  filter: (node) =>
+    node.nodeName === "ASIDE" &&
+    (node as HTMLElement).getAttribute("data-note-source") === "1",
+  replacement: (content) => {
+    const body = content.replace(/^\s+|\s+$/g, "");
+    return `\n\n:::source\n${body}\n:::\n\n`;
   },
 });
 
@@ -993,9 +1008,20 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<div class="rich-columns rich-columns--${count}" data-note-columns="1" data-count="${count}">${htmlCols}</div>`;
   });
 
+  // Source material fence: :::source … :::
+  s = s.replace(/:::source(?:\s+[^\n]*)?\n([\s\S]*?):::/gi, (_m, body) => {
+    const inner = String(body || "").trim() || "素材";
+    const paras = inner
+      .split(/\n\n+/)
+      .map((p) => `<p>${escapeHtml(p.replace(/\n/g, " ").trim())}</p>`)
+      .join("");
+    return `<aside class="rich-callout rich-callout--source" data-note-callout="1" data-tone="source">${paras}</aside>`;
+  });
+
   // Callout: > [!tone] text  (single line; multiline becomes blockquote after marked — also catch raw)
-  s = s.replace(/^>\s*\[!(\w+)\]\s*(.*)$/gm, (_m, tone, text) => {
-    return `<aside class="rich-callout rich-callout--${escapeAttr(tone)}" data-note-callout="1" data-tone="${escapeAttr(tone)}"><p>${escapeHtml(String(text).trim() || "提示")}</p></aside>`;
+  s = s.replace(/^>\s*\[!(\w+|素材)\]\s*(.*)$/gm, (_m, tone, text) => {
+    const t = tone === "素材" ? "source" : String(tone);
+    return `<aside class="rich-callout rich-callout--${escapeAttr(t)}" data-note-callout="1" data-tone="${escapeAttr(t)}"><p>${escapeHtml(String(text).trim() || (t === "source" ? "素材" : "提示"))}</p></aside>`;
   });
 
   // Highlights: ==text== / ==text=={#rrggbb}

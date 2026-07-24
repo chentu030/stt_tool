@@ -5,8 +5,10 @@ import { HeadingItem, NoteStats, RelatedNote } from "@/lib/noteMeta";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NoteAsideRecording from "@/components/notes/NoteAsideRecording";
 import NoteKnowledgePropsPanel from "@/components/notes/NoteKnowledgePropsPanel";
+import NoteWritingGoalEditor from "@/components/notes/NoteWritingGoalEditor";
 import type { LiveSegment } from "@/lib/liveSegments";
 import type { Note } from "@/lib/firebase";
+import type { WritingGoalProgress } from "@/lib/writingGoals";
 
 type OutboundLink = {
   title: string;
@@ -69,6 +71,7 @@ type Props = {
   knowledgeReadOnly?: boolean;
   onKnowledgePropsPatch?: (props: Record<string, unknown>) => void;
   resolveNoteHref?: (title: string) => string | undefined;
+  goalProgress?: WritingGoalProgress | null;
 };
 
 export default function NoteAside({
@@ -101,6 +104,7 @@ export default function NoteAside({
   knowledgeReadOnly = false,
   onKnowledgePropsPatch,
   resolveNoteHref,
+  goalProgress = null,
 }: Props) {
   if (!open) return null;
 
@@ -304,6 +308,34 @@ export default function NoteAside({
             <div><strong>{stats.links}</strong><span>連結</span></div>
             <div><strong>{stats.todosDone}/{stats.todos}</strong><span>待辦</span></div>
           </div>
+          {goalProgress ? (
+            <div className="note-aside-block note-aside-goal">
+              <h4>目標進度</h4>
+              <p className="note-aside-goal-summary">{goalProgress.summary}</p>
+              {goalProgress.goal.minWords || goalProgress.goal.dailyQuota ? (
+                <div className="note-aside-goal-bar" aria-hidden>
+                  <i
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(
+                          ((goalProgress.minProgress ?? goalProgress.dailyProgress) || 0) * 100
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {knowledgeNote && onKnowledgePropsPatch ? (
+            <NoteWritingGoalEditor
+              propsBag={knowledgeNote.props}
+              onPropsPatch={onKnowledgePropsPatch}
+              readOnly={knowledgeReadOnly}
+              compact
+            />
+          ) : null}
           <div className="note-aside-block">
             <h4>快捷鍵</h4>
             <ul className="note-shortcuts">

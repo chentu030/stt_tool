@@ -769,6 +769,12 @@ export default function RichNoteEditor({
         run: (e) => e.chain().focus().setCallout("info").run(),
       },
       {
+        id: "source-material",
+        label: "素材",
+        hint: "/素材 不計入字數與預設匯出",
+        run: (e) => e.chain().focus().setCallout("source").run(),
+      },
+      {
         id: "table",
         label: "表格",
         hint: "/table 簡易表格（非資料庫）",

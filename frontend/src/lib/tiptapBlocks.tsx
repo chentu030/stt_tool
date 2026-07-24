@@ -27,12 +27,13 @@ declare module "@tiptap/core" {
   }
 }
 
-const TONES = ["info", "tip", "warn", "danger"] as const;
+const TONES = ["info", "tip", "warn", "danger", "source"] as const;
 const TONE_LABELS: Record<(typeof TONES)[number], string> = {
   info: "資訊",
   tip: "提示",
   warn: "注意",
   danger: "警告",
+  source: "素材",
 };
 
 function CalloutView({ node, updateAttributes }: {
@@ -96,7 +97,20 @@ export const Callout = Node.create({
           commands.insertContent({
             type: this.name,
             attrs: { tone },
-            content: [{ type: "paragraph", content: [{ type: "text", text: "在此寫重點提示…" }] }],
+            content: [
+              {
+                type: "paragraph",
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      tone === "source"
+                        ? "在此寫素材（預設不計入字數與匯出）…"
+                        : "在此寫重點提示…",
+                  },
+                ],
+              },
+            ],
           }),
     };
   },

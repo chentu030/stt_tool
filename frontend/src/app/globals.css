@@ -11086,6 +11086,71 @@ button.jn-heat-cell:disabled {
 .doc-workspace.is-focus .doc-command-path .doc-crumb-sep {
   display: none;
 }
+
+/* Deep focus: typewriter column + dim chrome */
+.doc-workspace.is-focus {
+  --page-max: min(42rem, 92vw);
+}
+.doc-workspace.is-focus .doc-page {
+  max-width: min(var(--page-max), 100%);
+  margin-inline: auto;
+  padding-top: clamp(2.5rem, 8vh, 5.5rem);
+  padding-bottom: 6rem;
+}
+.doc-workspace.is-focus .doc-chrome {
+  opacity: 0.28;
+  transition: opacity 0.22s ease;
+}
+.doc-workspace.is-focus .doc-chrome:hover,
+.doc-workspace.is-focus .doc-chrome:focus-within {
+  opacity: 1;
+}
+.doc-workspace.is-focus.is-focus-hide-toolbar .doc-ribbon {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border: none !important;
+  min-height: 0 !important;
+  transition: opacity 0.18s ease, max-height 0.18s ease;
+  pointer-events: none;
+}
+.doc-workspace.is-focus.is-focus-hide-toolbar .doc-chrome:hover .doc-ribbon,
+.doc-workspace.is-focus.is-focus-hide-toolbar .doc-chrome:focus-within .doc-ribbon {
+  opacity: 1;
+  max-height: 140px;
+  pointer-events: auto;
+  overflow: visible;
+}
+.doc-workspace.is-focus .doc-title-row,
+.doc-workspace.is-focus .doc-props,
+.doc-workspace.is-focus .doc-cover,
+.doc-workspace.is-focus .doc-chrome-actions {
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+.doc-workspace.is-focus .doc-title-row:hover,
+.doc-workspace.is-focus .doc-title-row:focus-within,
+.doc-workspace.is-focus .doc-props:hover,
+.doc-workspace.is-focus .doc-props:focus-within {
+  opacity: 1;
+}
+.doc-workspace.is-focus .doc-editor .ProseMirror {
+  min-height: 55vh;
+}
+.is-focus-team .desktop-sidebar,
+.is-focus-team .app-shell > .desktop-sidebar {
+  opacity: 0.22;
+  filter: saturate(0.7);
+  transition: opacity 0.22s ease, filter 0.22s ease;
+  pointer-events: none;
+}
+.is-focus-team .desktop-sidebar:hover {
+  opacity: 0.85;
+  pointer-events: auto;
+  filter: none;
+}
 .doc-command-path {
   display: flex;
   align-items: center;
@@ -19808,6 +19873,25 @@ body.is-sidebar-resizing iframe {
 .rich-callout--tip { border-left-color: #16a34a; background: rgba(22,163,74,0.1); }
 .rich-callout--warn { border-left-color: #ca8a04; background: rgba(202,138,4,0.12); }
 .rich-callout--danger { border-left-color: #dc2626; background: rgba(220,38,38,0.1); }
+.rich-callout--source {
+  border-left-color: #64748b;
+  border-left-style: dashed;
+  background: rgba(100, 116, 139, 0.08);
+  opacity: 0.92;
+}
+.rich-callout--source::before {
+  content: "素材";
+  position: absolute;
+  top: 0.45rem;
+  left: 0.85rem;
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.rich-callout--source .rich-callout-body {
+  padding-top: 1rem;
+}
 .rich-callout-tone {
   position: absolute;
   top: 0.45rem;
@@ -24551,3 +24635,261 @@ body.is-sidebar-resizing iframe {
   }
 }
 
+
+/* —— Cadence writing: stats dock, goals, export preview —— */
+.editor-writing-stats-dock {
+  position: fixed;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  z-index: 40;
+  pointer-events: none;
+}
+.editor-writing-stats-dock .editor-writing-stats {
+  pointer-events: auto;
+}
+.doc-workspace.is-focus .editor-writing-stats-dock {
+  opacity: 0.55;
+}
+.doc-workspace.is-focus .editor-writing-stats-dock:hover {
+  opacity: 1;
+}
+.editor-writing-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+.editor-writing-stats:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.editor-writing-stats.is-warn {
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.35);
+}
+.editor-writing-stats-main {
+  font-variant-numeric: tabular-nums;
+  font-weight: 560;
+}
+.editor-writing-stats-goal {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-left: 0.35rem;
+  border-left: 1px solid var(--border);
+}
+.editor-writing-stats-bar {
+  display: inline-block;
+  width: 42px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  overflow: hidden;
+}
+.editor-writing-stats-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+}
+.editor-writing-stats-goal-text {
+  font-variant-numeric: tabular-nums;
+}
+.doc-meta-chip .editor-writing-stats {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  color: inherit;
+}
+
+.note-writing-goal {
+  margin: 0.85rem 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+}
+.note-writing-goal.is-compact {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.7rem;
+}
+.note-writing-goal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.note-writing-goal-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.note-writing-goal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem 0.65rem;
+}
+.note-writing-goal-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.note-writing-goal-grid input {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 0.35rem 0.45rem;
+  font-size: 0.85rem;
+}
+.note-writing-goal-source {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.note-aside-goal-summary {
+  margin: 0.2rem 0 0.45rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.note-aside-goal-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 80%, transparent);
+  overflow: hidden;
+}
+.note-aside-goal-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.note-export-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.note-export-dialog {
+  width: min(920px, 100%);
+  max-height: min(90vh, 860px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+}
+.note-export-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.65rem;
+}
+.note-export-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.note-export-head p {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.note-export-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.75rem;
+  padding: 0 1.1rem 0.75rem;
+}
+.note-export-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.note-export-chip {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.note-export-chip.is-on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
+}
+.note-export-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.note-export-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+.note-export-preview-wrap {
+  flex: 1;
+  min-height: 280px;
+  margin: 0 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.note-export-preview {
+  width: 100%;
+  height: min(48vh, 420px);
+  border: 0;
+  background: #fff;
+}
+.note-export-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.85rem 1.1rem 1rem;
+}
+@media (max-width: 720px) {
+  .editor-writing-stats-dock {
+    right: 0.65rem;
+    bottom: 0.75rem;
+  }
+  .note-writing-goal-grid {
+    grid-template-columns: 1fr;
+  }
+  .note-export-check {
+    margin-left: 0;
+    width: 100%;
+  }
+  .doc-workspace.is-focus .doc-page {
+    padding-top: 1.5rem;
+  }
+}

@@ -78,11 +78,12 @@ import NoteSplitPane from "@/components/notes/NoteSplitPane";
 import NoteSplitResizer, { useNoteSplitLayout } from "@/components/notes/NoteSplitResizer";
 import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 import {
-  downloadDocx,
-  downloadMarkdown,
-  downloadPdfViaPrint,
-  downloadPptOutline,
+  type ExportFormatId,
 } from "@/lib/exportNote";
+import NoteExportDialog from "@/components/notes/NoteExportDialog";
+import EditorWritingStats from "@/components/notes/EditorWritingStats";
+import NoteWritingGoalEditor from "@/components/notes/NoteWritingGoalEditor";
+import { computeWritingGoalProgress } from "@/lib/writingGoals";
 import { ALIASES_PROP } from "@/lib/importMarkdownNotes";
 import NoteKnowledgePropsPanel from "@/components/notes/NoteKnowledgePropsPanel";
 import {
@@ -198,6 +199,8 @@ function NotePageInner() {
   const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [slideActions, setSlideActions] = useState<SlideStudioActions | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportDialogFormat, setExportDialogFormat] = useState<ExportFormatId>("md");
   const [slideFocusIndex, setSlideFocusIndex] = useState<number | null>(null);
   const [slideFocusNonce, setSlideFocusNonce] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
@@ -230,6 +233,17 @@ function NotePageInner() {
     return 300;
   });
   const [focusMode, setFocusMode] = useState(false);
+  const [focusHideToolbar, setFocusHideToolbar] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const v = localStorage.getItem("cadence_focus_hide_toolbar");
+      if (v === "0") return false;
+      if (v === "1") return true;
+    } catch {
+      /* ignore */
+    }
+    return true;
+  });
   /** App surfaces (extension / specialty): fill content area below chrome */
   const [appFill, setAppFill] = useState(true);
   const [threadSelection, setThreadSelection] = useState<string | null>(null);
@@ -1303,7 +1317,14 @@ function NotePageInner() {
     }
   };
 
-  const stats = useMemo(() => computeNoteStats(body), [body]);
+  const stats = useMemo(
+    () => computeNoteStats(body, { excludeSource: true, props: note?.props }),
+    [body, note?.props]
+  );
+  const goalProgress = useMemo(
+    () => computeWritingGoalProgress(body, note?.props),
+    [body, note?.props]
+  );
   const outline = useMemo(() => extractOutline(body), [body]);
   const liveSegments = useMemo(
     () => liveSegmentsFromProps(note?.props as Record<string, unknown> | undefined),
@@ -1887,11 +1908,16 @@ function NotePageInner() {
 
   return (
     <div
-      className={`doc-workspace${focusMode ? " is-focus" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${viewMode === "read" ? " is-reading" : ""}${splitId && splitId !== id ? " has-split" : ""}${isAppPage ? " is-app-page" : ""}${isAppPage && appFill ? " is-app-fill" : ""}`}
+      className={`doc-workspace${focusMode ? " is-focus" : ""}${focusMode && focusHideToolbar ? " is-focus-hide-toolbar" : ""}${asideOpen ? " has-aside" : ""}${pageMode ? " is-page" : ""}${viewMode === "slides" ? " is-slides" : ""}${viewMode === "read" ? " is-reading" : ""}${splitId && splitId !== id ? " has-split" : ""}${isAppPage ? " is-app-page" : ""}${isAppPage && appFill ? " is-app-fill" : ""}`}
       style={{ ["--note-aside-w" as string]: `${asideWidth}px` }}
     >
       <div className="doc-chrome">
-      <div className={`doc-ribbon${viewMode === "slides" || viewMode === "read" || isAppPage ? " is-hidden" : ""}`} ref={setRibbonHost} />
+      <div
+        className={`doc-ribbon${
+          viewMode === "slides" || viewMode === "read" || isAppPage ? " is-hidden" : ""
+        }`}
+        ref={setRibbonHost}
+      />
 
       <div className="doc-command">
         <nav className="doc-command-path" aria-label="筆記路徑">
@@ -2234,6 +2260,29 @@ function NotePageInner() {
                           label: focusMode ? "離開專注" : "專注模式 ⌘⇧F",
                           fn: () => setFocusMode((v) => !v),
                         },
+                        ...(focusMode
+                          ? [
+                              {
+                                label: focusHideToolbar
+                                  ? "專注時顯示工具列"
+                                  : "專注時隱藏工具列",
+                                fn: () => {
+                                  setFocusHideToolbar((v) => {
+                                    const next = !v;
+                                    try {
+                                      localStorage.setItem(
+                                        "cadence_focus_hide_toolbar",
+                                        next ? "1" : "0"
+                                      );
+                                    } catch {
+                                      /* ignore */
+                                    }
+                                    return next;
+                                  });
+                                },
+                              },
+                            ]
+                          : []),
                         {
                           label: "閱讀模式 ⌘⇧R",
                           fn: () => enterRead(),
@@ -2338,24 +2387,40 @@ function NotePageInner() {
                       ]
                     : []),
                   {
-                    label: "匯出 Markdown（含 YAML）",
-                    fn: () =>
-                      downloadMarkdown(title, body, {
-                        title,
-                        tags,
-                        aliases: Array.isArray(note?.props?.[ALIASES_PROP])
-                          ? (note!.props![ALIASES_PROP] as string[])
-                          : [],
-                        journalDate: note?.journal_date || undefined,
-                        folder: folder || undefined,
-                        created: note?.created_at,
-                        updated: note?.updated_at || new Date(),
-                        extras: note?.props || {},
-                      }),
+                    label: "匯出…",
+                    fn: () => {
+                      setExportDialogFormat("md");
+                      setExportDialogOpen(true);
+                    },
                   },
-                  { label: "匯出 PDF", fn: () => downloadPdfViaPrint(title, body) },
-                  { label: "匯出 DOCX", fn: () => { void downloadDocx(title, body); } },
-                  { label: "匯出簡報大綱", fn: () => downloadPptOutline(title, body) },
+                  {
+                    label: "匯出 Markdown（含 YAML）",
+                    fn: () => {
+                      setExportDialogFormat("md");
+                      setExportDialogOpen(true);
+                    },
+                  },
+                  {
+                    label: "匯出 PDF",
+                    fn: () => {
+                      setExportDialogFormat("pdf");
+                      setExportDialogOpen(true);
+                    },
+                  },
+                  {
+                    label: "匯出 DOCX",
+                    fn: () => {
+                      setExportDialogFormat("docx");
+                      setExportDialogOpen(true);
+                    },
+                  },
+                  {
+                    label: "匯出簡報大綱",
+                    fn: () => {
+                      setExportDialogFormat("ppt");
+                      setExportDialogOpen(true);
+                    },
+                  },
                   ...(viewMode === "write"
                     ? [
                         { label: "手動儲存 ⌘S", fn: () => save(false) },
@@ -2705,7 +2770,9 @@ function NotePageInner() {
                     setNote({ ...note, status: v as Note["status"] });
                   }}
                 />
-                <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+                <span className="doc-meta-chip">
+                  <EditorWritingStats stats={stats} goalProgress={goalProgress} />
+                </span>
                 {note.source_job_id && (
                   <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
                     來源逐字稿
@@ -2747,6 +2814,15 @@ function NotePageInner() {
                   }}
                 />
               )}
+              {viewMode === "write" && !note.database_id ? (
+                <NoteWritingGoalEditor
+                  propsBag={note.props}
+                  onPropsPatch={(props) => {
+                    setNote((n) => (n ? { ...n, props } : n));
+                    void updateNote(note.id, { props });
+                  }}
+                />
+              ) : null}
 
             </>
           )}
@@ -2762,7 +2838,9 @@ function NotePageInner() {
                   #{t}
                 </span>
               ))}
-              <span className="doc-meta-chip">{stats.words} 字 · {stats.readingMins} 分</span>
+              <span className="doc-meta-chip">
+                <EditorWritingStats stats={stats} goalProgress={goalProgress} />
+              </span>
             </div>
           )}
 
@@ -2996,8 +3074,38 @@ function NotePageInner() {
                 }
               : undefined
           }
+          goalProgress={goalProgress}
         />
       </div>
+
+      {viewMode === "write" && !isAppPage && (
+        <div className="editor-writing-stats-dock">
+          <EditorWritingStats stats={stats} goalProgress={goalProgress} />
+        </div>
+      )}
+
+      {note && (
+        <NoteExportDialog
+          open={exportDialogOpen}
+          onClose={() => setExportDialogOpen(false)}
+          title={title}
+          body={body}
+          props={note.props}
+          initialFormat={exportDialogFormat}
+          meta={{
+            title,
+            tags,
+            aliases: Array.isArray(note.props?.[ALIASES_PROP])
+              ? (note.props![ALIASES_PROP] as string[])
+              : [],
+            journalDate: note.journal_date || undefined,
+            folder: folder || undefined,
+            created: note.created_at,
+            updated: note.updated_at || new Date(),
+            extras: note.props || {},
+          }}
+        />
+      )}
 
       {threadSelection != null && note && (
         <div className="block-thread-overlay">

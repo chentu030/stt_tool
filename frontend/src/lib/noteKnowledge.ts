@@ -24,6 +24,8 @@ export const INTERNAL_NOTE_PROP_KEYS = new Set([
   "web_url",
   "extension_entry",
   "extension_id",
+  "writing_goal",
+  "is_source_material",
 ]);
 
 const RELATION_KEY_HINTS = new Set([
