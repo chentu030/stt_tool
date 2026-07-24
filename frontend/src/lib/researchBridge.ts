@@ -217,6 +217,8 @@ export function notesToResearchSnippets(
   }>,
   opts?: {
     selectedIds?: string[];
+    /** Prefer these note ids (semantic hits) in order. */
+    preferredIds?: string[];
     query?: string;
     limit?: number;
     /** chars per note excerpt (default 1800) */
@@ -229,6 +231,17 @@ export function notesToResearchSnippets(
   let pool = notes;
   if (selected.size) {
     pool = notes.filter((n) => selected.has(n.id));
+  } else if (opts?.preferredIds?.length) {
+    const byId = new Map(notes.map((n) => [n.id, n]));
+    const seen = new Set<string>();
+    pool = [];
+    for (const id of opts.preferredIds) {
+      const n = byId.get(id);
+      if (n && !seen.has(id)) {
+        pool.push(n);
+        seen.add(id);
+      }
+    }
   } else if (opts?.query?.trim()) {
     const q = opts.query.trim().toLowerCase();
     const tokens = tokenizeQuery(q);
@@ -247,7 +260,7 @@ export function notesToResearchSnippets(
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((x) => x.n);
-    if (!pool.length) pool = notes;
+    // No hard-stuff: zero lexical hits → empty pool (caller may have preferredIds from semantic).
   }
   return pool.slice(0, limit).map((n) => ({
     id: n.id,

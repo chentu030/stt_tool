@@ -2696,6 +2696,115 @@ async def stt_google_stream(websocket: WebSocket):
             pass
 
 
+# ─── Semantic note retrieval (Vertex embeddings + Firestore vector search) ───
+try:
+    from note_embeddings import (
+        DEFAULT_DISTANCE_THRESHOLD as _SEM_THRESHOLD,
+        delete_note_embedding as _sem_delete,
+        embedding_status as _sem_status,
+        search_note_embeddings as _sem_search,
+        upsert_note_embedding as _sem_upsert,
+    )
+    _SEMANTIC_OK = True
+except Exception as _sem_import_err:
+    print(f"note_embeddings import failed: {_sem_import_err}")
+    _SEMANTIC_OK = False
+
+
+@app.get("/api/notes/embeddings/status")
+def notes_embeddings_status(authorization: Optional[str] = Header(None)):
+    if not _SEMANTIC_OK:
+        raise HTTPException(503, "語意檢索模組未載入")
+    uid = _verify_token(authorization)
+    try:
+        return _sem_status(fstore, uid)
+    except Exception as e:
+        raise HTTPException(500, f"無法讀取 embedding 狀態：{e}")
+
+
+@app.post("/api/notes/embeddings/upsert")
+async def notes_embeddings_upsert(request: Request, authorization: Optional[str] = Header(None)):
+    """Upsert 1..N note embeddings. Body: { notes: [{id,title,body_md,folder,tags,database_id}], force? }"""
+    if not _SEMANTIC_OK:
+        raise HTTPException(503, "語意檢索模組未載入")
+    uid = _verify_token(authorization)
+    body = await request.json()
+    notes = body.get("notes") or []
+    if not isinstance(notes, list) or not notes:
+        raise HTTPException(400, "缺少 notes")
+    if len(notes) > 40:
+        raise HTTPException(400, "單次最多 40 筆")
+    force = bool(body.get("force"))
+    results = []
+    errors = []
+    for n in notes:
+        if not isinstance(n, dict):
+            continue
+        try:
+            results.append(_sem_upsert(fstore, uid, n, force=force))
+        except Exception as e:
+            nid = str((n or {}).get("id") or "?")
+            errors.append({"id": nid, "error": str(e)})
+    return {"ok": True, "results": results, "errors": errors}
+
+
+@app.post("/api/notes/embeddings/search")
+async def notes_embeddings_search(request: Request, authorization: Optional[str] = Header(None)):
+    """Semantic search. Body: { query, limit?, threshold?, folder?, database_id?, scopeIds?, tags? }"""
+    if not _SEMANTIC_OK:
+        raise HTTPException(503, "語意檢索模組未載入")
+    uid = _verify_token(authorization)
+    body = await request.json()
+    query = str(body.get("query") or "").strip()
+    if not query:
+        return {"hits": [], "message": "無相關筆記"}
+    try:
+        hits = _sem_search(
+            fstore,
+            uid,
+            query,
+            limit=int(body.get("limit") or 12),
+            distance_threshold=float(
+                body.get("threshold")
+                if body.get("threshold") is not None
+                else _SEM_THRESHOLD
+            ),
+            folder=body.get("folder") or None,
+            database_id=body.get("database_id") or None,
+            scope_ids=body.get("scopeIds") or body.get("scope_ids") or None,
+            tags=body.get("tags") or None,
+        )
+    except Exception as e:
+        msg = str(e)
+        # Missing vector index → clear signal for deploy step
+        if "index" in msg.lower() or "FAILED_PRECONDITION" in msg:
+            raise HTTPException(
+                503,
+                "Firestore 向量索引尚未就緒。請部署 firestore.indexes.json（collectionGroup=note_embeddings, field=embedding, dimension=768）後再試。",
+            )
+        raise HTTPException(500, f"語意搜尋失敗：{msg}")
+    return {
+        "hits": hits,
+        "message": None if hits else "無相關筆記",
+    }
+
+
+@app.post("/api/notes/embeddings/delete")
+async def notes_embeddings_delete(request: Request, authorization: Optional[str] = Header(None)):
+    if not _SEMANTIC_OK:
+        raise HTTPException(503, "語意檢索模組未載入")
+    uid = _verify_token(authorization)
+    body = await request.json()
+    ids = body.get("ids") or ([body.get("id")] if body.get("id") else [])
+    if not ids:
+        raise HTTPException(400, "缺少 id / ids")
+    deleted = []
+    for nid in ids:
+        if _sem_delete(fstore, uid, str(nid)):
+            deleted.append(str(nid))
+    return {"ok": True, "deleted": deleted}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

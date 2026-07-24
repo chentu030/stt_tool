@@ -243,6 +243,12 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Note vector embeddings for semantic retrieval (written by Cloud Run Admin;
+    // owner may also read/write for client-side backfill helpers).
+    match /users/{uid}/note_embeddings/{noteId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     match /users/{uid}/community_extensions/{extId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }

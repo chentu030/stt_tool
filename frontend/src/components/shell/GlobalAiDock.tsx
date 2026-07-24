@@ -8,6 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { type Note } from "@/lib/firebase";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 import { packLibraryContext, AI_SUGGESTIONS } from "@/lib/libraryIndex";
+import { resolveSemanticNoteIds } from "@/lib/noteSemanticSearch";
 import { extractOutline, slugifyHeading } from "@/lib/noteMeta";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { buildResearchUrl } from "@/lib/researchBridge";
@@ -1284,8 +1285,22 @@ export default function GlobalAiDock() {
           updated_at: n.updated_at,
           created_at: n.created_at,
         }));
+        let preferredIds: string[] | undefined;
+        if (!snapshotPins.length && displayPrompt.trim()) {
+          // Prefer same-database notes when dock is open on a DB-backed note.
+          const focusDb =
+            focusNote?.database_id && String(focusNote.database_id).trim()
+              ? String(focusNote.database_id)
+              : undefined;
+          preferredIds = await resolveSemanticNoteIds(displayPrompt, {
+            limit: 10,
+            database_id: focusDb,
+            softFail: true,
+          });
+        }
         const packed = packLibraryContext(libNotes, displayPrompt, {
           selectedIds: snapshotPins.length ? snapshotPins : undefined,
+          preferredIds: preferredIds?.length ? preferredIds : undefined,
           maxNotes: snapshotPins.length ? Math.min(snapshotPins.length, 12) : 10,
           maxChars: 14000,
         });
@@ -1294,10 +1309,14 @@ export default function GlobalAiDock() {
             .map((id) => notes.find((n) => n.id === id))
             .filter(Boolean) as Note[]
         );
+        const emptyHint =
+          packed.emptyReason && !packed.context
+            ? `\n\n（知識庫：${packed.emptyReason} — 未附上無關筆記）`
+            : "";
         body = {
           action: "library",
           prompt: displayPrompt,
-          context: withChatSummaryContext(packed.context, memory),
+          context: withChatSummaryContext((packed.context || "") + emptyHint, memory),
           assistant,
           messages: history,
           allowNoteEdit: false,

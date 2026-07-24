@@ -16,6 +16,10 @@ import {
 } from "@/lib/firebase";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 import { searchNotes, packLibraryContext, type LibraryNote } from "@/lib/libraryIndex";
+import {
+  ensureIndexedThenSearch,
+  resolveSemanticNoteIds,
+} from "@/lib/noteSemanticSearch";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import ScrambleText from "@/components/motion/ScrambleText";
 import { markdownToHtml } from "@/lib/mdHtml";
@@ -171,12 +175,13 @@ function toLibraryNotes(notes: Note[]): LibraryNote[] {
     status: n.status,
     icon: n.icon,
     source_job_id: n.source_job_id,
+    database_id: n.database_id,
     updated_at: n.updated_at,
     created_at: n.created_at,
   }));
 }
 
-function buildLibraryPayload(
+async function buildLibraryPayload(
   notes: LibraryNote[],
   topic: string,
   selectedIds?: string[]
@@ -185,6 +190,35 @@ function buildLibraryPayload(
     return notesToResearchSnippets(notes, {
       selectedIds,
       limit: 40,
+      excerptChars: 1800,
+    });
+  }
+  // Semantic first (backfill a slice), then lexical preferredIds; never hard-stuff.
+  let preferredIds: string[] = [];
+  try {
+    const hits = await ensureIndexedThenSearch(
+      notes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        body_md: n.body_md,
+        folder: n.folder,
+        tags: n.tags,
+        database_id: n.database_id,
+      })),
+      topic,
+      {
+        limit: 28,
+        backfillMax: 48,
+      }
+    );
+    preferredIds = hits.map((h) => h.id);
+  } catch {
+    preferredIds = await resolveSemanticNoteIds(topic, { limit: 28, softFail: true });
+  }
+  if (preferredIds.length) {
+    return notesToResearchSnippets(notes, {
+      preferredIds,
+      limit: 28,
       excerptChars: 1800,
     });
   }
@@ -823,13 +857,15 @@ function DeepResearchPageInner() {
       pushLog(`已依 [[wiki]] 擴充研究範圍至 ${expanded.length} 則`, "ok");
     }
 
-    const libraryPayload = buildLibraryPayload(
+    const libraryPayload = await buildLibraryPayload(
       libraryNotes,
       topic.trim(),
       expanded.length ? expanded : undefined
     );
     if (libraryPayload.length && opts?.resetLogs !== false) {
       pushLog(`已打包 ${libraryPayload.length} 則相關筆記`, "ok");
+    } else if (!libraryPayload.length && opts?.resetLogs !== false) {
+      pushLog("知識庫無相關筆記（不會塞入無關內容）", "warn");
     }
 
     const ac = new AbortController();
@@ -913,7 +949,7 @@ function DeepResearchPageInner() {
           approvedPlan: report.plan,
           findings: report.findings,
           refineQuestions: qs,
-          libraryNotes: buildLibraryPayload(
+          libraryNotes: await buildLibraryPayload(
             libraryNotes,
             topic.trim(),
             scopeIds.length ? scopeIds : undefined
@@ -1107,7 +1143,7 @@ function DeepResearchPageInner() {
           approvedPlan: report.plan,
           findings: report.findings,
           addQuestions: [q],
-          libraryNotes: buildLibraryPayload(
+          libraryNotes: await buildLibraryPayload(
             libraryNotes,
             topic.trim(),
             scopeIds.length ? scopeIds : undefined

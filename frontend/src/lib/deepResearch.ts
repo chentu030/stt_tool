@@ -181,7 +181,7 @@ function parseJsonLoose<T>(text: string): T | null {
 function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 5): NoteSnippet[] {
   if (!notes.length) return [];
   const tokens = tokenizeQuery(query);
-  if (!tokens.length) return notes.slice(0, limit);
+  if (!tokens.length) return [];
 
   const scored = notes
     .map((n) => {
@@ -202,8 +202,8 @@ function pickNotesForQuery(notes: NoteSnippet[], query: string, limit = 5): Note
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  if (scored.length) return scored.slice(0, limit).map((x) => x.n);
-  return notes.slice(0, Math.min(2, limit));
+  // No hard-stuff: below threshold / zero hits → empty (prompt says 無相關個人筆記).
+  return scored.slice(0, limit).map((x) => x.n);
 }
 
 function formatNoteBlock(notes: NoteSnippet[]): string {

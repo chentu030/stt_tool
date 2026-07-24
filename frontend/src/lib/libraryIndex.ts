@@ -17,6 +17,7 @@ export type LibraryNote = {
   icon?: string;
   color?: string;
   source_job_id?: string;
+  database_id?: string;
   props?: Record<string, unknown>;
   updated_at: Date;
   created_at: Date;
@@ -385,22 +386,59 @@ export function notesToUnifiedHits(hits: SearchHit[], limit = 12): UnifiedSearch
   }));
 }
 
-/** Pack notes into a bounded context string for the AI assistant */
+/** Pack notes into a bounded context string for the AI assistant.
+ * When query has no lexical hits and no preferredIds, returns empty context
+ * (never stuffs arbitrary unrelated notes).
+ */
 export function packLibraryContext(
   notes: LibraryNote[],
   query: string,
-  opts?: { selectedIds?: string[]; maxNotes?: number; maxChars?: number }
-): { context: string; usedIds: string[]; truncated: boolean } {
+  opts?: {
+    selectedIds?: string[];
+    /** Prefer these ids (e.g. semantic search hits) before lexical ranking. */
+    preferredIds?: string[];
+    maxNotes?: number;
+    maxChars?: number;
+  }
+): { context: string; usedIds: string[]; truncated: boolean; emptyReason?: string } {
   const maxNotes = opts?.maxNotes ?? 12;
   const maxChars = opts?.maxChars ?? 14000;
   const selected = new Set(opts?.selectedIds || []);
+  const preferred = opts?.preferredIds || [];
 
   let pool: LibraryNote[];
   if (selected.size) {
     pool = notes.filter((n) => selected.has(n.id));
+  } else if (preferred.length) {
+    const byId = new Map(notes.map((n) => [n.id, n]));
+    const seen = new Set<string>();
+    pool = [];
+    for (const id of preferred) {
+      const n = byId.get(id);
+      if (n && !seen.has(id)) {
+        pool.push(n);
+        seen.add(id);
+      }
+      if (pool.length >= maxNotes) break;
+    }
   } else {
     const ranked = searchNotes(notes, query, { sort: query.trim() ? "relevance" : "updated" });
-    pool = (ranked.length ? ranked : notes).slice(0, maxNotes);
+    if (query.trim()) {
+      // Query present but no lexical hits → empty (no random stuffing).
+      pool = ranked.slice(0, maxNotes);
+    } else {
+      // No query (e.g. open-ended) → recent notes are intentional.
+      pool = (ranked.length ? ranked : notes).slice(0, maxNotes);
+    }
+  }
+
+  if (!pool.length && query.trim() && !selected.size) {
+    return {
+      context: "",
+      usedIds: [],
+      truncated: false,
+      emptyReason: "無相關筆記",
+    };
   }
 
   const chunks: string[] = [];
@@ -430,6 +468,7 @@ export function packLibraryContext(
     context: chunks.join("\n---\n\n"),
     usedIds,
     truncated,
+    ...(usedIds.length ? {} : query.trim() ? { emptyReason: "無相關筆記" } : {}),
   };
 }
 

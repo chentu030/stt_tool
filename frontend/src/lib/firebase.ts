@@ -500,6 +500,18 @@ export async function createNote(
     created_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   });
+  void import("@/lib/noteSemanticSearch")
+    .then(({ scheduleNoteEmbedding }) =>
+      scheduleNoteEmbedding({
+        id,
+        title: title || "未命名筆記",
+        body_md: bodyMd,
+        folder: extra?.folder || "",
+        tags,
+        database_id: extra?.database_id || "",
+      })
+    )
+    .catch(() => {});
   return id;
 }
 
@@ -620,6 +632,30 @@ export async function updateNote(
     ) {
       void import("@/lib/share")
         .then(({ syncShareTokenSnapshot }) => syncShareTokenSnapshot(noteId))
+        .catch(() => {});
+    }
+    // Re-index semantic embedding when searchable content changes.
+    if (
+      updates.title !== undefined ||
+      updates.body_md !== undefined ||
+      updates.tags !== undefined ||
+      updates.folder !== undefined ||
+      updates.database_id !== undefined
+    ) {
+      void import("@/lib/noteSemanticSearch")
+        .then(async ({ scheduleNoteEmbedding }) => {
+          const snap = await getDoc(doc(db, "notes", noteId));
+          if (!snap.exists()) return;
+          const d = snap.data() as Record<string, unknown>;
+          scheduleNoteEmbedding({
+            id: noteId,
+            title: String(d.title || ""),
+            body_md: String(d.body_md || ""),
+            folder: String(d.folder || ""),
+            tags: Array.isArray(d.tags) ? (d.tags as string[]) : [],
+            database_id: String(d.database_id || ""),
+          });
+        })
         .catch(() => {});
     }
   };
@@ -807,6 +843,9 @@ export async function trashNote(noteId: string) {
     trashed_at: Timestamp.now(),
     updated_at: Timestamp.now(),
   });
+  void import("@/lib/noteSemanticSearch")
+    .then(({ deleteNoteEmbeddings }) => deleteNoteEmbeddings([noteId]))
+    .catch(() => {});
 }
 
 /** Restore note from trash. */
@@ -815,6 +854,21 @@ export async function restoreNote(noteId: string) {
     trashed_at: deleteField(),
     updated_at: Timestamp.now(),
   });
+  void import("@/lib/noteSemanticSearch")
+    .then(async ({ scheduleNoteEmbedding }) => {
+      const snap = await getDoc(doc(db, "notes", noteId));
+      if (!snap.exists()) return;
+      const d = snap.data() as Record<string, unknown>;
+      scheduleNoteEmbedding({
+        id: noteId,
+        title: String(d.title || ""),
+        body_md: String(d.body_md || ""),
+        folder: String(d.folder || ""),
+        tags: Array.isArray(d.tags) ? (d.tags as string[]) : [],
+        database_id: String(d.database_id || ""),
+      });
+    })
+    .catch(() => {});
 }
 
 /** Permanently delete a note (and version history). */
@@ -826,6 +880,9 @@ export async function purgeNote(noteId: string) {
     /* ignore */
   }
   await deleteDoc(doc(db, "notes", noteId));
+  void import("@/lib/noteSemanticSearch")
+    .then(({ deleteNoteEmbeddings }) => deleteNoteEmbeddings([noteId]))
+    .catch(() => {});
 }
 
 /** Soft-delete by default (垃圾桶). Use purgeNote for permanent. */
