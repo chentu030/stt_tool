@@ -27,7 +27,17 @@ type Props<T extends string> = {
   placement?: "bottom" | "top";
 };
 
-type MenuPos = { top: number; left: number; minWidth: number; placement: "bottom" | "top" };
+type MenuPos = {
+  top: number;
+  left: number;
+  minWidth: number;
+  maxHeight: number;
+  placement: "bottom" | "top";
+};
+
+const MENU_GAP = 6;
+const MENU_EDGE = 8;
+const MENU_MAX_H = 320;
 
 export default function MenuSelect<T extends string>({
   value,
@@ -52,21 +62,24 @@ export default function MenuSelect<T extends string>({
     const el = rootRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const menuH = menuRef.current?.offsetHeight || Math.min(280, options.length * 44 + 16);
-    const spaceBelow = window.innerHeight - r.bottom;
-    const spaceAbove = r.top;
+    const spaceBelow = window.innerHeight - r.bottom - MENU_GAP - MENU_EDGE;
+    const spaceAbove = r.top - MENU_GAP - MENU_EDGE;
+    const estimatedH = Math.min(MENU_MAX_H, options.length * 44 + 16);
+    const menuH = menuRef.current?.offsetHeight || estimatedH;
     let place = placement;
-    if (placement === "bottom" && spaceBelow < menuH + 12 && spaceAbove > spaceBelow) {
+    if (placement === "bottom" && spaceBelow < Math.min(menuH, MENU_MAX_H) && spaceAbove > spaceBelow) {
       place = "top";
-    } else if (placement === "top" && spaceAbove < menuH + 12 && spaceBelow > spaceAbove) {
+    } else if (placement === "top" && spaceAbove < Math.min(menuH, MENU_MAX_H) && spaceBelow > spaceAbove) {
       place = "bottom";
     }
-    const top = place === "top" ? r.top - 6 : r.bottom + 6;
+    const available = Math.max(120, place === "top" ? spaceAbove : spaceBelow);
+    const maxHeight = Math.min(MENU_MAX_H, available);
+    const top = place === "top" ? r.top - MENU_GAP : r.bottom + MENU_GAP;
     const minWidth = Math.max(r.width, 168);
     let left = r.left;
-    const maxLeft = window.innerWidth - minWidth - 8;
-    left = Math.max(8, Math.min(left, maxLeft));
-    setPos({ top, left, minWidth, placement: place });
+    const maxLeft = window.innerWidth - minWidth - MENU_EDGE;
+    left = Math.max(MENU_EDGE, Math.min(left, maxLeft));
+    setPos({ top, left, minWidth, maxHeight, placement: place });
   };
 
   useLayoutEffect(() => {
@@ -115,6 +128,7 @@ export default function MenuSelect<T extends string>({
               bottom: pos.placement === "top" ? window.innerHeight - pos.top : undefined,
               left: pos.left,
               minWidth: pos.minWidth,
+              maxHeight: pos.maxHeight,
               zIndex: 20000,
             }}
           >
