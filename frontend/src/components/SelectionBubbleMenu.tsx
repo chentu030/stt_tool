@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import SelectionAiPanel, { type SelectionAiAction } from "@/components/SelectionAiPanel";
-import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { continueSelectionInAiRail, openGlobalAiRail } from "@/lib/aiRailBridge";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { landSelectionOnCanvas } from "@/lib/surfaceHandoff";
@@ -879,11 +879,19 @@ export default function SelectionBubbleMenu({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 const t = selectionText().trim();
-                if (onSendToAside && t) {
-                  onSendToAside(t);
+                if (t) {
+                  continueSelectionInAiRail({
+                    selectionText: t,
+                    context: aiContext || noteBody,
+                    title: noteTitle,
+                    contextLabel: noteTitle ? `筆記 · ${noteTitle}` : undefined,
+                  });
+                  onSendToAside?.(t);
                   return;
                 }
-                openGlobalAiRail();
+                openGlobalAiRail({
+                  contextLabel: noteTitle ? `筆記 · ${noteTitle}` : "筆記",
+                });
               }}
             >
               開 AI 側欄

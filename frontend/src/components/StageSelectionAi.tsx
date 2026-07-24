@@ -7,6 +7,9 @@ import { askPrompt } from "@/lib/dialogs";
 import { generateAiImageFile } from "@/lib/aiImage";
 import AiMarkdown from "@/components/AiMarkdown";
 import type { CanvasAiMediaRef } from "@/lib/canvasAiContext";
+import { AiAttachmentChips, useAiAttachments } from "@/components/ai/AiAttachComposer";
+import { toAttachmentPayloads } from "@/lib/aiAttachments";
+import { continueSelectionInAiRail } from "@/lib/aiRailBridge";
 
 export type StageAiAction =
   | "improve"
@@ -82,13 +85,16 @@ export default function StageSelectionAi({
   const [pos, setPos] = useState({ top: anchor.top, left: anchor.left });
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const attach = useAiAttachments({ onError: (m) => setError(m) });
 
   useEffect(() => {
     if (!open) return;
     setPrompt("");
     setError("");
     setResult("");
+    attach.clearAttachments();
     setTimeout(() => inputRef.current?.focus(), 50);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on open/selection only
   }, [open, selectionText]);
 
   useLayoutEffect(() => {
@@ -105,7 +111,6 @@ export default function StageSelectionAi({
       let top = anchor.top;
 
       if (box) {
-        // Prefer right of selection
         left = box.left + box.width + gap;
         top = box.top;
         if (left + pw > vw - 12) {
@@ -128,7 +133,7 @@ export default function StageSelectionAi({
       window.clearTimeout(t);
       window.removeEventListener("resize", place);
     };
-  }, [open, anchor.left, anchor.top, selectionBox, result, busy, error]);
+  }, [open, anchor.left, anchor.top, selectionBox, result, busy, error, attach.attachments.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -165,7 +170,6 @@ export default function StageSelectionAi({
     .map((r) => (r.url || "").trim())
     .filter(Boolean)
     .join("\n");
-  // Prefer full media URLs in the chip — truncated labels used to drop ".pdf"
   const snip = (mediaUrlSnip || snippetLabel || selectionText || title || "").trim();
   const snipShown =
     snip.length > 180 && !mediaUrlSnip
@@ -182,9 +186,10 @@ export default function StageSelectionAi({
 
   const run = async (action: StageAiAction, ask?: string) => {
     const sel = selectionText.trim() || fallback;
-    if ((!sel && !hasYoutube) || busy) return;
-    if (!hasSelection && action !== "ask_selection" && action !== "continue") {
-      setError("請先選取內容，或直接輸入問題");
+    const hasAtt = attach.attachments.length > 0;
+    if ((!sel && !hasYoutube && !hasAtt) || busy) return;
+    if (!hasSelection && !hasAtt && action !== "ask_selection" && action !== "continue") {
+      setError("請先選取內容，附加檔案，或直接輸入問題");
       return;
     }
     setBusy(true);
@@ -205,16 +210,23 @@ export default function StageSelectionAi({
       };
       if (context) payload.context = context.slice(0, 16000);
       if (mediaRefs?.length) payload.mediaRefs = mediaRefs;
+      if (hasAtt) payload.attachments = toAttachmentPayloads(attach.attachments);
       if (action === "ask_selection") {
         const userAsk = ask?.trim() || prompt.trim();
         payload.prompt =
           userAsk ||
-          (hasYoutube
-            ? "請根據附加的 YouTube 影片說明重點"
-            : hasSelection
-              ? "請說明這段在說什麼"
-              : "根據內容幫我整理重點");
-        if (hasYoutube && !String(payload.prompt).includes("YouTube") && !String(payload.prompt).includes("影片")) {
+          (hasAtt
+            ? "請根據附件與選取內容說明重點"
+            : hasYoutube
+              ? "請根據附加的 YouTube 影片說明重點"
+              : hasSelection
+                ? "請說明這段在說什麼"
+                : "根據內容幫我整理重點");
+        if (
+          hasYoutube &&
+          !String(payload.prompt).includes("YouTube") &&
+          !String(payload.prompt).includes("影片")
+        ) {
           payload.prompt = `${payload.prompt}\n\n（請直接理解附加的 YouTube 影片內容後回答，繁體中文。）`;
         }
       }
@@ -266,14 +278,31 @@ export default function StageSelectionAi({
     }
   };
 
+  const continueInRail = () => {
+    continueSelectionInAiRail({
+      selectionText,
+      context,
+      title,
+      prompt: prompt.trim() || undefined,
+      mediaRefs,
+      contextLabel: title ? `選取 · ${title}` : undefined,
+    });
+    onClose();
+  };
+
   return (
     <div
       ref={panelRef}
-      className="sel-ai-panel"
+      className={`sel-ai-panel${attach.dragOver ? " is-drop" : ""}`}
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
+      onDragEnter={attach.onDragEnter}
+      onDragLeave={attach.onDragLeave}
+      onDragOver={attach.onDragOver}
+      onDrop={attach.onDrop}
     >
+      {attach.fileInput}
       <div className="sel-ai-head">
         <strong>詢問 AI</strong>
         <button type="button" className="doc-cmd" onClick={onClose}>
@@ -281,10 +310,9 @@ export default function StageSelectionAi({
         </button>
       </div>
       <p className="sel-ai-snip" title={snip}>
-        {snipShown
-          ? `「${snipShown}」`
-          : "（未選取 — 可直接提問或生圖）"}
+        {snipShown ? `「${snipShown}」` : "（未選取 — 可直接提問、附加或生圖）"}
       </p>
+      <p className="sel-ai-ctx-hint">對焦 · {title || "目前選取"}</p>
       {hasYoutube ? (
         <div className="sel-ai-yt-hint">
           <p>
@@ -335,7 +363,9 @@ export default function StageSelectionAi({
               key={q.id}
               type="button"
               className="doc-cmd"
-              disabled={busy || (!hasSelection && q.id !== "continue")}
+              disabled={
+                busy || (!hasSelection && !attach.attachments.length && q.id !== "continue")
+              }
               onClick={() => void run(q.id)}
             >
               {q.label}
@@ -371,7 +401,15 @@ export default function StageSelectionAi({
             心智圖草稿
           </button>
         )}
+        <button type="button" className="doc-cmd" onClick={continueInRail}>
+          在右側繼續
+        </button>
       </div>
+      <AiAttachmentChips
+        attachments={attach.attachments}
+        onRemove={attach.removeAttachment}
+        disabled={busy}
+      />
       <form
         className="sel-ai-ask"
         onSubmit={(e) => {
@@ -383,13 +421,23 @@ export default function StageSelectionAi({
           ref={inputRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={hasYoutube ? "問這支影片任何問題…" : "問任何問題…"}
+          onPaste={attach.onPaste}
+          placeholder={hasYoutube ? "問這支影片任何問題…" : "問任何問題…（可貼上圖片）"}
           disabled={busy}
         />
         <button
+          type="button"
+          className="doc-cmd"
+          title="附加圖片或 PDF"
+          disabled={busy}
+          onClick={attach.openPicker}
+        >
+          附加
+        </button>
+        <button
           type="submit"
           className="doc-cmd is-on"
-          disabled={busy || (!prompt.trim() && !hasYoutube)}
+          disabled={busy || (!prompt.trim() && !hasYoutube && !attach.attachments.length)}
         >
           {busy ? "…" : "問"}
         </button>
@@ -400,10 +448,24 @@ export default function StageSelectionAi({
         <div className="sel-ai-result">
           <AiMarkdown text={result} />
           <div className="sel-ai-actions">
-            <button type="button" className="doc-cmd is-on" onClick={() => { onApplyReplace(result); onClose(); }}>
+            <button
+              type="button"
+              className="doc-cmd is-on"
+              onClick={() => {
+                onApplyReplace(result);
+                onClose();
+              }}
+            >
               {hasSelection ? "取代" : "套用"}
             </button>
-            <button type="button" className="doc-cmd" onClick={() => { onApplyInsert(result); onClose(); }}>
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={() => {
+                onApplyInsert(result);
+                onClose();
+              }}
+            >
               {insertLabel}
             </button>
             <button
@@ -412,6 +474,21 @@ export default function StageSelectionAi({
               onClick={() => void navigator.clipboard.writeText(result)}
             >
               複製
+            </button>
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={() => {
+                continueSelectionInAiRail({
+                  selectionText: result,
+                  context,
+                  title: title ? `${title} · AI 回覆` : "AI 回覆",
+                  contextLabel: "選取 AI 回覆",
+                });
+                onClose();
+              }}
+            >
+              帶到右側
             </button>
           </div>
         </div>

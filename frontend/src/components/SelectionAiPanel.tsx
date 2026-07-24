@@ -6,6 +6,7 @@ import type { Editor } from "@tiptap/react";
 import { markdownToHtml } from "@/lib/mdHtml";
 import AiMarkdown from "@/components/AiMarkdown";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import { continueSelectionInAiRail } from "@/lib/aiRailBridge";
 
 export type SelectionAiAction =
   | "improve"
@@ -106,6 +107,19 @@ export default function SelectionAiPanel({
 
   const hasSelection = !!rangeRef.current.text.trim();
   const contextFallback = (noteBody || "").trim().slice(0, 4000) || noteTitle || "空白筆記";
+
+  const continueInRail = (selOverride?: string, question?: string) => {
+    const sel = (selOverride ?? selectionText).trim() || result;
+    continueSelectionInAiRail({
+      selectionText: sel,
+      context: aiContext || noteBody,
+      title: noteTitle,
+      prompt: question || prompt.trim() || undefined,
+      contextLabel: noteTitle ? `筆記 · ${noteTitle}` : undefined,
+    });
+    onSendToAside?.(sel, question || prompt.trim() || undefined);
+    onClose();
+  };
 
   const run = async (action: SelectionAiAction, ask?: string) => {
     const sel = rangeRef.current.text.trim() || contextFallback;
@@ -294,35 +308,29 @@ export default function SelectionAiPanel({
             >
               複製
             </button>
-            {onSendToAside && (
-              <button
-                type="button"
-                className="doc-cmd"
-                onClick={() => {
-                  onSendToAside(
-                    selectionText.trim() || result,
-                    prompt.trim() || "延續討論這段內容"
-                  );
-                  onClose();
-                }}
-              >
-                側欄繼續
-              </button>
-            )}
+            <button
+              type="button"
+              className="doc-cmd"
+              onClick={() =>
+                continueInRail(
+                  selectionText.trim() || result,
+                  prompt.trim() || "延續討論這段內容"
+                )
+              }
+            >
+              在右側繼續
+            </button>
           </div>
         </div>
       )}
-      {!result && onSendToAside && selectionText.trim() && (
+      {!result && (
         <button
           type="button"
           className="doc-cmd"
           style={{ width: "100%", marginTop: 6 }}
-          onClick={() => {
-            onSendToAside(selectionText, prompt.trim() || undefined);
-            onClose();
-          }}
+          onClick={() => continueInRail(selectionText, prompt.trim() || undefined)}
         >
-          送到側欄繼續聊
+          在右側繼續
         </button>
       )}
       {!result && onDeepResearch && selectionText.trim() && (

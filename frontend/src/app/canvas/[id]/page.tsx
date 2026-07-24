@@ -3200,6 +3200,15 @@ function CanvasIdPageInner() {
             selectedIds={selected.map((s) => (s.type === "note" ? `note:${s.id}` : s.id))}
             onPinNote={pinNote}
             onFocusNote={focusNote}
+            selectionPack={
+              selectionInfo
+                ? {
+                    label: selectionInfo.label,
+                    selection: selectionInfo.text,
+                    context: selectionInfo.context,
+                  }
+                : null
+            }
           />
         )}
       </div>
@@ -3238,6 +3247,32 @@ function CanvasIdPageInner() {
           <button type="button" onClick={() => { doCut(); setCtxMenu(null); }}>剪下</button>
           <button type="button" onClick={() => { doCopy(); setCtxMenu(null); }}>複製</button>
           <button type="button" onClick={() => { doPaste(); setCtxMenu(null); }}>貼上</button>
+          <button
+            type="button"
+            onClick={() => {
+              openStageAi();
+              setCtxMenu(null);
+            }}
+          >
+            詢問 AI
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void import("@/lib/aiRailBridge").then(({ continueSelectionInAiRail }) => {
+                continueSelectionInAiRail({
+                  selectionText: selectionInfo?.text || "",
+                  context: selectionInfo?.context || "",
+                  title: doc.name,
+                  mediaRefs: selectionInfo?.mediaRefs,
+                  contextLabel: `白板選取 · ${selected.length}`,
+                });
+              });
+              setCtxMenu(null);
+            }}
+          >
+            加入 AI 對話
+          </button>
               {selected.length === 1 && selected[0].type === "media" && (
                 <button type="button" onClick={() => {
                   const id = selected[0].id;

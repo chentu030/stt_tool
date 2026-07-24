@@ -16,7 +16,7 @@ import { buildResearchUrl } from "@/lib/researchBridge";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import { normalizeFolderPath } from "@/lib/noteTree";
-import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { openGlobalAiRail } from "@/lib/aiRailBridge";
 import { appendToTodayJournal, peekJournalCaptureUndo, undoLastJournalCapture } from "@/lib/journalCapture";
 import { markDailyRhythmStep } from "@/lib/dailyRhythm";
 import {
@@ -258,7 +258,89 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
           hint: "AI",
           run: () => {
             onClose();
-            openGlobalAiRail();
+            let contextLabel = "知識庫";
+            if (pathname?.startsWith("/notes/")) contextLabel = "筆記";
+            else if (pathname?.startsWith("/canvas/")) contextLabel = "白板";
+            else if (pathname?.startsWith("/journal")) contextLabel = "日誌";
+            else if (pathname?.startsWith("/library")) contextLabel = "知識庫";
+            else if (pathname?.startsWith("/job/")) contextLabel = "會議";
+            if (contextNote) contextLabel = `筆記 · ${contextNote.title || "未命名"}`;
+            openGlobalAiRail({
+              prompt: "請總結目前對焦內容的重點，並建議下一步",
+              contextLabel,
+              useCanvasSelection: true,
+            });
+          },
+        });
+        out.push({
+          kind: "action",
+          id: "ask-ai-page",
+          label: "對此頁提問…",
+          hint: "AI",
+          run: () => {
+            onClose();
+            let contextLabel = "知識庫";
+            if (pathname?.startsWith("/notes/")) contextLabel = "筆記";
+            else if (pathname?.startsWith("/canvas/")) contextLabel = "白板";
+            else if (pathname?.startsWith("/journal")) contextLabel = "日誌";
+            else if (pathname?.startsWith("/library")) contextLabel = "知識庫";
+            else if (pathname?.startsWith("/job/")) contextLabel = "會議";
+            if (contextNote) contextLabel = `筆記 · ${contextNote.title || "未命名"}`;
+            let selectionText = "";
+            try {
+              selectionText = window.getSelection()?.toString()?.trim() || "";
+            } catch {
+              selectionText = "";
+            }
+            openGlobalAiRail({
+              prompt: "",
+              contextLabel,
+              useCanvasSelection: true,
+              selectionText: selectionText || undefined,
+              contextExtra: selectionText
+                ? `—— 目前選取 ——\n${selectionText.slice(0, 12000)}\n—— 結束 ——`
+                : undefined,
+            });
+          },
+        });
+        out.push({
+          kind: "action",
+          id: "ask-ai-selection",
+          label: "用目前選取問 AI",
+          hint: "AI",
+          run: () => {
+            onClose();
+            let selectionText = "";
+            try {
+              selectionText = window.getSelection()?.toString()?.trim() || "";
+            } catch {
+              selectionText = "";
+            }
+            openGlobalAiRail({
+              prompt: "請根據目前選取內容說明重點",
+              contextLabel: selectionText
+                ? `選取 · ${selectionText.slice(0, 20)}${selectionText.length > 20 ? "…" : ""}`
+                : "⌘K · 目前選取",
+              useCanvasSelection: true,
+              selectionText: selectionText || undefined,
+              contextExtra: selectionText
+                ? `—— 目前選取 ——\n${selectionText.slice(0, 12000)}\n—— 結束 ——`
+                : undefined,
+            });
+          },
+        });
+        out.push({
+          kind: "action",
+          id: "meeting-to-board-ai",
+          label: "會議脈絡 → 白板／AI",
+          hint: "交接",
+          run: () => {
+            onClose();
+            openGlobalAiRail({
+              prompt:
+                "請把目前會議或筆記重點整理成可放到白板的便利貼大綱（條列 5–8 點），並標出可連線的關係。",
+              contextLabel: "交接 · 會議→白板",
+            });
           },
         });
       }
@@ -459,7 +541,25 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         hint: "AI",
         run: () => {
           onClose();
-          openGlobalAiRail();
+          openGlobalAiRail({
+            prompt: q.trim() || "請總結目前對焦內容的重點，並建議下一步",
+            contextLabel: "⌘K · 整理本頁",
+            useCanvasSelection: true,
+          });
+        },
+      });
+      out.push({
+        kind: "action",
+        id: "ask-ai-q",
+        label: `問 AI「${q.trim().slice(0, 28)}${q.trim().length > 28 ? "…" : ""}」`,
+        hint: "AI",
+        run: () => {
+          onClose();
+          openGlobalAiRail({
+            prompt: q.trim(),
+            contextLabel: "⌘K · 提問",
+            useCanvasSelection: true,
+          });
         },
       });
     }

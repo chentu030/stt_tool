@@ -3,8 +3,11 @@
 import { createNote } from "@/lib/firebase";
 import { createBoard, lastBoardKey, listenBoards, type BoardConfig } from "@/lib/boardStore";
 import { createScheduleEvent } from "@/lib/scheduleEvents";
-import { askChoice } from "@/lib/dialogs";
+import { askChoice, askConfirm } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import { openGlobalAiRail } from "@/lib/aiRailBridge";
+import { packTranscriptForAi } from "@/lib/jobAiContext";
+import { getMeetingAiContext } from "@/lib/meetingSession";
 
 /** Checklist lines from meeting_pack markdown (`- [ ] …`). */
 export function extractChecklistItems(pack: string): string[] {
@@ -191,6 +194,32 @@ export async function offerMeetingBoardExport(opts: {
       } catch {
         /* ignore */
       }
+    }
+
+    const askAi = await askConfirm({
+      title: "要帶會議脈絡開啟 AI 嗎？",
+      message: "可接著用右側 AI 延續討論這場會議的重點與待辦。",
+      confirmLabel: "開啟 AI",
+      cancelLabel: "之後再說",
+    });
+    if (askAi) {
+      const meetingCtx = getMeetingAiContext();
+      const packed = packTranscriptForAi(
+        meetingCtx?.noteId === opts.meetingNoteId ? meetingCtx.transcript || "" : ""
+      );
+      const title = opts.meetingTitle || meetingCtx?.title || "會議";
+      openGlobalAiRail({
+        prompt: "",
+        contextLabel: `會議 · ${title}`,
+        contextExtra: [
+          packed.trim() ? `—— 會議脈絡 ——\n${packed.slice(0, 10000)}\n—— 結束 ——` : "",
+          opts.pack?.trim()
+            ? `—— 會後整理 ——\n${opts.pack.trim().slice(0, 8000)}\n—— 結束 ——`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      });
     }
   } catch (e) {
     toast(e instanceof Error ? e.message : "建立看板卡片失敗");

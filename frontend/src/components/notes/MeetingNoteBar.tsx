@@ -13,6 +13,8 @@ import { offerMeetingBoardExport } from "@/lib/meetingBoardExport";
 import { getNote, updateNote } from "@/lib/firebase";
 import { toast } from "@/lib/toast";
 import { askConfirm } from "@/lib/dialogs";
+import { openGlobalAiRail } from "@/lib/aiRailBridge";
+import { packTranscriptForAi } from "@/lib/jobAiContext";
 
 type Props = {
   noteId: string;
@@ -92,6 +94,20 @@ export default function MeetingNoteBar({
     }
   };
 
+  const askAi = () => {
+    const title = noteTitle || ctx?.title || "會議";
+    const packed = packTranscriptForAi(ctx?.transcript || "");
+    openGlobalAiRail({
+      prompt: "",
+      contextLabel: `會議 · ${title}`,
+      contextExtra: [
+        packed.trim() ? `—— 會議脈絡 ——\n${packed.slice(0, 10000)}\n—— 結束 ——` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    });
+  };
+
   return (
     <div className="meeting-note-bar">
       <span className="meeting-note-bar-label">會議</span>
@@ -111,6 +127,9 @@ export default function MeetingNoteBar({
       </button>
       <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void run("journal")}>
         寫進今天
+      </button>
+      <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={askAi} title="帶會議脈絡開啟 AI">
+        問 AI
       </button>
       {ctx?.noteId === noteId && (
         <button

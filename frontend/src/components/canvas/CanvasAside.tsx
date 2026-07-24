@@ -7,7 +7,8 @@ import Link from "next/link";
 import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 import { buildResearchUrl } from "@/lib/researchBridge";
 import { CANVAS_TIPS } from "@/lib/canvasStore";
-import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { openGlobalAiRail } from "@/lib/aiRailBridge";
+import { continueSelectionInAiRail } from "@/lib/aiRailBridge";
 
 type Props = {
   notes: Note[];
@@ -15,6 +16,8 @@ type Props = {
   selectedIds: string[];
   onPinNote: (noteId: string) => void;
   onFocusNote: (noteId: string) => void;
+  /** Optional packed selection for AI rail */
+  selectionPack?: { label: string; selection: string; context: string } | null;
 };
 
 export default function CanvasAside({
@@ -23,6 +26,7 @@ export default function CanvasAside({
   selectedIds,
   onPinNote,
   onFocusNote,
+  selectionPack,
 }: Props) {
   const [q, setQ] = useState("");
 
@@ -48,14 +52,41 @@ export default function CanvasAside({
     <aside className="cv-aside cv-aside--immersive">
       <div className="cv-aside-head">
         <strong>筆記</strong>
-        <button
-          type="button"
-          className="btn btn-sm btn-ghost"
-          onClick={() => openGlobalAiRail()}
-          title="開啟全域 AI 側欄"
-        >
-          AI
-        </button>
+        <div className="cv-aside-head-actions">
+          {selectedIds.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              title="把目前選取加入右側 AI 脈絡"
+              onClick={() => {
+                continueSelectionInAiRail({
+                  selectionText: selectionPack?.selection || "",
+                  context: selectionPack?.context || `白板：${doc.name}\n選取 ${selectedIds.length} 項`,
+                  title: doc.name || "白板",
+                  contextLabel: `白板選取 · ${selectedIds.length}`,
+                });
+              }}
+            >
+              選取→AI
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() =>
+              openGlobalAiRail({
+                contextLabel: `白板 · ${doc.name || "未命名"}`,
+                useCanvasSelection: true,
+                prompt: selectedIds.length
+                  ? "請根據目前白板選取內容整理重點"
+                  : "請根據目前白板內容整理重點",
+              })
+            }
+            title="開啟全域 AI 側欄"
+          >
+            AI
+          </button>
+        </div>
       </div>
 
       {focusedNoteId && (
