@@ -43,6 +43,10 @@ type Props = {
   onResizeWidth?: (px: number) => void;
   liveSegments?: LiveSegment[];
   onJumpOrganize?: () => void;
+  onUpdateLiveSegment?: (id: string, text: string) => Promise<void> | void;
+  onDeleteLiveSegment?: (id: string) => Promise<void> | void;
+  recordingExportFilename?: string;
+  canEditRecording?: boolean;
   /** Keep「錄音」tab visible while a live session is active (even before first segment). */
   showRecordingTab?: boolean;
 };
@@ -66,6 +70,10 @@ export default function NoteAside({
   onResizeWidth,
   liveSegments = [],
   onJumpOrganize,
+  onUpdateLiveSegment,
+  onDeleteLiveSegment,
+  recordingExportFilename,
+  canEditRecording = false,
   showRecordingTab = false,
 }: Props) {
   if (!open) return null;
@@ -200,7 +208,14 @@ export default function NoteAside({
       )}
 
       {tab === "recording" && (
-        <NoteAsideRecording segments={liveSegments} onJumpOrganize={onJumpOrganize} />
+        <NoteAsideRecording
+          segments={liveSegments}
+          onJumpOrganize={onJumpOrganize}
+          onUpdateSegment={onUpdateLiveSegment}
+          onDeleteSegment={onDeleteLiveSegment}
+          exportFilename={recordingExportFilename}
+          canEdit={canEditRecording}
+        />
       )}
 
       {tab === "outline" && (

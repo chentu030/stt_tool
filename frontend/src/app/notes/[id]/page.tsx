@@ -35,6 +35,8 @@ import {
   createNote,
   deleteNote,
   listenToNote,
+  updateLiveSegmentText,
+  deleteLiveSegmentFromNote,
   Note,
   NoteVersion,
 } from "@/lib/firebase";
@@ -1681,6 +1683,44 @@ function NotePageInner() {
     toast("筆記中尚無 AI 整理標題");
   };
 
+  const patchLiveSegmentsLocal = useCallback(
+    (nextList: ReturnType<typeof liveSegmentsFromProps>) => {
+      setNote((prev) => {
+        if (!prev) return prev;
+        const props = {
+          ...((prev.props as Record<string, unknown>) || {}),
+          [LIVE_SEGMENTS_PROP]: nextList,
+        };
+        return { ...prev, props };
+      });
+    },
+    []
+  );
+
+  const onUpdateLiveSegment = useCallback(
+    async (segmentId: string, text: string) => {
+      if (!note?.id || !canEditNote) return;
+      const list = liveSegmentsFromProps(note.props as Record<string, unknown>).map((s) =>
+        s.id === segmentId ? { ...s, text } : s
+      );
+      patchLiveSegmentsLocal(list);
+      await updateLiveSegmentText(note.id, segmentId, text);
+    },
+    [note?.id, note?.props, canEditNote, patchLiveSegmentsLocal]
+  );
+
+  const onDeleteLiveSegment = useCallback(
+    async (segmentId: string) => {
+      if (!note?.id || !canEditNote) return;
+      const list = liveSegmentsFromProps(note.props as Record<string, unknown>).filter(
+        (s) => s.id !== segmentId
+      );
+      patchLiveSegmentsLocal(list);
+      await deleteLiveSegmentFromNote(note.id, segmentId);
+    },
+    [note?.id, note?.props, canEditNote, patchLiveSegmentsLocal]
+  );
+
   useEffect(() => {
     const onUi = (ev: Event) => {
       const detail = (ev as CustomEvent).detail as
@@ -1702,7 +1742,7 @@ function NotePageInner() {
     return () => window.removeEventListener("cadence:live-recording-ui", onUi as EventListener);
   }, [id]);
 
-  // Keep sidebar timeline in sync while segments are appended from the recorder.
+  // Keep sidebar timeline in sync while segments are appended / edited from the recorder.
   useEffect(() => {
     if (!id || !user) return;
     return listenToNote(id, (n) => {
@@ -1711,12 +1751,17 @@ function NotePageInner() {
         if (!prev || prev.id !== n.id) return prev;
         const a = liveSegmentsFromProps(prev.props as Record<string, unknown>);
         const b = liveSegmentsFromProps(n.props as Record<string, unknown>);
-        if (
+        const same =
           a.length === b.length &&
-          (a.length === 0 || a[a.length - 1]?.id === b[b.length - 1]?.id)
-        ) {
-          return prev;
-        }
+          a.every(
+            (s, i) =>
+              s.id === b[i]?.id &&
+              s.text === b[i]?.text &&
+              s.audioUrl === b[i]?.audioUrl &&
+              s.startSec === b[i]?.startSec &&
+              s.endSec === b[i]?.endSec
+          );
+        if (same) return prev;
         return { ...prev, props: n.props };
       });
     });
@@ -2824,6 +2869,10 @@ function NotePageInner() {
           liveSegments={liveSegments}
           showRecordingTab={liveRecordingHere}
           onJumpOrganize={jumpOrganize}
+          onUpdateLiveSegment={canEditNote ? onUpdateLiveSegment : undefined}
+          onDeleteLiveSegment={canEditNote ? onDeleteLiveSegment : undefined}
+          recordingExportFilename={title.trim() || "錄音逐字稿"}
+          canEditRecording={canEditNote}
           outbound={outbound.map((t) => {
             const hit = findNoteByTitle(allNotes, t);
             return hit ? { title: t, href: `/notes/${hit.id}` } : { title: t };

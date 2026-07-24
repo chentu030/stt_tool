@@ -48,6 +48,52 @@ export function previewSegmentText(text: string, max = 48): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
+/** Time range label matching the recording sidebar cards. */
+export function liveSegmentClock(seg: LiveSegment): string {
+  if (seg.endSec > seg.startSec) {
+    return `${formatSegClock(seg.startSec)}–${formatSegClock(seg.endSec)}`;
+  }
+  return seg.label || formatSegClock(seg.startSec);
+}
+
+export function liveSegmentsToPlainText(segs: LiveSegment[], withTimestamps: boolean): string {
+  if (!withTimestamps) {
+    return segs.map((s) => s.text.trim()).filter(Boolean).join("\n\n");
+  }
+  return segs
+    .map((s) => {
+      const clock = liveSegmentClock(s);
+      const text = s.text.trim();
+      return text ? `${clock}\n${text}` : clock;
+    })
+    .join("\n\n");
+}
+
+export function liveSegmentsToMarkdown(segs: LiveSegment[], withTimestamps: boolean): string {
+  if (!withTimestamps) {
+    return segs.map((s) => s.text.trim()).filter(Boolean).join("\n\n");
+  }
+  return segs
+    .map((s) => {
+      const clock = liveSegmentClock(s);
+      const text = s.text.trim();
+      return text ? `### ${clock}\n\n${text}` : `### ${clock}`;
+    })
+    .join("\n\n");
+}
+
+/** Map live segments into transcript Segment shape for SRT/VTT helpers. */
+export function liveSegmentsToTranscriptSegs(
+  segs: LiveSegment[]
+): { id: string; startSec: number; endSec: number; text: string }[] {
+  return segs.map((s) => ({
+    id: s.id,
+    startSec: s.startSec,
+    endSec: Math.max(s.endSec, s.startSec),
+    text: s.text,
+  }));
+}
+
 /**
  * Detect interleaved 逐段逐字稿 toggles + following audio in body,
  * extract into segments and strip from markdown.

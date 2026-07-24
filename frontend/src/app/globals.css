@@ -11844,6 +11844,17 @@ body.is-split-resizing iframe {
   flex-direction: column;
   gap: 0.35rem;
 }
+.note-aside-rec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.note-aside-rec-export {
+  right: auto;
+  left: 0;
+  min-width: 220px;
+}
 .note-aside-rec-meta {
   margin: 0;
   font-size: 0.72rem;
@@ -11903,6 +11914,36 @@ body.is-split-resizing iframe {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+.note-aside-rec-editor {
+  width: 100%;
+  margin: 0.45rem 0 0;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 4.5rem;
+}
+.note-aside-rec-editor:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+.note-aside-rec-seg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+}
+.note-aside-rec-danger {
+  color: var(--danger) !important;
+}
+.note-aside-rec-danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent) !important;
 }
 .note-aside-rec-audio {
   width: 100%;
