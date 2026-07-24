@@ -1388,39 +1388,53 @@ export default function GlobalAiDock() {
                 onClick={() => setHistoryOpen((v) => !v)}
               >
                 <strong>{headTitle}</strong>
-                <span className="cadence-ai-title-caret">▾</span>
+                <span className="material-symbols-outlined cadence-ai-title-caret" aria-hidden>
+                  expand_more
+                </span>
               </button>
               <button
                 type="button"
                 className="doc-cmd cadence-ai-ico"
                 title="新對話"
+                aria-label="新對話"
                 onClick={startNewChat}
               >
-                +
+                <span className="material-symbols-outlined" aria-hidden>
+                  add
+                </span>
               </button>
               <button
                 type="button"
                 className={`doc-cmd cadence-ai-ico${historyOpen ? " is-on" : ""}`}
                 title="歷史紀錄"
+                aria-label="歷史紀錄"
                 onClick={() => setHistoryOpen((v) => !v)}
               >
-                ⏱
+                <span className="material-symbols-outlined" aria-hidden>
+                  history
+                </span>
               </button>
               <button
                 type="button"
                 className={`doc-cmd cadence-ai-ico cadence-ai-mode-toggle${mode === "float" ? " is-on" : ""}`}
                 title={mode === "dock" ? "改為浮動視窗" : "釘選到右側"}
+                aria-label={mode === "dock" ? "改為浮動視窗" : "釘選到右側"}
                 onClick={() => setMode((m) => (m === "dock" ? "float" : "dock"))}
               >
-                {mode === "dock" ? "⧉" : "▥"}
+                <span className="material-symbols-outlined" aria-hidden>
+                  {mode === "dock" ? "picture_in_picture_alt" : "view_sidebar"}
+                </span>
               </button>
               <button
                 type="button"
                 className="doc-cmd cadence-ai-ico"
                 title="關閉"
+                aria-label="關閉"
                 onClick={() => setOpen(false)}
               >
-                {isMobile ? "∨" : "››"}
+                <span className="material-symbols-outlined" aria-hidden>
+                  {isMobile ? "expand_more" : "keyboard_double_arrow_right"}
+                </span>
               </button>
             </div>
 
@@ -1458,11 +1472,14 @@ export default function GlobalAiDock() {
                       </button>
                       <button
                         type="button"
-                        className="doc-cmd"
+                        className="doc-cmd cadence-ai-ico"
                         title="刪除"
+                        aria-label="刪除對話"
                         onClick={() => deleteThread(t.id)}
                       >
-                        ×
+                        <span className="material-symbols-outlined" aria-hidden>
+                          close
+                        </span>
                       </button>
                     </div>
                   ))
