@@ -289,8 +289,8 @@ export function healWorkspaceProps(note: Note): {
     }
   }
 
-  // status from note.status or fm_status
-  if (props[WS_STATUS_ID] == null || props[WS_STATUS_ID] === "") {
+  // status from note.status or fm_status — only when never set on props
+  if (!Object.prototype.hasOwnProperty.call(props, WS_STATUS_ID)) {
     if (note.status === "doing" || note.status === "done" || note.status === "backlog") {
       props[WS_STATUS_ID] = note.status;
       changed = true;
@@ -317,25 +317,22 @@ export function healWorkspaceProps(note: Note): {
     }
   }
 
-  // board HTML meta → priority / due
+  // board HTML meta → priority / due — only when never set
   const meta = parseBoardMeta(note.body_md || "", note.tags);
-  if (props[WS_PRIORITY_ID] == null || props[WS_PRIORITY_ID] === "") {
-    if (meta.priority && meta.priority !== "normal") {
-      props[WS_PRIORITY_ID] = meta.priority;
-      changed = true;
-    } else if (meta.priority) {
+  if (!Object.prototype.hasOwnProperty.call(props, WS_PRIORITY_ID)) {
+    if (meta.priority) {
       props[WS_PRIORITY_ID] = meta.priority;
       changed = true;
     }
   }
-  if ((props[WS_DUE_ID] == null || props[WS_DUE_ID] === "") && meta.due) {
+  if (!Object.prototype.hasOwnProperty.call(props, WS_DUE_ID) && meta.due) {
     props[WS_DUE_ID] = meta.due;
     changed = true;
   }
 
-  // dual-write note.status from ws_status when board-compatible
+  // dual-write note.status from ws_status when board-compatible (skip cleared)
   const wsSt = props[WS_STATUS_ID];
-  if (typeof wsSt === "string") {
+  if (typeof wsSt === "string" && wsSt.trim()) {
     const mapped = boardStatusFromWs(wsSt);
     if (note.status !== mapped) {
       statusExtra = mapped;
@@ -363,26 +360,35 @@ export function patchWorkspaceField(
   defId: string,
   value: unknown
 ): { props: Record<string, unknown>; status?: Note["status"]; body_md?: string } {
-  const props = { ...(note.props || {}), [defId]: value };
+  const cleared = value == null || value === "";
+  const props = { ...(note.props || {}), [defId]: cleared ? "" : value };
 
   let status: Note["status"] | undefined;
   if (defId === WS_STATUS_ID) {
-    status = boardStatusFromWs(value);
-    // keep fm_status in sync as label when possible
-    const label =
-      typeof value === "string"
-        ? value === "backlog"
-          ? "待辦"
-          : value === "doing"
-            ? "進行中"
-            : value === "done"
-              ? "完成"
-              : String(value)
-        : "";
-    if (label) props[FM_STATUS_PROP] = label;
+    if (cleared) {
+      // Keep explicit empty; do not fall back to backlog via dual-write.
+      delete props[FM_STATUS_PROP];
+    } else {
+      status = boardStatusFromWs(value);
+      // keep fm_status in sync as label when possible
+      const label =
+        typeof value === "string"
+          ? value === "backlog"
+            ? "待辦"
+            : value === "doing"
+              ? "進行中"
+              : value === "done"
+                ? "完成"
+                : String(value)
+          : "";
+      if (label) props[FM_STATUS_PROP] = label;
+    }
   }
-  if (defId === WS_TYPE_ID && value != null && String(value).trim()) {
+  if (defId === WS_TYPE_ID && !cleared && value != null && String(value).trim()) {
     props[TYPE_PROP] = String(value).trim();
+  }
+  if (defId === WS_TYPE_ID && cleared) {
+    delete props[TYPE_PROP];
   }
 
   // Stop writing board HTML meta (P2); strip existing tag when updating priority/due via props
@@ -409,8 +415,20 @@ export async function setWorkspaceFieldValue(
 }
 
 export function getWorkspaceFieldValue(note: Note, defId: string): unknown {
+  const props = note.props || {};
+  const hasExplicit = Object.prototype.hasOwnProperty.call(props, defId);
+
+  // Explicit empty string means user cleared the field — do not resurrect defaults.
+  if (hasExplicit) {
+    const v = props[defId];
+    if (v == null || v === "") return "";
+    if (defId === WS_STATUS_ID || defId === WS_PRIORITY_ID || defId === WS_DUE_ID || defId === WS_TYPE_ID) {
+      return v;
+    }
+  }
+
   const prop = { id: defId, name: defId, type: "text" as DbPropType };
-  // Prefer healed view without mutating
+  // Prefer healed view without mutating (legacy notes missing ws_* keys)
   const healed = healWorkspaceProps(note);
   const row = healed.props ? { ...note, props: healed.props } : note;
   if (defId === WS_STATUS_ID) {
@@ -421,7 +439,7 @@ export function getWorkspaceFieldValue(note: Note, defId: string): unknown {
   if (defId === WS_PRIORITY_ID) {
     const v = row.props?.[WS_PRIORITY_ID];
     if (v != null && v !== "") return v;
-    return parseBoardMeta(note.body_md || "", note.tags).priority;
+    return parseBoardMeta(note.body_md || "", note.tags).priority || "";
   }
   if (defId === WS_DUE_ID) {
     const v = row.props?.[WS_DUE_ID];

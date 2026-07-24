@@ -99,7 +99,7 @@ export default function PropertyValueEditor({
         ariaLabel={prop.name}
         value={String(raw || "")}
         options={[{ value: "", label: "空" }, ...opts.map((o) => ({ value: o.id, label: o.label, color: o.color }))]}
-        onChange={(v) => onCommit(v || null)}
+        onChange={(v) => onCommit(v)}
       />
     );
   }
