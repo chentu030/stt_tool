@@ -130,6 +130,7 @@ import {
 } from "@/components/voice/LiveNoteRecorder";
 import { useLiveRecording } from "@/components/voice/LiveRecordingProvider";
 import { liveAudioSourceHint, liveAudioSourceLabel } from "@/lib/voiceSession";
+import { streamRemainingSecs } from "@/lib/sttStreamQuota";
 import NotePageLog from "@/components/notes/NotePageLog";
 import NoteDbPropertiesPanel from "@/components/notes/NoteDbPropertiesPanel";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
@@ -2086,7 +2087,7 @@ function NotePageInner() {
               <button
                 type="button"
                 className={`doc-cmd doc-cmd--keep${liveOpen ? " is-on" : ""}`}
-                title="即時錄音：麥克風／裝置聲音／兩者 · 純錄製／轉錄／整理"
+                title="即時錄音：聲音來源 · 錄製方式 · 轉錄方式（即時／切塊）"
                 aria-expanded={liveMenuOpen}
                 onClick={() => setLiveMenuOpen((v) => !v)}
               >
@@ -2117,40 +2118,116 @@ function NotePageInner() {
                     </div>
                     <p className="doc-cmd-menu-hint">{liveAudioSourceHint(liveAudioSource)}</p>
                   </div>
-                  <p className="doc-cmd-menu-heading">錄製方式</p>
-                  {(
-                    [
-                      ["audio", "只留音檔，不轉文字"],
-                      ["transcribe", "邊錄邊轉成文字寫入筆記"],
-                      ["organize", "轉字後再由 AI 整理重點"],
-                    ] as const
-                  ).map(([mode, hint]) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setLiveMode(mode);
-                        setLiveMenuOpen(false);
-                        if (!user || !note) return;
-                        liveRec.startLive({
-                          uid: user.uid,
-                          noteId: note.id,
-                          mode,
-                          audioSource: liveAudioSource,
-                          autoStart: true,
-                        });
-                      }}
-                    >
-                      <strong>
-                        {liveModeLabel(mode)}
-                        <span className="doc-cmd-menu-src">
-                          · {liveAudioSourceLabel(liveAudioSource)}
-                        </span>
-                      </strong>
-                      <span>{hint}</span>
-                    </button>
-                  ))}
+                  <div className="doc-cmd-menu-section" role="group" aria-label="錄製方式">
+                    <p className="doc-cmd-menu-heading">錄製方式</p>
+                    <div className="doc-cmd-menu-chips">
+                      {(
+                        [
+                          ["audio", "純錄製"],
+                          ["transcribe", "錄製+轉錄"],
+                          ["organize", "錄製+轉錄+整理"],
+                        ] as const
+                      ).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          className={`doc-cmd-menu-chip${liveMode === mode ? " is-on" : ""}`}
+                          title={
+                            mode === "audio"
+                              ? "只留音檔，不轉文字"
+                              : mode === "transcribe"
+                                ? "邊錄邊轉成文字寫入筆記"
+                                : "轉字後再由 AI 整理重點"
+                          }
+                          onClick={() => setLiveMode(mode)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="doc-cmd-menu-hint">
+                      {liveMode === "audio"
+                        ? "只留音檔，不轉文字"
+                        : liveMode === "transcribe"
+                          ? "邊錄邊轉成文字寫入筆記"
+                          : "轉字後再由 AI 整理重點"}
+                    </p>
+                  </div>
+                  {liveMode !== "audio" ? (
+                    <div className="doc-cmd-menu-section" role="group" aria-label="轉錄方式">
+                      <p className="doc-cmd-menu-heading">轉錄方式</p>
+                      <div className="doc-cmd-menu-chips">
+                        <button
+                          type="button"
+                          className={`doc-cmd-menu-chip${prefsCtx?.prefs.liveStreamStt ? " is-on" : ""}`}
+                          title={
+                            streamRemainingSecs() <= 0
+                              ? "即時額度已用完，請改用一般切塊轉錄"
+                              : "邊講邊出字（串流）"
+                          }
+                          disabled={streamRemainingSecs() <= 0}
+                          onClick={() => {
+                            if (streamRemainingSecs() <= 0) {
+                              toast("即時額度已用完，請用一般切塊轉錄");
+                              prefsCtx?.setPrefs({ liveStreamStt: false });
+                              return;
+                            }
+                            prefsCtx?.setPrefs({ liveStreamStt: true });
+                          }}
+                        >
+                          即時轉錄
+                        </button>
+                        <button
+                          type="button"
+                          className={`doc-cmd-menu-chip${!prefsCtx?.prefs.liveStreamStt ? " is-on" : ""}`}
+                          title="停頓後切段再轉字（較省）"
+                          onClick={() => prefsCtx?.setPrefs({ liveStreamStt: false })}
+                        >
+                          一般切塊轉錄
+                        </button>
+                      </div>
+                      <p className="doc-cmd-menu-hint">
+                        {prefsCtx?.prefs.liveStreamStt
+                          ? "邊講邊出字；額度用完會自動改回切塊且不中斷錄音"
+                          : "依停頓切段後批次轉字，較省用量"}
+                      </p>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="doc-cmd-menu-start"
+                    onClick={() => {
+                      setLiveMenuOpen(false);
+                      if (!user || !note) return;
+                      liveRec.startLive({
+                        uid: user.uid,
+                        noteId: note.id,
+                        mode: liveMode,
+                        audioSource: liveAudioSource,
+                        autoStart: true,
+                      });
+                    }}
+                  >
+                    <strong>
+                      開始{liveModeLabel(liveMode)}
+                      <span className="doc-cmd-menu-src">
+                        · {liveAudioSourceLabel(liveAudioSource)}
+                        {liveMode !== "audio"
+                          ? prefsCtx?.prefs.liveStreamStt
+                            ? " · 即時"
+                            : " · 切塊"
+                          : ""}
+                      </span>
+                    </strong>
+                    <span>
+                      {liveMode === "audio"
+                        ? "開始錄製音檔"
+                        : prefsCtx?.prefs.liveStreamStt
+                          ? "以即時轉錄開始"
+                          : "以一般切塊轉錄開始"}
+                    </span>
+                  </button>
                 </div>
               ) : null}
             </div>

@@ -11282,7 +11282,14 @@ button.jn-heat-cell:disabled {
   gap: 0.15rem;
 }
 .doc-cmd-menu--live {
-  min-width: 268px;
+  min-width: 288px;
+}
+.doc-cmd-menu--live .doc-cmd-menu-chip {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.doc-cmd-menu-start {
+  margin-top: 0.15rem;
 }
 .doc-cmd-menu-section {
   padding: 0.35rem 0.4rem 0.5rem;
