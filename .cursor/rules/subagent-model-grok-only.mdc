@@ -1,0 +1,13 @@
+---
+description: Subagents must use Grok 4.5 high only — never Claude
+alwaysApply: true
+---
+
+# Subagent model — Grok only
+
+When launching Task/subagents (or any parallel worker):
+
+- **ONLY** set `model` to `cursor-grok-4.5-high` (Grok 4.5 high).
+- **NEVER** use Claude models: `claude-opus-4-8-thinking-high`, `claude-sonnet-5-thinking-high`, `claude-fable-5-thinking-high`, or any other Claude / Anthropic slug.
+- Do not omit `model` if the parent might default to a non-Grok model in a way that violates this — prefer explicitly passing `cursor-grok-4.5-high`.
+- If the user asks for another model, remind them of this standing preference and only switch if they explicitly override this rule in that message.
