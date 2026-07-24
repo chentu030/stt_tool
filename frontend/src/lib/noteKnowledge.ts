@@ -568,9 +568,11 @@ export type DatePill = {
   key: string;
   label: string;
   text: string;
+  /** System timestamps (created/updated) vs frontmatter date */
+  kind?: "system" | "frontmatter";
 };
 
-function formatDatePill(raw: unknown): string | null {
+function formatDateOnly(raw: unknown): string | null {
   if (raw == null || raw === "") return null;
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
     return raw.toLocaleDateString("zh-TW", {
@@ -578,6 +580,13 @@ function formatDatePill(raw: unknown): string | null {
       month: "short",
       day: "numeric",
     });
+  }
+  if (typeof raw === "object" && raw && "toDate" in raw && typeof (raw as { toDate: () => Date }).toDate === "function") {
+    try {
+      return formatDateOnly((raw as { toDate: () => Date }).toDate());
+    } catch {
+      /* fall through */
+    }
   }
   const s = String(raw).trim();
   if (!s) return null;
@@ -592,7 +601,39 @@ function formatDatePill(raw: unknown): string | null {
   return s;
 }
 
-/** Key dates for pills: FM date + note created/updated. */
+/** Full date+time for 建立／修改屬性列. */
+function formatDateTime(raw: unknown): string | null {
+  if (raw == null || raw === "") return null;
+  let d: Date | null = null;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) d = raw;
+  else if (
+    typeof raw === "object" &&
+    raw &&
+    "toDate" in raw &&
+    typeof (raw as { toDate: () => Date }).toDate === "function"
+  ) {
+    try {
+      d = (raw as { toDate: () => Date }).toDate();
+    } catch {
+      d = null;
+    }
+  } else {
+    const s = String(raw).trim();
+    if (!s) return null;
+    const parsed = new Date(s);
+    if (!Number.isNaN(parsed.getTime())) d = parsed;
+  }
+  if (!d || Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString("zh-TW", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Key dates for properties: FM date + note created/updated (system). */
 export function listNoteDatePills(note: NoteKnowledgeLite): DatePill[] {
   const out: DatePill[] = [];
   const bag =
@@ -601,15 +642,15 @@ export function listNoteDatePills(note: NoteKnowledgeLite): DatePill[] {
     note.props[FRONTMATTER_PROP]
       ? (note.props[FRONTMATTER_PROP] as Record<string, unknown>)
       : {};
-  const fmDate = formatDatePill(bag.date ?? bag.Date);
-  if (fmDate) out.push({ key: "fm-date", label: "日期", text: fmDate });
+  const fmDate = formatDateOnly(bag.date ?? bag.Date);
+  if (fmDate) out.push({ key: "fm-date", label: "日期", text: fmDate, kind: "frontmatter" });
   if (note.created_at) {
-    const t = formatDatePill(note.created_at);
-    if (t) out.push({ key: "created", label: "建立", text: t });
+    const t = formatDateTime(note.created_at);
+    if (t) out.push({ key: "created", label: "建立時間", text: t, kind: "system" });
   }
   if (note.updated_at) {
-    const t = formatDatePill(note.updated_at);
-    if (t) out.push({ key: "updated", label: "編輯", text: t });
+    const t = formatDateTime(note.updated_at);
+    if (t) out.push({ key: "updated", label: "修改時間", text: t, kind: "system" });
   }
   return out;
 }

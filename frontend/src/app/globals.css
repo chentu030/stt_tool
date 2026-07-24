@@ -15370,6 +15370,38 @@ body.rich-media-float-dragging * {
   flex-wrap: wrap;
   gap: 0.35rem;
 }
+.nk-props-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.35rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.nk-prop-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.2rem 0.15rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.nk-prop-row-key {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.nk-prop-row-val {
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nk-prop-row--system .nk-prop-row-val {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
 .nk-pill {
   display: inline-flex;
   align-items: center;

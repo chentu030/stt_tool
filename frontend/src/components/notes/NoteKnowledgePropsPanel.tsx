@@ -250,6 +250,11 @@ export default function NoteKnowledgePropsPanel({
             fmStatus ? `狀態 · ${fmStatus}` : null,
             relations.length ? `${relations.length} 組關係` : null,
             scalars.length ? `${scalars.length} 項屬性` : null,
+            dates.find((d) => d.key === "updated")?.text
+              ? `修改 · ${dates.find((d) => d.key === "updated")!.text}`
+              : dates.find((d) => d.key === "created")?.text
+                ? `建立 · ${dates.find((d) => d.key === "created")!.text}`
+                : null,
           ]
             .filter(Boolean)
             .join(" · ") || "點擊展開屬性與關係"}
@@ -320,12 +325,14 @@ export default function NoteKnowledgePropsPanel({
               </button>
             )}
 
-            {dates.map((d) => (
-              <span key={d.key} className="nk-pill nk-pill--date" role="listitem" title={d.label}>
-                <span className="nk-pill-label">{d.label}</span>
-                <span className="nk-pill-value">{d.text}</span>
-              </span>
-            ))}
+            {dates
+              .filter((d) => d.kind === "frontmatter")
+              .map((d) => (
+                <span key={d.key} className="nk-pill nk-pill--date" role="listitem" title={d.label}>
+                  <span className="nk-pill-label">{d.label}</span>
+                  <span className="nk-pill-value">{d.text}</span>
+                </span>
+              ))}
 
             {scalars.map((s) =>
               readOnly ? (
@@ -348,6 +355,21 @@ export default function NoteKnowledgePropsPanel({
               )
             )}
           </div>
+
+          {dates.some((d) => d.kind === "system") ? (
+            <div className="nk-props-rows" aria-label="時間屬性">
+              {dates
+                .filter((d) => d.kind === "system")
+                .map((d) => (
+                  <div key={d.key} className="nk-prop-row nk-prop-row--system">
+                    <span className="nk-prop-row-key">{d.label}</span>
+                    <span className="nk-prop-row-val" title={d.text}>
+                      {d.text}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          ) : null}
 
           {(relations.length > 0 || !readOnly) && (
             <div className="nk-rels" aria-label="關係">
