@@ -14,13 +14,24 @@ type Props = {
   onChange: (next: NoteSplitLayout) => void;
 };
 
+/** Notes use `.doc-main-stack`; canvas / specialty hosts use `.cv-page.is-split`. */
+function findSplitHost(from: HTMLElement | null): HTMLElement | null {
+  if (!from) return null;
+  return (
+    (from.closest("[data-split-host]") as HTMLElement | null) ||
+    (from.closest(".doc-main-stack") as HTMLElement | null) ||
+    (from.closest(".cv-page.is-split") as HTMLElement | null) ||
+    (from.closest(".cv-page") as HTMLElement | null)
+  );
+}
+
 /** Drag handle between primary note and split pane; edge-drag collapses a side. */
 export default function NoteSplitResizer({ layout, onChange }: Props) {
   const dragging = useRef(false);
   const stackRef = useRef<HTMLElement | null>(null);
 
   const bindStack = useCallback((el: HTMLDivElement | null) => {
-    stackRef.current = el?.closest(".doc-main-stack") as HTMLElement | null;
+    stackRef.current = findSplitHost(el);
   }, []);
 
   useEffect(() => {
@@ -48,10 +59,11 @@ export default function NoteSplitResizer({ layout, onChange }: Props) {
 
   const onPointerDown = (e: REPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
+    e.stopPropagation();
     dragging.current = true;
     document.body.classList.add("is-split-resizing");
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    const stack = (e.currentTarget.closest(".doc-main-stack") as HTMLElement) || stackRef.current;
+    const stack = findSplitHost(e.currentTarget) || stackRef.current;
     stackRef.current = stack;
     if (stack) onChange(pctFromPointer(e.clientX, stack.getBoundingClientRect()));
   };

@@ -2342,6 +2342,7 @@ function CanvasIdPageInner() {
       className={`cv-page cv-immersive${splitNoteId ? " is-split" : ""}${
         splitNoteId && splitLayout.collapse !== "none" ? ` is-collapse-${splitLayout.collapse}` : ""
       }`}
+      data-split-host={splitNoteId ? "" : undefined}
       style={
         splitNoteId && splitLayout.collapse === "none"
           ? ({ ["--split-left" as string]: `${splitLayout.leftPct}%` } as CSSProperties)

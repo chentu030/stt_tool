@@ -2289,6 +2289,7 @@ function NotePageInner() {
               ? ` is-collapse-${splitLayout.collapse}`
               : ""
           }`}
+          data-split-host={splitId && splitId !== id ? "" : undefined}
           style={
             splitId && splitId !== id && splitLayout.collapse === "none"
               ? ({ ["--split-left" as string]: `${splitLayout.leftPct}%` } as CSSProperties)
