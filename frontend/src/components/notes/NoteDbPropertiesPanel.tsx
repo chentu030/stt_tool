@@ -108,7 +108,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
 
   useEffect(() => {
     if (!addOpen && !menuPropId && !hiddenMenuOpen) return;
-    const onDoc = (e: MouseEvent) => {
+    const onDoc = (e: globalThis.MouseEvent) => {
       const t = e.target as Node;
       if (addBtnRef.current?.contains(t)) return;
       const root = (e.target as HTMLElement)?.closest?.(".ndb-props");

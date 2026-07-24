@@ -41,6 +41,7 @@ import {
   recentActivity,
   searchNotes,
   tagBuckets,
+  type SearchHit,
 } from "@/lib/libraryIndex";
 import {
   looksLikeSemanticQuery,
@@ -209,37 +210,36 @@ function LibraryPageInner() {
     // Append semantic-only hits (thresholded) after lexical matches.
     if (semanticHits.length && q.trim()) {
       const seen = new Set(list.map((n) => n.id));
-      const extras = semanticHits
-        .filter((h) => !seen.has(h.id))
-        .map((h) => notes.find((n) => n.id === h.id))
-        .filter(Boolean)
-        .filter((n) => {
-          if (!n) return false;
-          if (tagFilter) {
-            const has =
-              (n.tags || []).includes(tagFilter) ||
-              new RegExp(`(?:^|\\s)#${tagFilter}(?:\\s|$)`).test(n.body_md || "");
-            if (!has) return false;
-          }
-          if (statusFilter && (n.status || "") !== statusFilter) return false;
-          if (inboxQueue) {
-            const ids = new Set(inboxNotes.map((x) => x.id));
-            if (!ids.has(n.id)) return false;
-          }
-          if (!prefs.libraryShowEmpty && !(n.body_md || "").trim()) return false;
-          return true;
-        }) as typeof list;
-      if (extras.length) {
-        list = [
-          ...list,
-          ...extras.map((n) => ({
-            ...n,
-            score: 0.5,
-            snippet: n.body_md?.slice(0, 120) || "",
-            matchFields: ["semantic" as string],
-          })),
-        ];
+      const extras: SearchHit[] = [];
+      for (const hit of semanticHits) {
+        if (seen.has(hit.id)) continue;
+        const n = notes.find((x) => x.id === hit.id);
+        if (!n) continue;
+        if (tagFilter) {
+          const has =
+            (n.tags || []).includes(tagFilter) ||
+            new RegExp(`(?:^|\\s)#${tagFilter}(?:\\s|$)`).test(n.body_md || "");
+          if (!has) continue;
+        }
+        if (statusFilter && (n.status || "") !== statusFilter) continue;
+        if (inboxQueue) {
+          const ids = new Set(inboxNotes.map((x) => x.id));
+          if (!ids.has(n.id)) continue;
+        }
+        if (!prefs.libraryShowEmpty && !(n.body_md || "").trim()) continue;
+        const plain = (n.body_md || "").replace(/\s+/g, " ").trim();
+        extras.push({
+          ...n,
+          score: hit.score > 0 ? hit.score : Math.max(0, 1 - hit.distance / 2),
+          snippet: plain
+            ? plain.length > 120
+              ? `${plain.slice(0, 120)}…`
+              : plain
+            : "（空白筆記）",
+          matchFields: ["semantic"],
+        });
       }
+      if (extras.length) list = [...list, ...extras];
     }
     return list;
   }, [

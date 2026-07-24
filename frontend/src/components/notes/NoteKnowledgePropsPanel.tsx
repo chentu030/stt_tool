@@ -237,7 +237,7 @@ export default function NoteKnowledgePropsPanel({
 
   useEffect(() => {
     if (!menuPropId && !hiddenMenuOpen) return;
-    const onDoc = (e: MouseEvent) => {
+    const onDoc = (e: globalThis.MouseEvent) => {
       if (
         !(e.target as HTMLElement)?.closest?.(
           ".nk-prop-menu-wrap, .nk-prop-menu, .nk-prop-menu-btn, .nk-props-hidden-wrap, .nk-props-hidden-menu, .nk-props-hidden-btn"
