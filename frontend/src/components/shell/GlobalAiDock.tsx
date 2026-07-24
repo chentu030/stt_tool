@@ -1898,16 +1898,6 @@ export default function GlobalAiDock() {
                     {allowCanvasEdit ? "可改白板" : "禁改白板"}
                   </button>
                 ) : null}
-                <button type="button" className="doc-cmd" onClick={() => router.push("/library")}>
-                  知識庫
-                </button>
-                <button
-                  type="button"
-                  className="doc-cmd"
-                  onClick={() => router.push("/settings#st-ai")}
-                >
-                  偏好
-                </button>
                 <button
                   type="submit"
                   className="btn btn-sm"
