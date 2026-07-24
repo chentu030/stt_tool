@@ -640,11 +640,12 @@ export function healHighlightArtifacts(md: string): string {
   let s = md;
 
   // Entity-encoded marks: &lt;mark ...&gt;text&lt;/mark&gt;
+  // Allow &quot; / &#39; inside attrs (common after escapeHtml → re-escape cycles).
   s = s.replace(
-    /&lt;mark\b([^&]*?)&gt;([\s\S]*?)&lt;\/mark&gt;/gi,
+    /&lt;mark\b((?:[^&]|&(?!lt;|gt;))*?)&gt;([\s\S]*?)&lt;\/mark&gt;/gi,
     (_m, attrs: string, text: string) => {
       const color = colorFromHtmlAttrs(decodeBasicEntities(attrs));
-      const t = decodeBasicEntities(text).replace(/\n+/g, " ").trim();
+      const t = decodeBasicEntities(text).replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
       if (!t) return "";
       return color ? `==${t}=={${color}}` : `==${t}==`;
     }
@@ -652,40 +653,52 @@ export function healHighlightArtifacts(md: string): string {
 
   // Entity-encoded colored spans
   s = s.replace(
-    /&lt;span\b([^&]*?(?:data-text-color|style\s*=\s*["'][^"']*color\s:)[^&]*?)&gt;([\s\S]*?)&lt;\/span&gt;/gi,
+    /&lt;span\b((?:[^&]|&(?!lt;|gt;))*?(?:data-text-color|style\s*=\s*(?:&quot;|&#39;|["'])[^&]*?color\s:)(?:[^&]|&(?!lt;|gt;))*?)&gt;([\s\S]*?)&lt;\/span&gt;/gi,
     (_m, attrs: string, text: string) => {
       const color = colorFromHtmlAttrs(decodeBasicEntities(attrs));
-      const t = decodeBasicEntities(text).replace(/\n+/g, " ").trim();
+      const t = decodeBasicEntities(text).replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
       if (!t) return "";
       if (!color) return t;
       return `{c:${color}}${t}{/c}`;
     }
   );
 
-  // Standalone raw <mark>…</mark> lines (bad save of markdownToHtml output as body text)
-  s = s.replace(
-    /(^|\n)\s*<mark\b([^>]*)>([\s\S]*?)<\/mark>\s*(?=\n|$)/gi,
-    (_m, lead: string, attrs: string, text: string) => {
-      const color = colorFromHtmlAttrs(attrs);
-      const t = text.replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
-      if (!t) return lead;
-      return `${lead}${color ? `==${t}=={${color}}` : `==${t}==`}`;
-    }
-  );
+  // Raw <mark>…</mark> anywhere (toggle/column lines, mid-paragraph, or whole body)
+  s = s.replace(/<mark\b([^>]*)>([\s\S]*?)<\/mark>/gi, (_m, attrs: string, text: string) => {
+    const color = colorFromHtmlAttrs(attrs);
+    const t = text.replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
+    if (!t) return "";
+    return color ? `==${t}=={${color}}` : `==${t}==`;
+  });
 
-  // Standalone colored <span style="color:…"> / data-text-color
+  // Colored <span style="color:…"> / data-text-color
   s = s.replace(
-    /(^|\n)\s*<span\b([^>]*(?:data-text-color|style\s*=\s*["'][^"']*color\s:)[^>]*)>([\s\S]*?)<\/span>\s*(?=\n|$)/gi,
-    (_m, lead: string, attrs: string, text: string) => {
+    /<span\b([^>]*(?:data-text-color|style\s*=\s*["'][^"']*color\s:)[^>]*)>([\s\S]*?)<\/span>/gi,
+    (_m, attrs: string, text: string) => {
       const color = colorFromHtmlAttrs(attrs);
       const t = text.replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
-      if (!t) return lead;
-      if (!color) return `${lead}${t}`;
-      return `${lead}{c:${color}}${t}{/c}`;
+      if (!t) return "";
+      if (!color) return t;
+      return `{c:${color}}${t}{/c}`;
     }
   );
 
   return s;
+}
+
+/** ==text== / ==text=={#rrggbb} → <mark> (run after toggle/column escapeHtml). */
+function applyHighlightMarkdown(md: string): string {
+  return md.replace(
+    /==([^=\n]+?)==(?:\{([^}\n]+)\})?/g,
+    (_m, text: string, color?: string) => {
+      const t = escapeHtml(text);
+      if (color) {
+        const c = escapeAttr(color.trim());
+        return `<mark data-color="${c}" style="background-color: ${c}">${t}</mark>`;
+      }
+      return `<mark>${t}</mark>`;
+    }
+  );
 }
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -948,6 +961,11 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     return `<aside class="rich-callout rich-callout--${escapeAttr(tone)}" data-note-callout="1" data-tone="${escapeAttr(tone)}"><p>${escapeHtml(String(text).trim() || "提示")}</p></aside>`;
   });
 
+  // Highlights: ==text== / ==text=={#rrggbb}
+  // Must run AFTER toggle/column/callout escapeHtml — converting earlier turns
+  // marks into <mark> that then get escaped to visible raw HTML on reload.
+  s = applyHighlightMarkdown(s);
+
   // Colored text: {c:#rrggbb}text{/c}
   s = s.replace(/\{c:([^}\n]+)\}([\s\S]*?)\{\/c\}/g, (_m, color: string, text: string) => {
     const c = escapeAttr(String(color).trim());
@@ -985,19 +1003,8 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
 export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   const raw = tightenMediaAdjacencyMd(healHighlightArtifacts((md || "").trim()));
   if (!raw) return "<p></p>";
-  // Colored / plain highlights: ==text== or ==text=={#rrggbb}
-  const withMarks = raw.replace(
-    /==([^=\n]+?)==(?:\{([^}\n]+)\})?/g,
-    (_m, text: string, color?: string) => {
-      const t = escapeHtml(text);
-      if (color) {
-        const c = escapeAttr(color.trim());
-        return `<mark data-color="${c}" style="background-color: ${c}">${t}</mark>`;
-      }
-      return `<mark>${t}</mark>`;
-    }
-  );
-  const withMedia = enrichMarkdown(withMarks, resolveWiki);
+  // ==highlight== is applied inside enrichMarkdown (after toggle/column escapeHtml).
+  const withMedia = enrichMarkdown(raw, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
   const normalized = wrapBareTablesHtml(
     normalizeTableColWidths(normalizeTaskListHtml(normalizeBlockMediaHtml(html)))
