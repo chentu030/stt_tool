@@ -644,7 +644,10 @@ export default function NoteKnowledgePropsPanel({
                 return (
                   <div key={rel.key} className="nk-rel-row">
                     <span className="nk-rel-key" title={rel.key}>
-                      {rel.label}
+                      <span className="material-symbols-outlined nk-prop-icon" aria-hidden>
+                        hub
+                      </span>
+                      <span className="nk-prop-name">{rel.label}</span>
                     </span>
                     <div className="nk-rel-chips">
                       {rel.titles.map((t) => {
