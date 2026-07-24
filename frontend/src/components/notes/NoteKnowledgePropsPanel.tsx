@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { Note } from "@/lib/firebase";
@@ -19,22 +19,30 @@ import {
   withFrontmatterExtra,
   withOrganizedFlag,
 } from "@/lib/noteKnowledge";
+import { moveIdBefore } from "@/lib/database";
 import {
   WORKSPACE_SYSTEM_IDS,
   WS_STATUS_ID,
   WS_TYPE_ID,
   asDbProperty,
+  archiveWorkspacePropertyDef,
   createCustomWorkspaceDef,
   ensureWorkspacePropertyDefs,
   getWorkspaceFieldValue,
   healWorkspaceProps,
   listenWorkspacePropertyDefs,
   patchWorkspaceField,
+  reorderWorkspacePropertyDefs,
+  setWorkspacePropertyHidden,
   upsertWorkspacePropertyDef,
   type WorkspacePropertyDef,
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
-import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
+import {
+  NotePropsFieldRow,
+  NotePropsFieldsGrid,
+  type PropReorderHandlers,
+} from "@/components/notes/NotePropsFields";
 import NoteMetaPropFields, { type NoteMetaHandlers } from "@/components/notes/NoteMetaPropFields";
 import MenuSelect from "@/components/MenuSelect";
 import { askConfirm, askPrompt, type PromptSuggestion } from "@/lib/dialogs";
@@ -172,6 +180,11 @@ export default function NoteKnowledgePropsPanel({
   const [addValue, setAddValue] = useState("");
   const [addChecked, setAddChecked] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
+  const [menuPropId, setMenuPropId] = useState<string | null>(null);
+  const [hiddenMenuOpen, setHiddenMenuOpen] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
   const [localCollapsed, setLocalCollapsed] = useState(() => {
     if (typeof collapsedProp === "boolean") return collapsedProp;
     if (typeof window === "undefined") return defaultCollapsed;
@@ -221,6 +234,22 @@ export default function NoteKnowledgePropsPanel({
     return () => unsub?.();
   }, [userId]);
 
+  useEffect(() => {
+    if (!menuPropId && !hiddenMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (
+        !(e.target as HTMLElement)?.closest?.(
+          ".nk-prop-menu-wrap, .nk-prop-menu, .nk-prop-menu-btn, .nk-props-hidden-wrap, .nk-props-hidden-menu, .nk-props-hidden-btn"
+        )
+      ) {
+        setMenuPropId(null);
+        setHiddenMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuPropId, hiddenMenuOpen]);
+
   // On-read heal into ws_* (once per note)
   const healedRef = useRef<string>("");
   useEffect(() => {
@@ -261,10 +290,27 @@ export default function NoteKnowledgePropsPanel({
       .map((id) => activeDefs.find((d) => d.id === id))
       .filter((d): d is WorkspacePropertyDef => !!d);
   }, [activeDefs, meta]);
-  const customCatalogDefs = useMemo(
-    () => activeDefs.filter((d) => !(WORKSPACE_SYSTEM_IDS as readonly string[]).includes(d.id)),
-    [activeDefs]
-  );
+
+  /** Panel rows follow workspace catalog sortOrder (system + filled custom). */
+  const panelDefs = useMemo(() => {
+    const skipStatus = !!meta;
+    return activeDefs.filter((d) => {
+      if (d.hidden) return false;
+      if (skipStatus && d.id === WS_STATUS_ID) return false;
+      if ((WORKSPACE_SYSTEM_IDS as readonly string[]).includes(d.id)) return true;
+      const v = getWorkspaceFieldValue(note, d.id);
+      return v != null && v !== "";
+    });
+  }, [activeDefs, meta, note]);
+
+  const hiddenDefs = useMemo(() => {
+    const skipStatus = !!meta;
+    return activeDefs.filter((d) => {
+      if (!d.hidden) return false;
+      if (skipStatus && d.id === WS_STATUS_ID) return false;
+      return true;
+    });
+  }, [activeDefs, meta]);
 
   const relations = listPropRelationFields(note.props);
   const scalars = listScalarProps(note.props).filter(
@@ -506,12 +552,135 @@ export default function NoteKnowledgePropsPanel({
     systemDefs.length > 0 ||
     (extraDbProps?.length || 0) > 0;
 
-  if (!hasAnything && readOnly) return null;
+  const commitDefReorder = async (fromId: string, toId: string) => {
+    if (!userId || fromId === toId || readOnly) return;
+    const fullIds = activeDefs.map((d) => d.id);
+    const nextIds = moveIdBefore(fullIds, fromId, toId);
+    if (nextIds.join("\0") === fullIds.join("\0")) return;
+    setDefs((prev) => {
+      const map = new Map(prev.map((d) => [d.id, d]));
+      const ordered: WorkspacePropertyDef[] = [];
+      nextIds.forEach((id, i) => {
+        const d = map.get(id);
+        if (d) ordered.push({ ...d, sortOrder: i });
+      });
+      const rest = prev.filter((d) => !nextIds.includes(d.id));
+      return [...ordered, ...rest];
+    });
+    try {
+      await reorderWorkspacePropertyDefs(userId, nextIds);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "調整屬性順序失敗");
+    }
+  };
 
-  const displayDefs = [...systemDefs, ...customCatalogDefs.filter((d) => {
-    const v = getWorkspaceFieldValue(note, d.id);
-    return v != null && v !== "";
-  })];
+  const propReorderFor = (defId: string): PropReorderHandlers | null => {
+    if (readOnly || !userId) return null;
+    return {
+      reorderId: defId,
+      dragging: dragId === defId,
+      dragOver: dragOverId === defId && dragId !== defId,
+      onDragStart: (id) => {
+        dragIdRef.current = id;
+        setDragId(id);
+        setDragOverId(id);
+      },
+      onDragOver: (id, e: DragEvent) => {
+        e.preventDefault();
+        if (dragOverId !== id) setDragOverId(id);
+      },
+      onDrop: (id) => {
+        const from = dragIdRef.current;
+        dragIdRef.current = null;
+        setDragId(null);
+        setDragOverId(null);
+        if (from && from !== id) void commitDefReorder(from, id);
+      },
+      onDragEnd: () => {
+        dragIdRef.current = null;
+        setDragId(null);
+        setDragOverId(null);
+      },
+    };
+  };
+
+  const renameDef = async (def: WorkspacePropertyDef) => {
+    setMenuPropId(null);
+    if (!userId) return;
+    const name = await askPrompt({
+      title: "重新命名屬性",
+      message: def.systemKey ? "系統屬性可改顯示名稱" : "屬性名稱",
+      defaultValue: def.name,
+    });
+    if (name == null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === def.name) return;
+    try {
+      await upsertWorkspacePropertyDef(userId, { ...def, name: trimmed });
+      setDefs((prev) => prev.map((d) => (d.id === def.id ? { ...d, name: trimmed } : d)));
+      toast("已更新名稱");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "重新命名失敗");
+    }
+  };
+
+  const deleteDef = async (def: WorkspacePropertyDef) => {
+    setMenuPropId(null);
+    if (!userId) return;
+    if ((WORKSPACE_SYSTEM_IDS as readonly string[]).includes(def.id)) {
+      toast("系統屬性不可刪除");
+      return;
+    }
+    const ok = await askConfirm({
+      title: "刪除屬性",
+      message: `刪除工作區屬性「${def.name}」後，其他筆記也不再顯示此欄（既有值會保留在資料中）。`,
+      confirmLabel: "刪除",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await archiveWorkspacePropertyDef(userId, def.id);
+      setDefs((prev) => prev.map((d) => (d.id === def.id ? { ...d, archived: true } : d)));
+      // Clear value on this note so the row disappears immediately.
+      const nextProps = { ...(note.props || {}) };
+      delete nextProps[def.id];
+      onPropsPatch(nextProps);
+      try {
+        await updateNote(note.id, { props: nextProps });
+      } catch {
+        /* ignore — catalog already archived */
+      }
+      toast(`已刪除「${def.name}」`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "刪除屬性失敗");
+    }
+  };
+
+  const hideDef = async (def: WorkspacePropertyDef) => {
+    setMenuPropId(null);
+    if (!userId) return;
+    try {
+      await setWorkspacePropertyHidden(userId, def.id, true);
+      setDefs((prev) => prev.map((d) => (d.id === def.id ? { ...d, hidden: true } : d)));
+      toast(`已隱藏「${def.name}」（數值仍保留）`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "隱藏屬性失敗");
+    }
+  };
+
+  const unhideDef = async (def: WorkspacePropertyDef) => {
+    setHiddenMenuOpen(false);
+    if (!userId) return;
+    try {
+      await setWorkspacePropertyHidden(userId, def.id, false);
+      setDefs((prev) => prev.map((d) => (d.id === def.id ? { ...d, hidden: false } : d)));
+      toast(`已顯示「${def.name}」`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "顯示屬性失敗");
+    }
+  };
+
+  if (!hasAnything && readOnly) return null;
 
   // Always show system rows when editing
   return (
@@ -576,19 +745,54 @@ export default function NoteKnowledgePropsPanel({
                 {...meta}
               />
             ) : null}
-            {(readOnly
-              ? displayDefs
-              : systemDefs.concat(
-                  customCatalogDefs.filter((d) => {
-                    const v = getWorkspaceFieldValue(note, d.id);
-                    return v != null && v !== "";
-                  })
-                )
-            ).map((def) => {
+            {panelDefs.map((def) => {
               const prop = asDbProperty(def);
               const value = getWorkspaceFieldValue(note, def.id);
+              const isSystem = (WORKSPACE_SYSTEM_IDS as readonly string[]).includes(def.id);
               return (
-                <NotePropsFieldRow key={def.id} label={def.name} type={def.type}>
+                <NotePropsFieldRow
+                  key={def.id}
+                  label={def.name}
+                  type={def.type}
+                  reorder={propReorderFor(def.id)}
+                  menu={
+                    !readOnly && userId ? (
+                      <div className="nk-prop-menu-wrap">
+                        <button
+                          type="button"
+                          className="nk-prop-menu-btn"
+                          aria-label={`${def.name} 選項`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuPropId((id) => (id === def.id ? null : def.id));
+                          }}
+                        >
+                          ···
+                        </button>
+                        {menuPropId === def.id ? (
+                          <div className="nk-prop-menu" role="menu">
+                            <button type="button" role="menuitem" onClick={() => void renameDef(def)}>
+                              重新命名
+                            </button>
+                            <button type="button" role="menuitem" onClick={() => void hideDef(def)}>
+                              隱藏
+                            </button>
+                            {!isSystem ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="is-danger"
+                                onClick={() => void deleteDef(def)}
+                              >
+                                刪除屬性
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : undefined
+                  }
+                >
                   <PropertyValueEditor
                     note={note}
                     prop={prop}
@@ -703,6 +907,32 @@ export default function NoteKnowledgePropsPanel({
               <button type="button" className="nk-props-add" onClick={() => void addRelationship()}>
                 + 新增關係
               </button>
+              {hiddenDefs.length > 0 ? (
+                <div className="nk-props-hidden-wrap">
+                  <button
+                    type="button"
+                    className="nk-props-add nk-props-add--quiet nk-props-hidden-btn"
+                    aria-expanded={hiddenMenuOpen}
+                    onClick={() => setHiddenMenuOpen((v) => !v)}
+                  >
+                    顯示隱藏屬性（{hiddenDefs.length}）
+                  </button>
+                  {hiddenMenuOpen ? (
+                    <div className="nk-props-hidden-menu" role="menu">
+                      {hiddenDefs.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => void unhideDef(d)}
+                        >
+                          {d.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {inbox || !organized ? (
                 <button
                   type="button"

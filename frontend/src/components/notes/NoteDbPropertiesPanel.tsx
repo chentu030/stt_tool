@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import type { Note } from "@/lib/firebase";
+import { updateNote } from "@/lib/firebase";
 import {
   ADDABLE_DB_PROPS,
   addProperty,
@@ -13,8 +14,10 @@ import {
   listenDatabase,
   listenDatabaseRows,
   removeProperty,
+  reorderProperties,
   scrubViewsAfterPropRemove,
   setCellValue,
+  setPropertyHidden,
   updateDatabase,
   type CadenceDatabase,
   type DbPropType,
@@ -25,11 +28,16 @@ import {
   ensureWorkspacePropertyDefs,
   listenWorkspacePropertyDefs,
   resolveDatabaseProperties,
+  upsertWorkspacePropertyDef,
   WS_STATUS_ID,
   type WorkspacePropertyDef,
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
-import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
+import {
+  NotePropsFieldRow,
+  NotePropsFieldsGrid,
+  type PropReorderHandlers,
+} from "@/components/notes/NotePropsFields";
 import NoteMetaPropFields, { type NoteMetaHandlers } from "@/components/notes/NoteMetaPropFields";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
@@ -65,8 +73,12 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   const [showAll, setShowAll] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [menuPropId, setMenuPropId] = useState<string | null>(null);
+  const [hiddenMenuOpen, setHiddenMenuOpen] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const ensuredRef = useRef<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!databaseId) return;
@@ -89,7 +101,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   }, [userId]);
 
   useEffect(() => {
-    if (!addOpen && !menuPropId) return;
+    if (!addOpen && !menuPropId && !hiddenMenuOpen) return;
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
       if (addBtnRef.current?.contains(t)) return;
@@ -97,20 +109,22 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
       if (!root) {
         setAddOpen(false);
         setMenuPropId(null);
+        setHiddenMenuOpen(false);
         return;
       }
       if (
         !(e.target as HTMLElement).closest(
-          ".ndb-props-add-menu, .nk-prop-menu, .ndb-prop-menu, .ndb-props-add, .nk-props-add, .nk-prop-menu-btn, .ndb-prop-menu-btn"
+          ".ndb-props-add-menu, .nk-prop-menu, .ndb-prop-menu, .ndb-props-add, .nk-props-add, .nk-prop-menu-btn, .ndb-prop-menu-btn, .nk-props-hidden-menu, .nk-props-hidden-btn"
         )
       ) {
         setAddOpen(false);
         setMenuPropId(null);
+        setHiddenMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [addOpen, menuPropId]);
+  }, [addOpen, menuPropId, hiddenMenuOpen]);
 
   // Auto-add created / last edited props once per database.
   useEffect(() => {
@@ -128,15 +142,24 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
     });
   }, [db, readOnly]);
 
-  const displayProps = useMemo(() => {
+  const allResolvedProps = useMemo(() => {
     if (!db) return [];
     return resolveDatabaseProperties(db.properties, wsDefs).filter((p) => {
       if (p.type === "title") return false;
-      // Avoid duplicate「狀態」when note meta status row is shown
       if (meta && (p.id === WS_STATUS_ID || p.workspaceDefId === WS_STATUS_ID)) return false;
       return true;
     });
   }, [db, wsDefs, meta]);
+
+  const displayProps = useMemo(
+    () => allResolvedProps.filter((p) => !p.hidden),
+    [allResolvedProps]
+  );
+
+  const hiddenProps = useMemo(
+    () => allResolvedProps.filter((p) => !!p.hidden),
+    [allResolvedProps]
+  );
 
   const filled = useMemo(
     () => displayProps.filter((p) => !isEmptyValue(p, note, db?.properties || [], rows)),
@@ -145,11 +168,53 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   const emptyCount = displayProps.length - filled.length;
 
   const visible = useMemo(() => {
-    if (showAll) return displayProps;
+    if (showAll || dragId) return displayProps;
     if (filled.length >= COLLAPSED_MAX) return filled.slice(0, COLLAPSED_MAX);
     const rest = displayProps.filter((p) => isEmptyValue(p, note, db?.properties || [], rows));
     return [...filled, ...rest].slice(0, COLLAPSED_MAX);
-  }, [showAll, displayProps, filled, note, db, rows]);
+  }, [showAll, dragId, displayProps, filled, note, db, rows]);
+
+  const commitPropReorder = async (fromId: string, toId: string) => {
+    if (!db || fromId === toId || readOnly) return;
+    const properties = reorderProperties(db.properties, fromId, toId);
+    setDb({ ...db, properties });
+    try {
+      await updateDatabase(db.id, { properties });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "調整屬性順序失敗");
+    }
+  };
+
+  const propReorderFor = (propId: string): PropReorderHandlers | null => {
+    if (readOnly) return null;
+    return {
+      reorderId: propId,
+      dragging: dragId === propId,
+      dragOver: dragOverId === propId && dragId !== propId,
+      onDragStart: (id) => {
+        dragIdRef.current = id;
+        setDragId(id);
+        setDragOverId(id);
+        setShowAll(true);
+      },
+      onDragOver: (id, e: DragEvent) => {
+        e.preventDefault();
+        if (dragOverId !== id) setDragOverId(id);
+      },
+      onDrop: (id) => {
+        const from = dragIdRef.current;
+        dragIdRef.current = null;
+        setDragId(null);
+        setDragOverId(null);
+        if (from && from !== id) void commitPropReorder(from, id);
+      },
+      onDragEnd: () => {
+        dragIdRef.current = null;
+        setDragId(null);
+        setDragOverId(null);
+      },
+    };
+  };
 
   if (!databaseId) return null;
   if (!db) {
@@ -188,10 +253,23 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
     });
     if (name == null) return;
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed === prop.name) return;
     const properties = db.properties.map((p) => (p.id === prop.id ? { ...p, name: trimmed } : p));
     setDb({ ...db, properties });
-    await updateDatabase(db.id, { properties });
+    try {
+      await updateDatabase(db.id, { properties });
+      const defId = prop.workspaceDefId || (wsDefs.some((d) => d.id === prop.id) ? prop.id : "");
+      if (defId) {
+        const def = wsDefs.find((d) => d.id === defId);
+        if (def) {
+          await upsertWorkspacePropertyDef(userId, { ...def, name: trimmed });
+          setWsDefs((prev) => prev.map((d) => (d.id === defId ? { ...d, name: trimmed } : d)));
+        }
+      }
+      toast("已更新名稱");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "重新命名失敗");
+    }
   };
 
   const deleteProp = async (prop: DbProperty) => {
@@ -207,8 +285,45 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
     const properties = removeProperty(db.properties, prop.id);
     const views = scrubViewsAfterPropRemove(db.views, prop.id);
     setDb({ ...db, properties, views });
-    await updateDatabase(db.id, { properties, views });
-    toast(`已刪除「${prop.name}」`);
+    try {
+      await updateDatabase(db.id, { properties, views });
+      // Clear value on this note so the row disappears immediately.
+      if (note.props && Object.prototype.hasOwnProperty.call(note.props, prop.id)) {
+        const nextProps = { ...(note.props || {}) };
+        delete nextProps[prop.id];
+        onNotePatch({ props: nextProps });
+        await updateNote(note.id, { props: nextProps }).catch(() => undefined);
+      }
+      toast(`已刪除「${prop.name}」`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "刪除屬性失敗");
+    }
+  };
+
+  const hideProp = async (prop: DbProperty) => {
+    setMenuPropId(null);
+    if (prop.type === "title") return;
+    const properties = setPropertyHidden(db.properties, prop.id, true);
+    setDb({ ...db, properties });
+    try {
+      await updateDatabase(db.id, { properties });
+      toast(`已隱藏「${prop.name}」（數值仍保留）`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "隱藏屬性失敗");
+    }
+  };
+
+  const unhideProp = async (prop: DbProperty) => {
+    setHiddenMenuOpen(false);
+    const properties = setPropertyHidden(db.properties, prop.id, false);
+    setDb({ ...db, properties });
+    try {
+      await updateDatabase(db.id, { properties });
+      setShowAll(true);
+      toast(`已顯示「${prop.name}」`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "顯示屬性失敗");
+    }
   };
 
   const commitValue = async (prop: DbProperty, value: unknown) => {
@@ -374,6 +489,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
                 label={prop.name}
                 type={prop.type}
                 system={prop.type === "created_time" || prop.type === "last_edited_time"}
+                reorder={propReorderFor(prop.id)}
                 menu={
                   !readOnly ? (
                     <div className="nk-prop-menu-wrap">
@@ -392,6 +508,9 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
                         <div className="nk-prop-menu" role="menu">
                           <button type="button" role="menuitem" onClick={() => void renameProp(prop)}>
                             重新命名
+                          </button>
+                          <button type="button" role="menuitem" onClick={() => void hideProp(prop)}>
+                            隱藏
                           </button>
                           <button
                             type="button"
@@ -428,7 +547,37 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
             </button>
           ) : null}
 
-          {!readOnly ? <div className="nk-props-foot">{addMenu}</div> : null}
+          {!readOnly ? (
+            <div className="nk-props-foot">
+              {addMenu}
+              {hiddenProps.length > 0 ? (
+                <div className="nk-props-hidden-wrap">
+                  <button
+                    type="button"
+                    className="nk-props-add nk-props-add--quiet nk-props-hidden-btn"
+                    aria-expanded={hiddenMenuOpen}
+                    onClick={() => setHiddenMenuOpen((v) => !v)}
+                  >
+                    顯示隱藏屬性（{hiddenProps.length}）
+                  </button>
+                  {hiddenMenuOpen ? (
+                    <div className="nk-props-hidden-menu" role="menu">
+                      {hiddenProps.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => void unhideProp(p)}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </>
       )}
     </section>

@@ -14,6 +14,8 @@ import {
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
 import { colorForUid } from "@/lib/presence";
+import NoteCoverPickerDialog from "@/components/notes/NoteCoverPickerDialog";
+import { pushRecentCover } from "@/lib/recentCovers";
 
 type LogEntry = {
   id: string;
@@ -30,9 +32,24 @@ function pageLogCol(noteId: string) {
   return collection(db, "notes", noteId, "page_log");
 }
 
-export default function NotePageLog({ noteId }: { noteId: string }) {
+type CoverProps = {
+  cover: string;
+  onCoverChange: (v: string) => void;
+  userId?: string;
+  readOnly?: boolean;
+};
+
+export default function NotePageLog({
+  noteId,
+  cover,
+}: {
+  noteId: string;
+  /** When set, show「加封面」/「更換封面」to the right of 已閱. */
+  cover?: CoverProps | null;
+}) {
   const { user, displayName } = useAuth();
   const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!noteId) return;
@@ -103,9 +120,18 @@ export default function NotePageLog({ noteId }: { noteId: string }) {
 
   if (!noteId) return null;
 
+  const coverUrl = cover?.cover || "";
+  const showCoverBtn = !!cover && !cover.readOnly;
+  const applyCover = (next: string) => {
+    if (!cover) return;
+    const trimmed = (next || "").trim();
+    if (trimmed && cover.userId) pushRecentCover(cover.userId, trimmed);
+    cover.onCoverChange(trimmed);
+  };
+
   return (
-    <div className="note-page-log tm-noise">
-      <div className="note-page-log-reactions">
+    <div className="note-page-log">
+      <div className="note-page-log-reactions tm-noise">
         {REACTIONS.map((emoji) => {
           const count = reactionCounts.get(emoji) || 0;
           return (
@@ -121,16 +147,54 @@ export default function NotePageLog({ noteId }: { noteId: string }) {
           );
         })}
       </div>
-      {readers.length > 0 && (
-        <div className="note-page-log-readers" title={readers.map((r) => r.name).join("、")}>
-          {readers.slice(0, 6).map((r) => (
-            <span key={r.id} className="note-page-log-avatar" style={{ background: colorForUid(r.uid) }}>
-              {(r.name || "?").slice(0, 1)}
-            </span>
-          ))}
-          <span className="note-page-log-readers-label">{readers.length} 人已閱</span>
-        </div>
-      )}
+      <div className="note-page-log-trailing">
+        {readers.length > 0 ? (
+          <div
+            className="note-page-log-readers tm-noise"
+            title={readers.map((r) => r.name).join("、")}
+          >
+            {readers.slice(0, 6).map((r) => (
+              <span
+                key={r.id}
+                className="note-page-log-avatar"
+                style={{ background: colorForUid(r.uid) }}
+              >
+                {(r.name || "?").slice(0, 1)}
+              </span>
+            ))}
+            <span className="note-page-log-readers-label">{readers.length} 人已閱</span>
+          </div>
+        ) : null}
+        {showCoverBtn ? (
+          <div className="note-page-log-cover">
+            <button
+              type="button"
+              className="note-page-log-cover-btn"
+              onClick={() => setPickerOpen(true)}
+            >
+              {coverUrl ? "更換封面" : "加封面"}
+            </button>
+            {coverUrl ? (
+              <button
+                type="button"
+                className="note-page-log-cover-btn note-page-log-cover-btn--quiet"
+                onClick={() => applyCover("")}
+              >
+                移除
+              </button>
+            ) : null}
+            <NoteCoverPickerDialog
+              open={pickerOpen}
+              title={coverUrl ? "更換封面" : "加封面"}
+              currentCover={coverUrl}
+              userId={cover?.userId}
+              noteId={noteId}
+              onClose={() => setPickerOpen(false)}
+              onApply={applyCover}
+            />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

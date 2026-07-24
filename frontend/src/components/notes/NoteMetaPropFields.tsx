@@ -1,16 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { NotePropsFieldRow } from "@/components/notes/NotePropsFields";
-import NoteCoverPickerDialog from "@/components/notes/NoteCoverPickerDialog";
 import EditorWritingStats from "@/components/notes/EditorWritingStats";
 import type { NoteStats } from "@/lib/noteMeta";
 import type { WritingGoalProgress } from "@/lib/writingGoals";
 import type { Note } from "@/lib/firebase";
 import { getWorkspaceFieldValue, WS_STATUS_ID } from "@/lib/workspaceProperties";
-import { pushRecentCover } from "@/lib/recentCovers";
 
 export type NoteMetaPropFieldsProps = {
   note: Note;
@@ -23,18 +20,15 @@ export type NoteMetaPropFieldsProps = {
   onTagInputChange: (v: string) => void;
   onAddTag: () => void;
   onRemoveTag: (tag: string) => void;
-  cover: string;
-  onCoverChange: (v: string) => void;
   /** Board / note.status — dual-write ws_status upstream when wiring. */
   onStatusChange: (status: Note["status"]) => void;
   stats: NoteStats;
   goalProgress?: WritingGoalProgress | null;
 };
 
-/** Cover / folder / tags / status / word-count rows shared by note & DB property panels. */
+/** Folder / tags / status / word-count rows shared by note & DB property panels. */
 export default function NoteMetaPropFields({
   note,
-  userId,
   readOnly,
   folder,
   onFolderChange,
@@ -43,14 +37,10 @@ export default function NoteMetaPropFields({
   onTagInputChange,
   onAddTag,
   onRemoveTag,
-  cover,
-  onCoverChange,
   onStatusChange,
   stats,
   goalProgress,
 }: NoteMetaPropFieldsProps) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-
   const wsStatus = getWorkspaceFieldValue(note, WS_STATUS_ID);
   let statusValue: "" | "backlog" | "doing" | "done" = "";
   if (wsStatus === "") {
@@ -65,35 +55,8 @@ export default function NoteMetaPropFields({
     statusValue = "backlog";
   }
 
-  const applyCover = (next: string) => {
-    const trimmed = (next || "").trim();
-    if (trimmed && userId) pushRecentCover(userId, trimmed);
-    onCoverChange(trimmed);
-  };
-
   return (
     <>
-      <NotePropsFieldRow label="封面" icon="image">
-        {readOnly ? (
-          <span className={cover ? undefined : "ndb-empty"}>{cover ? "已設定" : "空"}</span>
-        ) : (
-          <div className="nk-meta-inline">
-            <button type="button" className="nk-props-add" onClick={() => setPickerOpen(true)}>
-              {cover ? "更換封面" : "加封面"}
-            </button>
-            {cover ? (
-              <button
-                type="button"
-                className="nk-props-add nk-props-add--quiet"
-                onClick={() => applyCover("")}
-              >
-                移除
-              </button>
-            ) : null}
-          </div>
-        )}
-      </NotePropsFieldRow>
-
       <NotePropsFieldRow label="資料夾" icon="folder">
         {readOnly ? (
           <span className={folder ? undefined : "ndb-empty"}>{folder || "空"}</span>
@@ -185,18 +148,6 @@ export default function NoteMetaPropFields({
             來源逐字稿
           </Link>
         </NotePropsFieldRow>
-      ) : null}
-
-      {!readOnly ? (
-        <NoteCoverPickerDialog
-          open={pickerOpen}
-          title={cover ? "更換封面" : "加封面"}
-          currentCover={cover}
-          userId={userId}
-          noteId={note.id}
-          onClose={() => setPickerOpen(false)}
-          onApply={applyCover}
-        />
       ) : null}
     </>
   );

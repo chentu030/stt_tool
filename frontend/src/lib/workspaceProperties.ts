@@ -11,12 +11,13 @@ import {
   onSnapshot,
   setDoc,
   updateDoc,
+  writeBatch,
   Timestamp,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db, updateNote, type Note } from "@/lib/firebase";
 import type { DbProperty, DbPropType, DbSelectOption, CadenceDatabase } from "@/lib/database";
-import { getCellValue } from "@/lib/database";
+import { getCellValue, moveIdBefore } from "@/lib/database";
 import {
   FM_STATUS_PROP,
   TYPE_PROP,
@@ -30,6 +31,8 @@ export type WorkspacePropertyDef = DbProperty & {
   systemKey?: WorkspacePropSystemKey;
   archived?: boolean;
   updated_at?: Date;
+  /** Front-to-back order in 屬性 panels (workspace schema). */
+  sortOrder?: number;
 };
 
 export const WS_TYPE_ID = "ws_type";
@@ -74,6 +77,7 @@ export function seedWorkspacePropertyDefs(): WorkspacePropertyDef[] {
       type: "select",
       systemKey: "type",
       options: typeOpts,
+      sortOrder: 0,
     },
     {
       id: WS_STATUS_ID,
@@ -86,6 +90,7 @@ export function seedWorkspacePropertyDefs(): WorkspacePropertyDef[] {
         { name: "進行中", optionIds: ["doing"] },
         { name: "完成", optionIds: ["done"] },
       ],
+      sortOrder: 1,
     },
     {
       id: WS_PRIORITY_ID,
@@ -93,12 +98,14 @@ export function seedWorkspacePropertyDefs(): WorkspacePropertyDef[] {
       type: "select",
       systemKey: "priority",
       options: priorityOpts,
+      sortOrder: 2,
     },
     {
       id: WS_DUE_ID,
       name: "期限",
       type: "date",
       systemKey: "due",
+      sortOrder: 3,
     },
   ];
 }
@@ -120,6 +127,8 @@ function parseDef(id: string, data: Record<string, unknown>): WorkspacePropertyD
     archived: !!data.archived,
     workspaceDefId: typeof data.workspaceDefId === "string" ? data.workspaceDefId : undefined,
     updated_at: (data.updated_at as { toDate?: () => Date })?.toDate?.() || undefined,
+    sortOrder: typeof data.sortOrder === "number" ? data.sortOrder : undefined,
+    hidden: !!data.hidden,
   };
 }
 
@@ -128,6 +137,7 @@ function serializeDef(def: WorkspacePropertyDef): Record<string, unknown> {
     name: def.name,
     type: def.type,
     updated_at: Timestamp.now(),
+    hidden: !!def.hidden,
   };
   if (def.options) out.options = def.options;
   if (def.statusGroups) out.statusGroups = def.statusGroups;
@@ -137,7 +147,26 @@ function serializeDef(def: WorkspacePropertyDef): Record<string, unknown> {
   if (def.numberFormat) out.numberFormat = def.numberFormat;
   if (def.systemKey) out.systemKey = def.systemKey;
   if (def.archived) out.archived = true;
+  if (typeof def.sortOrder === "number") out.sortOrder = def.sortOrder;
   return out;
+}
+
+/** Sort catalog defs by sortOrder, then legacy system-id / name order. */
+export function compareWorkspacePropertyDefs(
+  a: WorkspacePropertyDef,
+  b: WorkspacePropertyDef
+): number {
+  const ao = a.sortOrder;
+  const bo = b.sortOrder;
+  if (typeof ao === "number" && typeof bo === "number" && ao !== bo) return ao - bo;
+  if (typeof ao === "number" && typeof bo !== "number") return -1;
+  if (typeof bo === "number" && typeof ao !== "number") return 1;
+  const ai = WORKSPACE_SYSTEM_IDS.indexOf(a.id as (typeof WORKSPACE_SYSTEM_IDS)[number]);
+  const bi = WORKSPACE_SYSTEM_IDS.indexOf(b.id as (typeof WORKSPACE_SYSTEM_IDS)[number]);
+  if (ai >= 0 && bi >= 0) return ai - bi;
+  if (ai >= 0) return -1;
+  if (bi >= 0) return 1;
+  return a.name.localeCompare(b.name, "zh-TW");
 }
 
 /** Ensure system defs exist; returns full catalog (including user defs). */
@@ -158,14 +187,7 @@ export async function ensureWorkspacePropertyDefs(uid: string): Promise<Workspac
 export async function listWorkspacePropertyDefs(uid: string): Promise<WorkspacePropertyDef[]> {
   const snap = await getDocs(defsCol(uid));
   const list = snap.docs.map((d) => parseDef(d.id, d.data() as Record<string, unknown>));
-  list.sort((a, b) => {
-    const ai = WORKSPACE_SYSTEM_IDS.indexOf(a.id as (typeof WORKSPACE_SYSTEM_IDS)[number]);
-    const bi = WORKSPACE_SYSTEM_IDS.indexOf(b.id as (typeof WORKSPACE_SYSTEM_IDS)[number]);
-    if (ai >= 0 && bi >= 0) return ai - bi;
-    if (ai >= 0) return -1;
-    if (bi >= 0) return 1;
-    return a.name.localeCompare(b.name, "zh-TW");
-  });
+  list.sort(compareWorkspacePropertyDefs);
   return list;
 }
 
@@ -178,18 +200,24 @@ export function listenWorkspacePropertyDefs(
     defsCol(uid),
     (snap) => {
       const list = snap.docs.map((d) => parseDef(d.id, d.data() as Record<string, unknown>));
-      list.sort((a, b) => {
-        const ai = WORKSPACE_SYSTEM_IDS.indexOf(a.id as (typeof WORKSPACE_SYSTEM_IDS)[number]);
-        const bi = WORKSPACE_SYSTEM_IDS.indexOf(b.id as (typeof WORKSPACE_SYSTEM_IDS)[number]);
-        if (ai >= 0 && bi >= 0) return ai - bi;
-        if (ai >= 0) return -1;
-        if (bi >= 0) return 1;
-        return a.name.localeCompare(b.name, "zh-TW");
-      });
+      list.sort(compareWorkspacePropertyDefs);
       cb(list);
     },
     (err) => onError?.(err instanceof Error ? err : new Error(String(err)))
   );
+}
+
+/** Persist front-to-back order for workspace catalog (all unbound notes share this). */
+export async function reorderWorkspacePropertyDefs(
+  uid: string,
+  orderedIds: string[]
+): Promise<void> {
+  if (!orderedIds.length) return;
+  const batch = writeBatch(db);
+  orderedIds.forEach((id, i) => {
+    batch.update(defRef(uid, id), { sortOrder: i, updated_at: Timestamp.now() });
+  });
+  await batch.commit();
 }
 
 export async function upsertWorkspacePropertyDef(
@@ -212,8 +240,17 @@ export async function archiveWorkspacePropertyDef(uid: string, id: string): Prom
   await updateDoc(defRef(uid, id), { archived: true, updated_at: Timestamp.now() });
 }
 
+/** Soft-hide / restore a workspace catalog field (values kept). */
+export async function setWorkspacePropertyHidden(
+  uid: string,
+  id: string,
+  hidden: boolean
+): Promise<void> {
+  await updateDoc(defRef(uid, id), { hidden: !!hidden, updated_at: Timestamp.now() });
+}
+
 export function asDbProperty(def: WorkspacePropertyDef): DbProperty {
-  const { systemKey: _s, archived: _a, updated_at: _u, ...rest } = def;
+  const { systemKey: _s, archived: _a, updated_at: _u, sortOrder: _o, ...rest } = def;
   return { ...rest, workspaceDefId: def.id };
 }
 
@@ -558,8 +595,14 @@ export function alignDatabaseToWorkspace(
 
 export function createCustomWorkspaceDef(
   name: string,
-  type: DbPropType = "text"
+  type: DbPropType = "text",
+  sortOrder?: number
 ): WorkspacePropertyDef {
   const id = `ws_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-  return { id, name: name.trim() || "未命名屬性", type };
+  return {
+    id,
+    name: name.trim() || "未命名屬性",
+    type,
+    ...(typeof sortOrder === "number" ? { sortOrder } : { sortOrder: Date.now() }),
+  };
 }

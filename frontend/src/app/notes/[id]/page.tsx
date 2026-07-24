@@ -1957,11 +1957,6 @@ function NotePageInner() {
       onTagInputChange: setTagInput,
       onAddTag: addTag,
       onRemoveTag: removeTag,
-      cover,
-      onCoverChange: (v) => {
-        setCover(v);
-        markDirty({ cover: v });
-      },
       onStatusChange: (status) => {
         const cleared = !status;
         const patch = patchWorkspaceField(note, WS_STATUS_ID, status || "");
@@ -1978,7 +1973,7 @@ function NotePageInner() {
     };
     // addTag/removeTag close over latest tags/tagInput; markDirty is stable enough for this page
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note, folder, tags, tagInput, cover, stats, goalProgress]);
+  }, [note, folder, tags, tagInput, stats, goalProgress]);
 
   const onAsideResize = (px: number) => {
     setAsideWidth(px);
@@ -2711,7 +2706,23 @@ function NotePageInner() {
             </div>
           )}
 
-          {(viewMode === "write" || viewMode === "read") && <NotePageLog noteId={note.id} />}
+          {(viewMode === "write" || viewMode === "read") && (
+            <NotePageLog
+              noteId={note.id}
+              cover={
+                canEditNote && viewMode === "write"
+                  ? {
+                      cover,
+                      userId: user.uid,
+                      onCoverChange: (v) => {
+                        setCover(v);
+                        markDirty({ cover: v });
+                      },
+                    }
+                  : null
+              }
+            />
+          )}
           {aiError && viewMode === "write" && <p className="doc-banner-error">{aiError}</p>}
           {(ingestStatus || ingestError || ingestJobId) && viewMode === "write" && (
             <div className={`doc-banner-ingest${ingestError ? " is-error" : ""}`}>

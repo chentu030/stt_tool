@@ -83,6 +83,8 @@ export type DbProperty = {
   numberFormat?: "number" | "percent" | "currency";
   /** When set, name/type/options resolve from users/{uid}/propertyDefs/{id} */
   workspaceDefId?: string;
+  /** Hidden from default 屬性 panel / views that respect schema hide (values kept). */
+  hidden?: boolean;
 };
 
 export type DbViewType = "table" | "list" | "board" | "calendar" | "gallery" | "form";
@@ -681,6 +683,15 @@ export function removeProperty(properties: DbProperty[], propId: string): DbProp
   return properties.filter((p) => p.id !== propId);
 }
 
+/** Toggle schema-level hide (definition + values kept). */
+export function setPropertyHidden(
+  properties: DbProperty[],
+  propId: string,
+  hidden: boolean
+): DbProperty[] {
+  return properties.map((p) => (p.id === propId ? { ...p, hidden } : p));
+}
+
 /** Ensure created/edited time props exist on the schema (idempotent). */
 export function ensureSystemTimeProperties(properties: DbProperty[]): DbProperty[] {
   let next = properties.slice();
@@ -968,12 +979,14 @@ export function applyViewPipeline(
 }
 
 export function visibleProperties(properties: DbProperty[], view?: DbView): DbProperty[] {
-  if (!view?.visiblePropIds?.length) return properties;
+  // Schema-level hide: omit from default table/board columns (title always stays).
+  const base = properties.filter((p) => p.type === "title" || !p.hidden);
+  if (!view?.visiblePropIds?.length) return base;
   const ordered = view.visiblePropIds
-    .map((id) => properties.find((p) => p.id === id))
+    .map((id) => base.find((p) => p.id === id))
     .filter((p): p is DbProperty => !!p);
   if (!ordered.some((p) => p.type === "title")) {
-    const title = properties.find((p) => p.type === "title");
+    const title = base.find((p) => p.type === "title");
     if (title) return [title, ...ordered.filter((p) => p.id !== title.id)];
   }
   return ordered;

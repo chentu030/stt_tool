@@ -22,6 +22,7 @@ import {
   reorderProperties,
   scrubViewsAfterPropRemove,
   setCellValue,
+  setPropertyHidden,
   updateDatabase,
   visibleProperties,
   type CadenceDatabase,
@@ -616,6 +617,27 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
     });
     await updateDatabase(db.id, { properties, views });
     toast(`已刪除「${prop.name}」`);
+  };
+
+  const hideColumn = async (prop: DbProperty) => {
+    setColMenuPropId(null);
+    if (prop.type === "title") {
+      toast("標題欄無法隱藏");
+      return;
+    }
+    if (!db) return;
+    const properties = setPropertyHidden(db.properties, prop.id, true);
+    setDb({ ...db, properties });
+    await updateDatabase(db.id, { properties });
+    toast(`已隱藏「${prop.name}」（數值仍保留）`);
+  };
+
+  const unhideColumn = async (prop: DbProperty) => {
+    if (!db) return;
+    const properties = setPropertyHidden(db.properties, prop.id, false);
+    setDb({ ...db, properties });
+    await updateDatabase(db.id, { properties });
+    toast(`已顯示「${prop.name}」`);
   };
 
   /** Click column header: none → asc → desc → clear (as primary sort). */
@@ -1473,6 +1495,11 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
                     重新命名
                   </button>
                   {prop.type !== "title" ? (
+                    <button type="button" onClick={() => void hideColumn(prop)}>
+                      隱藏欄位
+                    </button>
+                  ) : null}
+                  {prop.type !== "title" ? (
                     <button type="button" className="cdb-menu-danger" onClick={() => void deleteColumn(prop)}>
                       刪除整欄
                     </button>
@@ -1481,6 +1508,18 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
                       刪除整欄
                     </button>
                   )}
+                  {props.some((p) => p.hidden) ? (
+                    <>
+                      <div className="cdb-menu-sep" role="separator" />
+                      {props
+                        .filter((p) => p.hidden && p.type !== "title")
+                        .map((hp) => (
+                          <button key={hp.id} type="button" onClick={() => void unhideColumn(hp)}>
+                            顯示「{hp.name}」
+                          </button>
+                        ))}
+                    </>
+                  ) : null}
                 </>
               );
             })()}

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { DragEvent, ReactNode } from "react";
 import type { DbPropType } from "@/lib/database";
 
 /** Material Symbols name for a property type — shared by DB-entry and note panels. */
@@ -51,6 +51,16 @@ export function NotePropsFieldsGrid({ children, className, "aria-label": ariaLab
   );
 }
 
+export type PropReorderHandlers = {
+  reorderId: string;
+  dragging: boolean;
+  dragOver: boolean;
+  onDragStart: (id: string, e: DragEvent) => void;
+  onDragOver: (id: string, e: DragEvent) => void;
+  onDrop: (id: string, e: DragEvent) => void;
+  onDragEnd: () => void;
+};
+
 type RowProps = {
   label: string;
   type?: DbPropType | string;
@@ -59,14 +69,65 @@ type RowProps = {
   menu?: ReactNode;
   system?: boolean;
   children: ReactNode;
+  /** When set, row is drag-reorderable via the grip handle. */
+  reorder?: PropReorderHandlers | null;
 };
 
 /** Single property cell: icon + label (+ optional menu) | value. */
-export function NotePropsFieldRow({ label, type, icon, menu, system, children }: RowProps) {
+export function NotePropsFieldRow({
+  label,
+  type,
+  icon,
+  menu,
+  system,
+  children,
+  reorder,
+}: RowProps) {
   const glyph = icon ?? (type ? propTypeIcon(type) : "label");
+  const canReorder = !!reorder;
   return (
-    <div className={`nk-prop-row${system ? " nk-prop-row--system" : ""}`}>
+    <div
+      className={`nk-prop-row${system ? " nk-prop-row--system" : ""}${
+        canReorder && reorder.dragging ? " is-dragging" : ""
+      }${canReorder && reorder.dragOver ? " is-drag-over" : ""}`}
+      data-prop-id={canReorder ? reorder.reorderId : undefined}
+      onDragOver={
+        canReorder
+          ? (e) => {
+              e.preventDefault();
+              reorder.onDragOver(reorder.reorderId, e);
+            }
+          : undefined
+      }
+      onDrop={
+        canReorder
+          ? (e) => {
+              e.preventDefault();
+              reorder.onDrop(reorder.reorderId, e);
+            }
+          : undefined
+      }
+    >
       <div className="nk-prop-row-key">
+        {canReorder ? (
+          <button
+            type="button"
+            className="nk-prop-drag-handle"
+            draggable
+            title="拖曳調整順序"
+            aria-label={`拖曳調整「${label}」順序`}
+            onDragStart={(e) => {
+              e.dataTransfer.setData("text/plain", reorder.reorderId);
+              e.dataTransfer.effectAllowed = "move";
+              reorder.onDragStart(reorder.reorderId, e);
+            }}
+            onDragEnd={() => reorder.onDragEnd()}
+          >
+            <span className="material-symbols-outlined" aria-hidden>
+              drag_indicator
+            </span>
+          </button>
+        ) : null}
         <span className="material-symbols-outlined nk-prop-icon" aria-hidden>
           {glyph}
         </span>
