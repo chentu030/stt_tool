@@ -12572,21 +12572,31 @@ body.is-split-resizing iframe {
 .doc-props:hover { border-bottom-color: var(--border); }
 
 /* Note page: compact database properties (space-efficient vs Notion) */
+/* DB-entry props: same framed card as .nk-props (note knowledge panel) */
 .ndb-props {
-  margin: -0.85rem 0 1.35rem;
-  padding: 0.45rem 0 0.55rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.85rem;
+  padding: 0.55rem 0.7rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-muted) 70%, var(--bg) 30%);
+  container-type: inline-size;
+  container-name: props-panel;
 }
 .ndb-props--loading {
   font-size: 0.78rem;
   color: var(--text-muted);
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0;
 }
 .ndb-props-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.35rem;
   flex-wrap: wrap;
 }
 .ndb-props-head-main {
@@ -12598,9 +12608,9 @@ body.is-split-resizing iframe {
   color: var(--text-muted);
 }
 .ndb-props-head-main strong {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  color: var(--text-main);
+  color: var(--text);
   letter-spacing: 0.02em;
 }
 .ndb-props-db {
@@ -12682,24 +12692,26 @@ body.is-split-resizing iframe {
 .ndb-props-add-group button:hover {
   background: var(--bg-muted);
 }
-.ndb-props-grid {
+.ndb-props-grid,
+.ndb-props-list {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.05rem 1rem;
-}
-@media (min-width: 720px) {
-  .ndb-props.is-expanded .ndb-props-grid,
-  .ndb-props:not(.is-expanded) .ndb-props-grid {
-    grid-template-columns: 1fr 1fr;
-  }
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
+  margin-top: 0.15rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  min-width: 0;
 }
 .ndb-prop-row {
   display: grid;
-  grid-template-columns: minmax(5.5rem, 7.5rem) minmax(0, 1fr);
+  grid-template-columns: minmax(5rem, 6.5rem) minmax(0, 1fr);
   align-items: center;
-  gap: 0.25rem 0.45rem;
+  gap: 0.35rem 0.5rem;
   min-height: 1.7rem;
-  padding: 0.08rem 0;
+  min-width: 0;
+  padding: 0.2rem 0.15rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 .ndb-prop-label {
   display: inline-flex;
@@ -15553,6 +15565,8 @@ body.rich-media-float-dragging * {
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--bg-muted) 70%, var(--bg) 30%);
+  container-type: inline-size;
+  container-name: props-panel;
 }
 .nk-props--aside {
   margin: 0 0 0.75rem;
@@ -15653,25 +15667,65 @@ body.rich-media-float-dragging * {
   gap: 0.35rem;
 }
 .nk-props-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
   margin-top: 0.35rem;
   padding-top: 0.45rem;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  min-width: 0;
 }
 .nk-prop-row {
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
+  grid-template-columns: minmax(5rem, 6.5rem) minmax(0, 1fr);
   gap: 0.5rem;
   align-items: baseline;
+  min-width: 0;
   padding: 0.2rem 0.15rem;
   font-size: 0.78rem;
   line-height: 1.35;
 }
+/* 1 → 2 → 3 property columns. Viewport fallbacks first (Cadence 720 / 1100). */
+@media (min-width: 720px) {
+  .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
+  .ndb-props > .ndb-props-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1100px) {
+  .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
+  .ndb-props > .ndb-props-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+/* Prefer panel width when @container works (matches Cadence editor ~640 / ~780). */
+@supports (container-type: inline-size) {
+  .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
+  .ndb-props > .ndb-props-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @container props-panel (min-width: 520px) {
+    .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
+    .ndb-props > .ndb-props-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @container props-panel (min-width: 780px) {
+    .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
+    .ndb-props > .ndb-props-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+}
 .nk-prop-row-key {
   color: var(--text-muted);
   font-weight: 500;
+  min-width: 0;
+}
+.nk-prop-row-key.ndb-prop-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
 }
 .nk-prop-row-val {
   color: var(--text);
@@ -15679,6 +15733,12 @@ body.rich-media-float-dragging * {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.nk-prop-row-val.ndb-prop-value {
+  /* Editors (chips / selects) need to wrap */
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
 }
 .nk-prop-row--system .nk-prop-row-val {
   font-variant-numeric: tabular-nums;

@@ -267,9 +267,12 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   const hiddenEmpty = !expanded && emptyCount > 0 && filled.length >= COLLAPSED_MAX;
 
   return (
-    <section className={`ndb-props${expanded ? " is-expanded" : ""}`} aria-label="資料庫屬性">
-      <header className="ndb-props-head">
-        <div className="ndb-props-head-main">
+    <section
+      className={`nk-props nk-props--inline ndb-props${expanded ? " is-expanded" : ""}`}
+      aria-label="資料庫屬性"
+    >
+      <header className="nk-props-head ndb-props-head">
+        <div className="nk-props-head-main ndb-props-head-main">
           <strong>屬性</strong>
           <Link href={`/db/${db.id}`} className="ndb-props-db" title="開啟資料庫">
             {db.icon || "▦"} {db.name}
@@ -278,7 +281,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
             {filled.length}/{displayProps.length}
           </span>
         </div>
-        <div className="ndb-props-head-actions">
+        <div className="nk-props-head-actions ndb-props-head-actions">
           {displayProps.length > COLLAPSED_MAX || emptyCount > 0 ? (
             <button
               type="button"
@@ -335,10 +338,10 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
         </div>
       </header>
 
-      <div className="ndb-props-grid">
+      <div className="ndb-props-grid nk-props-rows">
         {visible.map((prop) => (
-          <div key={prop.id} className="ndb-prop-row">
-            <div className="ndb-prop-label">
+          <div key={prop.id} className="nk-prop-row ndb-prop-row">
+            <div className="nk-prop-row-key ndb-prop-label">
               <span className="ndb-prop-icon" aria-hidden>
                 {propIcon(prop.type)}
               </span>
@@ -376,7 +379,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
                 </div>
               ) : null}
             </div>
-            <div className="ndb-prop-value">
+            <div className="nk-prop-row-val ndb-prop-value">
               <PropertyValueEditor
                 note={note}
                 prop={prop}
