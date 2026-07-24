@@ -21048,6 +21048,12 @@ body.is-sidebar-resizing iframe {
   gap: 0.35rem;
   padding: 0 0.15rem 0.15rem;
 }
+.cadence-ai-ctx-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  opacity: 0.85;
+  line-height: 1.35;
+}
 .cadence-ai-focus-label {
   font-size: 0.75rem;
   color: var(--text-muted);
