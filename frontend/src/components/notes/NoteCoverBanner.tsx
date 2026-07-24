@@ -92,6 +92,9 @@ export default function NoteCoverBanner({
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (!adjusting || !canEdit) return;
     if (e.button !== 0) return;
+    // Controls (完成 / 重設 / zoom) live inside the cover; don't start a drag
+    // or preventDefault — that would swallow the subsequent click.
+    if ((e.target as Element | null)?.closest?.(".doc-cover-actions")) return;
     const el = wrapRef.current;
     if (!el) return;
     e.preventDefault();
@@ -169,7 +172,10 @@ export default function NoteCoverBanner({
         }}
       />
       {canEdit ? (
-        <div className="doc-cover-actions">
+        <div
+          className="doc-cover-actions"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           {adjusting ? (
             <>
               <label className="doc-cover-zoom">
