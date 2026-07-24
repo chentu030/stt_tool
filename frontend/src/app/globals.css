@@ -11569,6 +11569,28 @@ body.is-split-resizing iframe {
   border-radius: 10px;
   border: 1px solid var(--border);
 }
+.doc-versions--modal {
+  width: min(440px, 100%);
+  max-height: min(70vh, 560px);
+  margin: 0;
+  padding: 1rem 1.05rem 0.85rem;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow), 0 24px 64px rgba(15, 23, 42, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.doc-versions--modal .doc-versions-head {
+  flex-shrink: 0;
+  align-items: center;
+}
+.doc-versions-list {
+  overflow: auto;
+  min-height: 0;
+  margin: 0 -0.25rem;
+  padding: 0 0.25rem;
+}
 .doc-versions-head {
   display: flex;
   justify-content: space-between;

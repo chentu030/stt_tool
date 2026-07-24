@@ -201,6 +201,7 @@ function NotePageInner() {
   const [slideFocusIndex, setSlideFocusIndex] = useState<number | null>(null);
   const [slideFocusNonce, setSlideFocusNonce] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versionsLoading, setVersionsLoading] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [ribbonHost, setRibbonHost] = useState<HTMLDivElement | null>(null);
   const [asideOpen, setAsideOpen] = useState(() => {
@@ -693,7 +694,7 @@ function NotePageInner() {
   }, [moreOpen, placeMoreMenu, viewMode]);
 
   useEffect(() => {
-    if (!moreOpen && !exportMenuOpen) return;
+    if (!moreOpen && !exportMenuOpen && !versionsOpen) return;
     const onPointerDown = (e: PointerEvent) => {
       const t = e.target as Node | null;
       if (!t) return;
@@ -712,6 +713,7 @@ function NotePageInner() {
       if (e.key === "Escape") {
         setMoreOpen(false);
         setExportMenuOpen(false);
+        setVersionsOpen(false);
       }
     };
     const onReposition = () => {
@@ -728,7 +730,7 @@ function NotePageInner() {
       window.removeEventListener("resize", onReposition);
       window.removeEventListener("scroll", onReposition, true);
     };
-  }, [moreOpen, exportMenuOpen, placeMoreMenu]);
+  }, [moreOpen, exportMenuOpen, versionsOpen, placeMoreMenu]);
 
   useEffect(() => {
     const { total, checked } = countTaskCheckboxes(body);
@@ -1678,6 +1680,22 @@ function NotePageInner() {
     router.push("/library");
   };
 
+  const openVersionHistory = () => {
+    if (!note?.id) return;
+    const noteId = note.id;
+    setVersionsOpen(true);
+    setVersionsLoading(true);
+    void (async () => {
+      try {
+        setVersions(await listNoteVersions(noteId));
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "無法載入版本歷史");
+      } finally {
+        setVersionsLoading(false);
+      }
+    })();
+  };
+
   const copyMd = async () => {
     await navigator.clipboard.writeText(`# ${title}\n\n${body}`);
     toast("已複製 Markdown");
@@ -2253,10 +2271,7 @@ function NotePageInner() {
                         { label: "白話說明", fn: () => runAi("explain") },
                         {
                           label: "版本歷史",
-                          fn: async () => {
-                            setVersionsOpen(true);
-                            setVersions(await listNoteVersions(note.id));
-                          },
+                          fn: () => openVersionHistory(),
                         },
                       ]
                     : []),
@@ -2482,38 +2497,66 @@ function NotePageInner() {
             </div>
           )}
 
-          {viewMode === "write" && versionsOpen && (
-            <div className="doc-versions">
-              <div className="doc-versions-head">
-                <strong>版本歷史</strong>
-                <button type="button" className="doc-cmd" onClick={() => setVersionsOpen(false)}>關閉</button>
-              </div>
-              {versions.length === 0 ? (
-                <p className="note-aside-empty">尚無快照。</p>
-              ) : versions.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  className="doc-version-row"
-                  onClick={() => {
-                    void (async () => {
-                      if (!(await askConfirm("還原此版本？"))) return;
-                      setTitle(v.title);
-                      setBody(v.body_md);
-                      markDirty({ title: v.title, body: v.body_md });
-                      setVersionsOpen(false);
-                    })();
+          {versionsOpen && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="cadence-dialog-backdrop"
+                  role="presentation"
+                  onMouseDown={(e) => {
+                    if (e.target === e.currentTarget) setVersionsOpen(false);
                   }}
                 >
-                  <span>{v.title || "（無標題）"}</span>
-                  <span>
-                    {v.summary ? `${v.summary} · ` : ""}
-                    {v.created_at.toLocaleString("zh-TW")}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+                  <div
+                    className="doc-versions doc-versions--modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="版本歷史"
+                  >
+                    <div className="doc-versions-head">
+                      <strong>版本歷史</strong>
+                      <button
+                        type="button"
+                        className="doc-cmd"
+                        onClick={() => setVersionsOpen(false)}
+                      >
+                        關閉
+                      </button>
+                    </div>
+                    {versionsLoading ? (
+                      <p className="note-aside-empty">載入中…</p>
+                    ) : versions.length === 0 ? (
+                      <p className="note-aside-empty">尚無快照。</p>
+                    ) : (
+                      <div className="doc-versions-list">
+                        {versions.map((v) => (
+                          <button
+                            key={v.id}
+                            type="button"
+                            className="doc-version-row"
+                            onClick={() => {
+                              void (async () => {
+                                if (!(await askConfirm("還原此版本？"))) return;
+                                setTitle(v.title);
+                                setBody(v.body_md);
+                                markDirty({ title: v.title, body: v.body_md });
+                                setVersionsOpen(false);
+                              })();
+                            }}
+                          >
+                            <span>{v.title || "（無標題）"}</span>
+                            <span>
+                              {v.summary ? `${v.summary} · ` : ""}
+                              {v.created_at.toLocaleString("zh-TW")}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>,
+                document.body
+              )
+            : null}
 
           {(viewMode === "write" || viewMode === "read") && cover && (
             <div
