@@ -44,8 +44,10 @@ import {
 } from "@/lib/libraryIndex";
 import {
   dataTransferHasFiles,
+  filesFromDataTransfer,
   importMarkdownFilesAsNotes,
-  markdownFilesFromDataTransfer,
+  pickMarkdownFiles,
+  pickMarkdownFolder,
 } from "@/lib/importMarkdownNotes";
 
 const SORT_OPTIONS = [
@@ -211,6 +213,18 @@ function LibraryPageInner() {
     }
   };
 
+  const importMarkdownPicker = async () => {
+    const files = await pickMarkdownFiles();
+    if (!files.length) return;
+    await importDroppedMarkdown(files);
+  };
+
+  const importFolderPicker = async () => {
+    const files = await pickMarkdownFolder();
+    if (!files.length) return;
+    await importDroppedMarkdown(files);
+  };
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -309,12 +323,12 @@ function LibraryPageInner() {
         e.preventDefault();
         mdDragDepth.current = 0;
         setMdDropOver(false);
-        void importDroppedMarkdown(markdownFilesFromDataTransfer(e.dataTransfer));
+        void importDroppedMarkdown(filesFromDataTransfer(e.dataTransfer));
       }}
     >
       {mdDropOver ? (
         <div className="kb-md-drop-overlay" aria-live="polite">
-          放開以匯入 Markdown
+          放開以匯入 Markdown／資料夾
           {folderFilter ? `到「${folderFilter}」` : ""}
         </div>
       ) : null}
@@ -340,6 +354,28 @@ function LibraryPageInner() {
             onClick={() => openGlobalAiRail()}
           >
             AI
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            disabled={creating}
+            title="選擇多個 .md 檔"
+            onClick={() => {
+              void importMarkdownPicker();
+            }}
+          >
+            匯入 Markdown
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            disabled={creating}
+            title="選擇資料夾，保留子資料夾結構（含 YAML）"
+            onClick={() => {
+              void importFolderPicker();
+            }}
+          >
+            匯入資料夾
           </button>
           <button
             type="button"

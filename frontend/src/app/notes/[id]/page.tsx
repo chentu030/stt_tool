@@ -83,6 +83,7 @@ import {
   downloadPdfViaPrint,
   downloadPptOutline,
 } from "@/lib/exportNote";
+import { ALIASES_PROP, FRONTMATTER_PROP } from "@/lib/importMarkdownNotes";
 import SlideStudio, { SlideStudioActions } from "@/components/slides/SlideStudio";
 import {
   SlideDeck,
@@ -1327,7 +1328,7 @@ function NotePageInner() {
 
   const backlinks = useMemo(() => {
     if (!note) return [];
-    return findBacklinks(allNotes, { id: note.id, title, body_md: body, tags });
+    return findBacklinks(allNotes, { id: note.id, title, body_md: body, tags, props: note.props });
   }, [allNotes, note, title, body, tags]);
 
   const outbound = useMemo(() => extractWikiLinks(body), [body]);
@@ -1594,6 +1595,7 @@ function NotePageInner() {
           title: n.title,
           body_md: n.body_md,
           tags: n.tags,
+          props: n.props as Record<string, unknown> | undefined,
         })),
         t
       );
@@ -2293,7 +2295,27 @@ function NotePageInner() {
                         { label: "複製筆記", fn: () => duplicate() },
                       ]
                     : []),
-                  { label: "匯出 Markdown", fn: () => downloadMarkdown(title, body) },
+                  {
+                    label: "匯出 Markdown（含 YAML）",
+                    fn: () =>
+                      downloadMarkdown(title, body, {
+                        title,
+                        tags,
+                        aliases: Array.isArray(note?.props?.[ALIASES_PROP])
+                          ? (note!.props![ALIASES_PROP] as string[])
+                          : [],
+                        journalDate: note?.journal_date || undefined,
+                        folder: folder || undefined,
+                        created: note?.created_at,
+                        updated: note?.updated_at || new Date(),
+                        extras:
+                          note?.props && typeof note.props[FRONTMATTER_PROP] === "object"
+                            ? {
+                                ...(note.props[FRONTMATTER_PROP] as Record<string, unknown>),
+                              }
+                            : {},
+                      }),
+                  },
                   { label: "匯出 PDF", fn: () => downloadPdfViaPrint(title, body) },
                   { label: "匯出 DOCX", fn: () => { void downloadDocx(title, body); } },
                   { label: "匯出簡報大綱", fn: () => downloadPptOutline(title, body) },

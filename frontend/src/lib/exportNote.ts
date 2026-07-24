@@ -15,13 +15,75 @@ import {
 } from "docx";
 import { saveAs } from "file-saver";
 import { toast } from "@/lib/toast";
+import {
+  ALIASES_PROP,
+  FRONTMATTER_PROP,
+  markdownWithFrontmatter,
+} from "@/lib/importMarkdownNotes";
 
 function safeName(title: string) {
   return (title || "note").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
 }
 
-export function downloadMarkdown(title: string, body: string) {
-  const blob = new Blob([`# ${title}\n\n${body}`], { type: "text/markdown;charset=utf-8" });
+export type MarkdownExportMeta = {
+  title?: string;
+  tags?: string[];
+  aliases?: string[];
+  journalDate?: string;
+  folder?: string;
+  created?: string | Date;
+  updated?: string | Date;
+  extras?: Record<string, unknown>;
+  /** When true (default), wrap with YAML frontmatter for round-trip */
+  includeFrontmatter?: boolean;
+};
+
+/** Build markdown text with optional YAML frontmatter (含 YAML). */
+export function buildExportMarkdown(
+  title: string,
+  body: string,
+  meta?: MarkdownExportMeta
+): string {
+  const includeFm = meta?.includeFrontmatter !== false;
+  if (!includeFm) {
+    return `# ${title}\n\n${body || ""}`;
+  }
+  const aliases =
+    meta?.aliases ||
+    (Array.isArray(meta?.extras?.[ALIASES_PROP])
+      ? (meta!.extras![ALIASES_PROP] as string[])
+      : undefined);
+  const extras = { ...(meta?.extras || {}) };
+  delete extras[ALIASES_PROP];
+  delete extras[FRONTMATTER_PROP];
+  const fmExtras =
+    meta?.extras && typeof meta.extras[FRONTMATTER_PROP] === "object"
+      ? {
+          ...(meta.extras[FRONTMATTER_PROP] as Record<string, unknown>),
+          ...extras,
+        }
+      : extras;
+  return markdownWithFrontmatter(body || "", {
+    title: meta?.title ?? title,
+    tags: meta?.tags,
+    aliases,
+    journalDate: meta?.journalDate,
+    folder:
+      meta?.folder ||
+      (typeof fmExtras.folder === "string" ? fmExtras.folder : undefined),
+    created: meta?.created,
+    updated: meta?.updated,
+    extras: fmExtras,
+  });
+}
+
+export function downloadMarkdown(
+  title: string,
+  body: string,
+  meta?: MarkdownExportMeta
+) {
+  const text = buildExportMarkdown(title, body, meta);
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
   saveAs(blob, `${safeName(title)}.md`);
 }
 

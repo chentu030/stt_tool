@@ -1,5 +1,11 @@
 /** Knowledge-base indexing, search ranking, and AI context packing */
 
+import {
+  ALIASES_PROP,
+  FRONTMATTER_PROP,
+  markdownWithFrontmatter,
+} from "@/lib/importMarkdownNotes";
+
 export type LibraryNote = {
   id: string;
   title: string;
@@ -11,6 +17,7 @@ export type LibraryNote = {
   icon?: string;
   color?: string;
   source_job_id?: string;
+  props?: Record<string, unknown>;
   updated_at: Date;
   created_at: Date;
 };
@@ -304,13 +311,24 @@ export function packLibraryContext(
 export function exportNotesMarkdown(notes: LibraryNote[], title = "Albireus 知識庫匯出"): string {
   const lines = [`# ${title}`, "", `匯出時間：${new Date().toLocaleString("zh-TW")}`, `篇數：${notes.length}`, ""];
   for (const n of notes) {
-    lines.push(`## ${n.title}`);
-    lines.push("");
-    if (n.folder) lines.push(`- 資料夾：${n.folder}`);
-    if ((n.tags || []).length) lines.push(`- 標籤：${(n.tags || []).map((t) => `#${t}`).join(" ")}`);
-    lines.push(`- 更新：${n.updated_at.toLocaleString("zh-TW")}`);
-    lines.push("");
-    lines.push(n.body_md || "");
+    const aliases = Array.isArray(n.props?.[ALIASES_PROP])
+      ? (n.props![ALIASES_PROP] as string[])
+      : [];
+    const extras =
+      n.props && typeof n.props[FRONTMATTER_PROP] === "object"
+        ? { ...(n.props[FRONTMATTER_PROP] as Record<string, unknown>) }
+        : {};
+    const chunk = markdownWithFrontmatter(n.body_md || "", {
+      title: n.title,
+      tags: n.tags,
+      aliases,
+      journalDate: n.journal_date,
+      folder: n.folder,
+      created: n.created_at,
+      updated: n.updated_at,
+      extras,
+    });
+    lines.push(chunk);
     lines.push("");
     lines.push("---");
     lines.push("");

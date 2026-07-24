@@ -1,5 +1,7 @@
 /** Cadence [[note link]] helpers */
 
+import { ALIASES_PROP } from "@/lib/importMarkdownNotes";
+
 export function extractWikiLinks(md: string): string[] {
   const out: string[] = [];
   const re = /\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]/g;
@@ -22,21 +24,43 @@ export function extractTagsFromText(md: string): string[] {
   return out;
 }
 
-export type NoteLite = { id: string; title: string; body_md: string; tags?: string[] };
+export type NoteLite = {
+  id: string;
+  title: string;
+  body_md: string;
+  tags?: string[];
+  /** note.props — used for aliases from YAML import */
+  props?: Record<string, unknown>;
+};
+
+function aliasesOf(n: NoteLite): string[] {
+  const raw = n.props?.[ALIASES_PROP];
+  if (!Array.isArray(raw)) return [];
+  return raw.map((x) => String(x).trim()).filter(Boolean);
+}
 
 export function findNoteByTitle(notes: NoteLite[], title: string): NoteLite | undefined {
   const t = title.trim().toLowerCase();
-  return notes.find((n) => n.title.trim().toLowerCase() === t)
-    || notes.find((n) => n.title.trim().toLowerCase().includes(t));
+  if (!t) return undefined;
+  const exactTitle = notes.find((n) => n.title.trim().toLowerCase() === t);
+  if (exactTitle) return exactTitle;
+  const exactAlias = notes.find((n) =>
+    aliasesOf(n).some((a) => a.toLowerCase() === t)
+  );
+  if (exactAlias) return exactAlias;
+  return notes.find((n) => n.title.trim().toLowerCase().includes(t));
 }
 
 export function findBacklinks(notes: NoteLite[], current: NoteLite): NoteLite[] {
-  const title = current.title.trim().toLowerCase();
-  if (!title) return [];
+  const titles = [
+    current.title.trim().toLowerCase(),
+    ...aliasesOf(current).map((a) => a.toLowerCase()),
+  ].filter(Boolean);
+  if (!titles.length) return [];
   return notes.filter((n) => {
     if (n.id === current.id) return false;
     const links = extractWikiLinks(n.body_md).map((x) => x.toLowerCase());
-    return links.includes(title);
+    return titles.some((t) => links.includes(t));
   });
 }
 
@@ -44,7 +68,10 @@ export function suggestWikiTitles(notes: NoteLite[], query: string, limit = 8): 
   const q = query.trim().toLowerCase();
   if (!q) return notes.slice(0, limit);
   return notes
-    .filter((n) => n.title.toLowerCase().includes(q))
+    .filter((n) => {
+      if (n.title.toLowerCase().includes(q)) return true;
+      return aliasesOf(n).some((a) => a.toLowerCase().includes(q));
+    })
     .slice(0, limit);
 }
 

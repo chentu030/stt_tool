@@ -55,8 +55,10 @@ import {
 import { toast } from "@/lib/toast";
 import {
   dataTransferHasFiles,
+  filesFromDataTransfer,
   importMarkdownFilesAsNotes,
-  markdownFilesFromDataTransfer,
+  pickMarkdownFiles,
+  pickMarkdownFolder,
 } from "@/lib/importMarkdownNotes";
 
 const EXPAND_KEY = "cadence_sidebar_expand_v1";
@@ -660,6 +662,18 @@ export default function SidebarNotesTree() {
     }
   };
 
+  const importMdPicker = async (folderPath?: string) => {
+    const files = await pickMarkdownFiles();
+    if (!files.length) return;
+    await importMdFiles(files, folderPath);
+  };
+
+  const importMdFolderPicker = async (folderPath?: string) => {
+    const files = await pickMarkdownFolder();
+    if (!files.length) return;
+    await importMdFiles(files, folderPath);
+  };
+
   const toggleFav = (noteId: string) => {
     if (!prefsCtx) return;
     prefsCtx.setPrefs((prev) => toggleFavoriteId(prev, noteId));
@@ -1132,6 +1146,18 @@ export default function SidebarNotesTree() {
         },
         {
           type: "item",
+          label: "匯入 Markdown…",
+          action: () =>
+            void importMdPicker(target.path === UNCATEGORIZED ? "" : target.path),
+        },
+        {
+          type: "item",
+          label: "匯入資料夾…",
+          action: () =>
+            void importMdFolderPicker(target.path === UNCATEGORIZED ? "" : target.path),
+        },
+        {
+          type: "item",
           label: "新增其他頁面…",
           action: () => {
             const folder = target.path === UNCATEGORIZED ? "" : target.path;
@@ -1167,6 +1193,16 @@ export default function SidebarNotesTree() {
       { type: "sep" },
       { type: "item", label: "新資料夾", action: () => void createFolder() },
       { type: "item", label: "新增筆記", action: () => newNote() },
+      {
+        type: "item",
+        label: "匯入 Markdown…",
+        action: () => void importMdPicker(),
+      },
+      {
+        type: "item",
+        label: "匯入資料夾…",
+        action: () => void importMdFolderPicker(),
+      },
       {
         type: "item",
         label: "新增其他頁面…",
@@ -1334,7 +1370,7 @@ export default function SidebarNotesTree() {
             e.preventDefault();
             e.stopPropagation();
             if (dataTransferHasFiles(e.dataTransfer)) {
-              const files = markdownFilesFromDataTransfer(e.dataTransfer);
+              const files = filesFromDataTransfer(e.dataTransfer);
               const folder = normalizeFolderPath(note.folder || "") || "";
               clearDragState();
               void importMdFiles(files, folder);
@@ -1541,7 +1577,7 @@ export default function SidebarNotesTree() {
         if (!dataTransferHasFiles(e.dataTransfer)) return;
         e.preventDefault();
         e.stopPropagation();
-        const files = markdownFilesFromDataTransfer(e.dataTransfer);
+        const files = filesFromDataTransfer(e.dataTransfer);
         const folder =
           fileDropTarget && fileDropTarget !== UNCATEGORIZED ? fileDropTarget : undefined;
         clearDragState();
@@ -1603,7 +1639,7 @@ export default function SidebarNotesTree() {
 
       {!hintDismissed && (
         <div className="sb-hint">
-          <span>⌘K 搜尋 · 拖曳 .md 匯入 · 拖曳排序／移資料夾 · 右鍵管理</span>
+          <span>⌘K 搜尋 · 匯入資料夾／拖曳 .md · 拖曳排序 · 右鍵管理</span>
           <button
             type="button"
             aria-label="關閉提示"
@@ -1752,7 +1788,7 @@ export default function SidebarNotesTree() {
                       e.preventDefault();
                       e.stopPropagation();
                       if (dataTransferHasFiles(e.dataTransfer)) {
-                        const files = markdownFilesFromDataTransfer(e.dataTransfer);
+                        const files = filesFromDataTransfer(e.dataTransfer);
                         clearDragState();
                         void importMdFiles(
                           files,
