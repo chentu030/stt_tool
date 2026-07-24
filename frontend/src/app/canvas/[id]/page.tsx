@@ -1333,6 +1333,19 @@ function CanvasIdPageInner() {
     }
   }, [ready, doc.media]);
 
+  /** Open note in the right split pane on the canvas. */
+  const openNoteSplit = (noteId: string) => {
+    if (!noteTabs) {
+      router.push(`/notes/${noteId}`);
+      return;
+    }
+    noteTabs.open(noteId);
+    noteTabs.setSplit(noteId);
+    setSplitLayout((prev) =>
+      prev.collapse !== "none" ? { ...prev, collapse: "none" } : prev
+    );
+  };
+
   const onPointerDown = (e: REPointerEvent) => {
     const t = e.target as HTMLElement;
     // Connect ports / edge ends handle themselves — don't steal those events.
@@ -1902,6 +1915,16 @@ function CanvasIdPageInner() {
     }
     if (d?.mode === "move" && d.moved) pushHistory(doc);
     if (d?.mode === "resize") pushHistory(doc);
+    // 點一下筆記框（未拖曳）→ 右側雙頁開啟該筆記
+    if (
+      d?.mode === "move" &&
+      !d.moved &&
+      d.ids?.length === 1 &&
+      d.ids[0].type === "note" &&
+      tool !== "connect"
+    ) {
+      openNoteSplit(d.ids[0].id);
+    }
     strokeMoveOrigin.current = {};
     drag.current = null;
   };
@@ -2026,13 +2049,7 @@ function CanvasIdPageInner() {
       }));
       setSelected([{ type: "note", id: noteId }]);
     }
-    if (noteTabs) {
-      noteTabs.open(noteId);
-      noteTabs.setSplit(noteId);
-      setSplitLayout((prev) =>
-        prev.collapse === "right" ? { ...prev, collapse: "none" } : prev
-      );
-    }
+    openNoteSplit(noteId);
   };
 
   useEffect(() => {
@@ -2806,25 +2823,12 @@ function CanvasIdPageInner() {
                       const sx = Number(el.dataset.sx || 0);
                       const sy = Number(el.dataset.sy || 0);
                       if (Math.hypot(e.clientX - sx, e.clientY - sy) > 6) return;
-                      if (noteTabs) {
-                        noteTabs.open(n.id);
-                        noteTabs.setSplit(n.id);
-                        setSplitLayout((prev) =>
-                          prev.collapse === "right" ? { ...prev, collapse: "none" } : prev
-                        );
-                        return;
-                      }
-                      router.push(`/notes/${n.id}`);
+                      openNoteSplit(n.id);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        if (noteTabs) {
-                          noteTabs.open(n.id);
-                          noteTabs.setSplit(n.id);
-                          return;
-                        }
-                        router.push(`/notes/${n.id}`);
+                        openNoteSplit(n.id);
                       }
                     }}
                   >
