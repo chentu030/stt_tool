@@ -15592,8 +15592,8 @@ body.rich-media-float-dragging * {
 }
 .nk-prop-row {
   display: grid;
-  /* Fixed key rail so every row’s icon + label share one left edge */
-  grid-template-columns: 5.75rem minmax(0, 1fr);
+  /* Fixed key rail (includes drag-slot) so every row’s icon + label share one left edge */
+  grid-template-columns: 6.75rem minmax(0, 1fr);
   gap: 0.35rem 0.45rem;
   align-items: center;
   min-height: 1.85rem;
@@ -15609,6 +15609,14 @@ body.rich-media-float-dragging * {
   outline: 1px dashed color-mix(in srgb, var(--accent) 70%, transparent);
   outline-offset: 1px;
   border-radius: 6px;
+}
+.nk-prop-drag-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
 }
 .nk-prop-drag-handle {
   display: inline-flex;
@@ -15724,21 +15732,15 @@ body.rich-media-float-dragging * {
 }
 .nk-prop-row-key {
   display: grid;
-  grid-template-columns: 1.15rem minmax(0, 1fr) 0.9rem;
+  /* drag-slot | icon | name | menu — same for meta + reorderable rows */
+  grid-template-columns: 1rem 1.15rem minmax(0, 1fr) 0.9rem;
   align-items: center;
-  column-gap: 0.28rem;
+  column-gap: 0.15rem;
   min-width: 0;
   width: 100%;
   color: var(--text-muted);
   font-weight: 500;
   text-align: left;
-}
-.nk-prop-row:has(.nk-prop-drag-handle) {
-  grid-template-columns: 6.75rem minmax(0, 1fr);
-}
-.nk-prop-row-key:has(.nk-prop-drag-handle) {
-  grid-template-columns: 1rem 1.15rem minmax(0, 1fr) 0.9rem;
-  column-gap: 0.15rem;
 }
 .nk-prop-icon {
   width: 1.15rem;

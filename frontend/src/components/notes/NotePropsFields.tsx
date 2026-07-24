@@ -109,25 +109,28 @@ export function NotePropsFieldRow({
       }
     >
       <div className="nk-prop-row-key">
-        {canReorder ? (
-          <button
-            type="button"
-            className="nk-prop-drag-handle"
-            draggable
-            title="拖曳調整順序"
-            aria-label={`拖曳調整「${label}」順序`}
-            onDragStart={(e) => {
-              e.dataTransfer.setData("text/plain", reorder.reorderId);
-              e.dataTransfer.effectAllowed = "move";
-              reorder.onDragStart(reorder.reorderId, e);
-            }}
-            onDragEnd={() => reorder.onDragEnd()}
-          >
-            <span className="material-symbols-outlined" aria-hidden>
-              drag_indicator
-            </span>
-          </button>
-        ) : null}
+        {/* Always reserve drag-handle width so icons align across meta + movable rows */}
+        <div className="nk-prop-drag-slot">
+          {canReorder ? (
+            <button
+              type="button"
+              className="nk-prop-drag-handle"
+              draggable
+              title="拖曳調整順序"
+              aria-label={`拖曳調整「${label}」順序`}
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/plain", reorder.reorderId);
+                e.dataTransfer.effectAllowed = "move";
+                reorder.onDragStart(reorder.reorderId, e);
+              }}
+              onDragEnd={() => reorder.onDragEnd()}
+            >
+              <span className="material-symbols-outlined" aria-hidden>
+                drag_indicator
+              </span>
+            </button>
+          ) : null}
+        </div>
         <span className="material-symbols-outlined nk-prop-icon" aria-hidden>
           {glyph}
         </span>
