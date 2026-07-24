@@ -166,7 +166,8 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
     }
     setDb({ ...db, properties: next });
     await updateDatabase(db.id, { properties: next });
-    setExpanded(true);
+    setCollapsed(false);
+    setShowAll(true);
     toast(`已新增屬性「${next.find((p) => p.id === created.id)?.name || ""}」`);
   };
 
@@ -238,142 +239,181 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
     });
     setDb({ ...db, properties: next });
     await updateDatabase(db.id, { properties: next });
-    setExpanded(true);
+    setCollapsed(false);
+    setShowAll(true);
     toast(`已加入工作區屬性「${def.name}」`);
   };
 
-  const hiddenEmpty = !expanded && emptyCount > 0 && filled.length >= COLLAPSED_MAX;
+  const addMenu = !readOnly ? (
+    <div className="ndb-props-add-wrap">
+      <button
+        ref={addBtnRef}
+        type="button"
+        className="nk-props-add"
+        aria-expanded={addOpen}
+        onClick={() => setAddOpen((v) => !v)}
+      >
+        + 新增屬性
+      </button>
+      {addOpen ? (
+        <div className="ndb-props-add-menu" role="menu">
+          {wsDefs.filter((d) => !d.archived).length ? (
+            <div className="ndb-props-add-group">
+              <strong>工作區屬性</strong>
+              {wsDefs
+                .filter((d) => !d.archived)
+                .map((d) => (
+                  <button key={d.id} type="button" role="menuitem" onClick={() => void addWorkspaceProp(d)}>
+                    {d.name}
+                  </button>
+                ))}
+            </div>
+          ) : null}
+          {["基本", "選項", "聯絡", "進階", "系統"].map((g) => (
+            <div key={g} className="ndb-props-add-group">
+              <strong>{g}</strong>
+              {ADDABLE_DB_PROPS.filter((a) => a.group === g).map((a) => (
+                <button key={a.type} type="button" role="menuitem" onClick={() => void addProp(a.type)}>
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
+  const collapsedSummary =
+    [
+      filled
+        .slice(0, 3)
+        .map((p) => p.name)
+        .join(" · ") || null,
+      displayProps.length ? `${filled.length}/${displayProps.length} 個屬性` : null,
+      db.name ? `資料庫 · ${db.name}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "點擊展開屬性";
 
   return (
     <section
-      className={`nk-props nk-props--inline ndb-props${expanded ? " is-expanded" : ""}`}
+      className={`nk-props nk-props--inline ndb-props${collapsed ? " is-collapsed" : ""}`}
       aria-label="資料庫屬性"
     >
       <header className="nk-props-head">
-        <div className="nk-props-head-main">
-          <strong>屬性</strong>
-          <Link href={`/db/${db.id}`} className="ndb-props-db" title="開啟資料庫">
-            {db.icon || "▦"} {db.name}
-          </Link>
-          <span className="ndb-props-count">
-            {filled.length}/{displayProps.length}
-          </span>
-        </div>
-        <div className="nk-props-head-actions">
-          {displayProps.length > COLLAPSED_MAX || emptyCount > 0 ? (
-            <button
-              type="button"
-              className="nk-props-add"
-              onClick={() => setExpanded((v) => !v)}
+        <button
+          type="button"
+          className="nk-props-head-toggle"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "展開屬性" : "收合屬性"}
+          title={collapsed ? "展開" : "收合"}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <div className="nk-props-head-main">
+            <strong>屬性</strong>
+            <Link
+              href={`/db/${db.id}`}
+              className="ndb-props-db"
+              title="開啟資料庫"
+              onClick={(e) => e.stopPropagation()}
             >
-              {expanded ? "收合" : hiddenEmpty ? `展開（含 ${emptyCount} 個空白）` : "展開全部"}
-            </button>
-          ) : null}
-          {!readOnly ? (
-            <div className="ndb-props-add-wrap">
-              <button
-                ref={addBtnRef}
-                type="button"
-                className="nk-props-add ndb-props-add"
-                aria-expanded={addOpen}
-                onClick={() => setAddOpen((v) => !v)}
-              >
-                + 屬性
-              </button>
-              {addOpen ? (
-                <div className="ndb-props-add-menu" role="menu">
-                  {wsDefs.filter((d) => !d.archived).length ? (
-                    <div className="ndb-props-add-group">
-                      <strong>工作區屬性</strong>
-                      {wsDefs
-                        .filter((d) => !d.archived)
-                        .map((d) => (
-                          <button
-                            key={d.id}
-                            type="button"
-                            role="menuitem"
-                            onClick={() => void addWorkspaceProp(d)}
-                          >
-                            {d.name}
-                          </button>
-                        ))}
-                    </div>
-                  ) : null}
-                  {["基本", "選項", "聯絡", "進階", "系統"].map((g) => (
-                    <div key={g} className="ndb-props-add-group">
-                      <strong>{g}</strong>
-                      {ADDABLE_DB_PROPS.filter((a) => a.group === g).map((a) => (
-                        <button key={a.type} type="button" role="menuitem" onClick={() => void addProp(a.type)}>
-                          {a.label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+              {db.icon || "▦"} {db.name}
+            </Link>
+            <span className="ndb-props-count">
+              {filled.length}/{displayProps.length}
+            </span>
+          </div>
+          <span className="nk-props-icon-btn nk-props-chevron" aria-hidden="true">
+            {collapsed ? "▸" : "▾"}
+          </span>
+        </button>
+        <div className="nk-props-head-actions">
+          <button
+            type="button"
+            className="nk-props-icon-btn"
+            aria-label="關閉屬性面板"
+            title="關閉"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCollapsed(true);
+            }}
+          >
+            ×
+          </button>
         </div>
       </header>
 
-      <NotePropsFieldsGrid aria-label="資料庫屬性欄位">
-        {visible.map((prop) => (
-          <NotePropsFieldRow
-            key={prop.id}
-            label={prop.name}
-            type={prop.type}
-            menu={
-              !readOnly ? (
-                <div className="nk-prop-menu-wrap">
-                  <button
-                    type="button"
-                    className="nk-prop-menu-btn"
-                    aria-label={`${prop.name} 選項`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMenuPropId((id) => (id === prop.id ? null : prop.id));
-                    }}
-                  >
-                    ···
-                  </button>
-                  {menuPropId === prop.id ? (
-                    <div className="nk-prop-menu" role="menu">
-                      <button type="button" role="menuitem" onClick={() => void renameProp(prop)}>
-                        重新命名
-                      </button>
+      {collapsed ? (
+        <button type="button" className="nk-props-collapsed-summary" onClick={() => setCollapsed(false)}>
+          {collapsedSummary}
+        </button>
+      ) : (
+        <>
+          <NotePropsFieldsGrid aria-label="資料庫屬性欄位">
+            {visible.map((prop) => (
+              <NotePropsFieldRow
+                key={prop.id}
+                label={prop.name}
+                type={prop.type}
+                system={prop.type === "created_time" || prop.type === "last_edited_time"}
+                menu={
+                  !readOnly ? (
+                    <div className="nk-prop-menu-wrap">
                       <button
                         type="button"
-                        role="menuitem"
-                        className="is-danger"
-                        onClick={() => void deleteProp(prop)}
+                        className="nk-prop-menu-btn"
+                        aria-label={`${prop.name} 選項`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuPropId((id) => (id === prop.id ? null : prop.id));
+                        }}
                       >
-                        刪除屬性
+                        ···
                       </button>
+                      {menuPropId === prop.id ? (
+                        <div className="nk-prop-menu" role="menu">
+                          <button type="button" role="menuitem" onClick={() => void renameProp(prop)}>
+                            重新命名
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="is-danger"
+                            onClick={() => void deleteProp(prop)}
+                          >
+                            刪除屬性
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-              ) : undefined
-            }
-          >
-            <PropertyValueEditor
-              note={note}
-              prop={prop}
-              allProps={resolveDatabaseProperties(db.properties, wsDefs)}
-              allRows={rows}
-              userId={userId}
-              databaseId={databaseId}
-              readOnly={readOnly}
-              onCommit={(v) => void commitValue(prop, v)}
-            />
-          </NotePropsFieldRow>
-        ))}
-      </NotePropsFieldsGrid>
+                  ) : undefined
+                }
+              >
+                <PropertyValueEditor
+                  note={note}
+                  prop={prop}
+                  allProps={resolveDatabaseProperties(db.properties, wsDefs)}
+                  allRows={rows}
+                  userId={userId}
+                  databaseId={databaseId}
+                  readOnly={readOnly}
+                  onCommit={(v) => void commitValue(prop, v)}
+                />
+              </NotePropsFieldRow>
+            ))}
+          </NotePropsFieldsGrid>
 
-      {!expanded && displayProps.length > visible.length ? (
-        <button type="button" className="nk-props-add" onClick={() => setExpanded(true)}>
-          還有 {displayProps.length - visible.length} 個屬性…
-        </button>
-      ) : null}
+          {!showAll && displayProps.length > visible.length ? (
+            <button type="button" className="nk-props-add" onClick={() => setShowAll(true)}>
+              還有 {displayProps.length - visible.length} 個屬性…
+              {emptyCount > 0 ? `（含空白）` : ""}
+            </button>
+          ) : null}
+
+          {!readOnly ? <div className="nk-props-foot">{addMenu}</div> : null}
+        </>
+      )}
     </section>
   );
 }

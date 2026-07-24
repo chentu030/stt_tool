@@ -12602,11 +12602,13 @@ body.is-split-resizing iframe {
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
-.ndb-props-add-wrap { position: relative; }
+.ndb-props-add-wrap { position: relative; display: inline-flex; }
 .ndb-props-add-menu {
   position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 4px);
   z-index: 40;
   width: min(280px, 70vw);
   max-height: min(50vh, 360px);
