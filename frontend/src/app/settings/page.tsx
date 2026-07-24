@@ -677,6 +677,12 @@ export default function SettingsPage() {
                 onChange={(editorSpellcheck) => patch({ editorSpellcheck })}
               />
             </Row>
+            <Row label="寫作目標" hint="在筆記屬性區顯示字數目標">
+              <Toggle
+                checked={prefs.editorWritingGoals}
+                onChange={(editorWritingGoals) => patch({ editorWritingGoals })}
+              />
+            </Row>
             <Row label="斜線選單 /">
               <Toggle checked={prefs.slashMenu} onChange={(slashMenu) => patch({ slashMenu })} />
             </Row>

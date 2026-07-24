@@ -69,6 +69,8 @@ export type UserPrefs = {
   editorShowOutline: boolean;
   editorSpellcheck: boolean;
   editorVimHints: boolean;
+  /** Show per-note writing goal editor in note properties */
+  editorWritingGoals: boolean;
   autosaveSeconds: number;
   wikiSuggest: boolean;
   /** After inserting audio/video/YouTube in a note */
@@ -255,6 +257,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   editorShowOutline: true,
   editorSpellcheck: true,
   editorVimHints: false,
+  editorWritingGoals: false,
   autosaveSeconds: 5,
   wikiSuggest: true,
   mediaIngestDefault: "ask",
@@ -366,6 +369,7 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     liveOrganizeEveryChunks: clamp(Number(p.liveOrganizeEveryChunks) || 10, 1, 50),
     liveSilenceMs: clamp(Number(p.liveSilenceMs) || 700, 600, 4000),
     liveStreamStt: !!p.liveStreamStt,
+    editorWritingGoals: !!p.editorWritingGoals,
     liveStreamMaxMins: clamp(Number(p.liveStreamMaxMins) || 300, 15, 300),
     liveHideDockShortcut: sanitizeShortcutSpec(p.liveHideDockShortcut, DEFAULT_LIVE_HIDE_DOCK_SHORTCUT),
     journalDefaultEnergy: clamp(Number(p.journalDefaultEnergy) || 3, 1, 5),
