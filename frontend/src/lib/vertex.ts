@@ -109,7 +109,8 @@ function parseGroundingMetadata(data: unknown): {
 
 export type VertexContentPart =
   | { text: string }
-  | { fileData: { fileUri: string; mimeType: string } };
+  | { fileData: { fileUri: string; mimeType: string } }
+  | { inlineData: { mimeType: string; data: string } };
 
 export async function vertexGenerateContent(prompt: string, opts?: {
   system?: string;
@@ -151,9 +152,21 @@ export async function vertexGenerateContent(prompt: string, opts?: {
           },
         };
       }
+      if ("inlineData" in p && p.inlineData?.data) {
+        return {
+          inlineData: {
+            mimeType: p.inlineData.mimeType || "application/octet-stream",
+            data: p.inlineData.data.replace(/^data:[^;]+;base64,/, ""),
+          },
+        };
+      }
       return null;
     })
-    .filter(Boolean) as Array<{ text: string } | { fileData: { fileUri: string; mimeType: string } }>;
+    .filter(Boolean) as Array<
+    | { text: string }
+    | { fileData: { fileUri: string; mimeType: string } }
+    | { inlineData: { mimeType: string; data: string } }
+  >;
 
   const body = {
     contents: [

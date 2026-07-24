@@ -64,6 +64,14 @@ type Body = {
     mimeType?: string;
     title?: string;
   }>;
+  /** Inline uploads (base64) — images / PDF pages for vision models */
+  attachments?: Array<{
+    name?: string;
+    mimeType: string;
+    /** Raw base64 (no data: prefix) */
+    data: string;
+    kind?: string;
+  }>;
   /** When true, system prompt allows albireus-note-edit fences for the open note. */
   allowNoteEdit?: boolean;
   /** When true, system prompt allows albireus-db-edit fences for the open database. */
@@ -355,6 +363,35 @@ export async function POST(req: NextRequest) {
           fileData: { fileUri: u, mimeType: ref.mimeType || "application/pdf" },
         });
       }
+      if (ref.kind === "image" || /\.(png|jpe?g|webp|gif)(\?|#|$)/i.test(u)) {
+        mediaParts.push({
+          fileData: {
+            fileUri: u,
+            mimeType: ref.mimeType || "image/jpeg",
+          },
+        });
+      }
+    }
+
+    const MAX_INLINE = 6;
+    let inlineCount = 0;
+    for (const att of data.attachments || []) {
+      if (inlineCount >= MAX_INLINE) break;
+      const raw = (att.data || "").trim();
+      if (!raw) continue;
+      const mime = (att.mimeType || "application/octet-stream").trim();
+      const okImage = /^image\/(png|jpe?g|webp|gif)$/i.test(mime);
+      const okPdf = mime === "application/pdf";
+      if (!okImage && !okPdf) continue;
+      // ~8MB raw base64 ceiling (chars)
+      if (raw.length > 12_000_000) continue;
+      mediaParts.push({
+        inlineData: {
+          mimeType: mime,
+          data: raw.replace(/^data:[^;]+;base64,/, ""),
+        },
+      });
+      inlineCount += 1;
     }
 
     const result = await vertexGenerateContent(built.prompt, {
