@@ -389,39 +389,33 @@ export default function ShareDialog({
           <div className="share-team-block">
             <h3 className="share-team-title">分享到團隊頻道</h3>
             <div className="share-team-row">
-              <label className="share-team-select">
-                <span className="sr-only">選擇團隊</span>
-                <select
-                  className="input share-team-native"
-                  aria-label="選擇團隊"
-                  value={teamId || ""}
-                  onChange={(e) => setTeamId(e.target.value)}
-                >
-                  <option value="">選擇團隊</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="share-team-select">
-                <span className="sr-only">選擇頻道</span>
-                <select
-                  className="input share-team-native"
-                  aria-label="選擇頻道"
-                  disabled={!teamId}
-                  value={channelId || ""}
-                  onChange={(e) => setChannelId(e.target.value)}
-                >
-                  <option value="">選擇頻道</option>
-                  {channels.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      # {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <select
+                className="input share-team-native"
+                aria-label="選擇團隊"
+                value={teamId || ""}
+                onChange={(e) => setTeamId(e.target.value)}
+              >
+                <option value="">選擇團隊</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="input share-team-native"
+                aria-label="選擇頻道"
+                disabled={!teamId}
+                value={channelId || ""}
+                onChange={(e) => setChannelId(e.target.value)}
+              >
+                <option value="">選擇頻道</option>
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    # {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <label className="share-team-pin">
               <input type="checkbox" checked={pinToo} onChange={(e) => setPinToo(e.target.checked)} />
