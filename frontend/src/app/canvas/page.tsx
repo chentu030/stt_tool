@@ -151,7 +151,7 @@ export default function CanvasIndexPage() {
       ]}
       primaryLabel="新建白板"
       primaryBusy={busy}
-      onPrimary={() => void createFromTemplate("brainstorm")}
+      onPrimary={() => void createFromTemplate("blank")}
       secondaryHref="/community"
       secondaryLabel="社群商店"
       featured={

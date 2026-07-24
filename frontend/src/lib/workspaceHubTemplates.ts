@@ -53,7 +53,7 @@ export const CANVAS_TEMPLATES: HubTemplate[] = [
     name: "腦力激盪",
     description: "自由擺放卡片與連線，抓靈感與關聯。",
     icon: "bubble_chart",
-    defaultName: "腦力激盪",
+    defaultName: "未命名白板",
     chips: ["便利貼", "連線"],
     preview: "canvas",
   },
