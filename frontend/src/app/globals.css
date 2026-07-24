@@ -20805,6 +20805,92 @@ body.is-sidebar-resizing iframe {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  position: relative;
+  border-radius: 12px;
+  transition: box-shadow 0.15s ease, background 0.15s ease;
+}
+.cadence-ai-dock-compose.is-drop,
+.cadence-ai-dock-compose.is-drag,
+.sel-ai-panel.is-drop {
+  box-shadow: inset 0 0 0 2px var(--accent, #3d6b5a);
+  background: color-mix(in srgb, var(--accent, #3d6b5a) 8%, transparent);
+}
+.cadence-ai-drop-hint {
+  font-size: 0.78rem;
+  color: var(--accent, #3d6b5a);
+  text-align: center;
+  padding: 0.35rem;
+}
+.cadence-ai-attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.cadence-ai-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-muted, #f4f4f2);
+  border-radius: 10px;
+  padding: 0.2rem 0.35rem 0.2rem 0.25rem;
+  font-size: 0.72rem;
+}
+.cadence-ai-attach-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.cadence-ai-attach-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--accent-soft, #e6efe9);
+  color: var(--accent, #3d6b5a);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+.cadence-ai-attach-name {
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cadence-ai-attach-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.7;
+  padding: 0 0.15rem;
+}
+.cadence-ai-msg-attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+.cadence-ai-msg-attach-chip {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft, #e6efe9);
+  color: var(--accent, #3d6b5a);
+}
+.sel-ai-ctx-hint {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  color: var(--muted, #6b6b66);
+}
+.cv-aside-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 .cadence-ai-dock-compose textarea { width: 100%; resize: vertical; min-height: 4.2rem; }
 .cadence-ai-dock-actions {

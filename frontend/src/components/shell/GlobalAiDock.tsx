@@ -65,6 +65,20 @@ import {
   withChatSummaryContext,
   type ChatMemoryState,
 } from "@/lib/aiChatMemory";
+import { AiAttachmentChips, useAiAttachments } from "@/components/ai/AiAttachComposer";
+import {
+  attachmentSourceLabel,
+  toAttachmentPayloads,
+  type AiAttachment,
+} from "@/lib/aiAttachments";
+import {
+  AI_RAIL_CONTEXT_EVENT,
+  AI_RAIL_EVENT,
+  openGlobalAiRail as openRail,
+  toggleGlobalAiRail as toggleRail,
+  type AiRailOpenDetail,
+} from "@/lib/aiRailBridge";
+import type { CanvasAiMediaRef } from "@/lib/canvasAiContext";
 
 type Msg = {
   id: string;
@@ -78,6 +92,7 @@ type Msg = {
   editApplied?: boolean;
   /** Knowledge-base sources used for this answer (標題＋錨點). */
   sources?: { title: string; href: string; heading?: string }[];
+  attachmentLabels?: string[];
 };
 type RailMode = "dock" | "float";
 type ChatThread = {
@@ -311,15 +326,13 @@ function persistThreads(threads: ChatThread[], activeId: string) {
   }
 }
 
-/** Open/toggle the global AI right rail from anywhere */
-export function openGlobalAiRail() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("cadence-ai-rail", { detail: { open: true } }));
+/** Open/toggle the global AI right rail from anywhere (re-export bridge). */
+export function openGlobalAiRail(detail?: Parameters<typeof openRail>[0]) {
+  openRail(detail);
 }
 
 export function toggleGlobalAiRail() {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("cadence-ai-rail", { detail: { toggle: true } }));
+  toggleRail();
 }
 
 export default function GlobalAiDock() {
@@ -348,11 +361,22 @@ export default function GlobalAiDock() {
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
   const [showWelcome, setShowWelcome] = useState(false);
+  const [bridgeLabel, setBridgeLabel] = useState("");
+  const [bridgeExtra, setBridgeExtra] = useState("");
+  const [bridgeMediaRefs, setBridgeMediaRefs] = useState<CanvasAiMediaRef[]>([]);
+  const [forceCanvasSelection, setForceCanvasSelection] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
   const skipNextPersist = useRef(true);
   const sheetDrag = useRef<{ startY: number; startH: number } | null>(null);
+  const pendingAttachRef = useRef<AiAttachment[] | null>(null);
+  const attach = useAiAttachments({
+    onError: (msg) => {
+      setError(msg);
+      toast(msg);
+    },
+  });
 
   const onNotePage = pathname?.startsWith("/notes/");
   const onLibraryPage = pathname === "/library" || pathname?.startsWith("/library/");
@@ -504,14 +528,48 @@ export default function GlobalAiDock() {
   }, [threads, activeId]);
 
   useEffect(() => {
+    const applyDetail = (d: AiRailOpenDetail) => {
+      if (typeof d.prompt === "string") setInput(d.prompt);
+      if (typeof d.contextLabel === "string") setBridgeLabel(d.contextLabel);
+      const extra =
+        (typeof d.contextExtra === "string" && d.contextExtra.trim()) ||
+        (typeof d.selectionText === "string" && d.selectionText.trim()
+          ? `—— 目前選取 ——\n${d.selectionText.trim().slice(0, 12000)}\n—— 結束 ——`
+          : "");
+      if (extra) setBridgeExtra(extra);
+      if (d.mediaRefs?.length) setBridgeMediaRefs(d.mediaRefs);
+      if (d.useCanvasSelection) setForceCanvasSelection(true);
+      if (d.attachments?.length) {
+        // Rare path: pre-encoded payloads — ignore here; File attach uses composer.
+      }
+      setTimeout(() => inputRef.current?.focus(), 40);
+    };
+
     const onEvt = (e: Event) => {
-      const d = (e as CustomEvent<{ open?: boolean; toggle?: boolean }>).detail || {};
+      const d = ((e as CustomEvent<AiRailOpenDetail>).detail || {}) as AiRailOpenDetail;
       if (d.toggle) setOpen((v) => !v);
       else if (typeof d.open === "boolean") setOpen(d.open);
+      else if (d.open !== false) setOpen(true);
+      applyDetail(d);
     };
-    window.addEventListener("cadence-ai-rail", onEvt);
-    return () => window.removeEventListener("cadence-ai-rail", onEvt);
+    const onCtx = (e: Event) => {
+      const d = ((e as CustomEvent<AiRailOpenDetail>).detail || {}) as AiRailOpenDetail;
+      applyDetail(d);
+    };
+    window.addEventListener(AI_RAIL_EVENT, onEvt);
+    window.addEventListener(AI_RAIL_CONTEXT_EVENT, onCtx);
+    return () => {
+      window.removeEventListener(AI_RAIL_EVENT, onEvt);
+      window.removeEventListener(AI_RAIL_CONTEXT_EVENT, onCtx);
+    };
   }, []);
+
+  const clearBridgeContext = () => {
+    setBridgeLabel("");
+    setBridgeExtra("");
+    setBridgeMediaRefs([]);
+    setForceCanvasSelection(false);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -619,34 +677,88 @@ export default function GlobalAiDock() {
   }, [notes, pinnedIds, atQ]);
 
   const scopeLabel = useMemo(() => {
+    if (bridgeLabel.trim()) {
+      const t = bridgeLabel.trim();
+      return t.length > 36 ? `${t.slice(0, 36)}…` : t;
+    }
     if (activeDbSnap) {
       const t = activeDbSnap.name || "資料庫";
-      return t.length > 28 ? `${t.slice(0, 28)}…` : t;
+      return `正在看：資料庫 · ${t.length > 22 ? `${t.slice(0, 22)}…` : t}`;
+    }
+    if (meetingCtx) {
+      const t = meetingCtx.title || "會議";
+      return `正在看：會議 · ${t.length > 22 ? `${t.slice(0, 22)}…` : t}`;
     }
     if (onCanvasPage && canvasSnap) {
-      const t = canvasSnap.name || "白板";
-      return t.length > 28 ? `${t.slice(0, 28)}…` : `白板 · ${t}`;
+      const name = canvasSnap.name || "白板";
+      const short = name.length > 18 ? `${name.slice(0, 18)}…` : name;
+      const sel =
+        (canvasSnap.selectedIds?.length || 0) > 0
+          ? ` · 選取 ${canvasSnap.selectedIds.length}`
+          : "";
+      return `正在看：白板 · ${short}${sel}`;
     }
-    if (onCanvasPage) return "白板";
+    if (onCanvasPage) return "正在看：白板";
+    if (onJournalPage) return "正在看：日誌";
     if (onJobPage && jobCtx) {
       const t = jobCtx.filename || jobCtx.title || "逐字稿";
-      return t.length > 28 ? `${t.slice(0, 28)}…` : t;
+      return `正在看：${t.length > 24 ? `${t.slice(0, 24)}…` : t}`;
     }
     if (pinnedNotes.length) return `已 @ ${pinnedNotes.length} 篇`;
-    if (focusNote) return focusNote.title || "筆記";
-    if (onNotePage) return "跨庫提問 · 本篇可用 Ctrl+J";
+    if (focusNote) {
+      const t = focusNote.title || "筆記";
+      return `正在看：筆記 · ${t.length > 22 ? `${t.slice(0, 22)}…` : t}`;
+    }
+    if (onNotePage) return "正在看：筆記";
+    if (onLibraryPage) return "正在看：知識庫";
     return `知識庫 ${notes.length} 篇`;
   }, [
+    bridgeLabel,
     activeDbSnap,
+    meetingCtx,
     onCanvasPage,
     canvasSnap,
+    onJournalPage,
     onJobPage,
     jobCtx,
     onNotePage,
+    onLibraryPage,
     notes.length,
     pinnedNotes.length,
     focusNote,
   ]);
+
+  const useLiveSelection = () => {
+    if (onCanvasPage && canvasSnap && (canvasSnap.selectedIds?.length || 0) > 0) {
+      setForceCanvasSelection(true);
+      setBridgeLabel(`白板 · ${canvasSnap.name || "白板"} · 選取 ${canvasSnap.selectedIds.length}`);
+      setBridgeExtra((prev) =>
+        [
+          prev,
+          `—— 白板選取（${canvasSnap.selectedIds.length}）——\n請優先依據畫布摘要中標記為選取的物件作答。\nID：${canvasSnap.selectedIds.slice(0, 24).join(", ")}\n—— 結束 ——`,
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+      );
+      toast("已綁定目前白板選取");
+      return;
+    }
+    if (onNotePage) {
+      let sel = "";
+      try {
+        sel = window.getSelection()?.toString()?.trim() || "";
+      } catch {
+        sel = "";
+      }
+      if (!sel) {
+        toast("請先在筆記中選取文字");
+        return;
+      }
+      setBridgeLabel(focusNote?.title ? `筆記 · ${focusNote.title}` : "目前選取");
+      setBridgeExtra(`—— 目前選取 ——\n${sel.slice(0, 12000)}\n—— 結束 ——`);
+      toast("已帶入目前選取");
+    }
+  };
 
   const historySorted = useMemo(
     () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -824,14 +936,35 @@ export default function GlobalAiDock() {
   };
 
   const send = async (text: string) => {
-    const prompt = text.trim();
-    if (!prompt || busy) return;
+    const trimmed = text.trim();
+    const attachSnapshot = attach.attachments.slice();
+    const hasAttach = attachSnapshot.length > 0;
+    if ((!trimmed && !hasAttach) || busy) return;
+    const displayPrompt =
+      trimmed ||
+      (hasAttach
+        ? `請根據附件（${attachSnapshot.map((a) => a.name).join("、")}）說明重點`
+        : "");
+    const prompt = displayPrompt;
+    const attachPayloads = toAttachmentPayloads(attachSnapshot);
+    const attachLabels = attachSnapshot.map((a) => attachmentSourceLabel(a));
+    const bridgeExtraSnap = bridgeExtra;
+    const bridgeMediaSnap = bridgeMediaRefs.slice();
+    const forceSelSnap = forceCanvasSelection;
     const tid = ensureActive();
     setBusy(true);
     setError("");
     setInput("");
     setAtOpen(false);
-    const userMsg: Msg = { id: uid(), role: "user", text: prompt };
+    pendingAttachRef.current = attachSnapshot;
+    attach.clearAttachments();
+    if (forceSelSnap) setForceCanvasSelection(false);
+    const userMsg: Msg = {
+      id: uid(),
+      role: "user",
+      text: prompt,
+      attachmentLabels: attachLabels.length ? attachLabels : undefined,
+    };
     let snapshotMsgs: Msg[] = [];
     let snapshotPins: string[] = [];
     let memory: ChatMemoryState = { contextSummary: "", summaryCovered: 0 };
@@ -904,6 +1037,10 @@ export default function GlobalAiDock() {
       const canEditHere = allowNoteEdit && !!focusNote && onNotePage && !dbSnap;
       const canEditSchedule = onJournalPage && !!liveSchedule && !dbSnap;
       const canEditCanvas = onCanvasPage && !!liveCanvas && !dbSnap;
+      const canvasSelectedIds =
+        forceSelSnap && liveCanvas?.selectedIds?.length
+          ? liveCanvas.selectedIds
+          : liveCanvas?.selectedIds;
 
       if (dbSnap) {
         body = {
@@ -934,7 +1071,7 @@ export default function GlobalAiDock() {
               ? prompt
               : `${prompt}\n\n（使用者已關閉「可改白板」——只給建議，ops 必須為空陣列）`) + pinExtra,
           canvasSummary: liveCanvas.summary,
-          selectedIds: liveCanvas.selectedIds,
+          selectedIds: canvasSelectedIds,
           messages: history,
           assistant,
         };
@@ -1040,7 +1177,7 @@ export default function GlobalAiDock() {
           updated_at: n.updated_at,
           created_at: n.created_at,
         }));
-        const packed = packLibraryContext(libNotes, prompt, {
+        const packed = packLibraryContext(libNotes, displayPrompt, {
           selectedIds: snapshotPins.length ? snapshotPins : undefined,
           maxNotes: snapshotPins.length ? Math.min(snapshotPins.length, 12) : 10,
           maxChars: 14000,
@@ -1052,12 +1189,62 @@ export default function GlobalAiDock() {
         );
         body = {
           action: "library",
-          prompt,
+          prompt: displayPrompt,
           context: withChatSummaryContext(packed.context, memory),
           assistant,
           messages: history,
           allowNoteEdit: false,
         };
+      }
+
+      // Inject bridge selection / context into every path
+      if (bridgeExtraSnap.trim() && typeof body.context === "string") {
+        body.context = `${body.context}\n\n${bridgeExtraSnap}`.slice(0, 28000);
+      } else if (bridgeExtraSnap.trim()) {
+        body.context = bridgeExtraSnap.slice(0, 28000);
+      }
+      if (canEditCanvas && liveCanvas && bridgeExtraSnap.trim() && typeof body.prompt === "string") {
+        body.prompt = `${body.prompt}\n\n${bridgeExtraSnap}`.slice(0, 16000);
+      }
+      if (attachPayloads.length) {
+        body.attachments = attachPayloads;
+      }
+      if (bridgeMediaSnap.length) {
+        body.mediaRefs = bridgeMediaSnap;
+      }
+      if (!("prompt" in body) || body.prompt === trimmed || !trimmed) {
+        body.prompt = displayPrompt;
+      }
+
+      const attachSources = attachLabels.map((label, i) => ({
+        title: `附件 · ${label}`,
+        href: `#attachment-${i + 1}`,
+        heading: attachSnapshot[i]?.kind === "pdf" ? "PDF" : "圖片",
+      }));
+      if (attachSources.length) {
+        pendingSources = [...(pendingSources || []), ...attachSources];
+      }
+      if (bridgeExtraSnap.trim() || bridgeLabel.trim()) {
+        pendingSources = [
+          ...(pendingSources || []),
+          {
+            title: bridgeLabel.trim() || "目前選取",
+            href: pathname || "#",
+          },
+        ];
+      }
+      if (onCanvasPage && liveCanvas) {
+        pendingSources = [
+          ...(pendingSources || []),
+          {
+            title: liveCanvas.name || "白板",
+            href: `/canvas/${liveCanvas.canvasId}`,
+            heading:
+              liveCanvas.selectedIds?.length
+                ? `選取 ${liveCanvas.selectedIds.length}`
+                : undefined,
+          },
+        ];
       }
 
       const res = await aiFetch("/api/ai/generate", {
@@ -1102,17 +1289,14 @@ export default function GlobalAiDock() {
         const parsed = parseNoteAiEdit(rawText);
         displayText = parsed.displayText;
         noteEdit = parsed.edit;
-        // Write path: parse edit blocks but require explicit review / 套用 — do not auto-write.
       } else if (canEditSchedule) {
         const parsedSched = parseScheduleAiEdit(rawText);
         displayText = parsedSched.displayText;
         scheduleEdit = parsedSched.edit;
-        // Journal schedule edits require explicit「套用到行程」— do not auto-write.
       } else if (canEditCanvas) {
         const parsedCanvas = parseCanvasAiEdit(rawText);
         displayText = parsedCanvas.displayText;
         canvasEdit = allowCanvasEdit ? parsedCanvas.edit : null;
-        // Canvas edits require explicit「套用到白板」— do not auto-write.
       }
 
       const assistantMsg: Msg = {
@@ -1139,6 +1323,7 @@ export default function GlobalAiDock() {
         msgs: [...t.msgs, { id: uid(), role: "assistant", text: `無法回答：${msg}` }],
       }), tid);
     } finally {
+      pendingAttachRef.current = null;
       setBusy(false);
     }
   };
@@ -1286,7 +1471,7 @@ export default function GlobalAiDock() {
             )}
 
             <div className="cadence-ai-dock-scope-row">
-              <span className="cadence-ai-dock-scope" title={scopeLabel}>
+              <span className="cadence-ai-dock-scope cadence-ai-focus-label" title={scopeLabel}>
                 {scopeLabel}
               </span>
               <button
@@ -1318,6 +1503,35 @@ export default function GlobalAiDock() {
               >
                 研究
               </button>
+            </div>
+
+            <div className="cadence-ai-ctx-row" aria-label="脈絡">
+              {bridgeLabel ? (
+                <button
+                  type="button"
+                  className="cadence-ai-ctx-chip"
+                  title="清除脈絡"
+                  onClick={clearBridgeContext}
+                >
+                  {bridgeLabel.length > 28 ? `${bridgeLabel.slice(0, 28)}…` : bridgeLabel} ×
+                </button>
+              ) : null}
+              {onCanvasPage && canvasSnap && (canvasSnap.selectedIds?.length || 0) > 0 ? (
+                <span className="cadence-ai-ctx-chip" title="白板目前選取">
+                  白板選取 · {canvasSnap.selectedIds.length}
+                </span>
+              ) : null}
+              {((onCanvasPage && canvasSnap && (canvasSnap.selectedIds?.length || 0) > 0) ||
+                onNotePage) && (
+                <button
+                  type="button"
+                  className="doc-cmd"
+                  title="把目前選取加入對話脈絡"
+                  onClick={useLiveSelection}
+                >
+                  使用目前選取
+                </button>
+              )}
             </div>
 
             <div className="cadence-ai-dock-pins">
@@ -1446,7 +1660,18 @@ export default function GlobalAiDock() {
                   {m.role === "assistant" ? (
                     <AiMarkdown text={m.text} />
                   ) : (
-                    <p>{m.text}</p>
+                    <>
+                      <p>{m.text}</p>
+                      {m.attachmentLabels?.length ? (
+                        <div className="cadence-ai-msg-attach" aria-label="附件">
+                          {m.attachmentLabels.map((lab) => (
+                            <span key={lab} className="cadence-ai-msg-attach-chip">
+                              {lab}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
                   )}
                   {m.role === "assistant" && m.sources && m.sources.length > 0 ? (
                     <div className="cadence-ai-sources" aria-label="來源">
@@ -1574,31 +1799,34 @@ export default function GlobalAiDock() {
             </div>
             {error && <p className="note-aside-error">{error}</p>}
             <form
-              className="cadence-ai-dock-compose"
+              className={`cadence-ai-dock-compose${attach.dragOver ? " is-drag" : ""}`}
               onSubmit={(e) => {
                 e.preventDefault();
                 void send(input);
               }}
+              onDragEnter={attach.onDragEnter}
+              onDragLeave={attach.onDragLeave}
+              onDragOver={attach.onDragOver}
+              onDrop={attach.onDrop}
             >
-              {(onJobPage && jobCtx
-                ? jobCtx.filename || jobCtx.title || "逐字稿"
-                : focusNote || pinnedNotes[0]
-                  ? pinnedNotes[0]?.title || focusNote?.title || "筆記"
-                  : null) && (
-                <div className="cadence-ai-ctx-chip">
-                  {onJobPage && jobCtx
-                    ? jobCtx.filename || jobCtx.title || "逐字稿"
-                    : pinnedNotes[0]?.title || focusNote?.title || "筆記"}
-                </div>
-              )}
+              {attach.fileInput}
+              <AiAttachmentChips
+                attachments={attach.attachments}
+                onRemove={attach.removeAttachment}
+                disabled={busy}
+              />
+              {attach.dragOver ? (
+                <div className="cadence-ai-drop-hint">放開以加入圖片或 PDF</div>
+              ) : null}
               <textarea
                 ref={inputRef}
                 className="input"
                 rows={3}
-                placeholder="使用 AI 完成任何事情…"
+                placeholder="使用 AI 完成任何事情…（可拖放／貼上圖片）"
                 value={input}
                 disabled={busy}
                 onChange={(e) => setInput(e.target.value)}
+                onPaste={attach.onPaste}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -1607,6 +1835,16 @@ export default function GlobalAiDock() {
                 }}
               />
               <div className="cadence-ai-dock-actions">
+                <button
+                  type="button"
+                  className="doc-cmd"
+                  title="附加圖片或 PDF"
+                  disabled={busy}
+                  onClick={attach.openPicker}
+                  aria-label="附加檔案"
+                >
+                  附加
+                </button>
                 <button
                   type="button"
                   className={`doc-cmd${webSearch ? " is-on" : ""}`}
@@ -1670,7 +1908,11 @@ export default function GlobalAiDock() {
                 >
                   偏好
                 </button>
-                <button type="submit" className="btn btn-sm" disabled={busy || !input.trim()}>
+                <button
+                  type="submit"
+                  className="btn btn-sm"
+                  disabled={busy || (!input.trim() && !attach.attachments.length)}
+                >
                   送出
                 </button>
               </div>
