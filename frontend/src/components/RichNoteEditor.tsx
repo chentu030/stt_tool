@@ -106,6 +106,11 @@ type Props = {
   insertMdRef?: MutableRefObject<
     ((md: string, opts?: { at?: "cursor" | "end" }) => void) | null
   >;
+  /**
+   * Force-replace the whole editor doc from markdown (bypasses valueMd skip / collab
+   * ignore). Used when YouTube ingest writes 轉錄/AI 摘要 toggles into the note.
+   */
+  setBodyMdRef?: MutableRefObject<((md: string) => void) | null>;
   aiContext?: string;
   /** Read-only shared / preview mode */
   readOnly?: boolean;
@@ -280,6 +285,7 @@ export default function RichNoteEditor({
   onRunAiAction,
   onTranscribableMedia,
   insertMdRef,
+  setBodyMdRef,
   aiContext,
   readOnly = false,
   onOpenThread,
@@ -1744,6 +1750,21 @@ export default function RichNoteEditor({
     };
   }, [insertMdRef, editor]);
 
+  useEffect(() => {
+    if (!setBodyMdRef) return;
+    setBodyMdRef.current = (md: string) => {
+      const ed = editorRef.current;
+      if (!ed) return;
+      const html = markdownToHtml(md, (t) => resolveWikiRef.current(t));
+      // Avoid the valueMd effect treating this as an echo of onChange and skipping.
+      skip.current = true;
+      ed.commands.setContent(html || "<p></p>", { emitUpdate: false });
+    };
+    return () => {
+      setBodyMdRef.current = null;
+    };
+  }, [setBodyMdRef, editor]);
+
   const applySlash = useCallback(
     (item: SlashItem, arg?: string) => {
       if (!editor) return;
@@ -1835,12 +1856,18 @@ export default function RichNoteEditor({
 
   useEffect(() => {
     if (!editor) return;
-    if (collabProvider) return;
+    // Collab: Yjs owns the doc — except when body still shows leaked markdown/math
+    // source text (legacy toggle escapeHtml). Then force a one-shot heal from valueMd.
+    const leakedInEditor =
+      /<\/?mark\b/i.test(editor.getText()) ||
+      /<\/?(?:span|div)\b[^>]*rich-math/i.test(editor.getText()) ||
+      /&lt;(?:span|div)\b[^&]*rich-math/i.test(editor.getText()) ||
+      /(?:^|\n)\s*#{1,4}\s+\S/.test(editor.getText()) ||
+      /\*\*[^*\n]{1,240}\*\*/.test(editor.getText());
+    if (collabProvider && !leakedInEditor) return;
     const rawMd = (valueMd || "").trim();
     const healedMd = healHighlightArtifacts(rawMd);
     const needsHeal = healedMd !== rawMd;
-    // Visible "<mark …>" in the doc means TipTap has escaped highlight HTML as text.
-    const leakedInEditor = /<\/?mark\b/i.test(editor.getText());
     // Never skip past a heal — otherwise corrupt bodies stay as raw HTML after refresh.
     if (skip.current && !needsHeal && !leakedInEditor) {
       skip.current = false;
@@ -1856,7 +1883,7 @@ export default function RichNoteEditor({
     if (needsHeal || leakedInEditor || htmlToMarkdown(editor.getHTML()) !== healedMd) {
       editor.commands.setContent(next, { emitUpdate: false });
       // If the editor still shows raw mark tags, force a serialize→heal→reload pass.
-      if (/<\/?mark\b/i.test(editor.getText())) {
+      if (/<\/?mark\b/i.test(editor.getText()) || /<\/?(?:span|div)\b[^>]*rich-math/i.test(editor.getText())) {
         const repaired = healHighlightArtifacts(htmlToMarkdown(editor.getHTML()));
         skip.current = true;
         onChangeRef.current(repaired);

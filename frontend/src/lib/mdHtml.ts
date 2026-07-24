@@ -810,15 +810,70 @@ function healEscapedMathInHtml(html: string): string {
 }
 
 /**
+ * Legacy toggle bodies were escapeHtml'd then turndown-escaped on save
+ * (`\###`, `\*\*`, `&lt;span class="rich-math-inline"…&gt;`). Undo that so
+ * nested markdown / math can parse again. Leaves real LaTeX `\frac` alone
+ * (only unescapes markdown punctuation).
+ */
+function healToggleBodySource(body: string): string {
+  let s = String(body || "");
+  if (!s.trim()) return s;
+
+  // Entity-escaped math shells → real tags before marked (avoids &amp;lt; double-encode).
+  if (/&lt;(?:span|div)\b/i.test(s) && /data-math-(?:inline|block)/i.test(s)) {
+    s = healEscapedMathInHtml(s);
+    // If still entity-wrapped (heal expects HTML context), decode targeted tags.
+    if (/&lt;(?:span|div)\b/i.test(s) && /data-math-/i.test(s)) {
+      s = s.replace(
+        /&lt;(span|div)(\b(?:[^&]|&(?!lt;|gt;))*?data-math-(?:inline|block)(?:[^&]|&(?!lt;|gt;))*?)&gt;(?:&lt;\/(?:span|div)&gt;)?/gi,
+        (_m, tag: string, attrs: string) => {
+          const decoded = decodeBasicEntities(attrs);
+          const fm = decoded.match(/data-formula\s*=\s*["']([^"']*)["']/i);
+          const formula = normalizeLatexFormula(decodeFormulaAttr(fm?.[1] || ""));
+          if (!formula) return _m;
+          const isBlock = /data-math-block/i.test(decoded) || String(tag).toLowerCase() === "div";
+          if (isBlock) {
+            return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(formula)}"></div>`;
+          }
+          return `<span class="rich-math-inline" data-math-inline="1" data-formula="${encodeFormulaAttr(formula)}"></span>`;
+        }
+      );
+    }
+  }
+
+  // Turndown escapes of md punctuation → real ### / ** so marked can parse.
+  if (/\\[#*_`\-\[\]()]/.test(s)) {
+    s = s.replace(/\\([\\`*_{}\[\]()#+\-.!|])/g, "$1");
+  }
+  return s;
+}
+
+/**
  * Toggle / column bodies: parse nested markdown (headings, lists, emphasis)
  * instead of escapeHtml line-wrapping. Body may already contain math/embed HTML
  * from earlier enrichMarkdown steps — marked leaves those tags intact.
  * `breaks: true` keeps transcript lines visible without requiring blank lines.
  */
 function renderNestedMarkdownHtml(body: string): string {
-  const trimmed = String(body || "").trim();
+  const trimmed = healToggleBodySource(String(body || "")).trim();
   if (!trimmed) return "<p></p>";
-  const html = marked.parse(trimmed, { async: false, breaks: true }) as string;
+  // Math `$…$` may still be present when body was healed from escaped source
+  // after the outer enrichMarkdown math pass — convert here too.
+  let withMath = trimmed;
+  withMath = withMath.replace(/\$\$([\s\S]+?)\$\$/g, (full, formula) => {
+    const raw = String(formula).trim();
+    if (looksLikeEscapedEmbedFormula(raw) || /^(?:file|bookmark|embed|web|database)\|/.test(raw)) {
+      return full;
+    }
+    const f = normalizeLatexFormula(raw);
+    return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(f)}"></div>`;
+  });
+  withMath = withMath.replace(/\$([^$\n]+?)\$/g, (_m, formula) => {
+    const f = normalizeLatexFormula(String(formula).trim());
+    if (!f) return _m;
+    return `<span class="rich-math-inline" data-math-inline="1" data-formula="${encodeFormulaAttr(f)}"></span>`;
+  });
+  const html = marked.parse(withMath, { async: false, breaks: true }) as string;
   return String(html || "").trim() || "<p></p>";
 }
 

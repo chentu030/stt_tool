@@ -312,6 +312,7 @@ function NotePageInner() {
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollRestored = useRef<string | null>(null);
   const insertMdRef = useRef<((md: string, opts?: { at?: "cursor" | "end" }) => void) | null>(null);
+  const setBodyMdRef = useRef<((md: string) => void) | null>(null);
   const liveRec = useLiveRecording();
   const [liveMode, setLiveMode] = useState<LiveRecordMode>("organize");
   const [liveAudioSource, setLiveAudioSource] = useState<LiveAudioSource>("mic");
@@ -1103,7 +1104,10 @@ function NotePageInner() {
       setBody(nextBody);
       latest.current = { ...latest.current, body: nextBody };
       setNote((n) => (n ? { ...n, source_job_id: jobId, body_md: nextBody } : n));
-      markDirty();
+      // Force TipTap to parse markdown → nodes (headings/lists/math inside AI 摘要 toggles).
+      // valueMd sync alone can be skipped by `skip` echo, or ignored under collab.
+      setBodyMdRef.current?.(nextBody);
+      markDirty({ body: nextBody });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
@@ -3197,6 +3201,7 @@ function NotePageInner() {
               noteTitle={title}
               aiContext={aiPack.context}
               insertMdRef={insertMdRef}
+              setBodyMdRef={setBodyMdRef}
               readOnly={viewMode === "read" || !canEditNote}
               collab={collabReady && collab.provider ? { provider: collab.provider } : undefined}
               onOpenAiAssistant={() => {
