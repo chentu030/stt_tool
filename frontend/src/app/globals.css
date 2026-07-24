@@ -19104,13 +19104,110 @@ body.is-sidebar-resizing iframe {
   display: none;
 }
 .doc-cover {
-  height: 140px;
+  height: 180px;
   border-radius: 12px;
-  background-size: cover;
-  background-position: center;
   margin-bottom: 0.75rem;
   position: relative;
   border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--bg-muted);
+  user-select: none;
+  touch-action: none;
+}
+.doc-cover-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  pointer-events: none;
+}
+.doc-cover.is-adjusting {
+  cursor: grab;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent, #3b82f6) 70%, transparent);
+}
+.doc-cover.is-adjusting:active {
+  cursor: grabbing;
+}
+.doc-cover-actions {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  max-width: calc(100% - 1rem);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+.doc-cover:hover .doc-cover-actions,
+.doc-cover:focus-within .doc-cover-actions,
+.doc-cover.is-adjusting .doc-cover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .doc-cover .doc-cover-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.doc-cover-btn {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.doc-cover-btn:hover {
+  background: var(--bg-card);
+}
+.doc-cover-btn--primary {
+  border-color: color-mix(in srgb, var(--accent, #3b82f6) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent, #3b82f6) 14%, var(--bg-card));
+}
+.doc-cover-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 0.7rem;
+  color: var(--text-muted, var(--text));
+}
+.doc-cover-zoom input[type="range"] {
+  width: 88px;
+  accent-color: var(--accent, #3b82f6);
+  cursor: pointer;
+}
+.doc-cover-zoom-val {
+  min-width: 2.4em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.doc-cover-hint {
+  position: absolute;
+  left: 0.5rem;
+  top: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+  backdrop-filter: blur(6px);
+  font-size: 0.7rem;
+  color: var(--text-muted, var(--text));
+  pointer-events: none;
+  z-index: 2;
 }
 .doc-cover-clear {
   position: absolute;

@@ -11,6 +11,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db, createNote, type Note } from "@/lib/firebase";
+import { normalizeCoverPosition, normalizeCoverZoom } from "@/lib/noteCover";
 
 export type ShareMode = "view" | "edit" | "copy";
 
@@ -31,6 +32,8 @@ export type ShareTokenDoc = {
   body_md: string;
   icon: string;
   cover: string;
+  coverPosition?: { x: number; y: number };
+  coverZoom?: number;
 };
 
 function randomToken(): string {
@@ -67,6 +70,8 @@ function mapShareTokenData(token: string, data: Record<string, unknown>): ShareT
     body_md: String(data.body_md || ""),
     icon: String(data.icon || ""),
     cover: String(data.cover || ""),
+    coverPosition: normalizeCoverPosition(data.coverPosition),
+    coverZoom: normalizeCoverZoom(data.coverZoom),
   };
 }
 
@@ -84,6 +89,8 @@ export function noteFromShareToken(token: string, link: ShareTokenDoc): Note {
     source_job_id: "",
     icon: link.icon,
     cover: link.cover,
+    coverPosition: link.coverPosition,
+    coverZoom: link.coverZoom,
     parent_id: "",
     deck: null,
     share: { enabled: true, token, mode: link.mode },
@@ -110,6 +117,8 @@ async function writeShareTokenDoc(
     body_md: String(data.body_md || ""),
     icon: String(data.icon || ""),
     cover: String(data.cover || ""),
+    coverPosition: normalizeCoverPosition(data.coverPosition),
+    coverZoom: normalizeCoverZoom(data.coverZoom),
     updated_at: Timestamp.now(),
   };
   if (isNewToken) payload.created_at = Timestamp.now();
@@ -134,6 +143,8 @@ export async function syncShareTokenSnapshot(noteId: string): Promise<void> {
       body_md: String(data.body_md || ""),
       icon: String(data.icon || ""),
       cover: String(data.cover || ""),
+      coverPosition: normalizeCoverPosition(data.coverPosition),
+      coverZoom: normalizeCoverZoom(data.coverZoom),
       updated_at: Timestamp.now(),
     },
     { merge: true }
@@ -220,6 +231,8 @@ export function mapNoteSnap(id: string, data: Record<string, unknown>): Note {
     source_job_id: String(data.source_job_id || ""),
     icon: String(data.icon || ""),
     cover: String(data.cover || ""),
+    coverPosition: normalizeCoverPosition(data.coverPosition),
+    coverZoom: normalizeCoverZoom(data.coverZoom),
     parent_id: String(data.parent_id || ""),
     deck: (data.deck as Note["deck"]) || null,
     database_id: data.database_id ? String(data.database_id) : undefined,

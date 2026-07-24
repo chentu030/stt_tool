@@ -424,6 +424,10 @@ export interface Note {
   /** accent color id for sidebar / title (see pageChrome) */
   color?: string;
   cover?: string;
+  /** Cover focal point (0–100). Default 50,50 */
+  coverPosition?: { x: number; y: number };
+  /** Cover zoom factor (1–3). Default 1 */
+  coverZoom?: number;
   /** nested under another note */
   parent_id?: string;
   /** Manual sidebar order within folder / parent (lower = higher) */
@@ -464,6 +468,8 @@ export async function createNote(
     icon?: string;
     color?: string;
     cover?: string;
+    coverPosition?: Note["coverPosition"];
+    coverZoom?: number;
     parent_id?: string;
     database_id?: string;
     props?: Record<string, unknown>;
@@ -484,6 +490,8 @@ export async function createNote(
     icon: extra?.icon || "",
     color: extra?.color || "",
     cover: extra?.cover || "",
+    ...(extra?.coverPosition ? { coverPosition: extra.coverPosition } : {}),
+    ...(typeof extra?.coverZoom === "number" ? { coverZoom: extra.coverZoom } : {}),
     parent_id: extra?.parent_id || "",
     sort_order: typeof extra?.sort_order === "number" ? extra.sort_order : Date.now(),
     database_id: extra?.database_id || "",
@@ -550,6 +558,8 @@ export type NoteUpdateFields = Partial<
     | "icon"
     | "color"
     | "cover"
+    | "coverPosition"
+    | "coverZoom"
     | "parent_id"
     | "sort_order"
     | "deck"
@@ -604,6 +614,8 @@ export async function updateNote(
       updates.body_md !== undefined ||
       updates.icon !== undefined ||
       updates.cover !== undefined ||
+      updates.coverPosition !== undefined ||
+      updates.coverZoom !== undefined ||
       updates.share !== undefined
     ) {
       void import("@/lib/share")

@@ -132,6 +132,7 @@ import { useLiveRecording } from "@/components/voice/LiveRecordingProvider";
 import { liveAudioSourceHint, liveAudioSourceLabel } from "@/lib/voiceSession";
 import { streamRemainingSecs } from "@/lib/sttStreamQuota";
 import NotePageLog from "@/components/notes/NotePageLog";
+import NoteCoverBanner from "@/components/notes/NoteCoverBanner";
 import NoteDbPropertiesPanel from "@/components/notes/NoteDbPropertiesPanel";
 import BlockThreadPanel from "@/components/notes/BlockThreadPanel";
 import IconColorPicker from "@/components/IconColorPicker";
@@ -140,6 +141,13 @@ import PageChromeIcon from "@/components/PageChromeIcon";
 import { fireConfetti } from "@/lib/confetti";
 import { normalizePageColor, normalizePageIcon, pageColorMeta } from "@/lib/pageChrome";
 import { isFullScreenAppLink, isNoteAppSurface, noteOpenHref } from "@/lib/workspacePages";
+import {
+  DEFAULT_COVER_POSITION,
+  DEFAULT_COVER_ZOOM,
+  normalizeCoverPosition,
+  normalizeCoverZoom,
+  type CoverPosition,
+} from "@/lib/noteCover";
 
 function countTaskCheckboxes(md: string): { total: number; checked: number } {
   const unchecked = md.match(/^\s*[-*]\s\[ \]/gim)?.length || 0;
@@ -182,6 +190,8 @@ function NotePageInner() {
   const [icon, setIcon] = useState("");
   const [color, setColor] = useState("");
   const [cover, setCover] = useState("");
+  const [coverPosition, setCoverPosition] = useState<CoverPosition>({ ...DEFAULT_COVER_POSITION });
+  const [coverZoom, setCoverZoom] = useState(DEFAULT_COVER_ZOOM);
   const [parentId, setParentId] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [dirty, setDirty] = useState(false);
@@ -294,6 +304,8 @@ function NotePageInner() {
     icon: string;
     color: string;
     cover: string;
+    coverPosition: CoverPosition;
+    coverZoom: number;
     parent_id: string;
   } | null>(null);
   const mainScrollRef = useRef<HTMLDivElement | null>(null);
@@ -313,6 +325,8 @@ function NotePageInner() {
     icon: "",
     color: "",
     cover: "",
+    coverPosition: { ...DEFAULT_COVER_POSITION } as CoverPosition,
+    coverZoom: DEFAULT_COVER_ZOOM,
     parent_id: "",
   });
 
@@ -392,6 +406,8 @@ function NotePageInner() {
       let iconMd = normalizePageIcon(n.icon || "");
       let colorMd = normalizePageColor(n.color);
       let coverMd = n.cover || "";
+      let coverPosMd = normalizeCoverPosition(n.coverPosition);
+      let coverZoomMd = normalizeCoverZoom(n.coverZoom);
       let parentMd = n.parent_id || "";
       let fromOffline = false;
       if (pending?.payload) {
@@ -403,6 +419,8 @@ function NotePageInner() {
         if (typeof p.icon === "string") iconMd = normalizePageIcon(p.icon);
         if (typeof p.color === "string") colorMd = normalizePageColor(p.color);
         if (typeof p.cover === "string") coverMd = p.cover;
+        if (p.coverPosition != null) coverPosMd = normalizeCoverPosition(p.coverPosition);
+        if (p.coverZoom != null) coverZoomMd = normalizeCoverZoom(p.coverZoom);
         if (typeof p.parent_id === "string") parentMd = p.parent_id;
         fromOffline = true;
       }
@@ -439,6 +457,8 @@ function NotePageInner() {
       setIcon(iconMd);
       setColor(colorMd);
       setCover(coverMd);
+      setCoverPosition(coverPosMd);
+      setCoverZoom(coverZoomMd);
       setParentId(parentMd);
       setNoteShare(parseNoteShare(n.share));
       const fromCloud = normalizeDeck(n.deck);
@@ -459,6 +479,8 @@ function NotePageInner() {
         icon: iconMd,
         color: colorMd,
         cover: coverMd,
+        coverPosition: coverPosMd,
+        coverZoom: coverZoomMd,
         parent_id: parentMd,
       };
       dirtyRef.current = fromOffline;
@@ -472,6 +494,8 @@ function NotePageInner() {
             icon: iconMd,
             color: colorMd,
             cover: coverMd,
+            coverPosition: coverPosMd,
+            coverZoom: coverZoomMd,
             parent_id: parentMd,
           }
         : null;
@@ -503,6 +527,8 @@ function NotePageInner() {
           setIcon(normalizePageIcon(n.icon || ""));
           setColor(normalizePageColor(n.color));
           setCover(n.cover || "");
+          setCoverPosition(normalizeCoverPosition(n.coverPosition));
+          setCoverZoom(normalizeCoverZoom(n.coverZoom));
           setParentId(n.parent_id || "");
           return;
         }
@@ -513,6 +539,8 @@ function NotePageInner() {
         setIcon(normalizePageIcon(n.icon || ""));
         setColor(normalizePageColor(n.color));
         setCover(n.cover || "");
+        setCoverPosition(normalizeCoverPosition(n.coverPosition));
+        setCoverZoom(normalizeCoverZoom(n.coverZoom));
         setParentId(n.parent_id || "");
         knownBodyById.current.set(noteId, n.body_md || "");
         latest.current = {
@@ -523,6 +551,8 @@ function NotePageInner() {
           icon: normalizePageIcon(n.icon || ""),
           color: normalizePageColor(n.color),
           cover: n.cover || "",
+          coverPosition: normalizeCoverPosition(n.coverPosition),
+          coverZoom: normalizeCoverZoom(n.coverZoom),
           parent_id: n.parent_id || "",
         };
         dirtyRef.current = false;
@@ -644,8 +674,19 @@ function NotePageInner() {
   }, [id]);
 
   useEffect(() => {
-    latest.current = { title, body, tags, folder, icon, color, cover, parent_id: parentId };
-  }, [title, body, tags, folder, icon, color, cover, parentId]);
+    latest.current = {
+      title,
+      body,
+      tags,
+      folder,
+      icon,
+      color,
+      cover,
+      coverPosition,
+      coverZoom,
+      parent_id: parentId,
+    };
+  }, [title, body, tags, folder, icon, color, cover, coverPosition, coverZoom, parentId]);
 
   useEffect(() => {
     if (!id) return;
@@ -822,6 +863,8 @@ function NotePageInner() {
       icon: latest.current.icon,
       color: latest.current.color,
       cover: latest.current.cover,
+      coverPosition: { ...latest.current.coverPosition },
+      coverZoom: latest.current.coverZoom,
       parent_id: latest.current.parent_id,
     };
   };
@@ -838,6 +881,9 @@ function NotePageInner() {
       cur.icon === snap.icon &&
       cur.color === snap.color &&
       cur.cover === snap.cover &&
+      cur.coverZoom === snap.coverZoom &&
+      cur.coverPosition.x === snap.coverPosition.x &&
+      cur.coverPosition.y === snap.coverPosition.y &&
       cur.parent_id === snap.parent_id &&
       cur.tags.length === snap.tags.length &&
       cur.tags.every((t, i) => t === snap.tags[i])
@@ -883,6 +929,8 @@ function NotePageInner() {
           icon: snap.icon,
           color: snap.color || "",
           cover: snap.cover,
+          coverPosition: snap.coverPosition,
+          coverZoom: snap.coverZoom,
           parent_id: snap.parent_id,
         },
         {
@@ -1024,6 +1072,8 @@ function NotePageInner() {
       icon: string;
       color: string;
       cover: string;
+      coverPosition: CoverPosition;
+      coverZoom: number;
       parent_id: string;
     }>
   ) => {
@@ -2464,6 +2514,8 @@ function NotePageInner() {
                                   icon: latest.current.icon,
                                   color: latest.current.color || "",
                                   cover: latest.current.cover,
+                                  coverPosition: latest.current.coverPosition,
+                                  coverZoom: latest.current.coverZoom,
                                   parent_id: latest.current.parent_id,
                                 });
                               } catch {
@@ -2860,24 +2912,27 @@ function NotePageInner() {
             : null}
 
           {(viewMode === "write" || viewMode === "read") && cover && (
-            <div
-              className="doc-cover"
-              style={{ backgroundImage: `url(${cover})` }}
-              title="封面"
-            >
-              {viewMode === "write" ? (
-                <button
-                  type="button"
-                  className="doc-cover-clear"
-                  onClick={() => {
-                    setCover("");
-                    markDirty({ cover: "" });
-                  }}
-                >
-                  移除封面
-                </button>
-              ) : null}
-            </div>
+            <NoteCoverBanner
+              coverUrl={cover}
+              position={coverPosition}
+              zoom={coverZoom}
+              canEdit={canEditNote && viewMode === "write"}
+              onChange={({ position, zoom }) => {
+                setCoverPosition(position);
+                setCoverZoom(zoom);
+                markDirty({ coverPosition: position, coverZoom: zoom });
+              }}
+              onRemove={() => {
+                setCover("");
+                setCoverPosition({ ...DEFAULT_COVER_POSITION });
+                setCoverZoom(DEFAULT_COVER_ZOOM);
+                markDirty({
+                  cover: "",
+                  coverPosition: { ...DEFAULT_COVER_POSITION },
+                  coverZoom: DEFAULT_COVER_ZOOM,
+                });
+              }}
+            />
           )}
 
           <div className={`doc-title-row${viewMode === "slides" ? " is-compact" : ""}`}>
@@ -2968,6 +3023,16 @@ function NotePageInner() {
                       setCover(patch.cover);
                       latest.current = { ...latest.current, cover: patch.cover };
                     }
+                    if (patch.coverPosition != null) {
+                      const pos = normalizeCoverPosition(patch.coverPosition);
+                      setCoverPosition(pos);
+                      latest.current = { ...latest.current, coverPosition: pos };
+                    }
+                    if (patch.coverZoom != null) {
+                      const z = normalizeCoverZoom(patch.coverZoom);
+                      setCoverZoom(z);
+                      latest.current = { ...latest.current, coverZoom: z };
+                    }
                     if (patch.folder != null) {
                       setFolder(patch.folder);
                       latest.current = { ...latest.current, folder: patch.folder };
@@ -2993,6 +3058,16 @@ function NotePageInner() {
                     if (patch.cover != null) {
                       setCover(patch.cover);
                       latest.current = { ...latest.current, cover: patch.cover };
+                    }
+                    if (patch.coverPosition != null) {
+                      const pos = normalizeCoverPosition(patch.coverPosition);
+                      setCoverPosition(pos);
+                      latest.current = { ...latest.current, coverPosition: pos };
+                    }
+                    if (patch.coverZoom != null) {
+                      const z = normalizeCoverZoom(patch.coverZoom);
+                      setCoverZoom(z);
+                      latest.current = { ...latest.current, coverZoom: z };
                     }
                     if (patch.folder != null) {
                       setFolder(patch.folder);
