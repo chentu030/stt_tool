@@ -20,7 +20,27 @@ import {
 
 /** Turndown skips "blank" nodes via blankReplacement — empty atom shells must be serialized here. */
 function serializeBlankAtom(node: HTMLElement): string | null {
+  if (node.nodeName === "SPAN") {
+    if (
+      node.getAttribute("data-math-inline") != null ||
+      node.classList?.contains("rich-math-inline") === true
+    ) {
+      const f = normalizeLatexFormula(
+        decodeFormulaAttr(node.getAttribute("data-formula") || "")
+      );
+      return f ? `$${f}$` : "";
+    }
+  }
   if (node.nodeName === "DIV") {
+    if (
+      node.getAttribute("data-math-block") != null ||
+      node.classList?.contains("rich-math-block") === true
+    ) {
+      const f = normalizeLatexFormula(
+        decodeFormulaAttr(node.getAttribute("data-formula") || "")
+      );
+      return f ? `\n\n$$\n${f}\n$$\n\n` : "";
+    }
     if (
       node.getAttribute("data-note-embed") != null ||
       node.classList?.contains("rich-embed")
@@ -753,6 +773,55 @@ function healEscapedMarksInHtml(html: string): string {
   );
 }
 
+/**
+ * Repair math shells that were escapeHtml'd inside toggles (visible raw
+ * `&lt;span class="rich-math-inline" …&gt;` instead of TipTap math nodes).
+ */
+function healEscapedMathInHtml(html: string): string {
+  // Allow &quot; etc. between tag name and data-math-* (marked encodes attribute quotes).
+  if (
+    !html ||
+    !/&lt;(?:span|div)\b(?:[^&]|&(?!lt;|gt;))*?data-math-(?:inline|block)/i.test(html)
+  ) {
+    return html;
+  }
+  let s = html;
+  s = s.replace(
+    /&lt;span\b((?:[^&]|&(?!lt;|gt;))*?data-math-inline(?:[^&]|&(?!lt;|gt;))*?)&gt;(?:&lt;\/span&gt;)?/gi,
+    (_m, attrs: string) => {
+      const decoded = decodeBasicEntities(attrs);
+      const fm = decoded.match(/data-formula\s*=\s*["']([^"']*)["']/i);
+      const formula = normalizeLatexFormula(decodeFormulaAttr(fm?.[1] || ""));
+      if (!formula) return _m;
+      return `<span class="rich-math-inline" data-math-inline="1" data-formula="${encodeFormulaAttr(formula)}"></span>`;
+    }
+  );
+  s = s.replace(
+    /&lt;div\b((?:[^&]|&(?!lt;|gt;))*?data-math-block(?:[^&]|&(?!lt;|gt;))*?)&gt;(?:&lt;\/div&gt;)?/gi,
+    (_m, attrs: string) => {
+      const decoded = decodeBasicEntities(attrs);
+      const fm = decoded.match(/data-formula\s*=\s*["']([^"']*)["']/i);
+      const formula = normalizeLatexFormula(decodeFormulaAttr(fm?.[1] || ""));
+      if (!formula) return _m;
+      return `<div class="rich-math-block" data-math-block="1" data-formula="${encodeFormulaAttr(formula)}"></div>`;
+    }
+  );
+  return s;
+}
+
+/**
+ * Toggle / column bodies: parse nested markdown (headings, lists, emphasis)
+ * instead of escapeHtml line-wrapping. Body may already contain math/embed HTML
+ * from earlier enrichMarkdown steps — marked leaves those tags intact.
+ * `breaks: true` keeps transcript lines visible without requiring blank lines.
+ */
+function renderNestedMarkdownHtml(body: string): string {
+  const trimmed = String(body || "").trim();
+  if (!trimmed) return "<p></p>";
+  const html = marked.parse(trimmed, { async: false, breaks: true }) as string;
+  return String(html || "").trim() || "<p></p>";
+}
+
 marked.setOptions({ gfm: true, breaks: false });
 
 function escapeAttr(s: string) {
@@ -965,23 +1034,18 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
     /:::toggle-h([1-4])(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g,
     (_m, level, openFlag, title, body) => {
       const open = openFlag ? "1" : "0";
-      const inner = String(body).trim();
-      return `<div class="rich-toggle-heading rich-toggle-heading--h${level}" data-note-toggle-heading="1" data-level="${level}" data-title="${escapeAttr(String(title).trim())}" data-open="${open}"><p>${escapeHtml(inner)}</p></div>`;
+      const inner = renderNestedMarkdownHtml(String(body));
+      return `<div class="rich-toggle-heading rich-toggle-heading--h${level}" data-note-toggle-heading="1" data-level="${level}" data-title="${escapeAttr(String(title).trim())}" data-open="${open}">${inner}</div>`;
     }
   );
 
   // Toggle fence: :::toggle open Title\n...\n:::
-  // Without `open` → collapsed. Preserve line breaks inside the body.
+  // Without `open` → collapsed. Parse body as nested markdown (not escapeHtml lines)
+  // so AI 摘要 / headings / lists / math render like the main editor.
   s = s.replace(/:::toggle(?!-h)(\s+open)?\s+([^\n]+)\n([\s\S]*?):::/g, (_m, openFlag, title, body) => {
     const open = openFlag ? "1" : "0";
-    // Skip blank lines so timestamp + transcript sit flush (no empty <p><br></p> gaps).
-    const inner = String(body)
-      .trim()
-      .split(/\n/)
-      .filter((line) => line.trim().length > 0)
-      .map((line) => `<p>${escapeHtml(line)}</p>`)
-      .join("");
-    return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}">${inner || "<p></p>"}</div>`;
+    const inner = renderNestedMarkdownHtml(String(body));
+    return `<div class="rich-toggle" data-note-toggle="1" data-title="${escapeAttr(String(title).trim())}" data-open="${open}">${inner}</div>`;
   });
 
   // Columns: ::::columns 2 … :::: (4-colon outer so :::column closers don't truncate)
@@ -1025,8 +1089,7 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
   });
 
   // Highlights: ==text== / ==text=={#rrggbb}
-  // Must run AFTER toggle/column/callout escapeHtml — converting earlier turns
-  // marks into <mark> that then get escaped to visible raw HTML on reload.
+  // After toggle/column HTML conversion so ==…== inside nested bodies still matches.
   s = applyHighlightMarkdown(s);
 
   // Colored text: {c:#rrggbb}text{/c}
@@ -1066,14 +1129,14 @@ function enrichMarkdown(md: string, resolveWiki?: WikiResolver): string {
 export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   const raw = tightenMediaAdjacencyMd(healHighlightArtifacts((md || "").trim()));
   if (!raw) return "<p></p>";
-  // ==highlight== is applied inside enrichMarkdown (after toggle/column escapeHtml).
+  // ==highlight== is applied inside enrichMarkdown (after toggle/column conversion).
   const withMedia = enrichMarkdown(raw, resolveWiki);
   const html = marked.parse(withMedia, { async: false }) as string;
   const normalized = wrapBareTablesHtml(
     normalizeTableColWidths(normalizeTaskListHtml(normalizeBlockMediaHtml(html)))
   );
-  // If toggle/column escapeHtml still left &lt;mark&gt;, turn it back into real marks.
-  return sanitizeNoteHtml(healEscapedMarksInHtml(normalized));
+  // If toggle escapeHtml historically left &lt;mark&gt; / &lt;span data-math-…&gt;, restore nodes.
+  return sanitizeNoteHtml(healEscapedMathInHtml(healEscapedMarksInHtml(normalized)));
 }
 
 /** Strip XSS vectors while keeping TipTap / media data-* attributes. */
