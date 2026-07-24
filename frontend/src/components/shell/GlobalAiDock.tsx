@@ -369,6 +369,8 @@ export default function GlobalAiDock() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydrated = useRef(false);
   const skipNextPersist = useRef(true);
+  const bridgeSourceRef = useRef<"auto" | "manual" | null>(null);
+  const lastAutoBridgeKeyRef = useRef("");
   const sheetDrag = useRef<{ startY: number; startH: number } | null>(null);
   const pendingAttachRef = useRef<AiAttachment[] | null>(null);
   const attach = useAiAttachments({
@@ -530,15 +532,27 @@ export default function GlobalAiDock() {
   useEffect(() => {
     const applyDetail = (d: AiRailOpenDetail) => {
       if (typeof d.prompt === "string") setInput(d.prompt);
-      if (typeof d.contextLabel === "string") setBridgeLabel(d.contextLabel);
+      if (typeof d.contextLabel === "string") {
+        bridgeSourceRef.current = "manual";
+        setBridgeLabel(d.contextLabel);
+      }
       const extra =
         (typeof d.contextExtra === "string" && d.contextExtra.trim()) ||
         (typeof d.selectionText === "string" && d.selectionText.trim()
           ? `—— 目前選取 ——\n${d.selectionText.trim().slice(0, 12000)}\n—— 結束 ——`
           : "");
-      if (extra) setBridgeExtra(extra);
-      if (d.mediaRefs?.length) setBridgeMediaRefs(d.mediaRefs);
-      if (d.useCanvasSelection) setForceCanvasSelection(true);
+      if (extra) {
+        bridgeSourceRef.current = "manual";
+        setBridgeExtra(extra);
+      }
+      if (d.mediaRefs?.length) {
+        bridgeSourceRef.current = "manual";
+        setBridgeMediaRefs(d.mediaRefs);
+      }
+      if (d.useCanvasSelection) {
+        bridgeSourceRef.current = "manual";
+        setForceCanvasSelection(true);
+      }
       if (d.attachments?.length) {
         // Rare path: pre-encoded payloads — ignore here; File attach uses composer.
       }
@@ -565,11 +579,136 @@ export default function GlobalAiDock() {
   }, []);
 
   const clearBridgeContext = () => {
+    bridgeSourceRef.current = null;
+    lastAutoBridgeKeyRef.current = "";
     setBridgeLabel("");
     setBridgeExtra("");
     setBridgeMediaRefs([]);
     setForceCanvasSelection(false);
   };
+
+  const applyAutoNoteSelection = useCallback((text: string, label: string) => {
+    const key = `note:${label}\n${text}`;
+    if (lastAutoBridgeKeyRef.current === key) return;
+    lastAutoBridgeKeyRef.current = key;
+    bridgeSourceRef.current = "auto";
+    setBridgeLabel(label);
+    setBridgeExtra(`—— 目前選取 ——\n${text.slice(0, 12000)}\n—— 結束 ——`);
+    setForceCanvasSelection(false);
+  }, []);
+
+  const applyAutoCanvasSelection = useCallback((count: number, name: string, ids: string[]) => {
+    const key = `canvas:${name}:${ids.join(",")}`;
+    if (lastAutoBridgeKeyRef.current === key) return;
+    lastAutoBridgeKeyRef.current = key;
+    bridgeSourceRef.current = "auto";
+    setForceCanvasSelection(true);
+    setBridgeLabel(`白板 · ${name || "白板"} · 選取 ${count}`);
+    setBridgeExtra(
+      `—— 白板選取（${count}）——\n請優先依據畫布摘要中標記為選取的物件作答。\nID：${ids.slice(0, 24).join(", ")}\n—— 結束 ——`
+    );
+  }, []);
+
+  /** Auto-bind DOM / editor selection into the rail — no extra click. */
+  useEffect(() => {
+    if (!open || !onNotePage) return;
+
+    let timer: number | undefined;
+    const readPack = (): { text: string; label: string } | null => {
+      let sel: Selection | null = null;
+      try {
+        sel = window.getSelection();
+      } catch {
+        return null;
+      }
+      const anchor = sel?.anchorNode || null;
+      const el =
+        anchor && (anchor.nodeType === Node.ELEMENT_NODE ? (anchor as Element) : anchor.parentElement);
+      if (el?.closest(".cadence-ai-rail, .cadence-dialog-backdrop, .cadence-dialog")) {
+        return null;
+      }
+
+      const text = (sel?.toString() || "").replace(/\u00a0/g, " ").trim();
+      const inEditor = !!el?.closest(
+        ".ProseMirror, .tiptap, .rich-note-editor, .doc-editor-shell, .doc-pane, [data-cadence-editor]"
+      );
+
+      const selectedNode = document.querySelector(
+        ".ProseMirror-selectednode, .rich-note-editor .ProseMirror-selectednode"
+      ) as HTMLElement | null;
+      if (selectedNode && !selectedNode.closest(".cadence-ai-rail")) {
+        const img =
+          selectedNode.tagName === "IMG"
+            ? (selectedNode as HTMLImageElement)
+            : selectedNode.querySelector("img");
+        if (img) {
+          const desc =
+            text ||
+            `[圖片] ${img.getAttribute("alt") || img.getAttribute("title") || "未命名圖片"}`;
+          return {
+            text: desc,
+            label: focusNote?.title ? `筆記 · ${focusNote.title} · 圖片` : "選取 · 圖片",
+          };
+        }
+        if (!text) {
+          const kind =
+            selectedNode.getAttribute("data-type") ||
+            selectedNode.getAttribute("data-node-type") ||
+            selectedNode.tagName.toLowerCase();
+          return {
+            text: `[選取區塊] ${kind}`,
+            label: focusNote?.title ? `筆記 · ${focusNote.title}` : "目前選取",
+          };
+        }
+      }
+
+      if (!text || !inEditor) return null;
+      return {
+        text,
+        label: focusNote?.title ? `筆記 · ${focusNote.title}` : "目前選取",
+      };
+    };
+
+    const sync = () => {
+      const pack = readPack();
+      if (pack) {
+        applyAutoNoteSelection(pack.text, pack.label);
+        return;
+      }
+      if (bridgeSourceRef.current === "auto") {
+        clearBridgeContext();
+      }
+    };
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(sync, 120);
+    };
+
+    document.addEventListener("selectionchange", schedule);
+    document.addEventListener("mouseup", schedule);
+    document.addEventListener("keyup", schedule);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("selectionchange", schedule);
+      document.removeEventListener("mouseup", schedule);
+      document.removeEventListener("keyup", schedule);
+    };
+  }, [open, onNotePage, focusNote?.title, applyAutoNoteSelection]);
+
+  /** Auto-bind whiteboard multi-select into the rail. */
+  useEffect(() => {
+    if (!open || !onCanvasPage) return;
+    const ids = canvasSnap?.selectedIds || [];
+    if (ids.length > 0) {
+      applyAutoCanvasSelection(ids.length, canvasSnap?.name || "白板", ids);
+      return;
+    }
+    if (bridgeSourceRef.current === "auto") {
+      clearBridgeContext();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedIds identity; key by join
+  }, [open, onCanvasPage, (canvasSnap?.selectedIds || []).join(","), canvasSnap?.name, applyAutoCanvasSelection]);
 
   useEffect(() => {
     if (!open) return;
@@ -727,38 +866,6 @@ export default function GlobalAiDock() {
     pinnedNotes.length,
     focusNote,
   ]);
-
-  const useLiveSelection = () => {
-    if (onCanvasPage && canvasSnap && (canvasSnap.selectedIds?.length || 0) > 0) {
-      setForceCanvasSelection(true);
-      setBridgeLabel(`白板 · ${canvasSnap.name || "白板"} · 選取 ${canvasSnap.selectedIds.length}`);
-      setBridgeExtra((prev) =>
-        [
-          prev,
-          `—— 白板選取（${canvasSnap.selectedIds.length}）——\n請優先依據畫布摘要中標記為選取的物件作答。\nID：${canvasSnap.selectedIds.slice(0, 24).join(", ")}\n—— 結束 ——`,
-        ]
-          .filter(Boolean)
-          .join("\n\n")
-      );
-      toast("已綁定目前白板選取");
-      return;
-    }
-    if (onNotePage) {
-      let sel = "";
-      try {
-        sel = window.getSelection()?.toString()?.trim() || "";
-      } catch {
-        sel = "";
-      }
-      if (!sel) {
-        toast("請先在筆記中選取文字");
-        return;
-      }
-      setBridgeLabel(focusNote?.title ? `筆記 · ${focusNote.title}` : "目前選取");
-      setBridgeExtra(`—— 目前選取 ——\n${sel.slice(0, 12000)}\n—— 結束 ——`);
-      toast("已帶入目前選取");
-    }
-  };
 
   const historySorted = useMemo(
     () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -1527,28 +1634,14 @@ export default function GlobalAiDock() {
                 <button
                   type="button"
                   className="cadence-ai-ctx-chip"
-                  title="清除脈絡"
+                  title="清除脈絡（取消自動帶入可再點選其他內容）"
                   onClick={clearBridgeContext}
                 >
                   {bridgeLabel.length > 28 ? `${bridgeLabel.slice(0, 28)}…` : bridgeLabel} ×
                 </button>
+              ) : onNotePage || onCanvasPage ? (
+                <span className="cadence-ai-ctx-hint">在內容中選取文字或物件，會自動帶入對話</span>
               ) : null}
-              {onCanvasPage && canvasSnap && (canvasSnap.selectedIds?.length || 0) > 0 ? (
-                <span className="cadence-ai-ctx-chip" title="白板目前選取">
-                  白板選取 · {canvasSnap.selectedIds.length}
-                </span>
-              ) : null}
-              {((onCanvasPage && canvasSnap && (canvasSnap.selectedIds?.length || 0) > 0) ||
-                onNotePage) && (
-                <button
-                  type="button"
-                  className="doc-cmd"
-                  title="把目前選取加入對話脈絡"
-                  onClick={useLiveSelection}
-                >
-                  使用目前選取
-                </button>
-              )}
             </div>
 
             <div className="cadence-ai-dock-pins">
