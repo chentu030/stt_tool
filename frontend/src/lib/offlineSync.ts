@@ -152,6 +152,8 @@ export async function saveNoteWithSync(
   opts: {
     baseUpdatedAt: number;
     label?: string;
+    /** Title/body at last successful sync — used to ignore metadata-only clock bumps */
+    baseContent?: { title?: string; body_md?: string };
     /** Skip dialog and just queue / force — used rarely */
     force?: boolean;
   }
@@ -174,6 +176,7 @@ export async function saveNoteWithSync(
   try {
     const { updatedAt } = await updateNote(noteId, updates, {
       expectedUpdatedAt: opts.baseUpdatedAt,
+      baseContent: opts.baseContent,
       force: opts.force,
     });
     await deletePending(pendingKey("note", noteId));
@@ -181,6 +184,26 @@ export async function saveNoteWithSync(
     return { status: "saved", updatedAt };
   } catch (err) {
     if (err instanceof NoteConflictError) {
+      // One soft retry: cloud only advanced metadata since our base snapshot.
+      const remote = err.remote;
+      const base = opts.baseContent;
+      if (
+        base &&
+        (base.title === undefined || remote.title === base.title) &&
+        (base.body_md === undefined || (remote.body_md || "") === (base.body_md || ""))
+      ) {
+        try {
+          const { updatedAt } = await updateNote(noteId, updates, { force: true });
+          await deletePending(pendingKey("note", noteId));
+          noteBaseEvent(noteId, updatedAt);
+          return { status: "saved", updatedAt };
+        } catch (e2) {
+          return {
+            status: "error",
+            message: e2 instanceof Error ? e2.message : "儲存失敗",
+          };
+        }
+      }
       const kept = await resolveNoteConflict({
         noteId,
         label,

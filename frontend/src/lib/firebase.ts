@@ -568,6 +568,12 @@ export async function updateNote(
     silent?: boolean;
     /** Conflict if cloud `updated_at` is newer than this ms / Date */
     expectedUpdatedAt?: number | Date;
+    /**
+     * Title/body snapshot this editor session last synced.
+     * If cloud `updated_at` moved ahead but title+body still match this snapshot,
+     * treat it as a metadata-only bump (props / parallel write) and allow overwrite.
+     */
+    baseContent?: { title?: string; body_md?: string };
     /** Skip conflict check and overwrite */
     force?: boolean;
   }
@@ -587,8 +593,12 @@ export async function updateNote(
   const useConflictCheck =
     !options?.force && !options?.silent && expectedMs != null && Number.isFinite(expectedMs);
 
-  if (!useConflictCheck) {
-    await updateDoc(doc(db, "notes", noteId), payload);
+  const afterWrite = (ms: number) => {
+    if (!options?.silent) {
+      void import("@/lib/offlineSync")
+        .then(({ noteBaseEvent }) => noteBaseEvent(noteId, ms))
+        .catch(() => {});
+    }
     if (
       updates.title !== undefined ||
       updates.body_md !== undefined ||
@@ -600,6 +610,11 @@ export async function updateNote(
         .then(({ syncShareTokenSnapshot }) => syncShareTokenSnapshot(noteId))
         .catch(() => {});
     }
+  };
+
+  if (!useConflictCheck) {
+    await updateDoc(doc(db, "notes", noteId), payload);
+    afterWrite(updatedAtMs);
     return { updatedAt: updatedAtMs };
   }
 
@@ -621,23 +636,26 @@ export async function updateNote(
         adoptedRemoteMs = remoteMs;
         return;
       }
+      // Cloud clock moved (e.g. props / parallel updateNote) but title+body still
+      // match the editor's last synced snapshot — not a real multi-device content conflict.
+      const base = options?.baseContent;
+      if (
+        base &&
+        (base.title === undefined || remote.title === base.title) &&
+        (base.body_md === undefined || (remote.body_md || "") === (base.body_md || ""))
+      ) {
+        adoptedRemoteMs = null;
+        tx.update(ref, payload);
+        return;
+      }
       throw new NoteConflictError(remote);
     }
     adoptedRemoteMs = null;
     tx.update(ref, payload);
   });
-  if (
-    updates.title !== undefined ||
-    updates.body_md !== undefined ||
-    updates.icon !== undefined ||
-    updates.cover !== undefined ||
-    updates.share !== undefined
-  ) {
-    void import("@/lib/share")
-      .then(({ syncShareTokenSnapshot }) => syncShareTokenSnapshot(noteId))
-      .catch(() => {});
-  }
-  return { updatedAt: adoptedRemoteMs ?? updatedAtMs };
+  const finalMs = adoptedRemoteMs ?? updatedAtMs;
+  afterWrite(finalMs);
+  return { updatedAt: finalMs };
 }
 
 /** Append markdown while a live session writes off the open editor (cross-page recording). */

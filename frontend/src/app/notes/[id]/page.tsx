@@ -283,6 +283,8 @@ function NotePageInner() {
   } | null>(null);
   /** Cloud `updated_at` ms this editor session is based on (for conflict checks). */
   const baseUpdatedAtRef = useRef(0);
+  /** Title/body at last load/successful sync — ignore metadata-only clock bumps. */
+  const baseContentRef = useRef<{ title: string; body_md: string }>({ title: "", body_md: "" });
   const draftRef = useRef<{
     noteId: string;
     title: string;
@@ -408,6 +410,10 @@ function NotePageInner() {
         void updateNote(id, { body_md: seeded }).catch(() => {});
       }
       baseUpdatedAtRef.current = pending?.baseUpdatedAt ?? n.updated_at.getTime();
+      baseContentRef.current = {
+        title: titleMd,
+        body_md: bodyMd,
+      };
       // One-time: move interleaved 逐段+音檔 out of body into props.live_segments.
       let noteForState = n;
       if (migratedSegmentsRef.current !== id) {
@@ -484,6 +490,10 @@ function NotePageInner() {
       void getNote(noteId).then((n) => {
         if (!n) return;
         baseUpdatedAtRef.current = n.updated_at.getTime();
+        baseContentRef.current = {
+          title: n.title || "",
+          body_md: n.body_md || "",
+        };
         setNote(n);
         setNoteShare(parseNoteShare(n.share));
         // Yjs owns body/title while collab is connected.
@@ -877,6 +887,7 @@ function NotePageInner() {
         },
         {
           baseUpdatedAt: baseUpdatedAtRef.current || Date.now(),
+          baseContent: { ...baseContentRef.current },
           label: snap.title,
         }
       );
@@ -915,6 +926,17 @@ function NotePageInner() {
 
       if (result.status === "saved" || result.status === "conflict_resolved") {
         baseUpdatedAtRef.current = result.updatedAt;
+        if (result.status === "saved" || result.kept === "local") {
+          baseContentRef.current = {
+            title: snap.title,
+            body_md: nextBody,
+          };
+        } else if (result.kept === "remote" && result.remote) {
+          baseContentRef.current = {
+            title: result.remote.title || "",
+            body_md: result.remote.body_md || "",
+          };
+        }
       }
 
       try {
