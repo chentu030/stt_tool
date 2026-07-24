@@ -4,11 +4,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   STICKY_COLORS,
   ToolId,
+  clampOpacity,
   colorToShapeHex,
   resolveStickyStyle,
   type BrushId,
 } from "@/lib/canvasStore";
-import { BRUSH_DEFS } from "@/lib/canvasBrush";
+import { BRUSH_DEFS, brushDef } from "@/lib/canvasBrush";
 import CanvasColorPicker from "@/components/canvas/CanvasColorPicker";
 
 type DockPanel = "insert" | "color" | "brush" | "view" | "more" | null;
@@ -235,6 +236,46 @@ export default function CanvasToolbar({
     </div>
   );
 
+  const activeBrush = brushDef(brushId);
+  const sizePreviewPx = Math.max(6, Math.min(52, penWidth * activeBrush.widthMul * 2.35));
+  const sizePreviewColor = colorToShapeHex(stickyColor);
+  const sizePreviewOpacity = clampOpacity(brushOpacity * activeBrush.soft);
+
+  const widthSlider = (
+    <div className="cv-dock-brush-width-row">
+      <div
+        className="cv-dock-brush-size-preview"
+        aria-hidden
+        title={`粗細 ${penWidth.toFixed(1)}`}
+      >
+        <span
+          className="cv-dock-brush-size-swatch"
+          style={{
+            width: sizePreviewPx,
+            height: sizePreviewPx,
+            background: sizePreviewColor,
+            opacity: sizePreviewOpacity,
+            boxShadow:
+              activeBrush.blur > 0.05
+                ? `0 0 ${4 + activeBrush.blur * 10}px ${sizePreviewColor}`
+                : undefined,
+          }}
+        />
+      </div>
+      <label className="cv-dock-brush-width-label">
+        <span>粗細 {penWidth.toFixed(1)}</span>
+        <input
+          type="range"
+          min={0.8}
+          max={28}
+          step={0.2}
+          value={penWidth}
+          onChange={(e) => onPenWidth(Number(e.target.value))}
+        />
+      </label>
+    </div>
+  );
+
   const colorPanel = panel === "color" && (
     <div className="cv-dock-panel cv-dock-panel--colors" role="menu">
       <p className="cv-dock-panel-title">
@@ -279,17 +320,7 @@ export default function CanvasToolbar({
       ) : null}
       {(tool === "pen" || tool === "eraser") && (
         <div className="cv-dock-brush-sliders">
-          <label>
-            <span>粗細 {penWidth.toFixed(1)}</span>
-            <input
-              type="range"
-              min={0.8}
-              max={28}
-              step={0.2}
-              value={penWidth}
-              onChange={(e) => onPenWidth(Number(e.target.value))}
-            />
-          </label>
+          {widthSlider}
           {tool === "pen" && onBrushOpacity ? (
             <label>
               <span>透明度 {Math.round(brushOpacity * 100)}%</span>
@@ -349,17 +380,7 @@ export default function CanvasToolbar({
         ))}
       </div>
       <div className="cv-dock-brush-sliders">
-        <label>
-          <span>粗細 {penWidth.toFixed(1)}</span>
-          <input
-            type="range"
-            min={0.8}
-            max={28}
-            step={0.2}
-            value={penWidth}
-            onChange={(e) => onPenWidth(Number(e.target.value))}
-          />
-        </label>
+        {widthSlider}
         <label>
           <span>透明度 {Math.round(brushOpacity * 100)}%</span>
           <input

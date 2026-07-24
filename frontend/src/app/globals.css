@@ -10164,7 +10164,8 @@ button.jn-heat-cell:disabled {
   gap: 0.45rem;
   margin-top: 0.55rem;
 }
-.cv-dock-brush-sliders label {
+.cv-dock-brush-sliders label,
+.cv-dock-brush-width-label {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -10175,8 +10176,43 @@ button.jn-heat-cell:disabled {
   width: 100%;
   accent-color: var(--accent);
 }
+.cv-dock-brush-width-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.cv-dock-brush-size-preview {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(45deg, color-mix(in srgb, var(--border) 55%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--border) 55%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--border) 55%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--border) 55%, transparent) 75%);
+  background-size: 10px 10px;
+  background-position: 0 0, 0 5px, 5px -5px, -5px 0;
+  background-color: var(--bg-elevated);
+}
+.cv-dock-brush-size-swatch {
+  display: block;
+  border-radius: 50%;
+  max-width: 48px;
+  max-height: 48px;
+  transition: width 80ms ease, height 80ms ease, opacity 80ms ease, box-shadow 80ms ease;
+  pointer-events: none;
+}
+.cv-dock-brush-width-label {
+  flex: 1;
+  min-width: 0;
+}
 .cv-ink {
   vector-effect: non-scaling-stroke;
+  touch-action: none;
 }
 .cv-ink.is-ribbon {
   vector-effect: none;
@@ -10187,8 +10223,14 @@ button.jn-heat-cell:disabled {
 .cv-ink--live {
   opacity: 0.92;
 }
-.cv-ink {
-  touch-action: none;
+.cv-ink--marker {
+  opacity: 0.95;
+}
+.cv-ink--airbrush {
+  opacity: 0.88;
+}
+.cv-ink--pencil {
+  opacity: 0.9;
 }
 .cv-sel-chrome-swatch--custom {
   background: conic-gradient(from 180deg, #f59e0b, #0d9488, #7c3aed, #e11d48, #f59e0b);
@@ -10829,12 +10871,24 @@ button.jn-heat-cell:disabled {
   background: transparent;
   color: var(--text-main);
   outline: none;
+  flex-shrink: 0;
 }
 .note-split-editor {
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding: 0.5rem 0.75rem 2rem;
+}
+/* Keep formatting ribbon usable while the split note body scrolls */
+.note-split-editor .doc-ribbon-inner {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: var(--bg-primary);
+  margin: -0.5rem -0.75rem 0;
+  padding: 0.5rem 0.75rem 0.45rem;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
 }
 .note-split-pane.is-app .note-split-editor.is-app {
   overflow: hidden;

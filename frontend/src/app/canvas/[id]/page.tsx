@@ -2714,6 +2714,19 @@ function CanvasIdPageInner() {
               </div>
             ))}
             <svg className="cv-edges" width="8000" height="6000">
+              <defs>
+                <filter id="cv-ink-airbrush" x="-40%" y="-40%" width="180%" height="180%" colorInterpolationFilters="sRGB">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter id="cv-ink-pencil" x="-15%" y="-15%" width="130%" height="130%" colorInterpolationFilters="sRGB">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="3" result="noise" />
+                  <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.1" xChannelSelector="R" yChannelSelector="G" />
+                </filter>
+              </defs>
               {doc.edges.map((edge) => {
                 const ca = nodeCenter(doc, edge.from);
                 const cb = nodeCenter(doc, edge.to);
@@ -2788,7 +2801,7 @@ function CanvasIdPageInner() {
                   <path
                     key={sk.id}
                     d={rendered.d}
-                    className={`cv-ink${selectedStroke ? " is-on" : ""}${rendered.filled ? " is-ribbon" : ""}`}
+                    className={`cv-ink${selectedStroke ? " is-on" : ""}${rendered.filled ? " is-ribbon" : ""}${rendered.brushClass ? ` ${rendered.brushClass}` : ""}`}
                     fill={rendered.filled ? sk.color : "none"}
                     fillOpacity={rendered.filled ? clampOpacity(sk.opacity) : undefined}
                     stroke={rendered.filled ? "none" : sk.color}
@@ -2796,6 +2809,7 @@ function CanvasIdPageInner() {
                     strokeOpacity={rendered.filled ? undefined : clampOpacity(sk.opacity)}
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    filter={rendered.filterId ? `url(#${rendered.filterId})` : undefined}
                     style={{
                       pointerEvents:
                         tool === "pen" || tool === "eraser" ? "none" : "stroke",
@@ -2809,12 +2823,13 @@ function CanvasIdPageInner() {
                 );
               })}
               {liveStroke ? (() => {
-                const rendered = strokeRenderProps(liveStroke, penSmooth);
+                // Live: apply smooth + taper so fountain tip / smooth slider feel while drawing
+                const rendered = strokeRenderProps(liveStroke, penSmooth, { applyTaperLive: true });
                 if (!rendered.d) return null;
                 return (
                   <path
                     d={rendered.d}
-                    className={`cv-ink cv-ink--live${rendered.filled ? " is-ribbon" : ""}`}
+                    className={`cv-ink cv-ink--live${rendered.filled ? " is-ribbon" : ""}${rendered.brushClass ? ` ${rendered.brushClass}` : ""}`}
                     fill={rendered.filled ? liveStroke.color : "none"}
                     fillOpacity={rendered.filled ? clampOpacity(liveStroke.opacity) : undefined}
                     stroke={rendered.filled ? "none" : liveStroke.color}
@@ -2822,6 +2837,7 @@ function CanvasIdPageInner() {
                     strokeOpacity={rendered.filled ? undefined : clampOpacity(liveStroke.opacity)}
                     strokeLinecap="round"
                     strokeLinejoin="round"
+                    filter={rendered.filterId ? `url(#${rendered.filterId})` : undefined}
                     style={{ pointerEvents: "none" }}
                   />
                 );
