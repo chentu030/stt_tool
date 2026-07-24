@@ -1,7 +1,7 @@
 "use client";
 import { aiFetch } from "@/lib/aiFetch";
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
