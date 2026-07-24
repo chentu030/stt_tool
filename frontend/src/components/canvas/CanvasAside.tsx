@@ -7,8 +7,7 @@ import Link from "next/link";
 import { NoteHandoffLinks } from "@/components/shell/ContinueChips";
 import { buildResearchUrl } from "@/lib/researchBridge";
 import { CANVAS_TIPS } from "@/lib/canvasStore";
-import { openGlobalAiRail } from "@/lib/aiRailBridge";
-import { continueSelectionInAiRail } from "@/lib/aiRailBridge";
+import { continueSelectionInAiRail, openGlobalAiRail } from "@/lib/aiRailBridge";
 
 type Props = {
   notes: Note[];
