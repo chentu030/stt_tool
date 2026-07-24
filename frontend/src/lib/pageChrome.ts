@@ -249,6 +249,20 @@ export function remapFolderStyles(
   return next;
 }
 
+/** Drop styles for a folder path and any nested paths under it. */
+export function removeFolderStyles(
+  styles: Record<string, FolderStyle>,
+  path: string
+): Record<string, FolderStyle> {
+  if (!path) return styles;
+  const next: Record<string, FolderStyle> = {};
+  for (const [p, style] of Object.entries(styles)) {
+    if (p === path || p.startsWith(`${path}/`)) continue;
+    next[p] = style;
+  }
+  return next;
+}
+
 export function setFolderStyle(
   styles: Record<string, FolderStyle>,
   path: string,

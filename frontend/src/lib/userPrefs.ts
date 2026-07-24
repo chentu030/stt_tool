@@ -494,6 +494,18 @@ export function addSidebarFolder(folders: string[], path: string): string[] {
   return [p, ...folders].slice(0, 80);
 }
 
+/** Remove a folder path and any nested paths under it from sidebarFolders. */
+export function removeSidebarFolder(folders: string[], path: string): string[] {
+  const p = path
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/|\/$/g, "")
+    .slice(0, 200);
+  if (!p || p === "未分類") return folders;
+  return folders.filter((f) => f !== p && !f.startsWith(`${p}/`));
+}
+
 export function toggleFavoriteId(prefs: UserPrefs, noteId: string): UserPrefs {
   const set = new Set(prefs.favoriteNoteIds || []);
   if (set.has(noteId)) set.delete(noteId);

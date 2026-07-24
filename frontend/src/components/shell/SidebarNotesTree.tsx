@@ -33,8 +33,15 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import { useCommunityOptional } from "@/components/community/CommunityProvider";
 import IconColorPicker from "@/components/IconColorPicker";
 import PageChromeIcon from "@/components/PageChromeIcon";
-import { parseDefaultTags, toggleFavoriteId, touchRecentId, addSidebarFolder, remapSidebarFolders } from "@/lib/userPrefs";
-import { askConfirm, askPrompt } from "@/lib/dialogs";
+import {
+  parseDefaultTags,
+  toggleFavoriteId,
+  touchRecentId,
+  addSidebarFolder,
+  remapSidebarFolders,
+  removeSidebarFolder,
+} from "@/lib/userPrefs";
+import { askChoice, askConfirm, askPrompt } from "@/lib/dialogs";
 import {
   UNCATEGORIZED,
   buildNoteTree,
@@ -50,6 +57,7 @@ import {
   normalizePageIcon,
   pageColorMeta,
   remapFolderStyles,
+  removeFolderStyles,
   setFolderStyle,
 } from "@/lib/pageChrome";
 import { toast } from "@/lib/toast";
@@ -943,23 +951,76 @@ export default function SidebarNotesTree() {
     setSelected(new Set(ids));
   };
 
-  const deleteFolderNotes = async (path: string) => {
+  const deleteFolder = async (path: string) => {
     if (!path || path === UNCATEGORIZED) return;
-    const ids = notes.filter((n) => noteInFolderPath(n.folder, path)).map((n) => n.id);
-    if (!ids.length) return;
-    if (
-      !(await askConfirm({
-        title: `刪除「${path}」內的 ${ids.length} 篇筆記？`,
-        message: "含子資料夾中的筆記。此操作無法復原。",
-        danger: true,
-        confirmLabel: "全部刪除",
-      }))
-    ) {
-      return;
+    const affected = notes.filter((n) => noteInFolderPath(n.folder, path));
+    const pick = await askChoice<"keep" | "trash">({
+      title: `刪除資料夾「${path}」？`,
+      message: affected.length
+        ? `含子資料夾路徑。此夾內有 ${affected.length} 篇筆記，請選擇處理方式。`
+        : "將從側欄移除這個資料夾（含空的子路徑）。",
+      options: [
+        {
+          id: "keep",
+          label: "刪除資料夾並將筆記移至未分類",
+          description: "筆記保留，改放在「未分類」",
+          primary: true,
+        },
+        {
+          id: "trash",
+          label: "刪除資料夾與其中的筆記（進垃圾桶）",
+          description: "筆記可之後在知識庫「垃圾桶」還原",
+        },
+      ],
+      cancelLabel: "取消",
+    });
+    if (!pick) return;
+
+    if (pick.choice === "keep") {
+      await Promise.all(affected.map((n) => updateNote(n.id, { folder: "" })));
+    } else {
+      const wasActive = affected.some((n) => n.id === activeNoteId);
+      await Promise.all(affected.map((n) => deleteNote(n.id)));
+      clearSelection();
+      if (wasActive) router.push("/library");
     }
-    await Promise.all(ids.map((id) => deleteNote(id)));
-    clearSelection();
-    toast(`已刪除 ${ids.length} 篇`);
+
+    if (prefsCtx) {
+      prefsCtx.setPrefs((prev) => {
+        const df = normalizeFolderPath(prev.defaultFolder || "");
+        const clearDefault = df === path || df.startsWith(`${path}/`);
+        return {
+          ...prev,
+          sidebarFolders: removeSidebarFolder(prev.sidebarFolders || [], path),
+          folderStyles: removeFolderStyles(prev.folderStyles || {}, path),
+          ...(clearDefault ? { defaultFolder: "" } : {}),
+        };
+      });
+    }
+
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.delete(path);
+      for (const p of [...next]) {
+        if (p.startsWith(`${path}/`)) next.delete(p);
+      }
+      saveExpanded(next);
+      return next;
+    });
+
+    if (pick.choice === "keep") {
+      toast(
+        affected.length
+          ? `已刪除資料夾，${affected.length} 篇移至未分類`
+          : "已刪除資料夾"
+      );
+    } else {
+      toast(
+        affected.length
+          ? `已刪除資料夾，${affected.length} 篇移到垃圾桶`
+          : "已刪除資料夾"
+      );
+    }
   };
 
   useEffect(() => {
@@ -1173,9 +1234,9 @@ export default function SidebarNotesTree() {
           { type: "sep" },
           {
             type: "item",
-            label: "刪除此夾筆記…",
+            label: "刪除資料夾…",
             danger: true,
-            action: () => deleteFolderNotes(target.path),
+            action: () => void deleteFolder(target.path),
           }
         );
       }
