@@ -15562,7 +15562,35 @@ body.rich-media-float-dragging * {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.15rem;
+}
+.nk-props-head-toggle {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.4rem;
+  margin: 0;
+  padding: 0.1rem 0.15rem 0.1rem 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nk-props-head-toggle:hover {
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+.nk-props-head-toggle:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.nk-props-head-toggle .nk-props-chevron {
+  flex-shrink: 0;
+  pointer-events: none;
 }
 .nk-props-head-main {
   display: inline-flex;
@@ -15580,6 +15608,7 @@ body.rich-media-float-dragging * {
   display: inline-flex;
   align-items: center;
   gap: 0.1rem;
+  flex-shrink: 0;
 }
 .nk-props-icon-btn {
   border: none;

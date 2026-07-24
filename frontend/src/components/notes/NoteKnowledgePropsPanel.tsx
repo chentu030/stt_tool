@@ -502,28 +502,33 @@ export default function NoteKnowledgePropsPanel({
       aria-labelledby={titleId}
     >
       <header className="nk-props-head">
-        <div className="nk-props-head-main">
-          <strong id={titleId}>屬性</strong>
-          {inbox ? <span className="nk-inbox-badge">待整理</span> : null}
-          {organized ? <span className="nk-org-badge">已整理</span> : null}
-        </div>
-        <div className="nk-props-head-actions">
-          <button
-            type="button"
-            className="nk-props-icon-btn"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "展開屬性" : "收合屬性"}
-            title={collapsed ? "展開" : "收合"}
-            onClick={() => setCollapsed(!collapsed)}
-          >
+        <button
+          type="button"
+          className="nk-props-head-toggle"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "展開屬性" : "收合屬性"}
+          title={collapsed ? "展開" : "收合"}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <div className="nk-props-head-main">
+            <strong id={titleId}>屬性</strong>
+            {inbox ? <span className="nk-inbox-badge">待整理</span> : null}
+            {organized ? <span className="nk-org-badge">已整理</span> : null}
+          </div>
+          <span className="nk-props-icon-btn nk-props-chevron" aria-hidden="true">
             {collapsed ? "▸" : "▾"}
-          </button>
+          </span>
+        </button>
+        <div className="nk-props-head-actions">
           <button
             type="button"
             className="nk-props-icon-btn"
             aria-label="關閉屬性面板"
             title="關閉"
-            onClick={() => setCollapsed(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setCollapsed(true);
+            }}
           >
             ×
           </button>
