@@ -117,6 +117,8 @@ export type CanvasMedia = {
   description?: string;
   /** How transcript was obtained: manual/auto CC or whisper */
   transcriptSource?: "manual" | "auto" | "whisper" | string;
+  /** Live progress text while fetching CC / Whisper (shown on card) */
+  transcriptProgress?: string;
 };
 
 /** Soft grouping region on the canvas (moves contained items with it). */

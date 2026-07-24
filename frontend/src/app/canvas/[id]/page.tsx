@@ -758,15 +758,20 @@ function CanvasIdPageInner() {
       toast("此媒體類型不支援轉錄");
       return null;
     }
-    patchMedia(mediaId, { transcriptStatus: "queued", transcriptError: "" });
+    const isYt = item.media === "youtube";
+    patchMedia(mediaId, {
+      transcriptStatus: "queued",
+      transcriptError: "",
+      transcriptProgress: isYt ? "準備尋找字幕…" : "準備轉錄…",
+    });
     try {
       const getIdToken = async () => {
         const t = await user.getIdToken();
         return t;
       };
       let jobId = "";
-      if (item.media === "youtube") {
-        toast("正在抓取字幕（無字幕則語音轉錄）…");
+      if (isYt) {
+        toast("先找 CC／自動字幕；若沒有才會語音轉錄（可能較久）");
         jobId = await startTranscriptionJob({
           uid: user.uid,
           getIdToken,
@@ -777,6 +782,7 @@ function CanvasIdPageInner() {
           },
         });
       } else {
+        toast("開始語音轉錄…");
         const res = await fetch(item.url);
         if (!res.ok) throw new Error("無法讀取媒體檔案");
         const blob = await res.blob();
@@ -793,10 +799,32 @@ function CanvasIdPageInner() {
           media: { kind: "file", file, label: item.title || file.name },
         });
       }
-      patchMedia(mediaId, { jobId, transcriptStatus: "running" });
+      patchMedia(mediaId, {
+        jobId,
+        transcriptStatus: "running",
+        transcriptProgress: isYt ? "尋找 CC／自動字幕中…" : "語音轉錄中…",
+      });
       const { promise } = watchJob(jobId, (job) => {
-        const st = job.status === "queued" ? "queued" : job.status === "done" ? "done" : job.status === "error" ? "error" : "running";
-        patchMedia(mediaId, { transcriptStatus: st as CanvasMedia["transcriptStatus"] });
+        const st =
+          job.status === "queued"
+            ? "queued"
+            : job.status === "done"
+              ? "done"
+              : job.status === "error"
+                ? "error"
+                : "running";
+        const label = (job.position_label || "").trim();
+        let progress = label;
+        if (!progress) {
+          if (st === "queued") progress = isYt ? "排隊中（接著找字幕）…" : "排隊中…";
+          else if (st === "running") {
+            progress = isYt ? "處理中（字幕或語音轉錄）…" : "語音轉錄中…";
+          }
+        }
+        patchMedia(mediaId, {
+          transcriptStatus: st as CanvasMedia["transcriptStatus"],
+          transcriptProgress: progress,
+        });
       });
       const done = await promise;
       const transcript = await loadJobPlainTranscript(done);
@@ -806,14 +834,15 @@ function CanvasIdPageInner() {
         transcriptStatus: "done",
         jobId,
         h: Math.max(item.h, 320),
+        transcriptProgress: "",
       };
       if (captionSource) patch.transcriptSource = captionSource;
       patchMedia(mediaId, patch);
       toast(
         captionSource && captionSource !== "whisper"
-          ? "已取得字幕"
+          ? "已取得字幕（未跑語音轉錄）"
           : captionSource === "whisper"
-            ? "語音轉錄完成"
+            ? "找不到可用字幕，已用語音轉錄完成"
             : "轉錄完成"
       );
       return { ...item, ...patch };
@@ -821,6 +850,7 @@ function CanvasIdPageInner() {
       patchMedia(mediaId, {
         transcriptStatus: "error",
         transcriptError: e instanceof Error ? e.message : "轉錄失敗",
+        transcriptProgress: "",
       });
       toast(e instanceof Error ? e.message : "轉錄失敗");
       return null;
@@ -829,7 +859,9 @@ function CanvasIdPageInner() {
 
   const ensureMediaTextForAi = async (item: CanvasMedia): Promise<CanvasMedia> => {
     if (item.extractedText?.trim() || item.transcript?.trim()) return item;
-    if (item.media === "youtube" || item.media === "video" || item.media === "audio") {
+    // YouTube：Gemini 可直接讀網址，不自動抓字幕／轉錄（改由 AI 框內使用者確認）
+    if (item.media === "youtube") return item;
+    if (item.media === "video" || item.media === "audio") {
       const next = await startMediaTranscribe(item.id);
       return next || item;
     }
@@ -919,17 +951,32 @@ function CanvasIdPageInner() {
     );
   };
 
-  const askMediaAi = async (mediaId: string) => {
-    let item = (doc.media || []).find((m) => m.id === mediaId);
+  const askMediaAi = (mediaId: string) => {
+    const item = (doc.media || []).find((m) => m.id === mediaId);
     if (!item) return;
     setSelected([{ type: "media", id: mediaId }]);
-    item = await ensureMediaTextForAi(item);
-    if (!item.transcript?.trim() && !item.extractedText?.trim()) {
-      toast("尚無可用內容，請先轉錄或換一支有字幕的影片");
+    const openBesideMedia = () => {
+      const right = worldToClient(item.x + item.w, item.y);
+      const topLeft = worldToClient(item.x, item.y);
+      const bottomRight = worldToClient(item.x + item.w, item.y + item.h);
+      setStageAiAnchor({ top: right.y, left: right.x + 12, prefer: "right" });
+      setStageAiBox({
+        top: topLeft.y,
+        left: topLeft.x,
+        width: Math.max(24, bottomRight.x - topLeft.x),
+        height: Math.max(24, bottomRight.y - topLeft.y),
+      });
+      setStageAiOpen(true);
+    };
+    // YouTube：先開 AI 框；Gemini 可直接讀網址，不自動轉錄
+    if (item.media === "youtube") {
+      openBesideMedia();
       return;
     }
-    // Refresh selection packing with ensured text, then open stage AI.
-    requestAnimationFrame(() => openStageAi());
+    void (async () => {
+      await ensureMediaTextForAi(item);
+      openBesideMedia();
+    })();
   };
 
   const alignSelected = (mode: AlignMode) => {
@@ -3011,6 +3058,34 @@ function CanvasIdPageInner() {
           title={doc.name}
           anchor={stageAiAnchor}
           selectionBox={stageAiBox || undefined}
+          onFetchTranscript={
+            selected.length === 1 && selected[0].type === "media"
+              ? () => {
+                  const mid = selected[0].id;
+                  void startMediaTranscribe(mid);
+                }
+              : undefined
+          }
+          transcriptBusy={
+            selected.length === 1 && selected[0].type === "media"
+              ? (() => {
+                  const m = (doc.media || []).find((x) => x.id === selected[0].id);
+                  return (
+                    m?.transcriptStatus === "queued" || m?.transcriptStatus === "running"
+                  );
+                })()
+              : false
+          }
+          hasTranscript={
+            selected.length === 1 && selected[0].type === "media"
+              ? !!(doc.media || []).find((x) => x.id === selected[0].id)?.transcript?.trim()
+              : false
+          }
+          transcriptProgress={
+            selected.length === 1 && selected[0].type === "media"
+              ? (doc.media || []).find((x) => x.id === selected[0].id)?.transcriptProgress || ""
+              : ""
+          }
           onApplyReplace={applyStageAiReplace}
           onApplyInsert={applyStageAiInsert}
           onGenerateImage={applyStageAiImage}

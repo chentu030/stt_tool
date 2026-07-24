@@ -37,6 +37,11 @@ type Props = {
   selectionBox?: { top: number; left: number; width: number; height: number };
   mediaRefs?: CanvasAiMediaRef[];
   snippetLabel?: string;
+  /** Optional: fetch CC / Whisper for YouTube (only when user asks) */
+  onFetchTranscript?: () => void | Promise<void>;
+  transcriptBusy?: boolean;
+  hasTranscript?: boolean;
+  transcriptProgress?: string;
   onApplyReplace: (text: string) => void;
   onApplyInsert: (text: string) => void;
   onGenerateImage?: (file: File) => void | Promise<void>;
@@ -57,6 +62,10 @@ export default function StageSelectionAi({
   selectionBox,
   mediaRefs,
   snippetLabel,
+  onFetchTranscript,
+  transcriptBusy,
+  hasTranscript,
+  transcriptProgress,
   onApplyReplace,
   onApplyInsert,
   onGenerateImage,
@@ -142,8 +151,16 @@ export default function StageSelectionAi({
 
   if (!open) return null;
 
-  const hasSelection = !!selectionText.trim();
-  const fallback = (context || "").trim().slice(0, 4000) || title || "（無內容）";
+  const youtubeRef = (mediaRefs || []).find(
+    (r) => r.kind === "youtube" || /youtube\.com|youtu\.be/i.test(r.url || "")
+  );
+  const hasYoutube = !!youtubeRef?.url;
+  const hasSelection = !!selectionText.trim() || hasYoutube;
+  const fallback =
+    (context || "").trim().slice(0, 4000) ||
+    (hasYoutube ? `YouTube 影片：${youtubeRef!.url}` : "") ||
+    title ||
+    "（無內容）";
   const mediaUrlSnip = (mediaRefs || [])
     .map((r) => (r.url || "").trim())
     .filter(Boolean)
@@ -157,9 +174,15 @@ export default function StageSelectionAi({
         ? `${snip.slice(0, 220)}…`
         : snip;
 
+  const YT_QUICK = [
+    { label: "這支在講什麼", ask: "請根據這支 YouTube 影片，用繁體中文說明主題與核心論點（3–5 點）。" },
+    { label: "摘要重點", ask: "請根據這支 YouTube 影片產出清楚摘要，條列重點，繁體中文。" },
+    { label: "列出大綱", ask: "請根據這支 YouTube 影片整理時間軸大綱（若可知時間碼更好），繁體中文。" },
+  ] as const;
+
   const run = async (action: StageAiAction, ask?: string) => {
     const sel = selectionText.trim() || fallback;
-    if (!sel || busy) return;
+    if ((!sel && !hasYoutube) || busy) return;
     if (!hasSelection && action !== "ask_selection" && action !== "continue") {
       setError("請先選取內容，或直接輸入問題");
       return;
@@ -170,9 +193,9 @@ export default function StageSelectionAi({
     try {
       const payload: Record<string, unknown> = {
         action,
-        title: title || "選取內容",
-        selection: sel,
-        body: sel,
+        title: title || (hasYoutube ? "YouTube 影片" : "選取內容"),
+        selection: sel || fallback,
+        body: sel || fallback,
         assistant: {
           name: prefsCtx?.prefs.aiAssistantName,
           style: prefsCtx?.prefs.aiStyle,
@@ -183,13 +206,20 @@ export default function StageSelectionAi({
       if (context) payload.context = context.slice(0, 16000);
       if (mediaRefs?.length) payload.mediaRefs = mediaRefs;
       if (action === "ask_selection") {
+        const userAsk = ask?.trim() || prompt.trim();
         payload.prompt =
-          ask?.trim() ||
-          prompt.trim() ||
-          (hasSelection ? "請說明這段在說什麼" : "根據內容幫我整理重點");
+          userAsk ||
+          (hasYoutube
+            ? "請根據附加的 YouTube 影片說明重點"
+            : hasSelection
+              ? "請說明這段在說什麼"
+              : "根據內容幫我整理重點");
+        if (hasYoutube && !String(payload.prompt).includes("YouTube") && !String(payload.prompt).includes("影片")) {
+          payload.prompt = `${payload.prompt}\n\n（請直接理解附加的 YouTube 影片內容後回答，繁體中文。）`;
+        }
       }
       if (action === "expand" || action === "explain") {
-        payload.body = context?.slice(0, 12000) || sel;
+        payload.body = context?.slice(0, 12000) || sel || fallback;
       }
       const res = await aiFetch("/api/ai/generate", {
         method: "POST",
@@ -255,18 +285,62 @@ export default function StageSelectionAi({
           ? `「${snipShown}」`
           : "（未選取 — 可直接提問或生圖）"}
       </p>
+      {hasYoutube ? (
+        <div className="sel-ai-yt-hint">
+          <p>
+            預設會把 YouTube 網址交給 AI <strong>直接理解影片</strong>，不必先跑轉錄。
+            只有你需要完整逐字稿時，再按下方取得字幕。
+          </p>
+          <div className="sel-ai-quick">
+            {YT_QUICK.map((q) => (
+              <button
+                key={q.label}
+                type="button"
+                className="doc-cmd is-on"
+                disabled={busy || !!transcriptBusy}
+                onClick={() => void run("ask_selection", q.ask)}
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+          {onFetchTranscript ? (
+            <button
+              type="button"
+              className="doc-cmd"
+              disabled={busy || !!transcriptBusy || !!hasTranscript}
+              onClick={() => void onFetchTranscript()}
+              title={
+                hasTranscript
+                  ? "已有逐字稿"
+                  : "先找 CC／自動字幕；沒有才用語音轉錄（較久）"
+              }
+            >
+              {transcriptBusy
+                ? transcriptProgress || "正在取得字幕／轉錄…"
+                : hasTranscript
+                  ? "已有逐字稿"
+                  : "取得字幕／逐字稿"}
+            </button>
+          ) : null}
+          {transcriptBusy && transcriptProgress ? (
+            <p className="sel-ai-yt-progress">{transcriptProgress}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="sel-ai-quick">
-        {QUICK.map((q) => (
-          <button
-            key={q.id}
-            type="button"
-            className="doc-cmd"
-            disabled={busy || (!hasSelection && q.id !== "continue")}
-            onClick={() => void run(q.id)}
-          >
-            {q.label}
-          </button>
-        ))}
+        {!hasYoutube &&
+          QUICK.map((q) => (
+            <button
+              key={q.id}
+              type="button"
+              className="doc-cmd"
+              disabled={busy || (!hasSelection && q.id !== "continue")}
+              onClick={() => void run(q.id)}
+            >
+              {q.label}
+            </button>
+          ))}
         {onGenerateImage && (
           <button
             type="button"
@@ -281,7 +355,7 @@ export default function StageSelectionAi({
           <button
             type="button"
             className="doc-cmd"
-            disabled={busy}
+            disabled={busy || (!hasSelection && !hasYoutube)}
             onClick={() => void onSummarizeSelection()}
           >
             摘要到白板
@@ -291,7 +365,7 @@ export default function StageSelectionAi({
           <button
             type="button"
             className="doc-cmd"
-            disabled={busy}
+            disabled={busy || (!hasSelection && !hasYoutube)}
             onClick={() => void onMindMapSelection()}
           >
             心智圖草稿
@@ -302,17 +376,21 @@ export default function StageSelectionAi({
         className="sel-ai-ask"
         onSubmit={(e) => {
           e.preventDefault();
-          void run("ask_selection", prompt);
+          void run("ask_selection", prompt.trim() || undefined);
         }}
       >
         <input
           ref={inputRef}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="問任何問題…"
+          placeholder={hasYoutube ? "問這支影片任何問題…" : "問任何問題…"}
           disabled={busy}
         />
-        <button type="submit" className="doc-cmd is-on" disabled={busy || !prompt.trim()}>
+        <button
+          type="submit"
+          className="doc-cmd is-on"
+          disabled={busy || (!prompt.trim() && !hasYoutube)}
+        >
           {busy ? "…" : "問"}
         </button>
       </form>

@@ -18925,6 +18925,34 @@ body.is-sidebar-resizing iframe {
   max-height: 3.2em;
   overflow: hidden;
 }
+.sel-ai-yt-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #0d9488) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #0d9488) 28%, transparent);
+}
+.sel-ai-yt-hint > p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.sel-ai-yt-hint > p strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+.sel-ai-yt-hint > .doc-cmd {
+  align-self: flex-start;
+}
+.sel-ai-yt-progress {
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--accent, #0d9488);
+}
 .sel-ai-quick {
   display: flex;
   flex-wrap: wrap;

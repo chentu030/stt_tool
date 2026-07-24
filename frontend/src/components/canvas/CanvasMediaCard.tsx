@@ -97,11 +97,15 @@ export default function CanvasMediaCard({
 
   const statusLabel =
     status === "queued"
-      ? "排隊中"
+      ? item.transcriptProgress || "排隊中"
       : status === "running"
-        ? "轉錄中"
+        ? item.transcriptProgress || "處理中…"
         : status === "done"
-          ? "已轉錄"
+          ? item.transcriptSource && item.transcriptSource !== "whisper"
+            ? "已有字幕"
+            : item.transcriptSource === "whisper"
+              ? "已語音轉錄"
+              : "已轉錄"
           : status === "error"
             ? "失敗"
             : "";
