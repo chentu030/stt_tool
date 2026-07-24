@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { Note } from "@/lib/firebase";
@@ -8,16 +8,17 @@ import { updateNote } from "@/lib/firebase";
 import {
   addRelationTitle,
   ensureRelationField,
-  isInboxCandidate,
-  isOrganized,
+  getOrganizeStatus,
   listNoteDatePills,
   listPropRelationFields,
   listScalarProps,
+  nextOrganizeStatus,
+  ORGANIZE_STATUS_LABEL,
   relationToneIndex,
   removeRelationTitle,
   removeScalarProp,
   withFrontmatterExtra,
-  withOrganizedFlag,
+  withOrganizeStatus,
 } from "@/lib/noteKnowledge";
 import { swapIds } from "@/lib/database";
 import {
@@ -326,8 +327,8 @@ export default function NoteKnowledgePropsPanel({
       s.key !== "due"
   );
   const dates = listNoteDatePills(note);
-  const organized = isOrganized(note);
-  const inbox = isInboxCandidate(note);
+  const organizeStatus = getOrganizeStatus(note);
+  const organizeLabel = ORGANIZE_STATUS_LABEL[organizeStatus];
 
   // When note is in a DB, parent may still show this for workspace+relations if we allow it.
   // Plan P1: show workspace fields even for DB notes via unified panel — allow when userId set.
@@ -550,10 +551,18 @@ export default function NoteKnowledgePropsPanel({
     relations.length > 0 ||
     scalars.length > 0 ||
     dates.length > 0 ||
-    organized ||
-    inbox ||
+    organizeStatus === "pending" ||
+    organizeStatus === "organizing" ||
+    organizeStatus === "done" ||
     systemDefs.length > 0 ||
     (extraDbProps?.length || 0) > 0;
+
+  const cycleOrganizeStatus = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (readOnly) return;
+    onPropsPatch(withOrganizeStatus(note.props, nextOrganizeStatus(organizeStatus)));
+  };
 
   const commitDefReorder = async (fromId: string, toId: string) => {
     if (!userId || fromId === toId || readOnly) return;
@@ -694,23 +703,48 @@ export default function NoteKnowledgePropsPanel({
       aria-labelledby={titleId}
     >
       <header className="nk-props-head">
-        <button
-          type="button"
-          className="nk-props-head-toggle"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "展開屬性" : "收合屬性"}
-          title={collapsed ? "展開" : "收合"}
-          onClick={() => setCollapsed(!collapsed)}
-        >
+        <div className="nk-props-head-leading">
           <div className="nk-props-head-main">
-            <strong id={titleId}>屬性</strong>
-            {inbox ? <span className="nk-inbox-badge">待整理</span> : null}
-            {organized ? <span className="nk-org-badge">已整理</span> : null}
+            <button
+              type="button"
+              className="nk-props-head-title-btn"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "展開屬性" : "收合屬性"}
+              title={collapsed ? "展開" : "收合"}
+              onClick={() => setCollapsed(!collapsed)}
+            >
+              <strong id={titleId}>屬性</strong>
+            </button>
+            {readOnly ? (
+              <span
+                className={`nk-org-status-badge nk-org-status-badge--${organizeStatus}`}
+                title={organizeLabel}
+              >
+                {organizeLabel}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={`nk-org-status-badge nk-org-status-badge--${organizeStatus}`}
+                title={`整理狀態：${organizeLabel}（點擊切換）`}
+                aria-label={`整理狀態：${organizeLabel}，點擊切換下一狀態`}
+                onClick={cycleOrganizeStatus}
+              >
+                {organizeLabel}
+              </button>
+            )}
           </div>
-          <span className="nk-props-icon-btn nk-props-chevron" aria-hidden="true">
+          <button
+            type="button"
+            className="nk-props-icon-btn nk-props-chevron"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "展開屬性" : "收合屬性"}
+            title={collapsed ? "展開" : "收合"}
+            onClick={() => setCollapsed(!collapsed)}
+          >
             {collapsed ? "▸" : "▾"}
-          </span>
-        </button>
+          </button>
+        </div>
         <div className="nk-props-head-actions">
           <button
             type="button"
@@ -939,23 +973,6 @@ export default function NoteKnowledgePropsPanel({
                   ) : null}
                 </div>
               ) : null}
-              {inbox || !organized ? (
-                <button
-                  type="button"
-                  className="nk-props-add nk-props-add--quiet"
-                  onClick={() => onPropsPatch(withOrganizedFlag(note.props, true))}
-                >
-                  標為已整理
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="nk-props-add nk-props-add--quiet"
-                  onClick={() => onPropsPatch(withOrganizedFlag(note.props, false))}
-                >
-                  改回待整理
-                </button>
-              )}
             </div>
           )}
         </>

@@ -2,7 +2,7 @@
 
 import { createNote, updateNote, uploadNoteMedia } from "@/lib/firebase";
 import { normalizeFolderPath } from "@/lib/noteTree";
-import { structureFrontmatterExtras, ORGANIZED_PROP } from "@/lib/noteKnowledge";
+import { structureFrontmatterExtras, ORGANIZED_PROP, parseOrganizeStatus } from "@/lib/noteKnowledge";
 
 const MD_EXT = /\.(md|markdown|mdx)$/i;
 const MAX_BYTES = 2_500_000;
@@ -290,8 +290,11 @@ export function parseMarkdownImport(raw: string): ParsedMarkdownImport {
   if (updated) rawExtras.updated = updated;
 
   const structured = structureFrontmatterExtras(rawExtras);
-  if (map.organized === true || map.organized === "true" || map.organized === 1) {
-    structured.promoted[ORGANIZED_PROP] = true;
+  {
+    const org = parseOrganizeStatus(map.organized);
+    if (org === "done") structured.promoted[ORGANIZED_PROP] = true;
+    else if (org === "organizing") structured.promoted[ORGANIZED_PROP] = "organizing";
+    else if (org === "pending") structured.promoted[ORGANIZED_PROP] = "pending";
   }
 
   return {

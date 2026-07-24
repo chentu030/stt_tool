@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import Link from "next/link";
 import type { Note } from "@/lib/firebase";
 import { updateNote } from "@/lib/firebase";
@@ -41,6 +41,12 @@ import {
 import NoteMetaPropFields, { type NoteMetaHandlers } from "@/components/notes/NoteMetaPropFields";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import {
+  getOrganizeStatus,
+  nextOrganizeStatus,
+  ORGANIZE_STATUS_LABEL,
+  withOrganizeStatus,
+} from "@/lib/noteKnowledge";
 
 const COLLAPSED_MAX = 6;
 
@@ -421,22 +427,56 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
       .filter(Boolean)
       .join(" · ") || "點擊展開屬性";
 
+  const organizeStatus = getOrganizeStatus(note);
+  const organizeLabel = ORGANIZE_STATUS_LABEL[organizeStatus];
+
+  const cycleOrganizeStatus = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (readOnly) return;
+    const props = withOrganizeStatus(note.props, nextOrganizeStatus(organizeStatus));
+    onNotePatch({ props });
+    void updateNote(note.id, { props }).catch((err) => {
+      toast(err instanceof Error ? err.message : "儲存整理狀態失敗");
+    });
+  };
+
   return (
     <section
       className={`nk-props nk-props--inline ndb-props${collapsed ? " is-collapsed" : ""}`}
       aria-label="資料庫屬性"
     >
       <header className="nk-props-head">
-        <button
-          type="button"
-          className="nk-props-head-toggle"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "展開屬性" : "收合屬性"}
-          title={collapsed ? "展開" : "收合"}
-          onClick={() => setCollapsed(!collapsed)}
-        >
+        <div className="nk-props-head-leading">
           <div className="nk-props-head-main">
-            <strong>屬性</strong>
+            <button
+              type="button"
+              className="nk-props-head-title-btn"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "展開屬性" : "收合屬性"}
+              title={collapsed ? "展開" : "收合"}
+              onClick={() => setCollapsed(!collapsed)}
+            >
+              <strong>屬性</strong>
+            </button>
+            {readOnly ? (
+              <span
+                className={`nk-org-status-badge nk-org-status-badge--${organizeStatus}`}
+                title={organizeLabel}
+              >
+                {organizeLabel}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={`nk-org-status-badge nk-org-status-badge--${organizeStatus}`}
+                title={`整理狀態：${organizeLabel}（點擊切換）`}
+                aria-label={`整理狀態：${organizeLabel}，點擊切換下一狀態`}
+                onClick={cycleOrganizeStatus}
+              >
+                {organizeLabel}
+              </button>
+            )}
             <Link
               href={`/db/${db.id}`}
               className="ndb-props-db"
@@ -449,10 +489,17 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
               {filled.length}/{displayProps.length}
             </span>
           </div>
-          <span className="nk-props-icon-btn nk-props-chevron" aria-hidden="true">
+          <button
+            type="button"
+            className="nk-props-icon-btn nk-props-chevron"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "展開屬性" : "收合屬性"}
+            title={collapsed ? "展開" : "收合"}
+            onClick={() => setCollapsed(!collapsed)}
+          >
             {collapsed ? "▸" : "▾"}
-          </span>
-        </button>
+          </button>
+        </div>
         <div className="nk-props-head-actions">
           <button
             type="button"

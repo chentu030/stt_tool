@@ -15529,6 +15529,32 @@ body.rich-media-float-dragging * {
   justify-content: space-between;
   gap: 0.15rem;
 }
+.nk-props-head-leading {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+.nk-props-head-title-btn {
+  margin: 0;
+  padding: 0.1rem 0.1rem 0.1rem 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nk-props-head-title-btn:hover {
+  background: color-mix(in srgb, var(--bg) 40%, transparent);
+}
+.nk-props-head-title-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
 .nk-props-head-toggle {
   flex: 1;
   min-width: 0;
@@ -16328,17 +16354,49 @@ html.dark .nk-rel-chip--t4 {
 }
 
 .nk-inbox-badge,
-.nk-org-badge {
+.nk-org-badge,
+.nk-org-status-badge {
   font-size: 0.68rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
   font-weight: 600;
+  line-height: 1.3;
+  flex-shrink: 0;
 }
 .nk-inbox-badge {
   background: color-mix(in srgb, #c45c26 18%, transparent);
   color: #c45c26;
 }
 .nk-org-badge {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.nk-org-status-badge {
+  border: none;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: default;
+}
+button.nk-org-status-badge {
+  cursor: pointer;
+}
+button.nk-org-status-badge:hover {
+  filter: brightness(0.96);
+}
+button.nk-org-status-badge:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.nk-org-status-badge--pending {
+  background: color-mix(in srgb, #c45c26 18%, transparent);
+  color: #c45c26;
+}
+.nk-org-status-badge--organizing {
+  background: color-mix(in srgb, #b8860b 18%, transparent);
+  color: #9a7209;
+}
+.nk-org-status-badge--done {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
 }

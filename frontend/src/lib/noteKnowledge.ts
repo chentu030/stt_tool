@@ -276,9 +276,64 @@ export function noteTypeOf(note: NoteKnowledgeLite): string {
   return raw != null ? String(raw).trim() : "";
 }
 
+/** Note-level triage: 待整理 → 整理中 → 已整理 (stored on `props.organized`). */
+export type OrganizeStatus = "pending" | "organizing" | "done";
+
+export const ORGANIZE_STATUS_LABEL: Record<OrganizeStatus, string> = {
+  pending: "待整理",
+  organizing: "整理中",
+  done: "已整理",
+};
+
+const ORGANIZE_STATUS_CYCLE: OrganizeStatus[] = ["pending", "organizing", "done"];
+
+/** Parse stored `organized` prop; `null` = unset (use heuristics). */
+export function parseOrganizeStatus(raw: unknown): OrganizeStatus | null {
+  if (raw === true || raw === "true" || raw === 1 || raw === "done" || raw === "已整理") {
+    return "done";
+  }
+  if (
+    raw === "organizing" ||
+    raw === "in_progress" ||
+    raw === "in-progress" ||
+    raw === "整理中"
+  ) {
+    return "organizing";
+  }
+  if (raw === false || raw === "false" || raw === 0 || raw === "pending" || raw === "待整理") {
+    return "pending";
+  }
+  return null;
+}
+
 export function isOrganized(note: NoteKnowledgeLite): boolean {
-  const v = note.props?.[ORGANIZED_PROP];
-  return v === true || v === "true" || v === 1;
+  return getOrganizeStatus(note) === "done";
+}
+
+/**
+ * Resolved triage status for UI. Explicit `props.organized` wins;
+ * otherwise inbox heuristics → pending, else done.
+ */
+export function getOrganizeStatus(note: NoteKnowledgeLite): OrganizeStatus {
+  const explicit = parseOrganizeStatus(note.props?.[ORGANIZED_PROP]);
+  if (explicit) return explicit;
+  return isInboxCandidateUnset(note) ? "pending" : "done";
+}
+
+export function nextOrganizeStatus(current: OrganizeStatus): OrganizeStatus {
+  const i = ORGANIZE_STATUS_CYCLE.indexOf(current);
+  return ORGANIZE_STATUS_CYCLE[(i + 1) % ORGANIZE_STATUS_CYCLE.length];
+}
+
+export function withOrganizeStatus(
+  props: Record<string, unknown> | undefined,
+  status: OrganizeStatus
+): Record<string, unknown> {
+  const next = { ...(props || {}) };
+  if (status === "done") next[ORGANIZED_PROP] = true;
+  else if (status === "organizing") next[ORGANIZED_PROP] = "organizing";
+  else next[ORGANIZED_PROP] = "pending";
+  return next;
 }
 
 export function extractPropRelations(
@@ -351,11 +406,10 @@ export function findReverseRelations(
 }
 
 /**
- * 待整理 heuristics: missing organization signals, not explicitly marked organized.
+ * 待整理 heuristics when `organized` is unset: missing organization signals.
  * Fits voice-capture → later triage (source_job_id / empty folder / no type / no links).
  */
-export function isInboxCandidate(note: NoteKnowledgeLite): boolean {
-  if (isOrganized(note)) return false;
+function isInboxCandidateUnset(note: NoteKnowledgeLite): boolean {
   if ((note.parent_id || "").trim()) return false;
 
   const folder = (note.folder || "").trim();
@@ -376,6 +430,13 @@ export function isInboxCandidate(note: NoteKnowledgeLite): boolean {
   return false;
 }
 
+export function isInboxCandidate(note: NoteKnowledgeLite): boolean {
+  const explicit = parseOrganizeStatus(note.props?.[ORGANIZED_PROP]);
+  if (explicit === "done" || explicit === "organizing") return false;
+  if (explicit === "pending") return true;
+  return isInboxCandidateUnset(note);
+}
+
 export function listInboxNotes<T extends NoteKnowledgeLite>(notes: T[]): T[] {
   return notes
     .filter(isInboxCandidate)
@@ -390,10 +451,7 @@ export function withOrganizedFlag(
   props: Record<string, unknown> | undefined,
   organized: boolean
 ): Record<string, unknown> {
-  const next = { ...(props || {}) };
-  if (organized) next[ORGANIZED_PROP] = true;
-  else delete next[ORGANIZED_PROP];
-  return next;
+  return withOrganizeStatus(props, organized ? "done" : "pending");
 }
 
 export function withNoteType(
@@ -719,8 +777,11 @@ export function frontmatterExtrasFromProps(
   if (props.ws_due != null && String(props.ws_due).trim()) {
     bag.due = String(props.ws_due).trim().slice(0, 10);
   }
-  if (props[ORGANIZED_PROP] === true || props[ORGANIZED_PROP] === "true") {
-    bag.organized = true;
+  {
+    const org = parseOrganizeStatus(props[ORGANIZED_PROP]);
+    if (org === "done") bag.organized = true;
+    else if (org === "organizing") bag.organized = "organizing";
+    else if (org === "pending") bag.organized = "pending";
   }
   for (const rel of extractPropRelations(props)) {
     bag[rel.key] = props[rel.key];
