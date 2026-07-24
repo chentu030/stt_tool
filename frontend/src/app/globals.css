@@ -10096,8 +10096,14 @@ button.jn-heat-cell:disabled {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
 }
+.cv-ink {
+  touch-action: none;
+}
 .cv-ink.is-on {
-  filter: drop-shadow(0 0 2px var(--accent));
+  filter: drop-shadow(0 0 1.5px var(--accent)) drop-shadow(0 0 3px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+.cv-ink--live {
+  opacity: 0.92;
 }
 .cv-sel-chrome-swatch--custom {
   background: conic-gradient(from 180deg, #f59e0b, #0d9488, #7c3aed, #e11d48, #f59e0b);

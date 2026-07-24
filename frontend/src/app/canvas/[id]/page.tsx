@@ -236,6 +236,11 @@ function CanvasIdPageInner() {
   const strokeMoveOrigin = useRef<Record<string, Point[]>>({});
   const drawingRef = useRef<CanvasStroke | null>(null);
 
+  // Clear selection when entering pen — Concept-style: ink flows without chrome.
+  useEffect(() => {
+    if (tool === "pen") setSelected([]);
+  }, [tool]);
+
   // Clear connect session when leaving the tool.
   useEffect(() => {
     if (tool === "connect") return;
@@ -493,9 +498,12 @@ function CanvasIdPageInner() {
         return { type: "shape", id: s.id };
       }
     }
-    const strokes = [...(doc.strokes || [])].sort((a, b) => b.z - a.z);
-    for (const s of strokes) {
-      if (hitTestStroke(s, world)) return { type: "stroke", id: s.id };
+    // Pen mode: ignore strokes so ink never steals the next stroke / shows a box.
+    if (tool !== "pen") {
+      const strokes = [...(doc.strokes || [])].sort((a, b) => b.z - a.z);
+      for (const s of strokes) {
+        if (hitTestStroke(s, world)) return { type: "stroke", id: s.id };
+      }
     }
     for (const n of [...doc.notes].reverse()) {
       if (world.x >= n.x && world.x <= n.x + n.w && world.y >= n.y && world.y <= n.y + n.h) {
@@ -1461,7 +1469,9 @@ function CanvasIdPageInner() {
     if (d.mode === "draw" && drawingRef.current) {
       const prev = drawingRef.current;
       const last = prev.points[prev.points.length - 1];
-      if (last && Math.hypot(world.x - last.x, world.y - last.y) < 1.2 / Math.max(0.4, doc.scale)) {
+      // Denser sampling when zoomed in (smoother Concept-like ink).
+      const minDist = Math.max(0.35, 0.9 / Math.max(0.45, doc.scale));
+      if (last && Math.hypot(world.x - last.x, world.y - last.y) < minDist) {
         return;
       }
       const next = { ...prev, points: [...prev.points, { x: world.x, y: world.y }] };
@@ -1632,12 +1642,17 @@ function CanvasIdPageInner() {
       const stroke = drawingRef.current;
       drawingRef.current = null;
       setLiveStroke(null);
-      if (stroke && stroke.points.length >= 2) {
+      if (stroke && stroke.points.length >= 1) {
+        const points =
+          stroke.points.length === 1
+            ? [stroke.points[0], { x: stroke.points[0].x + 0.01, y: stroke.points[0].y }]
+            : stroke.points;
+        const committed = { ...stroke, points };
         updateDoc((prev) => ({
           ...prev,
-          strokes: [...(prev.strokes || []), stroke],
+          strokes: [...(prev.strokes || []), committed],
         }));
-        setSelected([{ type: "stroke", id: stroke.id }]);
+        // Stay in pen flow — do not select (avoids range box covering the next stroke).
       }
       drag.current = null;
       return;
@@ -2032,7 +2047,15 @@ function CanvasIdPageInner() {
     selected.some((s) => s.type === type && s.id === id);
 
   const single = selected.length === 1 ? selected[0] : null;
-  const resizeBox = single && single.type !== "edge" && tool !== "connect" ? boxOf(single) : null;
+  // Freehand strokes: soft highlight only — no resize frame (Concept-style).
+  const resizeBox =
+    single &&
+    single.type !== "edge" &&
+    single.type !== "stroke" &&
+    tool !== "connect" &&
+    tool !== "pen"
+      ? boxOf(single)
+      : null;
 
   /** Boxes that should show 8 connect ports in connect mode / edge-end drag. */
   const connectPortTargets = useMemo(() => {
@@ -2414,7 +2437,7 @@ function CanvasIdPageInner() {
                     strokeOpacity={clampOpacity(sk.opacity)}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ pointerEvents: "stroke" }}
+                    style={{ pointerEvents: tool === "pen" ? "none" : "stroke" }}
                     onPointerDown={(ev) => {
                       ev.stopPropagation();
                       if (tool === "pen") return;
@@ -2640,7 +2663,7 @@ function CanvasIdPageInner() {
               />
             )}
 
-            {selectionInfo && !stageAiOpen && (() => {
+            {selectionInfo && !stageAiOpen && tool !== "pen" && (() => {
               const kind = selectionKindOf(selected);
               const mediaSel = selected.length === 1 && selected[0].type === "media"
                 ? (doc.media || []).find((m) => m.id === selected[0].id)
