@@ -48,8 +48,6 @@ import {
   withOrganizeStatus,
 } from "@/lib/noteKnowledge";
 
-const COLLAPSED_MAX = 6;
-
 function isEmptyValue(prop: DbProperty, row: Note, allProps: DbProperty[], allRows: Note[]): boolean {
   if (prop.type === "title") return !(row.title || "").trim();
   if (prop.type === "checkbox") return false;
@@ -76,7 +74,6 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   const [rows, setRows] = useState<Note[]>([]);
   const [wsDefs, setWsDefs] = useState<WorkspacePropertyDef[]>([]);
   const [collapsed, setCollapsed] = useState(false);
-  const [showAll, setShowAll] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [menuPropId, setMenuPropId] = useState<string | null>(null);
   const [hiddenMenuOpen, setHiddenMenuOpen] = useState(false);
@@ -171,14 +168,6 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
     () => displayProps.filter((p) => !isEmptyValue(p, note, db?.properties || [], rows)),
     [displayProps, note, db, rows]
   );
-  const emptyCount = displayProps.length - filled.length;
-
-  const visible = useMemo(() => {
-    if (showAll || dragId) return displayProps;
-    if (filled.length >= COLLAPSED_MAX) return filled.slice(0, COLLAPSED_MAX);
-    const rest = displayProps.filter((p) => isEmptyValue(p, note, db?.properties || [], rows));
-    return [...filled, ...rest].slice(0, COLLAPSED_MAX);
-  }, [showAll, dragId, displayProps, filled, note, db, rows]);
 
   const commitPropReorder = async (fromId: string, toId: string) => {
     if (!db || fromId === toId || readOnly) return;
@@ -531,7 +520,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
                 {...meta}
               />
             ) : null}
-            {visible.map((prop) => (
+            {displayProps.map((prop) => (
               <NotePropsFieldRow
                 key={prop.id}
                 label={prop.name}
@@ -587,13 +576,6 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
               </NotePropsFieldRow>
             ))}
           </NotePropsFieldsGrid>
-
-          {!showAll && displayProps.length > visible.length ? (
-            <button type="button" className="nk-props-add" onClick={() => setShowAll(true)}>
-              還有 {displayProps.length - visible.length} 個屬性…
-              {emptyCount > 0 ? `（含空白）` : ""}
-            </button>
-          ) : null}
 
           {!readOnly ? (
             <div className="nk-props-foot">
