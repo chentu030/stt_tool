@@ -91,9 +91,12 @@ import {
   hitTestStroke,
   clampOpacity,
   hexToRgba,
+  applyZOrder,
+  selectionHasZOrder,
   type EdgePort,
   type Point,
   type CanvasStroke,
+  type ZOrderOp,
 } from "@/lib/canvasStore";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
@@ -1866,6 +1869,15 @@ function CanvasIdPageInner() {
     updateDoc((d) => {
       if (d.notes.some((n) => n.noteId === noteId)) return d;
       const i = d.notes.length;
+      const maxZ = Math.max(
+        0,
+        ...d.stickies.map((s) => s.z),
+        ...d.shapes.map((s) => s.z),
+        ...(d.media || []).map((m) => m.z),
+        ...(d.sections || []).map((s) => s.z || 0),
+        ...(d.strokes || []).map((s) => s.z),
+        ...d.notes.map((n) => n.z ?? 0)
+      );
       return {
         ...d,
         notes: [
@@ -1876,11 +1888,17 @@ function CanvasIdPageInner() {
             y: 60 + Math.floor(i / 5) * 200,
             w: 280,
             h: 160,
+            z: maxZ + 1,
           },
         ],
       };
     });
     toast("已釘上畫布");
+  };
+
+  const reorderSelectedZ = (op: ZOrderOp) => {
+    if (!selectionHasZOrder(selected)) return;
+    updateDoc((d) => applyZOrder(d, selected, op));
   };
 
   const focusNote = (noteId: string) => {
@@ -2481,7 +2499,10 @@ function CanvasIdPageInner() {
                   );
                 })()
               ) : null}
-              {(doc.strokes || []).map((sk) => {
+              {(doc.strokes || [])
+                .slice()
+                .sort((a, b) => (a.z || 0) - (b.z || 0))
+                .map((sk) => {
                 const d = strokeToPath(sk.points);
                 if (!d) return null;
                 const selectedStroke = isSelected("stroke", sk.id);
@@ -2628,7 +2649,7 @@ function CanvasIdPageInner() {
                 <div
                   key={pin.noteId}
                   className={`cv-note${isSelected("note", pin.noteId) ? " is-on" : ""}${connectOn ? " is-connect" : ""}`}
-                  style={{ left: pin.x, top: pin.y, width: pin.w, height: pin.h }}
+                  style={{ left: pin.x, top: pin.y, width: pin.w, height: pin.h, zIndex: pin.z ?? 0 }}
                   draggable={false}
                   onDragStart={(e) => e.preventDefault()}
                 >
@@ -2852,6 +2873,23 @@ function CanvasIdPageInner() {
                   void splitMediaToCards(id);
                   setCtxMenu(null);
                 }}>拆成知識卡</button>
+              )}
+              {selectionHasZOrder(selected) && (
+                <>
+                  <div className="cv-ctx-sep" role="separator" />
+                  <button type="button" onClick={() => { reorderSelectedZ("front"); setCtxMenu(null); }}>
+                    顯示在最上面
+                  </button>
+                  <button type="button" onClick={() => { reorderSelectedZ("back"); setCtxMenu(null); }}>
+                    顯示在最下面
+                  </button>
+                  <button type="button" onClick={() => { reorderSelectedZ("forward"); setCtxMenu(null); }}>
+                    上移一層
+                  </button>
+                  <button type="button" onClick={() => { reorderSelectedZ("backward"); setCtxMenu(null); }}>
+                    下移一層
+                  </button>
+                </>
               )}
           <button type="button" className="is-danger" onClick={() => { deleteSelected(); setCtxMenu(null); }}>
             刪除

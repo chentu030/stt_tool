@@ -64,6 +64,8 @@ export type NotePin = {
   y: number;
   w: number;
   h: number;
+  /** Stacking order (optional for older docs). */
+  z?: number;
 };
 
 /** Embedded / uploaded media on the canvas */
@@ -1063,6 +1065,129 @@ export function importCanvasJson(raw: string): CanvasDoc | null {
   }
 }
 
+export type ZOrderOp = "front" | "back" | "forward" | "backward";
+
+type LayerEntry = {
+  type: "sticky" | "shape" | "media" | "section" | "stroke" | "note";
+  id: string;
+  z: number;
+};
+
+function layerKey(e: Pick<LayerEntry, "type" | "id">) {
+  return `${e.type}:${e.id}`;
+}
+
+function collectLayerEntries(doc: CanvasDoc): LayerEntry[] {
+  const out: LayerEntry[] = [];
+  for (const s of doc.stickies) out.push({ type: "sticky", id: s.id, z: s.z });
+  for (const s of doc.shapes) out.push({ type: "shape", id: s.id, z: s.z });
+  for (const m of doc.media || []) out.push({ type: "media", id: m.id, z: m.z });
+  for (const s of doc.sections || []) out.push({ type: "section", id: s.id, z: s.z || 0 });
+  for (const sk of doc.strokes || []) out.push({ type: "stroke", id: sk.id, z: sk.z });
+  for (const n of doc.notes) out.push({ type: "note", id: n.noteId, z: n.z ?? 0 });
+  return out;
+}
+
+function writeLayerZs(doc: CanvasDoc, entries: LayerEntry[]): CanvasDoc {
+  const map = new Map(entries.map((e) => [layerKey(e), e.z]));
+  return {
+    ...doc,
+    stickies: doc.stickies.map((s) => {
+      const z = map.get(layerKey({ type: "sticky", id: s.id }));
+      return z === undefined ? s : { ...s, z };
+    }),
+    shapes: doc.shapes.map((s) => {
+      const z = map.get(layerKey({ type: "shape", id: s.id }));
+      return z === undefined ? s : { ...s, z };
+    }),
+    media: (doc.media || []).map((m) => {
+      const z = map.get(layerKey({ type: "media", id: m.id }));
+      return z === undefined ? m : { ...m, z };
+    }),
+    sections: (doc.sections || []).map((s) => {
+      const z = map.get(layerKey({ type: "section", id: s.id }));
+      return z === undefined ? s : { ...s, z };
+    }),
+    strokes: (doc.strokes || []).map((s) => {
+      const z = map.get(layerKey({ type: "stroke", id: s.id }));
+      return z === undefined ? s : { ...s, z };
+    }),
+    notes: doc.notes.map((n) => {
+      const z = map.get(layerKey({ type: "note", id: n.noteId }));
+      return z === undefined ? n : { ...n, z };
+    }),
+  };
+}
+
+/** True when selection includes at least one stackable object (not edge-only). */
+export function selectionHasZOrder(selected: Selectable[]): boolean {
+  return selected.some((s) => s.type !== "edge");
+}
+
+/** Bring / send / nudge selected objects in the shared z stack. */
+export function applyZOrder(doc: CanvasDoc, selected: Selectable[], op: ZOrderOp): CanvasDoc {
+  const selKeys = new Set(
+    selected
+      .filter((s) => s.type !== "edge")
+      .map((s) => layerKey({ type: s.type, id: s.id }))
+  );
+  if (!selKeys.size) return doc;
+
+  const layers = collectLayerEntries(doc).sort(
+    (a, b) => a.z - b.z || layerKey(a).localeCompare(layerKey(b))
+  );
+  // Normalize to unique increasing ranks so swaps always change visual order
+  layers.forEach((e, i) => {
+    e.z = i + 1;
+  });
+
+  const selectedEntries = layers.filter((e) => selKeys.has(layerKey(e)));
+  if (!selectedEntries.length) return doc;
+
+  if (op === "front") {
+    const maxZ = layers.length;
+    selectedEntries
+      .slice()
+      .sort((a, b) => a.z - b.z)
+      .forEach((e, i) => {
+        e.z = maxZ + 1 + i;
+      });
+  } else if (op === "back") {
+    selectedEntries
+      .slice()
+      .sort((a, b) => b.z - a.z)
+      .forEach((e, i) => {
+        e.z = -1 - i;
+      });
+  } else if (op === "forward") {
+    for (let i = layers.length - 1; i >= 0; i--) {
+      if (!selKeys.has(layerKey(layers[i]))) continue;
+      if (i >= layers.length - 1) continue;
+      if (selKeys.has(layerKey(layers[i + 1]))) continue;
+      const za = layers[i].z;
+      layers[i].z = layers[i + 1].z;
+      layers[i + 1].z = za;
+      const tmp = layers[i];
+      layers[i] = layers[i + 1];
+      layers[i + 1] = tmp;
+    }
+  } else if (op === "backward") {
+    for (let i = 0; i < layers.length; i++) {
+      if (!selKeys.has(layerKey(layers[i]))) continue;
+      if (i <= 0) continue;
+      if (selKeys.has(layerKey(layers[i - 1]))) continue;
+      const za = layers[i].z;
+      layers[i].z = layers[i - 1].z;
+      layers[i - 1].z = za;
+      const tmp = layers[i];
+      layers[i] = layers[i - 1];
+      layers[i - 1] = tmp;
+    }
+  }
+
+  return writeLayerZs(doc, layers);
+}
+
 export const CANVAS_TIPS = [
   "雙指／滾輪平移；Ctrl+滾輪或 Ctrl+/- 縮放；Shift+滾輪左右移。",
   "右鍵或中鍵拖曳、空白鍵拖曳皆可平移。",
@@ -1071,4 +1196,5 @@ export const CANVAS_TIPS = [
   "畫筆（P）可在白板上書寫；顏色面板可調色盤、RGB 與透明度。",
   "雙擊編輯便利貼；Ctrl+C/V/X/Z；右側 AI 可讀寫白板。",
   "選取物件後點擊附近的「AI」鈕，可改寫、延伸文字或生成圖片並插入畫布。",
+  "右鍵選單可調整圖層：顯示在最上面／最下面，或上移／下移一層。",
 ];

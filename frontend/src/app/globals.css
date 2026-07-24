@@ -9421,6 +9421,12 @@ button.jn-heat-cell:disabled {
   color: var(--text-main);
 }
 .cv-ctx button:hover { background: var(--bg-muted); }
+.cv-ctx-sep {
+  height: 1px;
+  margin: 0.25rem 0.4rem;
+  background: var(--border);
+  opacity: 0.9;
+}
 .cv-sel-ai-btn {
   position: absolute;
   z-index: 150;
