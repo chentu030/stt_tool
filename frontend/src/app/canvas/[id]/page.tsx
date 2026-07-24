@@ -1459,8 +1459,8 @@ function CanvasIdPageInner() {
     }
 
     if (tool === "pen") {
-      // Two-finger while pen → pan instead of drawing
-      if (activePointers.current.size >= 1) {
+      // Two-finger while pen → pan instead of drawing (size already includes this pointer)
+      if (activePointers.current.size >= 2) {
         drag.current = { mode: "pan", startX: e.clientX, startY: e.clientY, pan0: { ...doc.pan } };
         return;
       }
