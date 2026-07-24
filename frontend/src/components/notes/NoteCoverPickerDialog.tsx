@@ -3,6 +3,11 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { uploadNoteMedia } from "@/lib/firebase";
+import {
+  DEFAULT_NOTE_COVERS,
+  isDefaultNoteCover,
+  pickRandomDefaultCover,
+} from "@/lib/noteCover";
 import { listRecentCovers, pushRecentCover } from "@/lib/recentCovers";
 import { toast } from "@/lib/toast";
 
@@ -56,9 +61,16 @@ export default function NoteCoverPickerDialog({
 
   const rememberAndApply = (next: string) => {
     const trimmed = next.trim();
-    if (trimmed && userId) setRecents(pushRecentCover(userId, trimmed));
+    // Built-in defaults stay in the「預設」grid; only remote uploads/URLs go to recent.
+    if (trimmed && userId && !isDefaultNoteCover(trimmed)) {
+      setRecents(pushRecentCover(userId, trimmed));
+    }
     onApply(trimmed);
     onClose();
+  };
+
+  const applyRandomDefault = () => {
+    rememberAndApply(pickRandomDefaultCover());
   };
 
   const submitUrl = (e?: FormEvent) => {
@@ -110,9 +122,40 @@ export default function NoteCoverPickerDialog({
         <h2 id={titleId} className="cadence-dialog-title">
           {title}
         </h2>
-        <p className="cadence-dialog-msg">貼上網址、上傳圖片，或從最近使用的封面選取。</p>
+        <p className="cadence-dialog-msg">
+          選預設封面、貼上網址、上傳圖片，或從最近使用的封面選取。
+        </p>
 
         <form className="cadence-dialog-form" onSubmit={submitUrl}>
+          <div className="nk-cover-picker-defaults">
+            <div className="nk-cover-picker-defaults-head">
+              <span className="nk-cover-picker-recents-label">預設</span>
+              <button
+                type="button"
+                className="btn btn-ghost nk-cover-picker-random"
+                disabled={busy}
+                onClick={applyRandomDefault}
+              >
+                使用預設封面
+              </button>
+            </div>
+            <div className="nk-cover-picker-grid" role="list">
+              {DEFAULT_NOTE_COVERS.map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  role="listitem"
+                  className={`nk-cover-picker-thumb${u === currentCover ? " is-current" : ""}`}
+                  title="套用此封面"
+                  aria-label="套用預設封面"
+                  disabled={busy}
+                  style={{ backgroundImage: `url(${u})` }}
+                  onClick={() => rememberAndApply(u)}
+                />
+              ))}
+            </div>
+          </div>
+
           <label className="cadence-dialog-field">
             <span>圖片網址</span>
             <input

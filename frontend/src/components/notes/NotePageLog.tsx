@@ -15,6 +15,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/components/AuthProvider";
 import { colorForUid } from "@/lib/presence";
 import NoteCoverPickerDialog from "@/components/notes/NoteCoverPickerDialog";
+import { isDefaultNoteCover } from "@/lib/noteCover";
 import { pushRecentCover } from "@/lib/recentCovers";
 
 type LogEntry = {
@@ -125,7 +126,9 @@ export default function NotePageLog({
   const applyCover = (next: string) => {
     if (!cover) return;
     const trimmed = (next || "").trim();
-    if (trimmed && cover.userId) pushRecentCover(cover.userId, trimmed);
+    if (trimmed && cover.userId && !isDefaultNoteCover(trimmed)) {
+      pushRecentCover(cover.userId, trimmed);
+    }
     cover.onCoverChange(trimmed);
   };
 

@@ -16308,10 +16308,22 @@ html.dark .nk-rel-chip--t4 {
   align-items: center;
   gap: 0.5rem;
 }
+.nk-cover-picker-defaults,
 .nk-cover-picker-recents {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+.nk-cover-picker-defaults-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.nk-cover-picker-random {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.55rem;
+  min-height: 0;
 }
 .nk-cover-picker-recents-label {
   font-size: 0.72rem;
