@@ -73,7 +73,8 @@ export function NotePropsFieldRow({ label, type, icon, menu, system, children }:
         <span className="nk-prop-name" title={label}>
           {label}
         </span>
-        {menu ? <div className="nk-prop-menu-slot">{menu}</div> : null}
+        {/* Always reserve menu slot so icons/labels share one vertical axis */}
+        <div className="nk-prop-menu-slot">{menu || null}</div>
       </div>
       <div className="nk-prop-row-val">{children}</div>
     </div>

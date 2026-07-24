@@ -610,6 +610,51 @@ export default function NoteKnowledgePropsPanel({
                   <span title={d.text}>{d.text}</span>
                 </NotePropsFieldRow>
               ))}
+            {relations.map((rel) => {
+              const tone = relationToneIndex(rel.key);
+              return (
+                <NotePropsFieldRow key={`rel:${rel.key}`} label={rel.label} icon="hub">
+                  <div className="nk-rel-chips">
+                    {rel.titles.map((t) => {
+                      const href = resolveNoteHref?.(t);
+                      const chipClass = `nk-rel-chip nk-rel-chip--t${tone}`;
+                      return (
+                        <span key={t} className="nk-rel-chip-wrap">
+                          {href ? (
+                            <Link href={href} className={chipClass}>
+                              {t}
+                            </Link>
+                          ) : (
+                            <span className={`${chipClass} is-missing`} title="尚未建立此筆記">
+                              {t}
+                            </span>
+                          )}
+                          {!readOnly ? (
+                            <button
+                              type="button"
+                              className="nk-rel-chip-x"
+                              aria-label={`移除 ${t}`}
+                              onClick={() => onPropsPatch(removeRelationTitle(note.props, rel.key, t))}
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                    {!readOnly ? (
+                      <button
+                        type="button"
+                        className="nk-rel-slot"
+                        onClick={() => void addLinkToRelation(rel.key, rel.label)}
+                      >
+                        新增
+                      </button>
+                    ) : null}
+                  </div>
+                </NotePropsFieldRow>
+              );
+            })}
           </NotePropsFieldsGrid>
 
           {scalars.length > 0 ? (
@@ -636,64 +681,6 @@ export default function NoteKnowledgePropsPanel({
               )}
             </div>
           ) : null}
-
-          {(relations.length > 0 || !readOnly) && (
-            <div className="nk-rels" aria-label="關係">
-              {relations.map((rel) => {
-                const tone = relationToneIndex(rel.key);
-                return (
-                  <div key={rel.key} className="nk-rel-row">
-                    <span className="nk-rel-key" title={rel.key}>
-                      <span className="material-symbols-outlined nk-prop-icon" aria-hidden>
-                        hub
-                      </span>
-                      <span className="nk-prop-name">{rel.label}</span>
-                    </span>
-                    <div className="nk-rel-chips">
-                      {rel.titles.map((t) => {
-                        const href = resolveNoteHref?.(t);
-                        const chipClass = `nk-rel-chip nk-rel-chip--t${tone}`;
-                        return (
-                          <span key={t} className="nk-rel-chip-wrap">
-                            {href ? (
-                              <Link href={href} className={chipClass}>
-                                {t}
-                              </Link>
-                            ) : (
-                              <span className={`${chipClass} is-missing`} title="尚未建立此筆記">
-                                {t}
-                              </span>
-                            )}
-                            {!readOnly ? (
-                              <button
-                                type="button"
-                                className="nk-rel-chip-x"
-                                aria-label={`移除 ${t}`}
-                                onClick={() =>
-                                  onPropsPatch(removeRelationTitle(note.props, rel.key, t))
-                                }
-                              >
-                                ×
-                              </button>
-                            ) : null}
-                          </span>
-                        );
-                      })}
-                      {!readOnly ? (
-                        <button
-                          type="button"
-                          className="nk-rel-slot"
-                          onClick={() => void addLinkToRelation(rel.key, rel.label)}
-                        >
-                          新增
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
 
           {!readOnly && (
             <div className="nk-props-foot">
