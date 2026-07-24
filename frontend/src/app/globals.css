@@ -208,8 +208,50 @@ button, input, textarea, select {
   flex-direction: column;
   gap: 0.75rem;
 }
+.cadence-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cadence-dialog-field > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+}
 .cadence-dialog-input {
   font-size: 0.92rem;
+}
+.nk-add-prop-dialog {
+  width: min(440px, 100%);
+}
+.nk-add-prop-pick-link {
+  align-self: flex-start;
+  margin: -0.15rem 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nk-add-prop-pick-link:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.nk-add-prop-pick-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.nk-add-prop-pick-list {
+  margin-top: 0.75rem;
+  max-height: min(280px, 50vh);
+  overflow: auto;
+}
+.nk-add-prop-check {
+  margin: 0;
+  min-height: 2.4rem;
 }
 .cadence-dialog-actions {
   display: flex;

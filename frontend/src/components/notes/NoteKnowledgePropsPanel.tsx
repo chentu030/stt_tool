@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import type { Note } from "@/lib/firebase";
 import { updateNote } from "@/lib/firebase";
@@ -33,9 +34,46 @@ import {
   type WorkspacePropertyDef,
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
+import MenuSelect from "@/components/MenuSelect";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import type { DbPropType } from "@/lib/database";
+
+const ADDABLE_PROP_TYPES = [
+  { value: "text", label: "文字" },
+  { value: "number", label: "數字" },
+  { value: "date", label: "日期" },
+  { value: "select", label: "單選" },
+  { value: "status", label: "狀態" },
+  { value: "checkbox", label: "核取方塊" },
+] as const;
+
+type AddablePropType = (typeof ADDABLE_PROP_TYPES)[number]["value"];
+
+function coerceAddPropValue(type: AddablePropType, raw: string, checked: boolean): unknown {
+  if (type === "checkbox") return checked;
+  const t = raw.trim();
+  if (!t) return "";
+  if (type === "number") {
+    const n = Number(t);
+    return Number.isFinite(n) ? n : t;
+  }
+  return t;
+}
+
+function valuePlaceholder(type: AddablePropType): string {
+  switch (type) {
+    case "number":
+      return "例如 42";
+    case "date":
+      return "YYYY-MM-DD";
+    case "select":
+    case "status":
+      return "選項名稱（可留空）";
+    default:
+      return "可留空";
+  }
+}
 
 type Props = {
   note: Note;
@@ -74,7 +112,16 @@ export default function NoteKnowledgePropsPanel({
   onExtraDbCommit,
 }: Props) {
   const titleId = useId();
+  const addDialogTitleId = useId();
+  const addNameRef = useRef<HTMLInputElement>(null);
   const [defs, setDefs] = useState<WorkspacePropertyDef[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addMode, setAddMode] = useState<"create" | "pick">("create");
+  const [addName, setAddName] = useState("");
+  const [addType, setAddType] = useState<AddablePropType>("text");
+  const [addValue, setAddValue] = useState("");
+  const [addChecked, setAddChecked] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
   const [localCollapsed, setLocalCollapsed] = useState(() => {
     if (typeof collapsedProp === "boolean") return collapsedProp;
     if (typeof window === "undefined") return defaultCollapsed;
@@ -215,71 +262,92 @@ export default function NoteKnowledgePropsPanel({
     }
   };
 
-  const addProperty = async () => {
-    if (!userId) {
-      const key = await askPrompt({
-        title: "新增屬性",
-        message: "屬性名稱",
-        placeholder: "屬性名稱",
-      });
-      if (key == null || !key.trim()) return;
-      const value = await askPrompt({
-        title: "屬性值",
-        message: `「${key.trim()}」的內容`,
-        placeholder: "文字",
-      });
-      if (value == null) return;
-      onPropsPatch(withFrontmatterExtra(note.props, key.trim(), value));
+  const unusedCatalogDefs = useMemo(
+    () =>
+      activeDefs.filter((d) => {
+        const v = getWorkspaceFieldValue(note, d.id);
+        return v == null || v === "";
+      }),
+    [activeDefs, note]
+  );
+
+  const openAddProperty = () => {
+    setAddMode("create");
+    setAddName("");
+    setAddType("text");
+    setAddValue("");
+    setAddChecked(false);
+    setAddBusy(false);
+    setAddOpen(true);
+  };
+
+  const closeAddProperty = () => {
+    if (addBusy) return;
+    setAddOpen(false);
+  };
+
+  useEffect(() => {
+    if (!addOpen) return;
+    const t = window.setTimeout(() => {
+      addNameRef.current?.focus({ preventScroll: true });
+    }, 30);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!addBusy) setAddOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [addOpen, addBusy]);
+
+  const confirmCreateProperty = async (e?: FormEvent) => {
+    e?.preventDefault();
+    const name = addName.trim();
+    if (!name) {
+      toast("請輸入屬性名稱");
+      addNameRef.current?.focus();
       return;
     }
-
-    const mode = await askPrompt({
-      title: "新增屬性",
-      message: "輸入「工作區」從目錄選，或直接輸入新屬性名稱",
-      placeholder: "工作區 或 屬性名稱",
-      defaultValue: "",
-    });
-    if (mode == null) return;
-    const m = mode.trim();
-    if (!m) return;
-
-    if (m === "工作區" || m.toLowerCase() === "ws") {
-      const unused = activeDefs.filter(
-        (d) =>
-          !(WORKSPACE_SYSTEM_IDS as readonly string[]).includes(d.id) ||
-          getWorkspaceFieldValue(note, d.id) == null ||
-          getWorkspaceFieldValue(note, d.id) === ""
-      );
-      const pick = await askPrompt({
-        title: "工作區屬性",
-        message: unused.map((d) => d.name).join("、") || "（目錄為空）",
-        placeholder: "輸入屬性名稱",
-      });
-      if (pick == null) return;
-      const def = activeDefs.find((d) => d.name === pick.trim() || d.id === pick.trim());
-      if (!def) {
-        toast("找不到該工作區屬性");
+    setAddBusy(true);
+    try {
+      if (!userId) {
+        onPropsPatch(
+          withFrontmatterExtra(
+            note.props,
+            name,
+            addType === "checkbox" ? (addChecked ? "是" : "否") : addValue.trim()
+          )
+        );
+        setAddOpen(false);
         return;
       }
-      await commitWs(def.id, def.type === "checkbox" ? false : "");
-      return;
-    }
-
-    const typePick = await askPrompt({
-      title: "屬性類型",
-      message: "text / select / status / date / number / checkbox",
-      defaultValue: "text",
-      placeholder: "text",
-    });
-    if (typePick == null) return;
-    const t = (typePick.trim() || "text") as DbPropType;
-    const def = createCustomWorkspaceDef(m, t);
-    try {
+      const def = createCustomWorkspaceDef(name, addType as DbPropType);
       await upsertWorkspacePropertyDef(userId, def);
-      await commitWs(def.id, t === "checkbox" ? false : "");
+      const value = coerceAddPropValue(addType, addValue, addChecked);
+      await commitWs(def.id, value);
       toast(`已加入工作區屬性「${def.name}」`);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "無法建立屬性");
+      setAddOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "無法建立屬性");
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const pickExistingProperty = async (def: WorkspacePropertyDef) => {
+    setAddBusy(true);
+    try {
+      await commitWs(def.id, def.type === "checkbox" ? false : "");
+      setAddOpen(false);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "無法加入屬性");
+    } finally {
+      setAddBusy(false);
     }
   };
 
@@ -538,7 +606,7 @@ export default function NoteKnowledgePropsPanel({
 
           {!readOnly && (
             <div className="nk-props-foot">
-              <button type="button" className="nk-props-add" onClick={() => void addProperty()}>
+              <button type="button" className="nk-props-add" onClick={openAddProperty}>
                 + 新增屬性
               </button>
               <button type="button" className="nk-props-add" onClick={() => void addRelationship()}>
@@ -565,6 +633,146 @@ export default function NoteKnowledgePropsPanel({
           )}
         </>
       )}
+
+      {addOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="cadence-dialog-backdrop"
+            role="presentation"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) closeAddProperty();
+            }}
+          >
+            <div
+              className="cadence-dialog nk-add-prop-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={addDialogTitleId}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <h2 id={addDialogTitleId} className="cadence-dialog-title">
+                新增屬性
+              </h2>
+              {userId && addMode === "pick" ? (
+                <>
+                  <p className="cadence-dialog-msg">從工作區目錄挑選尚未填入此筆記的屬性。</p>
+                  <div className="cadence-dialog-choices nk-add-prop-pick-list">
+                    {unusedCatalogDefs.length === 0 ? (
+                      <p className="cadence-dialog-msg">目前沒有可加入的工作區屬性。</p>
+                    ) : (
+                      unusedCatalogDefs.map((def) => (
+                        <button
+                          key={def.id}
+                          type="button"
+                          className="cadence-dialog-choice"
+                          disabled={addBusy}
+                          onClick={() => void pickExistingProperty(def)}
+                        >
+                          <strong>{def.name}</strong>
+                          <span>
+                            {ADDABLE_PROP_TYPES.find((t) => t.value === def.type)?.label || def.type}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <div className="cadence-dialog-actions" style={{ justifyContent: "space-between" }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      disabled={addBusy}
+                      onClick={() => setAddMode("create")}
+                    >
+                      ← 建立新屬性
+                    </button>
+                    <button type="button" className="btn btn-ghost" disabled={addBusy} onClick={closeAddProperty}>
+                      取消
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <form className="cadence-dialog-form" onSubmit={(e) => void confirmCreateProperty(e)}>
+                  <label className="cadence-dialog-field">
+                    <span>名稱</span>
+                    <input
+                      ref={addNameRef}
+                      className="input cadence-dialog-input"
+                      type="text"
+                      value={addName}
+                      placeholder="屬性名稱"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={addBusy}
+                      onChange={(e) => setAddName(e.target.value)}
+                      required
+                    />
+                  </label>
+                  {userId ? (
+                    <label className="cadence-dialog-field">
+                      <span>類型</span>
+                      <MenuSelect
+                        variant="soft"
+                        ariaLabel="屬性類型"
+                        value={addType}
+                        options={[...ADDABLE_PROP_TYPES]}
+                        disabled={addBusy}
+                        onChange={(v) => {
+                          setAddType(v);
+                          if (v === "checkbox") setAddValue("");
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                  <label className="cadence-dialog-field">
+                    <span>內容</span>
+                    {addType === "checkbox" && userId ? (
+                      <label className="cadence-dialog-remember nk-add-prop-check">
+                        <input
+                          type="checkbox"
+                          checked={addChecked}
+                          disabled={addBusy}
+                          onChange={(e) => setAddChecked(e.target.checked)}
+                        />
+                        <span>{addChecked ? "是" : "否"}</span>
+                      </label>
+                    ) : (
+                      <input
+                        className="input cadence-dialog-input"
+                        type={addType === "number" ? "number" : addType === "date" ? "date" : "text"}
+                        value={addValue}
+                        placeholder={valuePlaceholder(addType)}
+                        autoComplete="off"
+                        spellCheck={false}
+                        disabled={addBusy}
+                        onChange={(e) => setAddValue(e.target.value)}
+                      />
+                    )}
+                  </label>
+                  {userId ? (
+                    <button
+                      type="button"
+                      className="nk-add-prop-pick-link"
+                      disabled={addBusy}
+                      onClick={() => setAddMode("pick")}
+                    >
+                      選擇既有工作區屬性…
+                    </button>
+                  ) : null}
+                  <div className="cadence-dialog-actions">
+                    <button type="button" className="btn btn-ghost" disabled={addBusy} onClick={closeAddProperty}>
+                      取消
+                    </button>
+                    <button type="submit" className="btn" disabled={addBusy || !addName.trim()}>
+                      {addBusy ? "建立中…" : "確定"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
     </section>
   );
 }
