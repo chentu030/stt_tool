@@ -115,7 +115,7 @@ export default function MenuSelect<T extends string>({
               bottom: pos.placement === "top" ? window.innerHeight - pos.top : undefined,
               left: pos.left,
               minWidth: pos.minWidth,
-              zIndex: 11000,
+              zIndex: 20000,
             }}
           >
             {options.map((opt) => {

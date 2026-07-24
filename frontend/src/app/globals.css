@@ -15264,8 +15264,8 @@ body.rich-media-float-dragging * {
   position: fixed;
   top: auto;
   left: auto;
-  /* Above cadence-dialog-backdrop (10050) and similar modals */
-  z-index: 11000;
+  /* Must sit above cadence-dialog-backdrop (10050) and share/modals */
+  z-index: 20000;
 }
 .menu-select-menu--portal.menu-select-menu--top {
   top: auto;
@@ -21917,6 +21917,19 @@ body.is-sidebar-resizing iframe {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.4rem;
+}
+.share-team-select {
+  min-width: 0;
+}
+.share-team-native {
+  width: 100%;
+  font-size: 0.86rem;
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+}
+.share-team-native:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .share-acl-invite {
   display: grid;
