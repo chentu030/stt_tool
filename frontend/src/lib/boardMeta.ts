@@ -41,11 +41,28 @@ export type BoardCard = Note & {
 const META_RE = /<!--\s*cadence-board\s+([^>]*)-->/i;
 
 export function statusOf(n: Note): BoardStatus {
+  const ws = n.props?.ws_status;
+  if (ws === "doing" || ws === "done") return ws;
+  if (ws === "backlog" || ws === "todo") return "backlog";
   if (n.status === "doing" || n.status === "done") return n.status;
   return "backlog";
 }
 
-export function parseBoardMeta(body: string, tags: string[] = []): BoardMeta {
+export function parseBoardMeta(body: string, tags: string[] = [], props?: Record<string, unknown>): BoardMeta {
+  const fromPropsPriority = props?.ws_priority != null ? String(props.ws_priority) : "";
+  const fromPropsDue = props?.ws_due != null ? String(props.ws_due).slice(0, 10) : "";
+  if (
+    (fromPropsPriority && ["urgent", "high", "normal", "low"].includes(fromPropsPriority)) ||
+    fromPropsDue
+  ) {
+    return {
+      priority: (["urgent", "high", "normal", "low"].includes(fromPropsPriority)
+        ? fromPropsPriority
+        : "normal") as Priority,
+      due: /^\d{4}-\d{2}-\d{2}/.test(fromPropsDue) ? fromPropsDue : undefined,
+    };
+  }
+
   const m = META_RE.exec(body || "");
   let priority: Priority = "normal";
   let due: string | undefined;
@@ -116,7 +133,7 @@ export function noteMatchesBoard(
 export function toBoardCards(notes: Note[], today = new Date()): BoardCard[] {
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
   return notes.map((n) => {
-    const meta = parseBoardMeta(n.body_md, n.tags);
+    const meta = parseBoardMeta(n.body_md, n.tags, n.props);
     const ageDays = Math.max(0, daysBetween(n.updated_at, today));
     return {
       ...n,

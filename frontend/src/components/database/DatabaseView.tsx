@@ -46,6 +46,14 @@ import {
   clearDbLiveSnapshot,
   publishDbLiveSnapshot,
 } from "@/lib/dbAiEdit";
+import {
+  alignDatabaseToWorkspace,
+  asDbProperty,
+  ensureWorkspacePropertyDefs,
+  listenWorkspacePropertyDefs,
+  resolveDatabaseProperties,
+  type WorkspacePropertyDef,
+} from "@/lib/workspaceProperties";
 
 const SELECT_COL_W = 28;
 const ADD_COL_W = 40;
@@ -236,6 +244,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
   const router = useRouter();
   const [db, setDb] = useState<CadenceDatabase | null>(null);
   const [rows, setRows] = useState<Note[]>([]);
+  const [wsDefs, setWsDefs] = useState<WorkspacePropertyDef[]>([]);
   const [activeViewId, setActiveViewId] = useState(viewId || "");
   const [addOpen, setAddOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -290,6 +299,21 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
     [databaseId]
   );
   useEffect(() => listenDatabaseRows(userId, databaseId, setRows), [userId, databaseId]);
+
+  useEffect(() => {
+    let unsub: (() => void) | undefined;
+    void ensureWorkspacePropertyDefs(userId)
+      .then(() => {
+        unsub = listenWorkspacePropertyDefs(userId, setWsDefs);
+      })
+      .catch(() => {});
+    return () => unsub?.();
+  }, [userId]);
+
+  const resolvedProperties = useMemo(
+    () => (db ? resolveDatabaseProperties(db.properties, wsDefs) : []),
+    [db, wsDefs]
+  );
   useEffect(() => {
     if (!db) return;
     publishDbLiveSnapshot(buildDbLiveSnapshot(db, rows));
@@ -325,7 +349,7 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
     colWidthsRef.current = next;
   }, [view?.id, view?.columnWidths, resizingProp]);
 
-  const props = db?.properties || [];
+  const props = resolvedProperties.length ? resolvedProperties : db?.properties || [];
   const shownProps = useMemo(() => visibleProperties(props, view), [props, view]);
 
   const pipedRows = useMemo(() => applyViewPipeline(rows, view, props), [rows, view, props]);
@@ -809,6 +833,37 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
       );
     }
     await updateDatabase(db.id, { properties: next });
+  };
+
+  const addWorkspaceProp = async (def: WorkspacePropertyDef) => {
+    if (!db) return;
+    setAddOpen(false);
+    if (db.properties.some((p) => p.workspaceDefId === def.id || p.id === def.id)) {
+      toast("此工作區屬性已在資料庫中");
+      return;
+    }
+    const bound = asDbProperty(def);
+    const next = addProperty(db.properties, bound.type, bound.name, {
+      id: bound.id,
+      workspaceDefId: def.id,
+      options: bound.options,
+      statusGroups: bound.statusGroups,
+    });
+    await updateDatabase(db.id, { properties: next });
+    toast(`已加入工作區屬性「${def.name}」`);
+  };
+
+  const alignToWorkspace = async () => {
+    if (!db) return;
+    const ok = await askConfirm({
+      title: "對齊工作區屬性",
+      message: "將名稱相符的欄位（狀態／優先級／期限等）綁定到工作區目錄。",
+      confirmLabel: "對齊",
+    });
+    if (!ok) return;
+    const next = alignDatabaseToWorkspace(db, wsDefs);
+    await updateDatabase(db.id, { properties: next });
+    toast("已對齊工作區屬性");
   };
 
   const addView = async (type: DbViewType) => {
@@ -1319,6 +1374,21 @@ export default function DatabaseView({ databaseId, userId, viewId, compact, onVi
                     className="cdb-add-menu--wide"
                     align="right"
                   >
+                    {wsDefs.filter((d) => !d.archived).length ? (
+                      <div className="cdb-add-group">
+                        <strong>工作區屬性</strong>
+                        {wsDefs
+                          .filter((d) => !d.archived)
+                          .map((d) => (
+                            <button key={d.id} type="button" onClick={() => void addWorkspaceProp(d)}>
+                              {d.name}
+                            </button>
+                          ))}
+                        <button type="button" onClick={() => void alignToWorkspace()}>
+                          對齊既有欄位…
+                        </button>
+                      </div>
+                    ) : null}
                     {["基本", "選項", "聯絡", "進階", "系統"].map((g) => (
                       <div key={g} className="cdb-add-group">
                         <strong>{g}</strong>

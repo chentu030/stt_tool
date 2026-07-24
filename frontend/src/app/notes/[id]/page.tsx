@@ -2804,6 +2804,7 @@ function NotePageInner() {
               ) : (
                 <NoteKnowledgePropsPanel
                   note={note}
+                  userId={note.user_id}
                   resolveNoteHref={(t) => {
                     const hit = findNoteByTitle(allNotes, t);
                     return hit ? `/notes/${hit.id}` : undefined;
@@ -2811,6 +2812,9 @@ function NotePageInner() {
                   onPropsPatch={(props) => {
                     setNote((n) => (n ? { ...n, props } : n));
                     void updateNote(note.id, { props });
+                  }}
+                  onNotePatch={(patch) => {
+                    setNote((n) => (n ? { ...n, ...patch } : n));
                   }}
                 />
               )}
@@ -2856,6 +2860,7 @@ function NotePageInner() {
           {viewMode === "read" && !note.database_id ? (
             <NoteKnowledgePropsPanel
               note={note}
+              userId={note.user_id}
               readOnly
               resolveNoteHref={(t) => {
                 const hit = findNoteByTitle(allNotes, t);
@@ -3061,6 +3066,7 @@ function NotePageInner() {
           widthPx={asideWidth}
           onResizeWidth={onAsideResize}
           knowledgeNote={note}
+          knowledgeUserId={user?.uid || note.user_id}
           knowledgeReadOnly={!canEditNote || viewMode === "read"}
           resolveNoteHref={(t) => {
             const hit = findNoteByTitle(allNotes, t);

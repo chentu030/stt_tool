@@ -26,6 +26,10 @@ export const INTERNAL_NOTE_PROP_KEYS = new Set([
   "extension_id",
   "writing_goal",
   "is_source_material",
+  "ws_type",
+  "ws_status",
+  "ws_priority",
+  "ws_due",
 ]);
 
 const RELATION_KEY_HINTS = new Set([
@@ -266,6 +270,8 @@ export function structureFrontmatterExtras(
 }
 
 export function noteTypeOf(note: NoteKnowledgeLite): string {
+  const ws = note.props?.ws_type;
+  if (ws != null && String(ws).trim()) return String(ws).trim();
   const raw = note.props?.[TYPE_PROP];
   return raw != null ? String(raw).trim() : "";
 }
@@ -702,10 +708,17 @@ export function frontmatterExtrasFromProps(
     typeof props[FRONTMATTER_PROP] === "object" && props[FRONTMATTER_PROP]
       ? { ...(props[FRONTMATTER_PROP] as Record<string, unknown>) }
       : {};
-  const type = props[TYPE_PROP];
-  if (type != null && String(type).trim()) bag.type = String(type).trim();
-  const fmStatus = props[FM_STATUS_PROP];
-  if (fmStatus != null && String(fmStatus).trim()) bag.status = String(fmStatus).trim();
+  // Prefer workspace catalog fields for YAML round-trip
+  const wsType = props.ws_type ?? props[TYPE_PROP];
+  if (wsType != null && String(wsType).trim()) bag.type = String(wsType).trim();
+  const wsStatus = props.ws_status ?? props[FM_STATUS_PROP];
+  if (wsStatus != null && String(wsStatus).trim()) bag.status = String(wsStatus).trim();
+  if (props.ws_priority != null && String(props.ws_priority).trim()) {
+    bag.priority = String(props.ws_priority).trim();
+  }
+  if (props.ws_due != null && String(props.ws_due).trim()) {
+    bag.due = String(props.ws_due).trim().slice(0, 10);
+  }
   if (props[ORGANIZED_PROP] === true || props[ORGANIZED_PROP] === "true") {
     bag.organized = true;
   }

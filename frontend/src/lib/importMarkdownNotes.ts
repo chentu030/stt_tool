@@ -753,6 +753,26 @@ export async function importMarkdownFilesAsNotes(
       if (Object.keys(parsed.extras).length) {
         props[FRONTMATTER_PROP] = parsed.extras;
       }
+      // Map YAML type/status/priority/due → workspace catalog keys
+      const fmBag = { ...parsed.extras, ...parsed.promotedProps };
+      if (fmBag.type != null || parsed.noteType) {
+        props.ws_type = String(parsed.noteType || fmBag.type || "").trim();
+      }
+      if (parsed.kanbanStatus) {
+        props.ws_status = parsed.kanbanStatus;
+      } else if (fmBag.status != null) {
+        const s = String(fmBag.status).trim();
+        const map: Record<string, string> = {
+          待辦: "backlog",
+          未開始: "backlog",
+          進行中: "doing",
+          完成: "done",
+          已完成: "done",
+        };
+        props.ws_status = map[s] || s;
+      }
+      if (fmBag.priority != null) props.ws_priority = String(fmBag.priority).trim();
+      if (fmBag.due != null) props.ws_due = String(fmBag.due).trim().slice(0, 10);
 
       const id = await createNote(uid, title, body, undefined, tags, {
         folder,

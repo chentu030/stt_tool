@@ -81,6 +81,8 @@ export type DbProperty = {
   };
   /** number display hint */
   numberFormat?: "number" | "percent" | "currency";
+  /** When set, name/type/options resolve from users/{uid}/propertyDefs/{id} */
+  workspaceDefId?: string;
 };
 
 export type DbViewType = "table" | "list" | "board" | "calendar" | "gallery" | "form";
@@ -142,63 +144,75 @@ function uid(prefix: string) {
 }
 
 export function defaultTaskProperties(): DbProperty[] {
-  const statusOpts: DbSelectOption[] = [
-    { id: "todo", label: "未開始", color: SELECT_COLORS[1] },
-    { id: "doing", label: "進行中", color: SELECT_COLORS[0] },
-    { id: "done", label: "已完成", color: SELECT_COLORS[5] },
-  ];
-  const priorityOpts: DbSelectOption[] = [
-    { id: "high", label: "高", color: SELECT_COLORS[4] },
-    { id: "med", label: "中", color: SELECT_COLORS[2] },
-    { id: "low", label: "低", color: SELECT_COLORS[1] },
-  ];
   return [
     { id: "title", name: "名稱", type: "title" },
     {
-      id: "status",
+      id: "ws_status",
       name: "狀態",
       type: "status",
-      options: statusOpts,
+      workspaceDefId: "ws_status",
+      options: [
+        { id: "backlog", label: "待辦", color: SELECT_COLORS[1] },
+        { id: "doing", label: "進行中", color: SELECT_COLORS[0] },
+        { id: "done", label: "完成", color: SELECT_COLORS[5] },
+      ],
       statusGroups: [
-        { name: "未開始", optionIds: ["todo"] },
+        { name: "待辦", optionIds: ["backlog"] },
         { name: "進行中", optionIds: ["doing"] },
-        { name: "已完成", optionIds: ["done"] },
+        { name: "完成", optionIds: ["done"] },
       ],
     },
-    { id: "due", name: "截止日期", type: "date" },
-    { id: "priority", name: "優先級", type: "select", options: priorityOpts },
+    { id: "ws_due", name: "期限", type: "date", workspaceDefId: "ws_due" },
+    {
+      id: "ws_priority",
+      name: "優先級",
+      type: "select",
+      workspaceDefId: "ws_priority",
+      options: [
+        { id: "urgent", label: "緊急", color: SELECT_COLORS[4] },
+        { id: "high", label: "高", color: SELECT_COLORS[2] },
+        { id: "normal", label: "普通", color: SELECT_COLORS[1] },
+        { id: "low", label: "低", color: "#64748B" },
+      ],
+    },
     { id: "tags", name: "標籤", type: "tags" },
     { id: "media", name: "媒體", type: "files" },
   ];
 }
 
 export function defaultProjectProperties(): DbProperty[] {
-  const statusOpts: DbSelectOption[] = [
-    { id: "backlog", label: "待辦", color: SELECT_COLORS[1] },
-    { id: "active", label: "進行中", color: SELECT_COLORS[0] },
-    { id: "blocked", label: "阻塞", color: SELECT_COLORS[4] },
-    { id: "done", label: "完成", color: SELECT_COLORS[5] },
-  ];
   return [
     { id: "title", name: "專案", type: "title" },
     {
-      id: "status",
+      id: "ws_status",
       name: "狀態",
       type: "status",
-      options: statusOpts,
+      workspaceDefId: "ws_status",
+      options: [
+        { id: "backlog", label: "待辦", color: SELECT_COLORS[1] },
+        { id: "doing", label: "進行中", color: SELECT_COLORS[0] },
+        { id: "done", label: "完成", color: SELECT_COLORS[5] },
+      ],
       statusGroups: [
         { name: "待辦", optionIds: ["backlog"] },
-        { name: "進行中", optionIds: ["active", "blocked"] },
+        { name: "進行中", optionIds: ["doing"] },
         { name: "完成", optionIds: ["done"] },
       ],
     },
     { id: "owner", name: "負責人", type: "text" },
-    { id: "due", name: "目標日", type: "date" },
-    { id: "priority", name: "優先級", type: "select", options: [
-      { id: "p0", label: "P0", color: SELECT_COLORS[4] },
-      { id: "p1", label: "P1", color: SELECT_COLORS[2] },
-      { id: "p2", label: "P2", color: SELECT_COLORS[1] },
-    ] },
+    { id: "ws_due", name: "期限", type: "date", workspaceDefId: "ws_due" },
+    {
+      id: "ws_priority",
+      name: "優先級",
+      type: "select",
+      workspaceDefId: "ws_priority",
+      options: [
+        { id: "urgent", label: "緊急", color: SELECT_COLORS[4] },
+        { id: "high", label: "高", color: SELECT_COLORS[2] },
+        { id: "normal", label: "普通", color: SELECT_COLORS[1] },
+        { id: "low", label: "低", color: "#64748B" },
+      ],
+    },
     { id: "tags", name: "標籤", type: "tags" },
   ];
 }
@@ -587,9 +601,10 @@ export async function updateRowProps(
 export function addProperty(
   properties: DbProperty[],
   type: DbPropType = "text",
-  name?: string
+  name?: string,
+  opts?: { workspaceDefId?: string; id?: string; options?: DbSelectOption[]; statusGroups?: DbProperty["statusGroups"] }
 ): DbProperty[] {
-  const id = uid("p");
+  const id = opts?.id || opts?.workspaceDefId || uid("p");
   const labels: Partial<Record<DbPropType, string>> = {
     text: "文字",
     number: "數字",
@@ -618,23 +633,26 @@ export function addProperty(
     id,
     name: name || labels[type] || "屬性",
     type,
+    ...(opts?.workspaceDefId ? { workspaceDefId: opts.workspaceDefId } : {}),
+    ...(opts?.options ? { options: opts.options } : {}),
+    ...(opts?.statusGroups ? { statusGroups: opts.statusGroups } : {}),
   };
-  if (type === "select" || type === "multi_select") {
+  if (type === "status" && !prop.options) {
+    prop.options = [
+      { id: "backlog", label: "待辦", color: SELECT_COLORS[1] },
+      { id: "doing", label: "進行中", color: SELECT_COLORS[0] },
+      { id: "done", label: "完成", color: SELECT_COLORS[5] },
+    ];
+    prop.statusGroups = [
+      { name: "待辦", optionIds: ["backlog"] },
+      { name: "進行中", optionIds: ["doing"] },
+      { name: "完成", optionIds: ["done"] },
+    ];
+  }
+  if ((type === "select" || type === "multi_select") && !prop.options) {
     prop.options = [
       { id: uid("o"), label: "選項 A", color: SELECT_COLORS[0] },
       { id: uid("o"), label: "選項 B", color: SELECT_COLORS[1] },
-    ];
-  }
-  if (type === "status") {
-    prop.options = [
-      { id: "todo", label: "未開始", color: SELECT_COLORS[1] },
-      { id: "doing", label: "進行中", color: SELECT_COLORS[0] },
-      { id: "done", label: "已完成", color: SELECT_COLORS[5] },
-    ];
-    prop.statusGroups = [
-      { name: "未開始", optionIds: ["todo"] },
-      { name: "進行中", optionIds: ["doing"] },
-      { name: "已完成", optionIds: ["done"] },
     ];
   }
   if (type === "formula") {

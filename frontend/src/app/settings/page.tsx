@@ -36,6 +36,7 @@ import { isAllowlistedEmail } from "@/lib/accessGate";
 import { formatBytes, USER_STORAGE_LIMIT_BYTES } from "@/lib/storageQuota";
 import StorageManagerDialog from "@/components/shell/StorageManagerDialog";
 import LocalFolderSyncPanel from "@/components/library/LocalFolderSyncPanel";
+import WorkspacePropertiesSettings from "@/components/settings/WorkspacePropertiesSettings";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 
 function Row({
@@ -534,6 +535,11 @@ export default function SettingsPage() {
                 onChange={(libraryShowEmpty) => patch({ libraryShowEmpty })}
               />
             </Row>
+            {user ? (
+              <Row label="工作區屬性" hint="筆記、資料庫、看板共用">
+                <WorkspacePropertiesSettings userId={user.uid} />
+              </Row>
+            ) : null}
             {user ? (
               <Row
                 label="本機資料夾"

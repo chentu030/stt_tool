@@ -68,6 +68,7 @@ type Props = {
   showRecordingTab?: boolean;
   /** Non-database note 屬性／關係 panel (same component as editor chrome). */
   knowledgeNote?: Note | null;
+  knowledgeUserId?: string;
   knowledgeReadOnly?: boolean;
   onKnowledgePropsPatch?: (props: Record<string, unknown>) => void;
   resolveNoteHref?: (title: string) => string | undefined;
@@ -101,6 +102,7 @@ export default function NoteAside({
   canEditRecording = false,
   showRecordingTab = false,
   knowledgeNote = null,
+  knowledgeUserId,
   knowledgeReadOnly = false,
   onKnowledgePropsPatch,
   resolveNoteHref,
@@ -291,9 +293,10 @@ export default function NoteAside({
 
       {tab === "info" && (
         <div className="note-aside-body">
-          {knowledgeNote && !knowledgeNote.database_id ? (
+          {knowledgeNote ? (
             <NoteKnowledgePropsPanel
               note={knowledgeNote}
+              userId={knowledgeUserId || knowledgeNote.user_id}
               readOnly={knowledgeReadOnly || !onKnowledgePropsPatch}
               variant="aside"
               resolveNoteHref={resolveNoteHref}

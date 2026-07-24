@@ -46,7 +46,6 @@ import {
   noteMatchesBoard,
   sortBoardCards,
   toBoardCards,
-  upsertBoardMeta,
   parseBoardMeta,
   statusOf,
 } from "@/lib/boardMeta";
@@ -239,7 +238,9 @@ export default function BoardByIdPage() {
   };
 
   const moveCard = async (id: string, status: BoardStatus) => {
-    await updateNote(id, { status });
+    const note = notes.find((n) => n.id === id);
+    const props = { ...(note?.props || {}), ws_status: status };
+    await updateNote(id, { status, props });
     toast(`已移到「${BOARD_COLUMNS.find((c) => c.id === status)?.label}」`);
   };
 
@@ -247,7 +248,13 @@ export default function BoardByIdPage() {
     if (!selected.length) return;
     setBusy(true);
     try {
-      await Promise.all(selected.map((id) => updateNote(id, { status })));
+      await Promise.all(
+        selected.map((id) => {
+          const note = notes.find((n) => n.id === id);
+          const props = { ...(note?.props || {}), ws_status: status };
+          return updateNote(id, { status, props });
+        })
+      );
       const n = selected.length;
       setSelected([]);
       toast(`已移動 ${n} 張`);
@@ -296,11 +303,14 @@ export default function BoardByIdPage() {
   const cyclePriority = async (id: string) => {
     const note = notes.find((n) => n.id === id);
     if (!note) return;
-    const cur = parseBoardMeta(note.body_md, note.tags).priority;
+    const cur = parseBoardMeta(note.body_md, note.tags, note.props).priority;
     const idx = PRIORITIES.findIndex((p) => p.id === cur);
     const next = PRIORITIES[(idx + 1) % PRIORITIES.length].id;
-    const body = upsertBoardMeta(note.body_md, { priority: next });
-    await updateNote(id, { body_md: body });
+    const cleaned = (note.body_md || "").replace(/<!--\s*cadence-board\s+[^>]*-->\s*/gi, "");
+    await updateNote(id, {
+      props: { ...(note.props || {}), ws_priority: next },
+      ...(cleaned !== note.body_md ? { body_md: cleaned } : {}),
+    });
   };
 
   const setDueOnSelected = async () => {
@@ -322,8 +332,10 @@ export default function BoardByIdPage() {
         selected.map(async (id) => {
           const note = notes.find((n) => n.id === id);
           if (!note) return;
+          const cleaned = (note.body_md || "").replace(/<!--\s*cadence-board\s+[^>]*-->\s*/gi, "");
           await updateNote(id, {
-            body_md: upsertBoardMeta(note.body_md, { due: val }),
+            props: { ...(note.props || {}), ws_due: val || null },
+            ...(cleaned !== note.body_md ? { body_md: cleaned } : {}),
           });
         })
       );
@@ -539,7 +551,7 @@ export default function BoardByIdPage() {
     setBusy(true);
     try {
       const tpl = BOARD_QUICK_TEMPLATES.find((t) => t.id === quickTpl) || BOARD_QUICK_TEMPLATES[0];
-      const body = upsertBoardMeta(tpl.body, { priority: "normal" });
+      const body = tpl.body || "";
       const folder =
         filters.folder && filters.folder !== "__none__"
           ? filters.folder
@@ -553,6 +565,10 @@ export default function BoardByIdPage() {
       const id = await createNote(user.uid, quickTitle.trim(), body, undefined, seedTags, {
         status: quickOpen,
         folder,
+        props: {
+          ws_status: quickOpen,
+          ws_priority: "normal",
+        },
       });
       setQuickOpen(null);
       setQuickTitle("");
@@ -654,13 +670,15 @@ export default function BoardByIdPage() {
         const priority: Priority = PRIORITIES.some((p) => p.id === item.priority)
           ? (item.priority as Priority)
           : "normal";
-        const body = upsertBoardMeta(item.body || "", {
-          priority,
-          due: item.due || undefined,
-        });
+        const body = (item.body || "").replace(/<!--\s*cadence-board\s+[^>]*-->\s*/gi, "");
         await createNote(user.uid, title, body, undefined, seedTags, {
           status,
           folder,
+          props: {
+            ws_status: status,
+            ws_priority: priority,
+            ...(item.due ? { ws_due: String(item.due).slice(0, 10) } : {}),
+          },
         });
         created += 1;
       }

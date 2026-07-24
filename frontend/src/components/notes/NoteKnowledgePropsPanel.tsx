@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Note } from "@/lib/firebase";
+import { updateNote } from "@/lib/firebase";
 import {
-  FM_STATUS_PROP,
   addRelationTitle,
   ensureRelationField,
   isInboxCandidate,
@@ -12,50 +12,69 @@ import {
   listNoteDatePills,
   listPropRelationFields,
   listScalarProps,
-  noteTypeOf,
   relationToneIndex,
   removeRelationTitle,
   removeScalarProp,
-  withFmStatus,
   withFrontmatterExtra,
-  withNoteType,
   withOrganizedFlag,
 } from "@/lib/noteKnowledge";
+import {
+  WORKSPACE_SYSTEM_IDS,
+  WS_STATUS_ID,
+  WS_TYPE_ID,
+  asDbProperty,
+  createCustomWorkspaceDef,
+  ensureWorkspacePropertyDefs,
+  getWorkspaceFieldValue,
+  healWorkspaceProps,
+  listenWorkspacePropertyDefs,
+  patchWorkspaceField,
+  upsertWorkspacePropertyDef,
+  type WorkspacePropertyDef,
+} from "@/lib/workspaceProperties";
+import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
+import { toast } from "@/lib/toast";
+import type { DbPropType } from "@/lib/database";
 
 type Props = {
   note: Note;
+  userId?: string;
   readOnly?: boolean;
   onPropsPatch: (props: Record<string, unknown>) => void;
-  /** Resolve wiki title → note href for relationship chips */
+  /** Full note patch when workspace fields also touch status/body */
+  onNotePatch?: (patch: Partial<Note>) => void;
   resolveNoteHref?: (title: string) => string | undefined;
-  /** `aside` = denser layout for note side panel */
   variant?: "inline" | "aside";
-  /** Optional controlled collapse */
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   defaultCollapsed?: boolean;
+  /** Also show database-only columns below workspace fields */
+  extraDbProps?: import("@/lib/database").DbProperty[];
+  onExtraDbCommit?: (propId: string, value: unknown) => void;
 };
 
 function collapseStorageKey(noteId: string) {
   return `cadence_nk_props_collapsed_${noteId}`;
 }
 
-/** Polished 屬性／關係 panel for notes that are not in a Cadence database. */
+/** 屬性／關係 panel — workspace catalog fields + relations + custom scalars. */
 export default function NoteKnowledgePropsPanel({
   note,
+  userId,
   readOnly,
   onPropsPatch,
+  onNotePatch,
   resolveNoteHref,
   variant = "inline",
   collapsed: collapsedProp,
   onCollapsedChange,
   defaultCollapsed = false,
+  extraDbProps,
+  onExtraDbCommit,
 }: Props) {
   const titleId = useId();
-  const type = noteTypeOf(note);
-  const [draftType, setDraftType] = useState(type);
-  const [editingType, setEditingType] = useState(false);
+  const [defs, setDefs] = useState<WorkspacePropertyDef[]>([]);
   const [localCollapsed, setLocalCollapsed] = useState(() => {
     if (typeof collapsedProp === "boolean") return collapsedProp;
     if (typeof window === "undefined") return defaultCollapsed;
@@ -81,10 +100,6 @@ export default function NoteKnowledgePropsPanel({
   };
 
   useEffect(() => {
-    setDraftType(type);
-  }, [note.id, type]);
-
-  useEffect(() => {
     if (typeof collapsedProp === "boolean") return;
     try {
       const v = sessionStorage.getItem(collapseStorageKey(note.id));
@@ -95,52 +110,177 @@ export default function NoteKnowledgePropsPanel({
     }
   }, [note.id, collapsedProp]);
 
-  const fmStatus =
-    note.props?.[FM_STATUS_PROP] != null
-      ? String(note.props[FM_STATUS_PROP]).trim()
-      : "";
+  useEffect(() => {
+    if (!userId) return;
+    let unsub: (() => void) | undefined;
+    void (async () => {
+      try {
+        await ensureWorkspacePropertyDefs(userId);
+        unsub = listenWorkspacePropertyDefs(userId, setDefs);
+      } catch (e) {
+        console.warn("[workspaceProperties]", e);
+      }
+    })();
+    return () => unsub?.();
+  }, [userId]);
+
+  // On-read heal into ws_* (once per note)
+  const healedRef = useRef<string>("");
+  useEffect(() => {
+    if (!userId || readOnly) return;
+    if (healedRef.current === note.id) return;
+    const healed = healWorkspaceProps(note);
+    if (!healed.changed || !healed.props) {
+      healedRef.current = note.id;
+      return;
+    }
+    healedRef.current = note.id;
+    void updateNote(note.id, {
+      props: healed.props,
+      ...(healed.status ? { status: healed.status } : {}),
+    })
+      .then(() => {
+        onNotePatch?.({
+          props: healed.props,
+          ...(healed.status ? { status: healed.status } : {}),
+        });
+        onPropsPatch(healed.props!);
+      })
+      .catch(() => {
+        healedRef.current = "";
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id, userId, readOnly]);
+
+  const activeDefs = useMemo(
+    () => defs.filter((d) => !d.archived),
+    [defs]
+  );
+  const systemDefs = useMemo(
+    () =>
+      WORKSPACE_SYSTEM_IDS.map((id) => activeDefs.find((d) => d.id === id)).filter(
+        (d): d is WorkspacePropertyDef => !!d
+      ),
+    [activeDefs]
+  );
+  const customCatalogDefs = useMemo(
+    () => activeDefs.filter((d) => !(WORKSPACE_SYSTEM_IDS as readonly string[]).includes(d.id)),
+    [activeDefs]
+  );
+
   const relations = listPropRelationFields(note.props);
-  const scalars = listScalarProps(note.props);
+  const scalars = listScalarProps(note.props).filter(
+    (s) =>
+      !(WORKSPACE_SYSTEM_IDS as readonly string[]).includes(s.key) &&
+      s.key !== "type" &&
+      s.key !== "fm_status" &&
+      s.key !== "status" &&
+      s.key !== "priority" &&
+      s.key !== "due"
+  );
   const dates = listNoteDatePills(note);
   const organized = isOrganized(note);
   const inbox = isInboxCandidate(note);
 
-  if (note.database_id) return null;
+  // When note is in a DB, parent may still show this for workspace+relations if we allow it.
+  // Plan P1: show workspace fields even for DB notes via unified panel — allow when userId set.
+  if (note.database_id && !extraDbProps) {
+    // Keep old gate only when not in unified mode; still show if we have userId (P1)
+    // Fall through — always show for consistency
+  }
 
-  const hasAnything =
-    type ||
-    fmStatus ||
-    relations.length > 0 ||
-    scalars.length > 0 ||
-    dates.length > 0 ||
-    organized ||
-    inbox;
+  const typeVal = String(getWorkspaceFieldValue(note, WS_TYPE_ID) || "");
+  const statusVal = String(getWorkspaceFieldValue(note, WS_STATUS_ID) || "");
+  const statusLabel =
+    systemDefs
+      .find((d) => d.id === WS_STATUS_ID)
+      ?.options?.find((o) => o.id === statusVal)?.label || statusVal;
 
-  if (!hasAnything && readOnly) return null;
-
-  const patchType = (next: string) => {
-    const t = next.trim();
-    setDraftType(t);
-    if (t === type) return;
-    onPropsPatch(withNoteType(note.props, t));
+  const commitWs = async (defId: string, value: unknown) => {
+    const patch = patchWorkspaceField(note, defId, value);
+    onPropsPatch(patch.props);
+    onNotePatch?.({
+      props: patch.props,
+      ...(patch.status ? { status: patch.status } : {}),
+      ...(patch.body_md != null ? { body_md: patch.body_md } : {}),
+    });
+    try {
+      await updateNote(note.id, {
+        props: patch.props,
+        ...(patch.status ? { status: patch.status } : {}),
+        ...(patch.body_md != null ? { body_md: patch.body_md } : {}),
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "儲存屬性失敗");
+    }
   };
 
   const addProperty = async () => {
-    const key = await askPrompt({
+    if (!userId) {
+      const key = await askPrompt({
+        title: "新增屬性",
+        message: "屬性名稱",
+        placeholder: "屬性名稱",
+      });
+      if (key == null || !key.trim()) return;
+      const value = await askPrompt({
+        title: "屬性值",
+        message: `「${key.trim()}」的內容`,
+        placeholder: "文字",
+      });
+      if (value == null) return;
+      onPropsPatch(withFrontmatterExtra(note.props, key.trim(), value));
+      return;
+    }
+
+    const mode = await askPrompt({
       title: "新增屬性",
-      message: "屬性名稱（例如：優先級、地點）",
-      placeholder: "屬性名稱",
+      message: "輸入「工作區」從目錄選，或直接輸入新屬性名稱",
+      placeholder: "工作區 或 屬性名稱",
+      defaultValue: "",
     });
-    if (key == null) return;
-    const k = key.trim();
-    if (!k) return;
-    const value = await askPrompt({
-      title: "屬性值",
-      message: `「${k}」的內容`,
-      placeholder: "文字",
+    if (mode == null) return;
+    const m = mode.trim();
+    if (!m) return;
+
+    if (m === "工作區" || m.toLowerCase() === "ws") {
+      const unused = activeDefs.filter(
+        (d) =>
+          !(WORKSPACE_SYSTEM_IDS as readonly string[]).includes(d.id) ||
+          getWorkspaceFieldValue(note, d.id) == null ||
+          getWorkspaceFieldValue(note, d.id) === ""
+      );
+      const pick = await askPrompt({
+        title: "工作區屬性",
+        message: unused.map((d) => d.name).join("、") || "（目錄為空）",
+        placeholder: "輸入屬性名稱",
+      });
+      if (pick == null) return;
+      const def = activeDefs.find((d) => d.name === pick.trim() || d.id === pick.trim());
+      if (!def) {
+        toast("找不到該工作區屬性");
+        return;
+      }
+      await commitWs(def.id, def.type === "checkbox" ? false : "");
+      return;
+    }
+
+    const typePick = await askPrompt({
+      title: "屬性類型",
+      message: "text / select / status / date / number / checkbox",
+      defaultValue: "text",
+      placeholder: "text",
     });
-    if (value == null) return;
-    onPropsPatch(withFrontmatterExtra(note.props, k, value));
+    if (typePick == null) return;
+    const t = (typePick.trim() || "text") as DbPropType;
+    const def = createCustomWorkspaceDef(m, t);
+    try {
+      await upsertWorkspacePropertyDef(userId, def);
+      await commitWs(def.id, t === "checkbox" ? false : "");
+      toast(`已加入工作區屬性「${def.name}」`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "無法建立屬性");
+    }
   };
 
   const addRelationship = async () => {
@@ -182,17 +322,6 @@ export default function NoteKnowledgePropsPanel({
     onPropsPatch(addRelationTitle(note.props, relKey, t));
   };
 
-  const editStatus = async () => {
-    const next = await askPrompt({
-      title: "狀態",
-      message: "自由文字狀態（例如：進行中、草稿）",
-      defaultValue: fmStatus || "",
-      placeholder: "狀態",
-    });
-    if (next == null) return;
-    onPropsPatch(withFmStatus(note.props, next));
-  };
-
   const removeScalar = async (key: string, label: string) => {
     const ok = await askConfirm({
       title: "移除屬性",
@@ -204,6 +333,25 @@ export default function NoteKnowledgePropsPanel({
     onPropsPatch(removeScalarProp(note.props, key));
   };
 
+  const hasAnything =
+    typeVal ||
+    statusVal ||
+    relations.length > 0 ||
+    scalars.length > 0 ||
+    dates.length > 0 ||
+    organized ||
+    inbox ||
+    systemDefs.length > 0 ||
+    (extraDbProps?.length || 0) > 0;
+
+  if (!hasAnything && readOnly) return null;
+
+  const displayDefs = [...systemDefs, ...customCatalogDefs.filter((d) => {
+    const v = getWorkspaceFieldValue(note, d.id);
+    return v != null && v !== "";
+  })];
+
+  // Always show system rows when editing
   return (
     <section
       className={`nk-props nk-props--${variant}${collapsed ? " is-collapsed" : ""}`}
@@ -240,120 +388,57 @@ export default function NoteKnowledgePropsPanel({
       </header>
 
       {collapsed ? (
-        <button
-          type="button"
-          className="nk-props-collapsed-summary"
-          onClick={() => setCollapsed(false)}
-        >
+        <button type="button" className="nk-props-collapsed-summary" onClick={() => setCollapsed(false)}>
           {[
-            type ? `類型 · ${type}` : null,
-            fmStatus ? `狀態 · ${fmStatus}` : null,
+            typeVal ? `類型 · ${typeVal}` : null,
+            statusLabel ? `狀態 · ${statusLabel}` : null,
             relations.length ? `${relations.length} 組關係` : null,
             scalars.length ? `${scalars.length} 項屬性` : null,
-            dates.find((d) => d.key === "updated")?.text
-              ? `修改 · ${dates.find((d) => d.key === "updated")!.text}`
-              : dates.find((d) => d.key === "created")?.text
-                ? `建立 · ${dates.find((d) => d.key === "created")!.text}`
-                : null,
           ]
             .filter(Boolean)
             .join(" · ") || "點擊展開屬性與關係"}
         </button>
       ) : (
         <>
-          <div className="nk-props-pills" role="list">
-            {readOnly ? (
-              type ? (
-                <span className="nk-pill nk-pill--type" role="listitem">
-                  <span className="nk-pill-label">類型</span>
-                  <span className="nk-pill-value">{type}</span>
-                </span>
-              ) : null
-            ) : editingType ? (
-              <label className="nk-pill nk-pill--type nk-pill--edit" role="listitem">
-                <span className="nk-pill-label">類型</span>
-                <input
-                  className="nk-pill-input"
-                  autoFocus
-                  placeholder="專案、人物…"
-                  value={draftType}
-                  onChange={(e) => setDraftType(e.target.value)}
-                  onBlur={() => {
-                    setEditingType(false);
-                    patchType(draftType);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      (e.target as HTMLInputElement).blur();
-                    }
-                    if (e.key === "Escape") {
-                      setDraftType(type);
-                      setEditingType(false);
-                    }
-                  }}
-                />
-              </label>
-            ) : (
-              <button
-                type="button"
-                className={`nk-pill nk-pill--type${type ? "" : " is-empty"}`}
-                role="listitem"
-                onClick={() => setEditingType(true)}
-              >
-                <span className="nk-pill-label">類型</span>
-                <span className="nk-pill-value">{type || "新增"}</span>
-              </button>
-            )}
-
-            {readOnly ? (
-              fmStatus ? (
-                <span className="nk-pill nk-pill--status" role="listitem">
-                  <span className="nk-pill-label">狀態</span>
-                  <span className="nk-pill-value">{fmStatus}</span>
-                </span>
-              ) : null
-            ) : (
-              <button
-                type="button"
-                className={`nk-pill nk-pill--status${fmStatus ? "" : " is-empty"}`}
-                role="listitem"
-                onClick={() => void editStatus()}
-              >
-                <span className="nk-pill-label">狀態</span>
-                <span className="nk-pill-value">{fmStatus || "新增"}</span>
-              </button>
-            )}
-
-            {dates
-              .filter((d) => d.kind === "frontmatter")
-              .map((d) => (
-                <span key={d.key} className="nk-pill nk-pill--date" role="listitem" title={d.label}>
-                  <span className="nk-pill-label">{d.label}</span>
-                  <span className="nk-pill-value">{d.text}</span>
-                </span>
-              ))}
-
-            {scalars.map((s) =>
-              readOnly ? (
-                <span key={s.key} className="nk-pill nk-pill--extra" role="listitem" title={s.key}>
-                  <span className="nk-pill-label">{s.label}</span>
-                  <span className="nk-pill-value">{s.value}</span>
-                </span>
-              ) : (
-                <button
-                  key={s.key}
-                  type="button"
-                  className="nk-pill nk-pill--extra"
-                  role="listitem"
-                  title={`${s.key}（點擊移除）`}
-                  onClick={() => void removeScalar(s.key, s.label)}
-                >
-                  <span className="nk-pill-label">{s.label}</span>
-                  <span className="nk-pill-value">{s.value}</span>
-                </button>
-              )
-            )}
+          <div className="nk-props-rows ndb-props-list" aria-label="工作區屬性">
+            {(readOnly ? displayDefs : systemDefs.concat(
+              customCatalogDefs.filter((d) => {
+                const v = getWorkspaceFieldValue(note, d.id);
+                return v != null && v !== "";
+              })
+            )).map((def) => {
+              const prop = asDbProperty(def);
+              const value = getWorkspaceFieldValue(note, def.id);
+              return (
+                <div key={def.id} className="nk-prop-row ndb-prop-row">
+                  <span className="nk-prop-row-key">{def.name}</span>
+                  <div className="nk-prop-row-val ndb-prop-value">
+                    <PropertyValueEditor
+                      note={note}
+                      prop={prop}
+                      value={value}
+                      userId={userId}
+                      readOnly={readOnly}
+                      onCommit={(v) => void commitWs(def.id, v)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+            {extraDbProps?.map((prop) => (
+              <div key={prop.id} className="nk-prop-row ndb-prop-row">
+                <span className="nk-prop-row-key">{prop.name}</span>
+                <div className="nk-prop-row-val ndb-prop-value">
+                  <PropertyValueEditor
+                    note={note}
+                    prop={prop}
+                    userId={userId}
+                    readOnly={readOnly}
+                    onCommit={(v) => onExtraDbCommit?.(prop.id, v)}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
 
           {dates.some((d) => d.kind === "system") ? (
@@ -371,6 +456,31 @@ export default function NoteKnowledgePropsPanel({
             </div>
           ) : null}
 
+          {scalars.length > 0 ? (
+            <div className="nk-props-pills" role="list">
+              {scalars.map((s) =>
+                readOnly ? (
+                  <span key={s.key} className="nk-pill nk-pill--extra" role="listitem">
+                    <span className="nk-pill-label">{s.label}</span>
+                    <span className="nk-pill-value">{s.value}</span>
+                  </span>
+                ) : (
+                  <button
+                    key={s.key}
+                    type="button"
+                    className="nk-pill nk-pill--extra"
+                    role="listitem"
+                    title={`${s.key}（點擊移除）`}
+                    onClick={() => void removeScalar(s.key, s.label)}
+                  >
+                    <span className="nk-pill-label">{s.label}</span>
+                    <span className="nk-pill-value">{s.value}</span>
+                  </button>
+                )
+              )}
+            </div>
+          ) : null}
+
           {(relations.length > 0 || !readOnly) && (
             <div className="nk-rels" aria-label="關係">
               {relations.map((rel) => {
@@ -384,36 +494,22 @@ export default function NoteKnowledgePropsPanel({
                       {rel.titles.map((t) => {
                         const href = resolveNoteHref?.(t);
                         const chipClass = `nk-rel-chip nk-rel-chip--t${tone}`;
-                        return href ? (
+                        return (
                           <span key={t} className="nk-rel-chip-wrap">
-                            <Link href={href} className={chipClass}>
-                              {t}
-                            </Link>
+                            {href ? (
+                              <Link href={href} className={chipClass}>
+                                {t}
+                              </Link>
+                            ) : (
+                              <span className={`${chipClass} is-missing`} title="尚未建立此筆記">
+                                {t}
+                              </span>
+                            )}
                             {!readOnly ? (
                               <button
                                 type="button"
                                 className="nk-rel-chip-x"
                                 aria-label={`移除 ${t}`}
-                                title="移除"
-                                onClick={() =>
-                                  onPropsPatch(removeRelationTitle(note.props, rel.key, t))
-                                }
-                              >
-                                ×
-                              </button>
-                            ) : null}
-                          </span>
-                        ) : (
-                          <span key={t} className="nk-rel-chip-wrap">
-                            <span className={`${chipClass} is-missing`} title="尚未建立此筆記">
-                              {t}
-                            </span>
-                            {!readOnly ? (
-                              <button
-                                type="button"
-                                className="nk-rel-chip-x"
-                                aria-label={`移除 ${t}`}
-                                title="移除"
                                 onClick={() =>
                                   onPropsPatch(removeRelationTitle(note.props, rel.key, t))
                                 }
