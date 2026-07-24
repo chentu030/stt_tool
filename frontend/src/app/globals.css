@@ -14500,12 +14500,14 @@ body.rich-media-float-dragging * {
   position: fixed;
   right: 1.1rem;
   bottom: 1.1rem;
-  z-index: 4200;
+  /* Below AI rail / sheet so the composer send control stays clickable */
+  z-index: 45;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.5rem;
   pointer-events: none;
+  transition: right 0.18s ease, bottom 0.18s ease;
 }
 .ced-float > * {
   pointer-events: auto;
@@ -20856,6 +20858,15 @@ body.is-sidebar-resizing iframe {
     opacity: 0;
     pointer-events: none;
   }
+  /* Lift note floaters above the AI bottom sheet (send sits in the sheet) */
+  :has(.cadence-ai-rail.is-open) .ced-float,
+  :has(.cadence-ai-rail.is-open) .editor-writing-stats-dock {
+    right: 0.75rem;
+    bottom: calc(var(--ai-sheet-h, 48dvh) + 0.75rem);
+  }
+  :has(.cadence-ai-rail.is-open) .doc-workspace:has(.ced-float) .editor-writing-stats-dock {
+    bottom: calc(var(--ai-sheet-h, 48dvh) + 4rem);
+  }
   .cadence-ai-mode-toggle {
     display: none !important;
   }
@@ -24932,15 +24943,39 @@ body.is-sidebar-resizing iframe {
   bottom: 1.1rem;
   z-index: 40;
   pointer-events: none;
+  transition: right 0.18s ease, bottom 0.18s ease;
 }
 .editor-writing-stats-dock .editor-writing-stats {
   pointer-events: auto;
+}
+/* Stack above 色票 FAB when both sit in the same corner */
+.doc-workspace:has(.ced-float) .editor-writing-stats-dock {
+  bottom: 4.35rem;
 }
 .doc-workspace.is-focus .editor-writing-stats-dock {
   opacity: 0.55;
 }
 .doc-workspace.is-focus .editor-writing-stats-dock:hover {
   opacity: 1;
+}
+
+/*
+ * Keep note-page floaters clear of the global AI rail composer (send sits
+ * bottom-right inside the rail). Fixed elements ignore the flex slot, so
+ * shift them left (desktop) or up (mobile sheet).
+ */
+:has(.cadence-ai-rail.is-open.is-dock) .ced-float,
+:has(.cadence-ai-rail.is-open.is-dock) .editor-writing-stats-dock {
+  right: calc(min(360px, 42vw) + 1.25rem);
+}
+:has(.cadence-ai-rail.is-open.is-float) .ced-float,
+:has(.cadence-ai-rail.is-open.is-float) .editor-writing-stats-dock {
+  right: calc(min(380px, calc(100vw - 2rem)) + 1.75rem);
+}
+/* Float-mode collapsed pill also occupies the bottom-right corner */
+:has(.cadence-ai-rail.is-float.is-collapsed) .ced-float,
+:has(.cadence-ai-rail.is-float.is-collapsed) .editor-writing-stats-dock {
+  right: calc(3.2rem + 1.75rem);
 }
 .editor-writing-stats {
   display: inline-flex;
@@ -25170,6 +25205,9 @@ body.is-sidebar-resizing iframe {
   .editor-writing-stats-dock {
     right: 0.65rem;
     bottom: 0.75rem;
+  }
+  .doc-workspace:has(.ced-float) .editor-writing-stats-dock {
+    bottom: 4rem;
   }
   .note-writing-goal-grid {
     grid-template-columns: 1fr;

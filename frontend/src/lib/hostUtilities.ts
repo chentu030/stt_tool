@@ -95,8 +95,13 @@ export function isHostUtilityEnabled(id: string): boolean {
 
 export function setHostUtilityEnabled(id: string, enabled: boolean) {
   const cur = loadDisabledUtilityIds();
-  if (enabled) saveDisabledUtilityIds(cur.filter((x) => x !== id));
-  else saveDisabledUtilityIds([...cur, id]);
+  if (enabled) {
+    saveDisabledUtilityIds(cur.filter((x) => x !== id));
+    /* Re-enabling from the store also restores a previously dismissed FAB */
+    if (id === "color-eyedropper") saveColorSwatchHidden(false);
+  } else {
+    saveDisabledUtilityIds([...cur, id]);
+  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("albireus:utility-enabled", { detail: { id, enabled } }));
   }

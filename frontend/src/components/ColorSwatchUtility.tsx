@@ -8,6 +8,7 @@ import {
   loadColorSwatchOpen,
   saveColorSwatchHidden,
   saveColorSwatchOpen,
+  setHostUtilityEnabled,
 } from "@/lib/hostUtilities";
 
 type Props = {
@@ -62,33 +63,14 @@ export default function ColorSwatchUtility({ onApply }: Props) {
     setOpenPref(false);
     setHidden(true);
     saveColorSwatchHidden(true);
+    /* Match dismiss hint: re-enable from 社群商店 → 擴充功能 */
+    setHostUtilityEnabled("color-eyedropper", false);
+    setEnabled(false);
   }, [setOpenPref]);
 
-  const restoreChip = useCallback(() => {
-    setHidden(false);
-    saveColorSwatchHidden(false);
-    setOpenPref(true);
-  }, [setOpenPref]);
-
-  if (!ready || !enabled) return null;
-
-  if (hidden) {
-    return (
-      <div className="ced-float ced-float--hidden" data-utility="color-eyedropper">
-        <button
-          type="button"
-          className="ced-float-restore"
-          title="重新顯示色票工具"
-          aria-label="重新顯示色票工具"
-          onClick={restoreChip}
-        >
-          <span className="material-symbols-outlined" aria-hidden>
-            palette
-          </span>
-        </button>
-      </div>
-    );
-  }
+  /* Hidden = fully gone (no corner restore chip — that sat on the AI send button).
+   * Re-show from 社群商店 → 擴充功能. */
+  if (!ready || !enabled || hidden) return null;
 
   return (
     <div className="ced-float" data-utility="color-eyedropper">
