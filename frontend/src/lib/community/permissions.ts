@@ -34,7 +34,7 @@ export const PERMISSION_META: Record<
   notes_write: {
     label: "寫入知識庫",
     risk: "high",
-    hint: "可建立或修改筆記（模板套用或擴充 RPC）",
+    hint: "可建立、修改筆記或附加媒體（模板套用或擴充 RPC）",
   },
   settings: {
     label: "自訂設定",

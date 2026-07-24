@@ -119,7 +119,7 @@ Sample manifests: `/samples/albireus-extension-sample.json`, `/samples/albireus-
   - `storage` — settings saved on user account
   - `settings` — shows settings panel
   - `notes_read` — extension notes RPC: `get` / `list`
-  - `notes_write` — templates **or** notes RPC: `create` / `update`
+  - `notes_write` — templates **or** notes RPC: `create` / `update` / `attach`
 
 ### Template example
 
@@ -188,7 +188,8 @@ window.addEventListener("message", (e) => {
 Sandboxed extensions may call a typed **postMessage** notes API on the host (signed-in user’s notes only). Declare permissions in `albireus.json`:
 
 - `notes_read` → `cadence.notes.get`, `cadence.notes.list`
-- `notes_write` → `cadence.notes.update`, `cadence.notes.create`
+- `notes_write` → `cadence.notes.update`, `cadence.notes.create`, `cadence.notes.attach`
+- `network` → required **in addition** when `attach` uses a remote `url`
 
 Request (iframe → host) — always include `reqId`:
 
@@ -205,6 +206,9 @@ window.parent.postMessage(
 | `cadence.notes.list` | optional `q`, `folder`, `limit` (≤100), `includeBody` |
 | `cadence.notes.update` | `noteId`, `patch`: `{ title?, body_md?, tags?, folder? }` |
 | `cadence.notes.create` | `title`, optional `body_md`, `tags`, `folder` |
+| `cadence.notes.attach` | `noteId`; exactly one of `dataBase64` / `dataUrl` / `url`; optional `filename`, `contentType`, `insert` (`append`\|`none`) |
+
+`attach` uploads under the signed-in user’s note storage and (by default) appends a media markdown snippet to the note body. Decoded / fetched size ≤ 8 MiB. Remote `url` must be `https` and needs `network`.
 
 Reply (host → iframe):
 
@@ -212,7 +216,7 @@ Reply (host → iframe):
 {
   type: "cadence.notes.result",
   reqId,
-  method: "get" | "list" | "update" | "create",
+  method: "get" | "list" | "update" | "create" | "attach",
   ok: true | false,
   data?: /* … */,
   error?: { code: string, message: string }
@@ -227,6 +231,14 @@ const { items } = await CadenceNotes.list({ q: "會議", limit: 20 });
 const note = await CadenceNotes.get(items[0].id);
 await CadenceNotes.update(note.id, { title: "新標題" });
 await CadenceNotes.create({ title: "擴充建立", body_md: "## hi\n", tags: ["rpc"] });
+
+// Attach (current workspace note id is usually ?note=)
+const noteId = new URLSearchParams(location.search).get("note");
+await CadenceNotes.attach(noteId, {
+  filename: "pixel.png",
+  dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+});
+// or: await CadenceNotes.attachFile(noteId, fileInput.files[0]);
 ```
 
 Host checks: message `source` must be the extension iframe, `origin` must match `pageType.entry`, and the method’s permission must be granted. The host **never** evaluates remote `main.js`.

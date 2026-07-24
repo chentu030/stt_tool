@@ -41,13 +41,11 @@ Rationale after spike:
 4. Edit files locally, then「從本機拉入」to update / create Cadence notes.
 5. Optional: select notes in 知識庫 first to push only the selection.
 
-## Next — P2 (done) / P3 first task
+## Next — P2 (done) / P3 (media RPC done)
 
 P2 extension notes RPC shipped — see `docs/design/extension-notes-rpc-p2.md`.
 
-When continuing to P3, start with:
-
-**Attachment / media bridge for sandboxed extensions** — permission-gated upload or attach to a note the extension can write, without a host plugin loader.
+P3 first slice (attachment / media bridge) shipped — see `docs/design/extension-media-rpc-p3.md` (`cadence.notes.attach`).
 
 ## Priority leftovers
 | Phase | Item | Notes |
@@ -55,5 +53,5 @@ When continuing to P3, start with:
 | P1.x | Optional Local REST client settings | Base URL + token pull/push if users run a local HTTPS API |
 | P1.x | Richer FM types | Nested YAML → DB props |
 | P2 | Extension notes RPC | Done — `extension-notes-rpc-p2.md` |
-| P3 | Extension media / attach RPC | See P2 handoff |
+| P3 | Extension media / attach RPC | Done — `extension-media-rpc-p3.md` |
 | Stretch | Background folder watch | Needs companion or periodic poll UX |

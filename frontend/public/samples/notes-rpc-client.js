@@ -1,11 +1,14 @@
 /**
  * Minimal Cadence notes RPC client for sandboxed community iframes.
- * Host methods: cadence.notes.get | list | update | create
+ * Host methods: cadence.notes.get | list | update | create | attach
  * Declare permissions: notes_read and/or notes_write in albireus.json
+ * Remote attach via url also needs: network
  *
  * Usage (inside your extension page):
  *   <script src="https://YOUR_HOST/samples/notes-rpc-client.js"></script>
  *   const notes = await CadenceNotes.list({ q: "會議", limit: 20 });
+ *   await CadenceNotes.attach(noteId, { filename: "a.png", dataUrl: "data:image/png;base64,…" });
+ *   await CadenceNotes.attachFile(noteId, fileInput.files[0]);
  */
 (function (global) {
   "use strict";
@@ -67,6 +70,46 @@
     },
     create: function (fields) {
       return call("cadence.notes.create", fields || {});
+    },
+    /**
+     * Attach a file to a writable note.
+     * opts: { filename?, contentType?, dataBase64? | dataUrl? | url?, insert?: "append"|"none" }
+     * Default timeout 120s (upload).
+     */
+    attach: function (noteId, opts, timeoutMs) {
+      var params = Object.assign({ noteId: noteId }, opts || {});
+      return call(
+        "cadence.notes.attach",
+        params,
+        typeof timeoutMs === "number" ? timeoutMs : 120000
+      );
+    },
+    /** Read a browser File/Blob as dataUrl and attach. */
+    attachFile: function (noteId, file, opts, timeoutMs) {
+      return new Promise(function (resolve, reject) {
+        if (!file) {
+          reject(new Error("缺少 file"));
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function () {
+          var dataUrl = reader.result;
+          if (typeof dataUrl !== "string") {
+            reject(new Error("無法讀取檔案"));
+            return;
+          }
+          var merged = Object.assign({}, opts || {}, {
+            filename: (opts && opts.filename) || file.name || "attachment",
+            contentType: (opts && opts.contentType) || file.type || undefined,
+            dataUrl: dataUrl,
+          });
+          global.CadenceNotes.attach(noteId, merged, timeoutMs).then(resolve, reject);
+        };
+        reader.onerror = function () {
+          reject(reader.error || new Error("讀取檔案失敗"));
+        };
+        reader.readAsDataURL(file);
+      });
     },
   };
 })(typeof window !== "undefined" ? window : globalThis);

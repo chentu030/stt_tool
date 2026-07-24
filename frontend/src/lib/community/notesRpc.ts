@@ -14,26 +14,30 @@ import {
   db,
   getNote,
   updateNote,
+  uploadNoteMedia,
   type Note,
 } from "@/lib/firebase";
+import { mediaMarkdownForFile } from "@/lib/noteMediaInsert";
 import type { PackagePermission } from "@/lib/community/types";
 
 export const NOTES_RPC_RESULT = "cadence.notes.result" as const;
 
-export const NOTES_RPC_METHODS = ["get", "list", "update", "create"] as const;
+export const NOTES_RPC_METHODS = ["get", "list", "update", "create", "attach"] as const;
 export type NotesRpcMethod = (typeof NOTES_RPC_METHODS)[number];
 
 export type NotesRpcRequestType =
   | "cadence.notes.get"
   | "cadence.notes.list"
   | "cadence.notes.update"
-  | "cadence.notes.create";
+  | "cadence.notes.create"
+  | "cadence.notes.attach";
 
 export type NotesRpcErrorCode =
   | "bad_request"
   | "unauthorized"
   | "forbidden"
   | "not_found"
+  | "too_large"
   | "internal";
 
 export type NotesRpcNoteSummary = {
@@ -63,6 +67,7 @@ const TYPE_TO_METHOD: Record<NotesRpcRequestType, NotesRpcMethod> = {
   "cadence.notes.list": "list",
   "cadence.notes.update": "update",
   "cadence.notes.create": "create",
+  "cadence.notes.attach": "attach",
 };
 
 const METHOD_PERM: Record<NotesRpcMethod, PackagePermission> = {
@@ -70,10 +75,15 @@ const METHOD_PERM: Record<NotesRpcMethod, PackagePermission> = {
   list: "notes_read",
   update: "notes_write",
   create: "notes_write",
+  /** Attach also needs `network` when sourcing from a remote `url`. */
+  attach: "notes_write",
 };
 
 const LIST_DEFAULT_LIMIT = 50;
 const LIST_MAX_LIMIT = 100;
+/** Decoded payload / fetched body cap for cadence.notes.attach (postMessage-friendly). */
+export const NOTES_RPC_ATTACH_MAX_BYTES = 8 * 1024 * 1024;
+const ATTACH_FETCH_TIMEOUT_MS = 30_000;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -90,6 +100,78 @@ function asStringArray(v: unknown): string[] | undefined {
     .map((s) => s.trim())
     .filter(Boolean);
   return out;
+}
+
+function sanitizeFilename(name: string): string {
+  const base = name.replace(/[/\\?%*:|"<>]/g, "_").trim().slice(0, 120);
+  return base || "attachment";
+}
+
+function decodeBase64Payload(raw: string): Uint8Array {
+  const cleaned = raw.replace(/\s+/g, "");
+  const bin = atob(cleaned);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function bytesFromDataUrl(dataUrl: string): { bytes: Uint8Array; contentType?: string } {
+  const m = /^data:([^;,]+)?(?:;charset=[^;,]+)?;base64,([\s\S]+)$/i.exec(dataUrl.trim());
+  if (!m) throw new Error("dataUrl 必須是 data:*;base64,… 格式");
+  return {
+    contentType: m[1]?.trim() || undefined,
+    bytes: decodeBase64Payload(m[2]),
+  };
+}
+
+async function bytesFromRemoteUrl(url: string): Promise<{
+  bytes: Uint8Array;
+  contentType?: string;
+  filenameHint?: string;
+}> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("url 無效");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("僅允許 https 遠端附件");
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ATTACH_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(parsed.toString(), {
+      method: "GET",
+      signal: ctrl.signal,
+      credentials: "omit",
+      redirect: "follow",
+    });
+    if (!res.ok) throw new Error(`遠端下載失敗（HTTP ${res.status}）`);
+    const lenHeader = res.headers.get("content-length");
+    if (lenHeader) {
+      const len = Number(lenHeader);
+      if (Number.isFinite(len) && len > NOTES_RPC_ATTACH_MAX_BYTES) {
+        throw new Error(`檔案超過 ${NOTES_RPC_ATTACH_MAX_BYTES} bytes`);
+      }
+    }
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > NOTES_RPC_ATTACH_MAX_BYTES) {
+      throw new Error(`檔案超過 ${NOTES_RPC_ATTACH_MAX_BYTES} bytes`);
+    }
+    const cd = res.headers.get("content-disposition") || "";
+    const nameMatch = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(cd);
+    const filenameHint = nameMatch
+      ? decodeURIComponent(nameMatch[1].replace(/"/g, "").trim())
+      : parsed.pathname.split("/").pop() || undefined;
+    return {
+      bytes: new Uint8Array(buf),
+      contentType: res.headers.get("content-type")?.split(";")[0]?.trim() || undefined,
+      filenameHint,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function parseNotesRpcMethod(type: unknown): NotesRpcMethod | null {
@@ -287,6 +369,109 @@ export async function handleNotesRpcRequest(
       return resultOk(reqId, method, {
         note: next && next.user_id === ctx.uid ? toFull(next) : { id: noteId, ...updates },
         updated_at: updatedAt,
+      });
+    }
+
+    if (method === "attach") {
+      const noteId = asString(data.noteId)?.trim();
+      if (!noteId) return resultErr(reqId, method, "bad_request", "缺少 noteId");
+
+      const note = await getNote(noteId);
+      if (!note || note.user_id !== ctx.uid) {
+        return resultErr(reqId, method, "not_found", "找不到筆記");
+      }
+
+      const insertRaw = asString(data.insert)?.trim().toLowerCase();
+      if (insertRaw && insertRaw !== "append" && insertRaw !== "none") {
+        return resultErr(reqId, method, "bad_request", "insert 必須是 append 或 none");
+      }
+      const insert: "append" | "none" = insertRaw === "none" ? "none" : "append";
+
+      const dataBase64 = asString(data.dataBase64);
+      const dataUrl = asString(data.dataUrl);
+      const remoteUrl = asString(data.url)?.trim();
+      const sources = [dataBase64, dataUrl, remoteUrl].filter(Boolean);
+      if (sources.length !== 1) {
+        return resultErr(
+          reqId,
+          method,
+          "bad_request",
+          "請擇一提供 dataBase64、dataUrl 或 url"
+        );
+      }
+
+      let bytes: Uint8Array;
+      let inferredType: string | undefined;
+      let filenameHint: string | undefined;
+
+      try {
+        if (remoteUrl) {
+          if (!ctx.permissions.includes("network")) {
+            return resultErr(reqId, method, "forbidden", "遠端 url 附件需要 network 權限");
+          }
+          const remote = await bytesFromRemoteUrl(remoteUrl);
+          bytes = remote.bytes;
+          inferredType = remote.contentType;
+          filenameHint = remote.filenameHint;
+        } else if (dataUrl) {
+          const parsed = bytesFromDataUrl(dataUrl);
+          bytes = parsed.bytes;
+          inferredType = parsed.contentType;
+        } else {
+          bytes = decodeBase64Payload(dataBase64!);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "無法讀取附件內容";
+        if (message.includes("超過")) {
+          return resultErr(reqId, method, "too_large", message);
+        }
+        return resultErr(reqId, method, "bad_request", message);
+      }
+
+      if (bytes.byteLength === 0) {
+        return resultErr(reqId, method, "bad_request", "附件內容為空");
+      }
+      if (bytes.byteLength > NOTES_RPC_ATTACH_MAX_BYTES) {
+        return resultErr(
+          reqId,
+          method,
+          "too_large",
+          `檔案超過 ${NOTES_RPC_ATTACH_MAX_BYTES} bytes`
+        );
+      }
+
+      const filename = sanitizeFilename(
+        asString(data.filename)?.trim() || filenameHint || "attachment"
+      );
+      const contentType =
+        (asString(data.contentType)?.trim() || inferredType || "application/octet-stream").slice(
+          0,
+          120
+        );
+
+      const file = new File([new Uint8Array(bytes)], filename, { type: contentType });
+      const uploaded = await uploadNoteMedia(ctx.uid, noteId, file);
+      const markdown = mediaMarkdownForFile(uploaded.url, file).trim();
+
+      let body_md = note.body_md || "";
+      if (insert === "append") {
+        const trimmed = body_md.trimEnd();
+        body_md = `${trimmed}${trimmed ? "\n\n" : ""}${markdown}\n`;
+        await updateNote(noteId, { body_md });
+      }
+
+      const next = insert === "append" ? await getNote(noteId) : note;
+      return resultOk(reqId, method, {
+        url: uploaded.url,
+        path: uploaded.path,
+        name: uploaded.name,
+        contentType: uploaded.contentType,
+        markdown,
+        insert,
+        note:
+          next && next.user_id === ctx.uid
+            ? toFull(next)
+            : { ...toFull(note), body_md },
       });
     }
 

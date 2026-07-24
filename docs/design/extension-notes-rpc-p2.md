@@ -59,7 +59,7 @@ Naming aligns with existing host↔iframe events (`albireus:auth`, `albireus:set
 - Obsidian-style plugin loader / eval of remote `main.js`
 - Realtime note subscriptions over RPC
 - Cross-user / shared-ACL note access via RPC
-- Attachment / media upload RPC
+- Attachment / media upload RPC — done in P3: `docs/design/extension-media-rpc-p3.md`
 - Local folder bridge (P1) or local REST companion
 
 ## How extensions call it
@@ -82,11 +82,6 @@ window.addEventListener("message", (e) => {
 
 Full helper: `/samples/notes-rpc-client.js`.
 
-## Next — P3 first task
+## Next — P3 first task (done)
 
-**Attachment / media bridge for extensions** (or richer note props/relations RPC): let sandboxed pages upload or attach files to a note they can write, still permission-gated and without a host plugin loader.
-
-Suggested first concrete slice:
-1. Spec `docs/design/extension-media-rpc-p3.md` with `cadence.notes.attach` (or dedicated media methods).
-2. Reuse existing note media ingest paths; gate with `notes_write` (+ optional `network` if remote fetch).
-3. One sample that attaches a small file / URL to the current `?note=` id.
+**Attachment / media bridge** shipped — see `docs/design/extension-media-rpc-p3.md` (`cadence.notes.attach`).

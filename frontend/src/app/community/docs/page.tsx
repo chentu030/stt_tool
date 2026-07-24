@@ -92,7 +92,7 @@ export default function CommunityDocsPage() {
         </p>
         <p>
           若需讀寫使用者知識庫，請宣告 <code>notes_read</code> / <code>notes_write</code>，並透過{" "}
-          <code>cadence.notes.get|list|update|create</code> postMessage RPC（見{" "}
+          <code>cadence.notes.get|list|update|create|attach</code> postMessage RPC（見{" "}
           <a href="/community/ai.md" target="_blank" rel="noreferrer">
             ai.md §4.1
           </a>
