@@ -208,6 +208,7 @@ function NotePageInner() {
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   const exportWrapRef = useRef<HTMLDivElement | null>(null);
   const [viewMode, setViewMode] = useState<"write" | "read" | "slides">("write");
+  const [readBannerDismissed, setReadBannerDismissed] = useState(false);
   const [deck, setDeck] = useState<SlideDeck | null>(null);
   const [slideActions, setSlideActions] = useState<SlideStudioActions | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -1461,6 +1462,7 @@ function NotePageInner() {
 
   useEffect(() => {
     if (!id) return;
+    setReadBannerDismissed(false);
     try {
       const m = sessionStorage.getItem(`cadence_view_${id}`);
       if (m === "slides" || m === "write" || m === "read") setViewMode(m);
@@ -1533,6 +1535,7 @@ function NotePageInner() {
 
   const setMode = (mode: "write" | "read" | "slides") => {
     setViewMode(mode);
+    if (mode !== "read") setReadBannerDismissed(false);
     if (id) {
       try {
         sessionStorage.setItem(`cadence_view_${id}`, mode);
@@ -2749,12 +2752,22 @@ function NotePageInner() {
               <span>主頁</span>
             </button>
           ) : null}
-          {viewMode === "read" && (
+          {viewMode === "read" && !readBannerDismissed && (
             <div className="doc-read-banner">
               <span>閱讀模式 · 內容無法編輯</span>
-              <button type="button" className="doc-cmd" onClick={enterWrite}>
-                回到寫作
-              </button>
+              <div className="doc-read-banner-actions">
+                <button type="button" className="doc-cmd" onClick={enterWrite}>
+                  回到寫作
+                </button>
+                <button
+                  type="button"
+                  className="doc-read-banner-dismiss"
+                  aria-label="關閉提示"
+                  onClick={() => setReadBannerDismissed(true)}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 

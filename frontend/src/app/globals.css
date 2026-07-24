@@ -12607,6 +12607,38 @@ body.is-split-resizing iframe {
   font-size: 0.8rem;
   font-weight: 600;
 }
+.doc-read-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+.doc-read-banner .doc-cmd {
+  color: var(--accent);
+}
+.doc-read-banner .doc-cmd:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.doc-read-banner-dismiss {
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--accent) 72%, transparent);
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.doc-read-banner-dismiss:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.doc-read-banner-dismiss:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
 .doc-props--read {
   pointer-events: none;
   border-bottom-color: transparent;
