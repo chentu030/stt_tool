@@ -28,6 +28,11 @@ import {
   type LibraryCanvas,
 } from "@/lib/libraryIndex";
 import { listenCanvases, type CanvasMeta } from "@/lib/canvasCloud";
+import {
+  looksLikeSemanticQuery,
+  searchNotesSemantic,
+  type SemanticHit,
+} from "@/lib/noteSemanticSearch";
 
 type Props = {
   open: boolean;
@@ -63,11 +68,15 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
   const [index, setIndex] = useState(0);
   const [contextNoteId, setContextNoteId] = useState<string | null>(null);
   const [canvases, setCanvases] = useState<CanvasMeta[]>([]);
+  const [semanticHits, setSemanticHits] = useState<SemanticHit[]>([]);
+  const [semanticPending, setSemanticPending] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setQ("");
     setIndex(0);
+    setSemanticHits([]);
+    setSemanticPending(false);
     setContextNoteId(readFocusNoteId(pathname));
   }, [open, pathname]);
 
@@ -78,6 +87,41 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     }
     return listenCanvases(userId, setCanvases);
   }, [open, userId]);
+
+  useEffect(() => {
+    if (!open || !userId) {
+      setSemanticHits([]);
+      setSemanticPending(false);
+      return;
+    }
+    const query = q.trim();
+    if (!looksLikeSemanticQuery(query)) {
+      setSemanticHits([]);
+      setSemanticPending(false);
+      return;
+    }
+    let cancelled = false;
+    setSemanticPending(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const { hits } = await searchNotesSemantic(query, {
+            limit: 10,
+            threshold: 0.55,
+          });
+          if (!cancelled) setSemanticHits(hits);
+        } catch {
+          if (!cancelled) setSemanticHits([]);
+        } finally {
+          if (!cancelled) setSemanticPending(false);
+        }
+      })();
+    }, 320);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, userId, q]);
 
   const favIds = prefsCtx?.prefs.favoriteNoteIds || [];
   const recentIds = prefsCtx?.prefs.recentNoteIds || [];
@@ -431,10 +475,12 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
       created_at: n.created_at instanceof Date ? n.created_at : new Date(n.created_at || Date.now()),
     }));
     const hits = searchNotes(libraryNotes, q, { sort: "relevance" }).slice(0, 10);
+    const matchedIds = new Set<string>();
     const matchedNotes: Note[] = [];
     for (const hit of hits) {
       const n = notes.find((x) => x.id === hit.id);
       if (!n) continue;
+      matchedIds.add(n.id);
       matchedNotes.push(n);
       const fieldHint =
         hit.matchFields?.includes("body") && !hit.matchFields.includes("title")
@@ -448,6 +494,22 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         label: n.title || "未命名",
         hint: fieldHint,
         snippet: hit.snippet || undefined,
+        surface: "筆記",
+      });
+    }
+    // Semantic hits (natural-language): only add notes not already matched by keyword.
+    for (const hit of semanticHits) {
+      if (matchedIds.has(hit.id)) continue;
+      const n = notes.find((x) => x.id === hit.id);
+      if (!n) continue;
+      matchedIds.add(n.id);
+      matchedNotes.push(n);
+      out.push({
+        kind: "note",
+        id: n.id,
+        label: n.title || hit.title || "未命名",
+        hint: "語意相關",
+        snippet: n.folder ? `資料夾 · ${n.folder}` : undefined,
         surface: "筆記",
       });
     }
@@ -569,7 +631,21 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     }
 
     return out.slice(0, 32);
-  }, [q, notes, jobs, canvases, favIds, recentIds, userId, prefsCtx, router, onClose, contextNote, pathname]);
+  }, [
+    q,
+    notes,
+    jobs,
+    canvases,
+    favIds,
+    recentIds,
+    userId,
+    prefsCtx,
+    router,
+    onClose,
+    contextNote,
+    pathname,
+    semanticHits,
+  ]);
 
   useEffect(() => {
     setIndex(0);
@@ -671,7 +747,11 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
             ))
           )}
         </div>
-        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 搜尋筆記／白板／錄音 · 輸入後優先寫入日誌</p>
+        <p className="cmdk-foot">
+          ↑↓ 選擇 · Enter 執行 · Esc 關閉 · 關鍵字或語意搜尋筆記
+          {semanticPending ? " · 語意比對中…" : ""}
+          {" · 輸入後可寫入今日日誌"}
+        </p>
       </div>
     </div>
   );

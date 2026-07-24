@@ -27,6 +27,19 @@ const EMBED_DIM = 768;
 const DEFAULT_THRESHOLD = 0.55; // cosine distance
 const MAX_EMBED_CHARS = 6000;
 
+/**
+ * Prefer semantic retrieval for natural-language phrases (CJK / multi-word),
+ * not for ultra-short keyword filters.
+ */
+export function looksLikeSemanticQuery(query: string): boolean {
+  const t = query.trim();
+  if (t.length < 2) return false;
+  const hasCjk = /[\u3400-\u9fff]/.test(t);
+  if (hasCjk) return t.length >= 2;
+  if (/\s/.test(t)) return t.length >= 4;
+  return t.length >= 6;
+}
+
 const API = () => {
   const raw = (process.env.NEXT_PUBLIC_API_BASE || "").trim();
   if (raw) return raw.replace(/^http:\/\//i, "https://").replace(/\/$/, "");

@@ -43,6 +43,11 @@ import {
   tagBuckets,
 } from "@/lib/libraryIndex";
 import {
+  looksLikeSemanticQuery,
+  searchNotesSemantic,
+  type SemanticHit,
+} from "@/lib/noteSemanticSearch";
+import {
   dataTransferHasFiles,
   filesFromDataTransfer,
   importMarkdownFilesAsNotes,
@@ -74,6 +79,7 @@ function LibraryPageInner() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const { notes } = useNotesList();
   const [q, setQ] = useState("");
+  const [semanticHits, setSemanticHits] = useState<SemanticHit[]>([]);
   const [tab, setTab] = useState<"notes" | "jobs" | "trash">("notes");
   const [tagFilter, setTagFilter] = useState("");
   const [folderFilter, setFolderFilter] = useState(folderFromUrl);
@@ -95,6 +101,32 @@ function LibraryPageInner() {
   useEffect(() => {
     setFolderFilter(folderFromUrl);
   }, [folderFromUrl]);
+
+  useEffect(() => {
+    if (!user?.uid || !looksLikeSemanticQuery(q)) {
+      setSemanticHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const { hits } = await searchNotesSemantic(q.trim(), {
+            limit: 16,
+            threshold: 0.55,
+            folder: folderFilter && folderFilter !== "__none__" ? folderFilter : undefined,
+          });
+          if (!cancelled) setSemanticHits(hits);
+        } catch {
+          if (!cancelled) setSemanticHits([]);
+        }
+      })();
+    }, 360);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [user?.uid, q, folderFilter]);
 
   useEffect(() => {
     setInboxQueue(queueFromUrl === "inbox");
@@ -174,6 +206,41 @@ function LibraryPageInner() {
     if (!prefs.libraryShowEmpty) {
       list = list.filter((n) => (n.body_md || "").trim().length > 0);
     }
+    // Append semantic-only hits (thresholded) after lexical matches.
+    if (semanticHits.length && q.trim()) {
+      const seen = new Set(list.map((n) => n.id));
+      const extras = semanticHits
+        .filter((h) => !seen.has(h.id))
+        .map((h) => notes.find((n) => n.id === h.id))
+        .filter(Boolean)
+        .filter((n) => {
+          if (!n) return false;
+          if (tagFilter) {
+            const has =
+              (n.tags || []).includes(tagFilter) ||
+              new RegExp(`(?:^|\\s)#${tagFilter}(?:\\s|$)`).test(n.body_md || "");
+            if (!has) return false;
+          }
+          if (statusFilter && (n.status || "") !== statusFilter) return false;
+          if (inboxQueue) {
+            const ids = new Set(inboxNotes.map((x) => x.id));
+            if (!ids.has(n.id)) return false;
+          }
+          if (!prefs.libraryShowEmpty && !(n.body_md || "").trim()) return false;
+          return true;
+        }) as typeof list;
+      if (extras.length) {
+        list = [
+          ...list,
+          ...extras.map((n) => ({
+            ...n,
+            score: 0.5,
+            snippet: n.body_md?.slice(0, 120) || "",
+            matchFields: ["semantic" as string],
+          })),
+        ];
+      }
+    }
     return list;
   }, [
     notes,
@@ -185,6 +252,7 @@ function LibraryPageInner() {
     prefs.libraryShowEmpty,
     inboxQueue,
     inboxNotes,
+    semanticHits,
   ]);
 
   const filteredJobs = useMemo(() => {
@@ -500,7 +568,7 @@ function LibraryPageInner() {
               <input
                 ref={searchRef}
                 className="input kb-ctrl"
-                placeholder="搜尋…（/）"
+                placeholder="搜尋關鍵字或一句話…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
