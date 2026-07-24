@@ -445,6 +445,10 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    match /users/{uid}/journal_todos/{todoId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     match /users/{uid}/meeting_sessions/{sessionId} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }

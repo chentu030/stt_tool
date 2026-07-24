@@ -21,6 +21,7 @@ import ShinyPill from "@/components/motion/ShinyPill";
 import JournalCalendar from "@/components/journal/JournalCalendar";
 import JournalComposer, { type JournalComposerHandle } from "@/components/journal/JournalComposer";
 import JournalAside from "@/components/journal/JournalAside";
+import JournalTodoList from "@/components/journal/JournalTodoList";
 import JournalSchedulePanel from "@/components/journal/JournalSchedulePanel";
 import QuickVoiceButton from "@/components/voice/QuickVoiceButton";
 import { useLiveRecordingOptional } from "@/components/voice/LiveRecordingProvider";
@@ -876,6 +877,8 @@ export default function JournalPage() {
               void goToday();
             }}
           />
+
+          <JournalTodoList uid={user.uid} dateKey={selected} />
 
           {!isNarrow && (
             <button

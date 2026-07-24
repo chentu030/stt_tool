@@ -7133,6 +7133,110 @@ a.sidebar-user-name:hover {
   justify-content: center;
   font-weight: 650;
 }
+.jn-todo-block h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.jn-todo-count {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.jn-todo-add {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.55rem;
+}
+.jn-todo-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--text-main);
+  font-size: 0.8rem;
+  padding: 0.38rem 0.55rem;
+  outline: none;
+}
+.jn-todo-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.jn-todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+.jn-todo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.28rem 0.2rem;
+  border-radius: 8px;
+}
+.jn-todo-item:hover {
+  background: color-mix(in srgb, var(--bg-muted) 70%, transparent);
+}
+.jn-todo-check {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-main);
+}
+.jn-todo-check input {
+  margin-top: 0.15rem;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.jn-todo-check span {
+  word-break: break-word;
+}
+.jn-todo-item.is-done .jn-todo-check span {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.jn-todo-del {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.55;
+}
+.jn-todo-item:hover .jn-todo-del,
+.jn-todo-del:focus-visible {
+  opacity: 1;
+}
+.jn-todo-del:hover {
+  background: var(--bg-muted);
+  color: var(--text-main);
+}
 .jn-week.is-editing .jn-week-col.is-edit {
   cursor: crosshair;
 }
