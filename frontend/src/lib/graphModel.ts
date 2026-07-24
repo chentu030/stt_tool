@@ -533,7 +533,7 @@ export function layoutGraph(
     rest.forEach((n, i) => {
       const angle = (i / Math.max(rest.length, 1)) * Math.PI * 2;
       const ring = 1 + Math.floor(i / 12);
-      const r = 120 + ring * 90 + (n.degree % 5) * 12;
+      const r = 90 + ring * 70 + (n.degree % 5) * 10;
       n.x = cx + Math.cos(angle) * r;
       n.y = cy + Math.sin(angle) * r;
     });
@@ -555,13 +555,13 @@ export function layoutGraph(
     const keys = [...folders.keys()];
     keys.forEach((key, fi) => {
       const angle = (fi / Math.max(keys.length, 1)) * Math.PI * 2;
-      const R = 220 + keys.length * 8;
+      const R = 160 + keys.length * 6;
       const ox = cx + Math.cos(angle) * R;
       const oy = cy + Math.sin(angle) * R;
       const group = folders.get(key)!;
       group.forEach((n, i) => {
         const a = (i / Math.max(group.length, 1)) * Math.PI * 2;
-        const r = 40 + Math.floor(i / 6) * 36;
+        const r = 28 + Math.floor(i / 6) * 28;
         n.x = ox + Math.cos(a) * r;
         n.y = oy + Math.sin(a) * r;
       });
@@ -574,8 +574,8 @@ export function layoutGraph(
       (a, b) => b.inDegree + b.outDegree - (a.inDegree + a.outDegree) || a.title.localeCompare(b.title, "zh-Hant")
     );
     const cols = Math.ceil(Math.sqrt(sorted.length));
-    const gapX = 140;
-    const gapY = 110;
+    const gapX = 110;
+    const gapY = 88;
     const startX = cx - ((cols - 1) * gapX) / 2;
     const rows = Math.ceil(sorted.length / cols);
     const startY = cy - ((rows - 1) * gapY) / 2;

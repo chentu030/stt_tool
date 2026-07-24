@@ -67,14 +67,14 @@ export class GraphForceSim {
   constructor(opts: ForceSimOpts = {}) {
     this.centerX = opts.centerX ?? 700;
     this.centerY = opts.centerY ?? 450;
-    this.charge = opts.charge ?? -1680;
-    this.centerStrength = opts.centerStrength ?? 0.012;
-    this.collidePadding = opts.collidePadding ?? 34;
+    this.charge = opts.charge ?? -1100;
+    this.centerStrength = opts.centerStrength ?? 0.014;
+    this.collidePadding = opts.collidePadding ?? 22;
     this.velocityDecay = opts.velocityDecay ?? 0.52;
     this.alphaDecay = opts.alphaDecay ?? 0.022;
     this.alphaMin = opts.alphaMin ?? 0.0012;
-    this.componentGap = opts.componentGap ?? 320;
-    this.componentStrength = opts.componentStrength ?? 0.085;
+    this.componentGap = opts.componentGap ?? 220;
+    this.componentStrength = opts.componentStrength ?? 0.07;
   }
 
   setCenter(x: number, y: number) {
@@ -170,7 +170,7 @@ export class GraphForceSim {
    * Spread component seeds on a ring (call after setGraph when structure is new).
    * Helps unrelated groups start apart instead of collapsing into one ball.
    */
-  seedComponentsApart(radius = 420) {
+  seedComponentsApart(radius = 260) {
     if (this.componentCount <= 1) return;
     const buckets = new Map<number, ForceSimNode[]>();
     for (const n of this.nodes) {
@@ -348,7 +348,7 @@ export class GraphForceSim {
             dy = (Math.random() - 0.5) * 2;
             dist = Math.sqrt(dx * dx + dy * dy) || 1;
           }
-          const minGap = componentGap + 28 * (Math.sqrt(A.n) + Math.sqrt(B.n));
+          const minGap = componentGap + 18 * (Math.sqrt(A.n) + Math.sqrt(B.n));
           if (dist >= minGap) continue;
           const push = ((minGap - dist) / dist) * componentStrength * alpha;
           const fx = dx * push;

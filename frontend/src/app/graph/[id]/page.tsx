@@ -107,11 +107,11 @@ export default function GraphDetailPage() {
     new GraphForceSim({
       centerX: 700,
       centerY: 450,
-      charge: -1680,
-      centerStrength: 0.012,
-      collidePadding: 34,
-      componentGap: 340,
-      componentStrength: 0.09,
+      charge: -1100,
+      centerStrength: 0.014,
+      collidePadding: 22,
+      componentGap: 220,
+      componentStrength: 0.07,
     })
   );
   const simStructureKey = useRef("");
@@ -363,15 +363,18 @@ export default function GraphDetailPage() {
       bundle.edges.map((e) => ({
         source: e.from,
         target: e.to,
-        // Wiki = tight communities; tag/folder = long weak ties so they don't glue everything into one ball
-        distance: e.kind === "wiki" ? 175 : e.kind === "tag" ? 340 : 400,
-        strength: e.kind === "wiki" ? 0.62 : e.kind === "tag" ? 0.12 : 0.08,
+        // Wiki = tight communities; tag/folder = longer weak ties (kept closer than before)
+        distance: e.kind === "wiki" ? 118 : e.kind === "tag" ? 230 : 270,
+        strength: e.kind === "wiki" ? 0.68 : e.kind === "tag" ? 0.14 : 0.1,
         strong: e.kind === "wiki",
       }))
     );
     if (isNew) {
-      simRef.current.seedComponentsApart(Math.max(380, 90 + bundle.nodes.length * 4));
+      simRef.current.seedComponentsApart(Math.max(250, 60 + bundle.nodes.length * 2.8));
       simRef.current.reheat(bundle.nodes.length > 40 ? 0.85 : 1);
+    } else {
+      // Pull toward updated spring lengths / gaps without a full scatter
+      simRef.current.reheat(0.35);
     }
   }, [full, filters, layout, configReady, relayoutNonce]);
 
