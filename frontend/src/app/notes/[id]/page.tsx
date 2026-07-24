@@ -1575,6 +1575,52 @@ function NotePageInner() {
     return list.filter((n) => n.title.toLowerCase().includes(q)).slice(0, 8);
   }, [allNotes, linkPicker, note?.id]);
 
+  const noteLinkSuggestions = useMemo(() => {
+    if (!note) return [];
+    const tagSet = new Set((note.tags || []).map((t) => t.toLowerCase()));
+    const folderKey = (note.folder || folder || "").trim().toLowerCase();
+    const titleTokens = (note.title || title || "")
+      .toLowerCase()
+      .split(/[\s\-_/｜|·，,、]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 2);
+
+    return allNotes
+      .filter((n) => n.id !== note.id)
+      .map((n) => {
+        let score = 0;
+        const nTags = n.tags || [];
+        for (const t of nTags) {
+          if (tagSet.has(t.toLowerCase())) score += 12;
+        }
+        const nf = (n.folder || "").trim().toLowerCase();
+        if (folderKey && nf && folderKey === nf) score += 8;
+        const nt = (n.title || "").toLowerCase();
+        for (const tok of titleTokens) {
+          if (nt.includes(tok)) score += 6;
+        }
+        const updated =
+          n.updated_at instanceof Date
+            ? n.updated_at.getTime()
+            : typeof n.updated_at === "string"
+              ? Date.parse(n.updated_at)
+              : 0;
+        const ageDays = updated ? (Date.now() - updated) / 86400000 : 999;
+        if (ageDays < 7) score += 4;
+        else if (ageDays < 30) score += 2;
+        return {
+          label: (n.title || "").trim() || "未命名",
+          hint: n.folder || undefined,
+          related: score > 0,
+          score,
+          updated,
+        };
+      })
+      .sort((a, b) => b.score - a.score || b.updated - a.updated || a.label.localeCompare(b.label, "zh-Hant"))
+      .slice(0, 80)
+      .map(({ label, hint, related }) => ({ label, hint, related }));
+  }, [allNotes, note, folder, title]);
+
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!dirty && status !== "saving") return;
@@ -2929,6 +2975,7 @@ function NotePageInner() {
                     const hit = findNoteByTitle(allNotes, t);
                     return hit ? `/notes/${hit.id}` : undefined;
                   }}
+                  noteLinkSuggestions={noteLinkSuggestions}
                   onPropsPatch={(props) => {
                     setNote((n) => (n ? { ...n, props } : n));
                     void updateNote(note.id, { props });
@@ -2986,6 +3033,7 @@ function NotePageInner() {
                 const hit = findNoteByTitle(allNotes, t);
                 return hit ? `/notes/${hit.id}` : undefined;
               }}
+              noteLinkSuggestions={noteLinkSuggestions}
               onPropsPatch={() => {}}
             />
           ) : null}
@@ -3192,6 +3240,7 @@ function NotePageInner() {
             const hit = findNoteByTitle(allNotes, t);
             return hit ? `/notes/${hit.id}` : undefined;
           }}
+          noteLinkSuggestions={noteLinkSuggestions}
           onKnowledgePropsPatch={
             note && canEditNote
               ? (props) => {

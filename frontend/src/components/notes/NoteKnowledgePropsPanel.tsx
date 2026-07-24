@@ -36,7 +36,7 @@ import {
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
 import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
 import MenuSelect from "@/components/MenuSelect";
-import { askConfirm, askPrompt } from "@/lib/dialogs";
+import { askConfirm, askPrompt, type PromptSuggestion } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import type { DbPropType } from "@/lib/database";
 
@@ -126,6 +126,8 @@ type Props = {
   /** Full note patch when workspace fields also touch status/body */
   onNotePatch?: (patch: Partial<Note>) => void;
   resolveNoteHref?: (title: string) => string | undefined;
+  /** Note titles for link autocomplete (exclude current note upstream). */
+  noteLinkSuggestions?: PromptSuggestion[];
   variant?: "inline" | "aside";
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
@@ -147,6 +149,7 @@ export default function NoteKnowledgePropsPanel({
   onPropsPatch,
   onNotePatch,
   resolveNoteHref,
+  noteLinkSuggestions,
   variant = "inline",
   collapsed: collapsedProp,
   onCollapsedChange,
@@ -427,6 +430,14 @@ export default function NoteKnowledgePropsPanel({
     }
   };
 
+  const linkSuggestions = useMemo(() => {
+    const items = noteLinkSuggestions || [];
+    if (!items.length) return items;
+    // Ensure we always have a few "related" seeds when empty query
+    if (items.some((s) => s.related)) return items;
+    return items.map((s, i) => (i < 8 ? { ...s, related: true } : s));
+  }, [noteLinkSuggestions]);
+
   const addRelationship = async () => {
     const key = await askPrompt({
       title: "新增關係",
@@ -439,8 +450,9 @@ export default function NoteKnowledgePropsPanel({
     if (!k) return;
     const title = await askPrompt({
       title: "連結筆記",
-      message: "輸入筆記標題（可稍後再補）",
+      message: "輸入或選擇筆記標題（可打一字搜尋）",
       placeholder: "筆記標題",
+      suggestions: linkSuggestions,
     });
     if (title == null) {
       onPropsPatch(ensureRelationField(note.props, k));
@@ -457,8 +469,9 @@ export default function NoteKnowledgePropsPanel({
   const addLinkToRelation = async (relKey: string, relLabel: string) => {
     const title = await askPrompt({
       title: "新增連結",
-      message: `「${relLabel}」要連到哪一則筆記？`,
+      message: `「${relLabel}」要連到哪一則筆記？可打一字搜尋，或從可能相關的筆記挑選。`,
       placeholder: "筆記標題",
+      suggestions: linkSuggestions,
     });
     if (title == null) return;
     const t = title.trim();

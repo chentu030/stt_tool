@@ -1,5 +1,13 @@
 /** Promise-based Cadence dialogs (replaces window.prompt / confirm). */
 
+export type PromptSuggestion = {
+  label: string;
+  /** Secondary line, e.g. folder */
+  hint?: string;
+  /** Prefer when the query is empty (related / recent) */
+  related?: boolean;
+};
+
 export type PromptDialogOptions = {
   title: string;
   message?: string;
@@ -9,6 +17,11 @@ export type PromptDialogOptions = {
   cancelLabel?: string;
   /** Larger multiline input */
   multiline?: boolean;
+  /**
+   * Autocomplete candidates — filtered as the user types (1+ chars).
+   * When the query is empty, items with `related: true` are shown first.
+   */
+  suggestions?: PromptSuggestion[];
 };
 
 export type ConfirmDialogOptions = {

@@ -4,10 +4,12 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type ClipboardEvent,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -22,6 +24,7 @@ import {
   type ConflictDialogOptions,
   type ConflictSide,
   type PromptDialogOptions,
+  type PromptSuggestion,
 } from "@/lib/dialogs";
 
 type PromptState = PromptDialogOptions & {
@@ -194,15 +197,46 @@ function PromptModal({
   onClose: (value: string | null) => void;
 }) {
   const [value, setValue] = useState(state.defaultValue ?? "");
+  const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const titleId = useId();
+  const listId = useId();
+
+  const filteredSuggestions = useMemo(() => {
+    const items = state.suggestions || [];
+    if (!items.length || state.multiline) return [] as PromptSuggestion[];
+    const q = value.trim().toLowerCase();
+    if (!q) {
+      const related = items.filter((s) => s.related);
+      const pool = related.length ? related : items;
+      return pool.slice(0, 8);
+    }
+    const scored = items
+      .map((s) => {
+        const label = s.label.toLowerCase();
+        let score = 0;
+        if (label === q) score = 100;
+        else if (label.startsWith(q)) score = 80;
+        else if (label.includes(q)) score = 50;
+        else if ((s.hint || "").toLowerCase().includes(q)) score = 20;
+        else return null;
+        if (s.related) score += 5;
+        return { s, score };
+      })
+      .filter((x): x is { s: PromptSuggestion; score: number } => !!x)
+      .sort((a, b) => b.score - a.score || a.s.label.localeCompare(b.s.label, "zh-Hant"));
+    return scored.slice(0, 8).map((x) => x.s);
+  }, [state.suggestions, state.multiline, value]);
+
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [value, filteredSuggestions.length]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
       const el = inputRef.current;
       if (!el) return;
       el.focus({ preventScroll: true });
-      // Prefer caret at end so paste appends / replaces selection cleanly
       try {
         const len = el.value.length;
         el.setSelectionRange(0, len);
@@ -225,17 +259,20 @@ function PromptModal({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
+  const pickSuggestion = (label: string) => {
+    setValue(label);
+    onClose(label);
+  };
+
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
     onClose(value);
   };
 
   const onPaste = (e: ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    // Keep paste inside the dialog field; stop page-level Ctrl+V handlers (canvas etc.)
     e.stopPropagation();
     const text = e.clipboardData.getData("text/plain");
     if (!text) return;
-    // If default is a bare scheme and the whole field is selected, replace with pasted URL
     const el = e.currentTarget;
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? 0;
@@ -254,6 +291,27 @@ function PromptModal({
       });
     }
   };
+
+  const onInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (!filteredSuggestions.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(filteredSuggestions.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(0, i - 1));
+    } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+      const hit = filteredSuggestions[activeIdx];
+      if (hit && (value.trim() || hit.related)) {
+        // Allow Enter to confirm highlighted suggestion when list is open
+        e.preventDefault();
+        pickSuggestion(hit.label);
+      }
+    }
+  };
+
+  const emptyQuery = !value.trim();
+  const showSuggestions = filteredSuggestions.length > 0;
 
   return (
     <div
@@ -288,18 +346,45 @@ function PromptModal({
               onPaste={onPaste}
             />
           ) : (
-            <input
-              ref={inputRef as RefObject<HTMLInputElement>}
-              className="input cadence-dialog-input"
-              type="text"
-              inputMode="url"
-              value={value}
-              placeholder={state.placeholder}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(e) => setValue(e.target.value)}
-              onPaste={onPaste}
-            />
+            <div className="cadence-dialog-suggest-wrap">
+              <input
+                ref={inputRef as RefObject<HTMLInputElement>}
+                className="input cadence-dialog-input"
+                type="text"
+                inputMode="text"
+                value={value}
+                placeholder={state.placeholder}
+                autoComplete="off"
+                spellCheck={false}
+                role="combobox"
+                aria-expanded={showSuggestions}
+                aria-controls={listId}
+                aria-autocomplete="list"
+                onChange={(e) => setValue(e.target.value)}
+                onPaste={onPaste}
+                onKeyDown={onInputKeyDown}
+              />
+              {showSuggestions ? (
+                <ul id={listId} className="cadence-dialog-suggest-list" role="listbox">
+                  <li className="cadence-dialog-suggest-label" role="presentation">
+                    {emptyQuery ? "可能相關" : "相符筆記"}
+                  </li>
+                  {filteredSuggestions.map((s, i) => (
+                    <li key={`${s.label}-${i}`} role="option" aria-selected={i === activeIdx}>
+                      <button
+                        type="button"
+                        className={`cadence-dialog-suggest-item${i === activeIdx ? " is-active" : ""}`}
+                        onMouseEnter={() => setActiveIdx(i)}
+                        onClick={() => pickSuggestion(s.label)}
+                      >
+                        <strong>{s.label}</strong>
+                        {s.hint ? <span>{s.hint}</span> : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           )}
           <div className="cadence-dialog-actions">
             <button type="button" className="btn btn-ghost" onClick={() => onClose(null)}>

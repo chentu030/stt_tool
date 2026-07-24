@@ -222,6 +222,59 @@ button, input, textarea, select {
 .cadence-dialog-input {
   font-size: 0.92rem;
 }
+.cadence-dialog-suggest-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.cadence-dialog-suggest-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem;
+  max-height: min(240px, 40vh);
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 12%, transparent);
+}
+.cadence-dialog-suggest-label {
+  padding: 0.2rem 0.45rem 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.cadence-dialog-suggest-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cadence-dialog-suggest-item strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.cadence-dialog-suggest-item span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.cadence-dialog-suggest-item:hover,
+.cadence-dialog-suggest-item.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .nk-add-prop-dialog {
   width: min(440px, 100%);
 }

@@ -10,6 +10,7 @@ import NoteWritingGoalEditor from "@/components/notes/NoteWritingGoalEditor";
 import type { LiveSegment } from "@/lib/liveSegments";
 import type { Note } from "@/lib/firebase";
 import type { WritingGoalProgress } from "@/lib/writingGoals";
+import type { PromptSuggestion } from "@/lib/dialogs";
 
 type OutboundLink = {
   title: string;
@@ -73,6 +74,7 @@ type Props = {
   knowledgeReadOnly?: boolean;
   onKnowledgePropsPatch?: (props: Record<string, unknown>) => void;
   resolveNoteHref?: (title: string) => string | undefined;
+  noteLinkSuggestions?: PromptSuggestion[];
   goalProgress?: WritingGoalProgress | null;
 };
 
@@ -107,6 +109,7 @@ export default function NoteAside({
   knowledgeReadOnly = false,
   onKnowledgePropsPatch,
   resolveNoteHref,
+  noteLinkSuggestions,
   goalProgress = null,
 }: Props) {
   const prefsCtx = usePrefsOptional();
@@ -334,6 +337,7 @@ export default function NoteAside({
               readOnly={knowledgeReadOnly || !onKnowledgePropsPatch}
               variant="aside"
               resolveNoteHref={resolveNoteHref}
+              noteLinkSuggestions={noteLinkSuggestions}
               onPropsPatch={onKnowledgePropsPatch || (() => {})}
             />
           ) : null}
