@@ -1,15 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { STICKY_COLORS, ToolId, colorToShapeHex, resolveStickyStyle } from "@/lib/canvasStore";
+import {
+  STICKY_COLORS,
+  ToolId,
+  colorToShapeHex,
+  resolveStickyStyle,
+  type BrushId,
+} from "@/lib/canvasStore";
+import { BRUSH_DEFS } from "@/lib/canvasBrush";
 import CanvasColorPicker from "@/components/canvas/CanvasColorPicker";
 
-type DockPanel = "insert" | "color" | "view" | "more" | null;
+type DockPanel = "insert" | "color" | "brush" | "view" | "more" | null;
 
 const TOOLS: { id: ToolId; label: string; hint: string; icon: string }[] = [
   { id: "select", label: "選取", hint: "V", icon: "arrow_selector_tool" },
   { id: "pan", label: "平移", hint: "H · Space", icon: "pan_tool" },
   { id: "pen", label: "畫筆", hint: "P", icon: "edit" },
+  { id: "eraser", label: "橡皮擦", hint: "E", icon: "ink_eraser" },
   { id: "sticky", label: "便利貼", hint: "S", icon: "sticky_note_2" },
   { id: "text", label: "文字", hint: "T", icon: "title" },
   { id: "rect", label: "矩形", hint: "R", icon: "rectangle" },
@@ -27,6 +35,11 @@ type Props = {
   onBrushOpacity: (o: number) => void;
   penWidth: number;
   onPenWidth: (w: number) => void;
+  brushId?: BrushId;
+  onBrushId?: (b: BrushId) => void;
+  penSmooth?: number;
+  onPenSmooth?: (n: number) => void;
+  recentColors?: string[];
   scale: number;
   grid: boolean;
   snap: boolean;
@@ -118,6 +131,11 @@ export default function CanvasToolbar({
   onBrushOpacity,
   penWidth,
   onPenWidth,
+  brushId = "pen",
+  onBrushId,
+  penSmooth = 42,
+  onPenSmooth,
+  recentColors = [],
   scale,
   grid,
   snap,
@@ -220,7 +238,7 @@ export default function CanvasToolbar({
   const colorPanel = panel === "color" && (
     <div className="cv-dock-panel cv-dock-panel--colors" role="menu">
       <p className="cv-dock-panel-title">
-        顏色{editMode ? " · 套用到選取" : tool === "pen" ? " · 畫筆" : ""}
+        顏色{editMode ? " · 套用到選取" : tool === "pen" || tool === "eraser" ? " · 畫筆" : ""}
       </p>
       <div className="cv-dock-swatches">
         {STICKY_COLORS.map((c) => (
@@ -245,21 +263,61 @@ export default function CanvasToolbar({
           onClick={() => setPickerOpen((v) => !v)}
         />
       </div>
-      {tool === "pen" ? (
-        <div className="cv-dock-pen-widths" role="group" aria-label="筆刷粗細">
-          {[2, 3.5, 6, 10].map((w) => (
+      {recentColors.length > 0 && (tool === "pen" || editMode) ? (
+        <div className="cv-dock-recent" role="group" aria-label="最近顏色">
+          {recentColors.map((hex) => (
             <button
-              key={w}
+              key={hex}
               type="button"
-              className={`cv-dock-pen-w${penWidth === w ? " is-on" : ""}`}
-              title={`粗細 ${w}`}
-              onClick={() => onPenWidth(w)}
-            >
-              <span style={{ height: Math.min(14, w), width: 18 }} />
-            </button>
+              className="cv-swatch"
+              style={{ background: hex, borderColor: hex }}
+              title={hex}
+              onClick={() => onStickyColor(hex)}
+            />
           ))}
         </div>
       ) : null}
+      {(tool === "pen" || tool === "eraser") && (
+        <div className="cv-dock-brush-sliders">
+          <label>
+            <span>粗細 {penWidth.toFixed(1)}</span>
+            <input
+              type="range"
+              min={0.8}
+              max={28}
+              step={0.2}
+              value={penWidth}
+              onChange={(e) => onPenWidth(Number(e.target.value))}
+            />
+          </label>
+          {tool === "pen" && onBrushOpacity ? (
+            <label>
+              <span>透明度 {Math.round(brushOpacity * 100)}%</span>
+              <input
+                type="range"
+                min={0.08}
+                max={1}
+                step={0.02}
+                value={brushOpacity}
+                onChange={(e) => onBrushOpacity(Number(e.target.value))}
+              />
+            </label>
+          ) : null}
+          {tool === "pen" && onPenSmooth ? (
+            <label>
+              <span>平滑 {Math.round(penSmooth)}</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={penSmooth}
+                onChange={(e) => onPenSmooth(Number(e.target.value))}
+              />
+            </label>
+          ) : null}
+        </div>
+      )}
       <CanvasColorPicker
         color={stickyColor}
         onChange={onStickyColor}
@@ -270,6 +328,61 @@ export default function CanvasToolbar({
         anchorRef={customBtnRef}
         title={tool === "pen" ? "畫筆顏色" : "填色／筆色"}
       />
+    </div>
+  );
+
+  const brushPanel = panel === "brush" && tool === "pen" && (
+    <div className="cv-dock-panel cv-dock-panel--brush" role="menu">
+      <p className="cv-dock-panel-title">筆種</p>
+      <div className="cv-dock-brushes">
+        {BRUSH_DEFS.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            className={`cv-dock-brush${brushId === b.id ? " is-on" : ""}`}
+            onClick={() => onBrushId?.(b.id)}
+            title={b.label}
+          >
+            <DockGlyph name={b.icon} filled={brushId === b.id} />
+            <span>{b.label}</span>
+          </button>
+        ))}
+      </div>
+      <div className="cv-dock-brush-sliders">
+        <label>
+          <span>粗細 {penWidth.toFixed(1)}</span>
+          <input
+            type="range"
+            min={0.8}
+            max={28}
+            step={0.2}
+            value={penWidth}
+            onChange={(e) => onPenWidth(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span>透明度 {Math.round(brushOpacity * 100)}%</span>
+          <input
+            type="range"
+            min={0.08}
+            max={1}
+            step={0.02}
+            value={brushOpacity}
+            onChange={(e) => onBrushOpacity(Number(e.target.value))}
+          />
+        </label>
+        <label>
+          <span>平滑 {Math.round(penSmooth)}</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={penSmooth}
+            onChange={(e) => onPenSmooth?.(Number(e.target.value))}
+          />
+        </label>
+      </div>
     </div>
   );
 
@@ -318,7 +431,8 @@ export default function CanvasToolbar({
           active={tool === t.id}
           onClick={() => {
             onTool(t.id);
-            setPanel(null);
+            if (t.id === "pen") setPanel("brush");
+            else setPanel(null);
             setMobileOpen(false);
           }}
         >
@@ -389,6 +503,20 @@ export default function CanvasToolbar({
               aria-hidden
             />
           </DockBtn>
+          {(tool === "pen" || tool === "eraser") && (
+            <DockBtn
+              label="筆刷"
+              hint="筆種／粗細／平滑"
+              active={panel === "brush" || tool === "pen"}
+              expanded={panel === "brush"}
+              onClick={() => {
+                if (tool !== "pen") onTool("pen");
+                togglePanel("brush");
+              }}
+            >
+              <DockGlyph name="brush" filled={panel === "brush"} />
+            </DockBtn>
+          )}
         </>
       )}
 
@@ -436,6 +564,7 @@ export default function CanvasToolbar({
         <div className="cv-dock-panels">
           {insertPanel}
           {colorPanel}
+          {brushPanel}
           {viewPanel}
           {morePanel}
         </div>

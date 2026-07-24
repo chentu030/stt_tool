@@ -11,8 +11,8 @@ import {
   hexToRgba,
   nodeCenter,
   resolveStickyStyle,
-  strokeToPath,
 } from "@/lib/canvasStore";
+import { strokeRenderProps } from "@/lib/canvasBrush";
 import CanvasMediaCard from "@/components/canvas/CanvasMediaCard";
 
 type Props = {
@@ -154,17 +154,18 @@ export default function CanvasShareViewer({ doc }: Props) {
         <svg className="cv-edges" width="8000" height="6000">
           {edgeEls}
           {(doc.strokes || []).map((sk) => {
-            const d = strokeToPath(sk.points);
-            if (!d) return null;
+            const rendered = strokeRenderProps(sk);
+            if (!rendered.d) return null;
             return (
               <path
                 key={sk.id}
-                d={d}
-                className="cv-ink"
-                fill="none"
-                stroke={sk.color}
-                strokeWidth={sk.width}
-                strokeOpacity={clampOpacity(sk.opacity)}
+                d={rendered.d}
+                className={`cv-ink${rendered.filled ? " is-ribbon" : ""}`}
+                fill={rendered.filled ? sk.color : "none"}
+                fillOpacity={rendered.filled ? clampOpacity(sk.opacity) : undefined}
+                stroke={rendered.filled ? "none" : sk.color}
+                strokeWidth={rendered.filled ? 0 : rendered.strokeWidth}
+                strokeOpacity={rendered.filled ? undefined : clampOpacity(sk.opacity)}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />

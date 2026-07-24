@@ -91,7 +91,6 @@ import {
   colorToShapeHex,
   resolveStickyStyle,
   strokeBounds,
-  strokeToPath,
   hitTestStroke,
   clampOpacity,
   hexToRgba,
@@ -100,8 +99,17 @@ import {
   type EdgePort,
   type Point,
   type CanvasStroke,
+  type BrushId,
   type ZOrderOp,
 } from "@/lib/canvasStore";
+import {
+  applyTaper,
+  brushDef,
+  eraseStrokesAt,
+  pushRecentColor,
+  sampleWidth,
+  strokeRenderProps,
+} from "@/lib/canvasBrush";
 import {
   buildCanvasLiveSnapshot,
   clearCanvasLiveSnapshot,
@@ -176,6 +184,9 @@ function CanvasIdPageInner() {
   const [stickyColor, setStickyColor] = useState<string>("yellow");
   const [brushOpacity, setBrushOpacity] = useState(1);
   const [penWidth, setPenWidth] = useState(3.5);
+  const [brushId, setBrushId] = useState<BrushId>("pen");
+  const [penSmooth, setPenSmooth] = useState(42);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [liveStroke, setLiveStroke] = useState<CanvasStroke | null>(null);
   const [selected, setSelected] = useState<Selectable[]>([]);
   const focusApplied = useRef(false);
@@ -236,7 +247,7 @@ function CanvasIdPageInner() {
   const baseUpdatedAt = useRef(0);
   const rightPan = useRef<{ sx: number; sy: number; moved: boolean } | null>(null);
   const drag = useRef<{
-    mode: "move" | "pan" | "marquee" | "resize" | "edge-end" | "draw";
+    mode: "move" | "pan" | "marquee" | "resize" | "edge-end" | "draw" | "erase";
     ids?: Selectable[];
     startX: number;
     startY: number;
@@ -251,10 +262,12 @@ function CanvasIdPageInner() {
   } | null>(null);
   const strokeMoveOrigin = useRef<Record<string, Point[]>>({});
   const drawingRef = useRef<CanvasStroke | null>(null);
+  const activePointers = useRef<Set<number>>(new Set());
+  const lastDrawSample = useRef<{ t: number; x: number; y: number } | null>(null);
 
-  // Clear selection when entering pen — Concept-style: ink flows without chrome.
+  // Clear selection when entering pen / eraser — Concept-style: ink flows without chrome.
   useEffect(() => {
-    if (tool === "pen") setSelected([]);
+    if (tool === "pen" || tool === "eraser") setSelected([]);
   }, [tool]);
 
   // Clear connect session when leaving the tool.
@@ -375,12 +388,14 @@ function CanvasIdPageInner() {
   const applyCanvasColor = useCallback(
     (color: string) => {
       setStickyColor(color);
+      const hex = colorToShapeHex(color);
+      setRecentColors((prev) => pushRecentColor(prev, hex));
       const stickyIds = new Set(selected.filter((s) => s.type === "sticky").map((s) => s.id));
       const shapeIds = new Set(selected.filter((s) => s.type === "shape").map((s) => s.id));
       const sectionIds = new Set(selected.filter((s) => s.type === "section").map((s) => s.id));
       const strokeIds = new Set(selected.filter((s) => s.type === "stroke").map((s) => s.id));
       if (!stickyIds.size && !shapeIds.size && !sectionIds.size && !strokeIds.size) return;
-      const shapeHex = colorToShapeHex(color);
+      const shapeHex = hex;
       updateDoc((d) => ({
         ...d,
         stickies: d.stickies.map((s) => {
@@ -391,6 +406,25 @@ function CanvasIdPageInner() {
         shapes: d.shapes.map((s) => (shapeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
         sections: (d.sections || []).map((s) => (sectionIds.has(s.id) ? { ...s, color: shapeHex } : s)),
         strokes: (d.strokes || []).map((s) => (strokeIds.has(s.id) ? { ...s, color: shapeHex } : s)),
+      }));
+    },
+    [selected, updateDoc]
+  );
+
+  const applyPenWidth = useCallback(
+    (w: number) => {
+      const width = Math.max(0.5, Math.min(48, w));
+      setPenWidth(width);
+      const strokeIds = new Set(selected.filter((s) => s.type === "stroke").map((s) => s.id));
+      if (!strokeIds.size) return;
+      updateDoc((d) => ({
+        ...d,
+        strokes: (d.strokes || []).map((s) => {
+          if (!strokeIds.has(s.id)) return s;
+          const scale = s.width > 0 ? width / s.width : 1;
+          const widths = s.widths?.map((x) => Math.max(0.4, x * scale));
+          return { ...s, width, widths };
+        }),
       }));
     },
     [selected, updateDoc]
@@ -542,8 +576,8 @@ function CanvasIdPageInner() {
         return { type: "shape", id: s.id };
       }
     }
-    // Pen mode: ignore strokes so ink never steals the next stroke / shows a box.
-    if (tool !== "pen") {
+    // Pen / eraser: ignore strokes so ink never steals the next stroke / shows a box.
+    if (tool !== "pen" && tool !== "eraser") {
       const strokes = [...(doc.strokes || [])].sort((a, b) => b.z - a.z);
       for (const s of strokes) {
         if (hitTestStroke(s, world)) return { type: "stroke", id: s.id };
@@ -1357,6 +1391,15 @@ function CanvasIdPageInner() {
     } else if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-actions,.cv-media-tx")) {
       return;
     }
+    activePointers.current.add(e.pointerId);
+    // Second finger while drawing → cancel ink and pan (Concepts-style)
+    if (activePointers.current.size >= 2 && drag.current?.mode === "draw") {
+      drawingRef.current = null;
+      setLiveStroke(null);
+      lastDrawSample.current = null;
+      drag.current = { mode: "pan", startX: e.clientX, startY: e.clientY, pan0: { ...doc.pan } };
+      return;
+    }
     setCtxMenu(null);
     const world = screenToWorld(e.clientX, e.clientY);
     stageRef.current?.setPointerCapture?.(e.pointerId);
@@ -1416,17 +1459,46 @@ function CanvasIdPageInner() {
     }
 
     if (tool === "pen") {
+      // Two-finger while pen → pan instead of drawing
+      if (activePointers.current.size >= 1) {
+        drag.current = { mode: "pan", startX: e.clientX, startY: e.clientY, pan0: { ...doc.pan } };
+        return;
+      }
+      const pressure = e.pressure > 0 ? e.pressure : 0.5;
+      const w0 = sampleWidth({
+        brush: brushId,
+        baseWidth: penWidth,
+        pressure,
+        speed: 0,
+      });
+      const def = brushDef(brushId);
+      const opacity = clampOpacity(brushOpacity * def.soft);
       const stroke = createStroke({
         points: [{ x: world.x, y: world.y }],
         color: colorToShapeHex(stickyColor),
         width: penWidth,
-        opacity: brushOpacity,
+        widths: [w0],
+        brush: brushId,
+        smooth: penSmooth,
+        opacity,
         z: Date.now(),
       });
       drawingRef.current = stroke;
+      lastDrawSample.current = { t: performance.now(), x: world.x, y: world.y };
       setLiveStroke(stroke);
       setSelected([]);
+      setRecentColors((prev) => pushRecentColor(prev, colorToShapeHex(stickyColor)));
       drag.current = { mode: "draw", startX: world.x, startY: world.y };
+      return;
+    }
+
+    if (tool === "eraser") {
+      pushHistory(doc);
+      const next = eraseStrokesAt(doc.strokes || [], world, Math.max(8, penWidth * 2.2));
+      if (next.length !== (doc.strokes || []).length) {
+        setDoc((d) => ({ ...d, strokes: next }));
+      }
+      drag.current = { mode: "erase", startX: world.x, startY: world.y, moved: false };
       return;
     }
 
@@ -1665,9 +1737,38 @@ function CanvasIdPageInner() {
       if (last && Math.hypot(world.x - last.x, world.y - last.y) < minDist) {
         return;
       }
-      const next = { ...prev, points: [...prev.points, { x: world.x, y: world.y }] };
+      const now = performance.now();
+      const prevSample = lastDrawSample.current;
+      const dt = prevSample ? Math.max(1, now - prevSample.t) : 16;
+      const dist = prevSample
+        ? Math.hypot(world.x - prevSample.x, world.y - prevSample.y)
+        : 0;
+      const speed = dist / dt;
+      const pressure = e.pressure > 0 ? e.pressure : 0.5;
+      const w = sampleWidth({
+        brush: prev.brush || brushId,
+        baseWidth: prev.width,
+        pressure,
+        speed,
+      });
+      const widths = [...(prev.widths || []), w];
+      const next = {
+        ...prev,
+        points: [...prev.points, { x: world.x, y: world.y }],
+        widths,
+      };
       drawingRef.current = next;
+      lastDrawSample.current = { t: now, x: world.x, y: world.y };
       setLiveStroke(next);
+      return;
+    }
+    if (d.mode === "erase") {
+      d.moved = true;
+      const next = eraseStrokesAt(doc.strokes || [], world, Math.max(8, penWidth * 2.2));
+      if (next.length !== (doc.strokes || []).length) {
+        // Live erase without history spam; push once on pointer up
+        setDoc((prev) => ({ ...prev, strokes: next }));
+      }
       return;
     }
     if (d.mode === "pan" && d.pan0) {
@@ -1827,24 +1928,43 @@ function CanvasIdPageInner() {
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e?: REPointerEvent) => {
+    if (e) activePointers.current.delete(e.pointerId);
+    else activePointers.current.clear();
     const d = drag.current;
     if (d?.mode === "draw") {
       const stroke = drawingRef.current;
       drawingRef.current = null;
+      lastDrawSample.current = null;
       setLiveStroke(null);
       if (stroke && stroke.points.length >= 1) {
         const points =
           stroke.points.length === 1
             ? [stroke.points[0], { x: stroke.points[0].x + 0.01, y: stroke.points[0].y }]
             : stroke.points;
-        const committed = { ...stroke, points };
+        let widths = stroke.widths;
+        if (widths && widths.length === 1 && points.length === 2) {
+          widths = [widths[0], widths[0]];
+        }
+        if (widths && widths.length === points.length) {
+          widths = applyTaper(widths, stroke.brush || brushId);
+        }
+        const committed = {
+          ...stroke,
+          points,
+          widths,
+          smooth: stroke.smooth ?? penSmooth,
+        };
         updateDoc((prev) => ({
           ...prev,
           strokes: [...(prev.strokes || []), committed],
         }));
         // Stay in pen flow — do not select (avoids range box covering the next stroke).
       }
+      drag.current = null;
+      return;
+    }
+    if (d?.mode === "erase") {
       drag.current = null;
       return;
     }
@@ -2186,6 +2306,7 @@ function CanvasIdPageInner() {
         if (k === "v") setTool("select");
         if (k === "h") setTool("pan");
         if (k === "p") setTool("pen");
+        if (k === "e") setTool("eraser");
         if (k === "s") setTool("sticky");
         if (k === "t") setTool("text");
         if (k === "r") setTool("rect");
@@ -2402,7 +2523,12 @@ function CanvasIdPageInner() {
           brushOpacity={brushOpacity}
           onBrushOpacity={applyBrushOpacity}
           penWidth={penWidth}
-          onPenWidth={setPenWidth}
+          onPenWidth={applyPenWidth}
+          brushId={brushId}
+          onBrushId={setBrushId}
+          penSmooth={penSmooth}
+          onPenSmooth={setPenSmooth}
+          recentColors={recentColors}
           scale={doc.scale}
           grid={doc.grid}
           snap={doc.snap}
@@ -2655,42 +2781,51 @@ function CanvasIdPageInner() {
                 .slice()
                 .sort((a, b) => (a.z || 0) - (b.z || 0))
                 .map((sk) => {
-                const d = strokeToPath(sk.points);
-                if (!d) return null;
+                const rendered = strokeRenderProps(sk);
+                if (!rendered.d) return null;
                 const selectedStroke = isSelected("stroke", sk.id);
                 return (
                   <path
                     key={sk.id}
-                    d={d}
-                    className={`cv-ink${selectedStroke ? " is-on" : ""}`}
-                    fill="none"
-                    stroke={sk.color}
-                    strokeWidth={sk.width}
-                    strokeOpacity={clampOpacity(sk.opacity)}
+                    d={rendered.d}
+                    className={`cv-ink${selectedStroke ? " is-on" : ""}${rendered.filled ? " is-ribbon" : ""}`}
+                    fill={rendered.filled ? sk.color : "none"}
+                    fillOpacity={rendered.filled ? clampOpacity(sk.opacity) : undefined}
+                    stroke={rendered.filled ? "none" : sk.color}
+                    strokeWidth={rendered.filled ? 0 : rendered.strokeWidth}
+                    strokeOpacity={rendered.filled ? undefined : clampOpacity(sk.opacity)}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    style={{ pointerEvents: tool === "pen" ? "none" : "stroke" }}
+                    style={{
+                      pointerEvents:
+                        tool === "pen" || tool === "eraser" ? "none" : "stroke",
+                    }}
                     onPointerDown={(ev) => {
                       ev.stopPropagation();
-                      if (tool === "pen") return;
+                      if (tool === "pen" || tool === "eraser") return;
                       setSelected([{ type: "stroke", id: sk.id }]);
                     }}
                   />
                 );
               })}
-              {liveStroke ? (
-                <path
-                  d={strokeToPath(liveStroke.points)}
-                  className="cv-ink cv-ink--live"
-                  fill="none"
-                  stroke={liveStroke.color}
-                  strokeWidth={liveStroke.width}
-                  strokeOpacity={clampOpacity(liveStroke.opacity)}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ pointerEvents: "none" }}
-                />
-              ) : null}
+              {liveStroke ? (() => {
+                const rendered = strokeRenderProps(liveStroke, penSmooth);
+                if (!rendered.d) return null;
+                return (
+                  <path
+                    d={rendered.d}
+                    className={`cv-ink cv-ink--live${rendered.filled ? " is-ribbon" : ""}`}
+                    fill={rendered.filled ? liveStroke.color : "none"}
+                    fillOpacity={rendered.filled ? clampOpacity(liveStroke.opacity) : undefined}
+                    stroke={rendered.filled ? "none" : liveStroke.color}
+                    strokeWidth={rendered.filled ? 0 : rendered.strokeWidth}
+                    strokeOpacity={rendered.filled ? undefined : clampOpacity(liveStroke.opacity)}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ pointerEvents: "none" }}
+                  />
+                );
+              })() : null}
             </svg>
 
             {doc.shapes.map((s) => {

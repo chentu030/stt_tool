@@ -136,6 +136,8 @@ export type CanvasSection = {
 };
 
 /** Freehand ink stroke (world coordinates). */
+export type BrushId = "pen" | "fountain" | "pencil" | "marker" | "airbrush";
+
 export type CanvasStroke = {
   id: string;
   kind: "stroke";
@@ -143,6 +145,12 @@ export type CanvasStroke = {
   color: string;
   width: number;
   opacity?: number;
+  /** Brush preset used when drawing. */
+  brush?: BrushId;
+  /** Per-point widths (pressure / velocity / taper). */
+  widths?: number[];
+  /** Smooth amount 0–100 baked at commit (optional). */
+  smooth?: number;
   z: number;
 };
 
@@ -171,7 +179,8 @@ export type ToolId =
   | "frame"
   | "connect"
   | "text"
-  | "pen";
+  | "pen"
+  | "eraser";
 
 /** World-pixel defaults sized for ~100% zoom readability (avoid CSS upscale blur). */
 export const MEDIA_DEFAULT_SIZE: Record<CanvasMediaKind, { w: number; h: number }> = {
@@ -793,6 +802,9 @@ export function createStroke(
     color: partial.color ?? "#1f2937",
     width: partial.width ?? 3,
     opacity: partial.opacity,
+    brush: partial.brush,
+    widths: partial.widths,
+    smooth: partial.smooth,
     z: partial.z ?? Date.now(),
   };
 }
@@ -818,23 +830,39 @@ export function strokeBounds(stroke: CanvasStroke): { x: number; y: number; w: n
   };
 }
 
-export function strokeToPath(points: Point[]): string {
-  if (!points.length) return "";
-  if (points.length === 1) {
-    const p = points[0];
+export function strokeToPath(points: Point[], smooth = 0): string {
+  // Keep mid-point quadratic as default; optional Chaikin via canvasBrush.smoothPoints
+  // when callers pass smooth > 0 (imported lazily to avoid circular deps at module init).
+  let pts = points;
+  if (smooth > 0 && points.length >= 3) {
+    // Lightweight inline smooth (one Chaikin-ish pass scaled by amount)
+    const mix = Math.min(0.4, 0.1 + smooth / 300);
+    const next: Point[] = [points[0]];
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      next.push({ x: a.x * (1 - mix) + b.x * mix, y: a.y * (1 - mix) + b.y * mix });
+      next.push({ x: a.x * mix + b.x * (1 - mix), y: a.y * mix + b.y * (1 - mix) });
+    }
+    next.push(points[points.length - 1]);
+    pts = next;
+  }
+  if (!pts.length) return "";
+  if (pts.length === 1) {
+    const p = pts[0];
     return `M ${p.x} ${p.y} L ${p.x + 0.01} ${p.y}`;
   }
-  if (points.length === 2) {
-    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  if (pts.length === 2) {
+    return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
   }
   // Mid-point quadratic smoothing (Concept-like continuous ink, not jagged polylines).
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    d += ` Q ${points[i].x} ${points[i].y} ${mx} ${my}`;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i].x + pts[i + 1].x) / 2;
+    const my = (pts[i].y + pts[i + 1].y) / 2;
+    d += ` Q ${pts[i].x} ${pts[i].y} ${mx} ${my}`;
   }
-  const last = points[points.length - 1];
+  const last = pts[pts.length - 1];
   d += ` L ${last.x} ${last.y}`;
   return d;
 }
