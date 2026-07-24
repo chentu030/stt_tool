@@ -1928,6 +1928,58 @@ function NotePageInner() {
     }
   }, [asideTab, liveSegments.length, liveRecordingHere]);
 
+  const addTag = () => {
+    const t = tagInput.trim().replace(/^#/, "");
+    if (!t || tags.includes(t)) return;
+    const next = [...tags, t];
+    setTags(next);
+    setTagInput("");
+    markDirty({ tags: next });
+  };
+
+  const removeTag = (tag: string) => {
+    const next = tags.filter((x) => x !== tag);
+    setTags(next);
+    markDirty({ tags: next });
+  };
+
+  // Must stay above early returns — hooks cannot be conditional.
+  const noteMetaHandlers = useMemo((): NoteMetaHandlers | null => {
+    if (!note) return null;
+    return {
+      folder,
+      onFolderChange: (v) => {
+        setFolder(v);
+        markDirty({ folder: v });
+      },
+      tags,
+      tagInput,
+      onTagInputChange: setTagInput,
+      onAddTag: addTag,
+      onRemoveTag: removeTag,
+      cover,
+      onCoverChange: (v) => {
+        setCover(v);
+        markDirty({ cover: v });
+      },
+      onStatusChange: (status) => {
+        const cleared = !status;
+        const patch = patchWorkspaceField(note, WS_STATUS_ID, status || "");
+        const nextStatus = (cleared ? "" : patch.status ?? status) as Note["status"];
+        setNote({ ...note, status: nextStatus, props: patch.props });
+        void updateNote(note.id, {
+          status: nextStatus,
+          props: patch.props,
+          ...(patch.body_md != null ? { body_md: patch.body_md } : {}),
+        });
+      },
+      stats,
+      goalProgress,
+    };
+    // addTag/removeTag close over latest tags/tagInput; markDirty is stable enough for this page
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note, folder, tags, tagInput, cover, stats, goalProgress]);
+
   const onAsideResize = (px: number) => {
     setAsideWidth(px);
     try {
@@ -1974,57 +2026,6 @@ function NotePageInner() {
               : status === "error"
                 ? errorMsg
                 : "";
-
-  const addTag = () => {
-    const t = tagInput.trim().replace(/^#/, "");
-    if (!t || tags.includes(t)) return;
-    const next = [...tags, t];
-    setTags(next);
-    setTagInput("");
-    markDirty({ tags: next });
-  };
-
-  const removeTag = (tag: string) => {
-    const next = tags.filter((x) => x !== tag);
-    setTags(next);
-    markDirty({ tags: next });
-  };
-
-  const noteMetaHandlers = useMemo((): NoteMetaHandlers | null => {
-    if (!note) return null;
-    return {
-      folder,
-      onFolderChange: (v) => {
-        setFolder(v);
-        markDirty({ folder: v });
-      },
-      tags,
-      tagInput,
-      onTagInputChange: setTagInput,
-      onAddTag: addTag,
-      onRemoveTag: removeTag,
-      cover,
-      onCoverChange: (v) => {
-        setCover(v);
-        markDirty({ cover: v });
-      },
-      onStatusChange: (status) => {
-        const cleared = !status;
-        const patch = patchWorkspaceField(note, WS_STATUS_ID, status || "");
-        const nextStatus = (cleared ? "" : patch.status ?? status) as Note["status"];
-        setNote({ ...note, status: nextStatus, props: patch.props });
-        void updateNote(note.id, {
-          status: nextStatus,
-          props: patch.props,
-          ...(patch.body_md != null ? { body_md: patch.body_md } : {}),
-        });
-      },
-      stats,
-      goalProgress,
-    };
-    // addTag/removeTag close over latest tags/tagInput; markDirty is stable enough for this page
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note, folder, tags, tagInput, cover, stats, goalProgress]);
 
   const editorWidth = prefsCtx?.prefs.editorWidth || "medium";
   const widthExtended = editorWidth === "full" || editorWidth === "wide";
