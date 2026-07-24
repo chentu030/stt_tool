@@ -134,6 +134,9 @@ export interface Job {
   error_message: string;
   position_label?: string;
   queue_ahead?: number;
+  /** youtube: caption track source or whisper */
+  caption_source?: string;
+  used_whisper?: boolean;
 }
 
 export function jobDisplayTitle(

@@ -42,6 +42,7 @@ type Props = {
   onSummarize?: (id: string) => void;
   onMindMap?: (id: string) => void;
   onSplitCards?: (id: string) => void;
+  onAskAi?: (id: string) => void;
   onPatchMedia?: (id: string, patch: Partial<CanvasMedia>) => void;
 };
 
@@ -53,6 +54,7 @@ export default function CanvasMediaCard({
   onSummarize,
   onMindMap,
   onSplitCards,
+  onAskAi,
   onPatchMedia,
 }: Props) {
   const label = LABELS[item.media] || "媒體";
@@ -138,6 +140,11 @@ export default function CanvasMediaCard({
                 {busy ? "…" : "轉錄"}
               </button>
             )}
+            {(item.media === "youtube" || item.transcript) && onAskAi ? (
+              <button type="button" disabled={busy} onClick={() => onAskAi(item.id)}>
+                AI
+              </button>
+            ) : null}
             {item.transcript && (
               <>
                 <button type="button" disabled={!onSummarize} onClick={() => onSummarize?.(item.id)}>

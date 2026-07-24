@@ -721,9 +721,59 @@ def _process_job_sync(job_id: str, job_data: dict):
                 if yt_title:
                     job_ref.update({"title": yt_title, "filenames": [yt_title]})
                     job_data["title"] = yt_title
-            # YouTube blocks datacenter IPs ("Sign in to confirm you're not a bot"),
-            # so fall back to rotating free proxies. Cookies (if provided) are used
-            # in every attempt so private / members-only videos still work.
+
+            # CC / auto-captions first — skip Whisper download when available.
+            force_whisper = str(job_data.get("force_whisper") or "").strip().lower() in (
+                "1", "true", "yes", "whisper",
+            )
+            language = _normalize_whisper_language(
+                job_data.get("language") or DEFAULT_LANGUAGE
+            )
+            if not force_whisper and yt_url:
+                job_ref.update({"position_label": "抓取 YouTube 字幕…"})
+                try:
+                    segs, cap_source, cap_title = _youtube_captions(yt_url, language)
+                except Exception as cap_err:
+                    print(f"[job] youtube captions failed: {cap_err}")
+                    segs, cap_source, cap_title = None, None, None
+                if segs:
+                    if cap_title and not (job_data.get("title") or "").strip():
+                        job_ref.update({"title": cap_title, "filenames": [cap_title]})
+                        job_data["title"] = cap_title
+                    plain_lines = []
+                    for s in segs:
+                        t = (s.get("text") or "").strip()
+                        if t:
+                            plain_lines.append(t)
+                    plain = "\n".join(plain_lines).strip()
+                    if plain:
+                        uid = job_data.get("user_id", "unknown")
+                        fname = (job_data.get("title") or "YouTube").strip() or "YouTube"
+                        result_path = f"results/{uid}/{job_id}/00_{fname}.txt"
+                        try:
+                            bucket.blob(result_path).upload_from_string(
+                                plain, content_type="text/plain; charset=utf-8"
+                            )
+                        except Exception:
+                            result_path = ""
+                        all_transcripts = [{"filename": fname, "text": plain}]
+                        combined_len = len(plain.encode("utf-8"))
+                        job_ref.update({
+                            "status": "done",
+                            "progress": 100,
+                            "position_label": "",
+                            "result_paths": [result_path] if result_path else [],
+                            "storage_paths": [],
+                            "caption_source": cap_source or "manual",
+                            "used_whisper": False,
+                            "transcripts": all_transcripts if combined_len <= INLINE_LIMIT else [],
+                            "yt_cookie": firestore.DELETE_FIELD,
+                        })
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        _refresh_queue_positions()
+                        return
+
+            # No usable captions → download audio + Whisper
             def _yt_status(msg: str):
                 job_ref.update({"position_label": msg})
             audio_files = _download_youtube(yt_url, temp_dir, cookie_content, _yt_status)
@@ -801,6 +851,9 @@ def _process_job_sync(job_id: str, job_data: dict):
             "storage_paths": [],
             "yt_cookie": firestore.DELETE_FIELD,  # don't keep cookies around
         }
+        if source == "youtube":
+            update["used_whisper"] = True
+            update["caption_source"] = "whisper"
         update["transcripts"] = all_transcripts if combined_len <= INLINE_LIMIT else []
         job_ref.update(update)
 

@@ -93,15 +93,26 @@ export default function NoteTabsProvider({ children }: { children: ReactNode }) 
     saveNoteTabs(state);
   }, [state, hydrated]);
 
-  // Split is tied to the current primary note. Any navigation to a different note
-  // (sidebar link, browser back, specialty route) must drop a stale secondary —
-  // otherwise 「並排」sticks onto an unrelated tab.
+  // Split is tied to the current primary note on /notes. Specialty apps (canvas etc.)
+  // may host NoteSplitPane themselves — keep splitId there. Clear only on unrelated routes.
   const prevActiveRef = useRef<string | null>(null);
   useEffect(() => {
     if (!hydrated) return;
-    if (!pathname.startsWith("/notes/")) {
+    const onNotes = pathname.startsWith("/notes/");
+    const specialtyHostsSplit =
+      pathname.startsWith("/canvas/") ||
+      pathname.startsWith("/board/") ||
+      pathname.startsWith("/graph/") ||
+      pathname.startsWith("/db/") ||
+      pathname.startsWith("/web/");
+    if (!onNotes && !specialtyHostsSplit) {
       prevActiveRef.current = activeId;
       setState((prev) => (prev.splitId ? { ...prev, splitId: null } : prev));
+      return;
+    }
+    if (!onNotes) {
+      // Specialty host: keep splitId; only track activeId.
+      prevActiveRef.current = activeId;
       return;
     }
     const prevActive = prevActiveRef.current;

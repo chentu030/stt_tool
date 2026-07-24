@@ -115,6 +115,8 @@ export type CanvasMedia = {
   previewImage?: string;
   /** Short description from unfurl */
   description?: string;
+  /** How transcript was obtained: manual/auto CC or whisper */
+  transcriptSource?: "manual" | "auto" | "whisper" | string;
 };
 
 /** Soft grouping region on the canvas (moves contained items with it). */

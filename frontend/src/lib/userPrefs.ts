@@ -126,6 +126,8 @@ export type UserPrefs = {
   aiGrounding: boolean;
   /** Allow right-rail AI to write into the open note when asked */
   aiAllowNoteEdit: boolean;
+  /** Allow right-rail AI to propose whiteboard ops (confirm to apply) */
+  aiAllowCanvasEdit: boolean;
   aiDefaultScope: "note" | "folder" | "library";
   /** Workspace */
   favoriteNoteIds: string[];
@@ -288,6 +290,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   aiModel: "gemini-3.5-flash",
   aiGrounding: false,
   aiAllowNoteEdit: true,
+  aiAllowCanvasEdit: true,
   aiDefaultScope: "note",
   favoriteNoteIds: [],
   recentNoteIds: [],
@@ -381,6 +384,7 @@ export function sanitizePrefs(p: UserPrefs): UserPrefs {
     aiModel: String(p.aiModel || "gemini-3.5-flash").slice(0, 80) || "gemini-3.5-flash",
     aiGrounding: !!p.aiGrounding,
     aiAllowNoteEdit: p.aiAllowNoteEdit !== false,
+    aiAllowCanvasEdit: p.aiAllowCanvasEdit !== false,
     aiDefaultScope:
       p.aiDefaultScope === "folder" || p.aiDefaultScope === "library" || p.aiDefaultScope === "note"
         ? p.aiDefaultScope

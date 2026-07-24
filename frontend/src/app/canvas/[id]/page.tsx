@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   Suspense,
+  type CSSProperties,
   type PointerEvent as REPointerEvent,
 } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -34,6 +35,9 @@ import CanvasAiActionPreview from "@/components/canvas/CanvasAiActionPreview";
 import WorkspaceSwitcher from "@/components/shell/WorkspaceSwitcher";
 import StageSelectionAi from "@/components/StageSelectionAi";
 import CanvasShareDialog from "@/components/canvas/CanvasShareDialog";
+import NoteSplitPane from "@/components/notes/NoteSplitPane";
+import NoteSplitResizer, { useNoteSplitLayout } from "@/components/notes/NoteSplitResizer";
+import { useNoteTabsOptional } from "@/components/notes/NoteTabsProvider";
 import {
   parseCanvasShare,
   syncCanvasShareSnapshot,
@@ -98,6 +102,13 @@ import {
   type CanvasStroke,
   type ZOrderOp,
 } from "@/lib/canvasStore";
+import {
+  buildCanvasLiveSnapshot,
+  clearCanvasLiveSnapshot,
+  publishCanvasLiveSnapshot,
+  registerCanvasAiApplyHandler,
+  CANVAS_AI_APPLY_EVENT,
+} from "@/lib/canvasAiEdit";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
   listenCanvases,
@@ -153,6 +164,9 @@ function CanvasIdPageInner() {
   const { user, loading } = useAuth();
   const { prefs } = usePrefs();
   useRedirectSpecialtyToNote("canvas", canvasId);
+  const noteTabs = useNoteTabsOptional();
+  const [splitLayout, setSplitLayout] = useNoteSplitLayout();
+  const splitNoteId = noteTabs?.splitId || null;
   const { notes: sharedNotes } = useNotesList();
   const [pinnedNotes, setPinnedNotes] = useState<Note[]>([]);
   const [list, setList] = useState<CanvasMeta[]>([]);
@@ -459,6 +473,34 @@ function CanvasIdPageInner() {
     return m;
   }, [notes]);
 
+  // Publish live whiteboard snapshot so the right AI rail can read / apply ops.
+  useEffect(() => {
+    if (!ready || !canvasId || embed) return;
+    const selectedIds = selected.map((s) => (s.type === "note" ? `note:${s.id}` : s.id));
+    const catalog = notes.map((n) => ({ id: n.id, title: n.title }));
+    publishCanvasLiveSnapshot(buildCanvasLiveSnapshot(canvasId, doc, catalog, selectedIds));
+  }, [ready, canvasId, embed, doc, selected, notes]);
+
+  useEffect(() => {
+    if (embed) return;
+    const apply = (ops: CanvasAiOp[]) => {
+      if (!ops.length) return;
+      updateDoc((d) => applyCanvasOps(d, ops, new Set(notes.map((n) => n.id))));
+      toast(`已套用 ${ops.length} 項 AI 白板變更`);
+    };
+    registerCanvasAiApplyHandler(apply);
+    const onEvt = (e: Event) => {
+      const ops = (e as CustomEvent<{ ops?: CanvasAiOp[] }>).detail?.ops;
+      if (ops?.length) apply(ops);
+    };
+    window.addEventListener(CANVAS_AI_APPLY_EVENT, onEvt);
+    return () => {
+      registerCanvasAiApplyHandler(null);
+      window.removeEventListener(CANVAS_AI_APPLY_EVENT, onEvt);
+      clearCanvasLiveSnapshot();
+    };
+  }, [embed, notes, updateDoc]);
+
   const clientToWorld = (clientX: number, clientY: number) => {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
@@ -708,13 +750,13 @@ function CanvasIdPageInner() {
     }));
   };
 
-  const startMediaTranscribe = async (mediaId: string) => {
-    if (!user) return;
+  const startMediaTranscribe = async (mediaId: string): Promise<CanvasMedia | null> => {
+    if (!user) return null;
     const item = (doc.media || []).find((m) => m.id === mediaId);
-    if (!item) return;
+    if (!item) return null;
     if (item.media !== "youtube" && item.media !== "video" && item.media !== "audio") {
       toast("此媒體類型不支援轉錄");
-      return;
+      return null;
     }
     patchMedia(mediaId, { transcriptStatus: "queued", transcriptError: "" });
     try {
@@ -724,6 +766,7 @@ function CanvasIdPageInner() {
       };
       let jobId = "";
       if (item.media === "youtube") {
+        toast("正在抓取字幕（無字幕則語音轉錄）…");
         jobId = await startTranscriptionJob({
           uid: user.uid,
           getIdToken,
@@ -757,25 +800,39 @@ function CanvasIdPageInner() {
       });
       const done = await promise;
       const transcript = await loadJobPlainTranscript(done);
-      patchMedia(mediaId, {
+      const captionSource = String(done.caption_source || (done.used_whisper ? "whisper" : "") || "");
+      const patch: Partial<CanvasMedia> = {
         transcript,
         transcriptStatus: "done",
         jobId,
-        // expand card height a bit for transcript panel
         h: Math.max(item.h, 320),
-      });
-      toast("轉錄完成");
+      };
+      if (captionSource) patch.transcriptSource = captionSource;
+      patchMedia(mediaId, patch);
+      toast(
+        captionSource && captionSource !== "whisper"
+          ? "已取得字幕"
+          : captionSource === "whisper"
+            ? "語音轉錄完成"
+            : "轉錄完成"
+      );
+      return { ...item, ...patch };
     } catch (e) {
       patchMedia(mediaId, {
         transcriptStatus: "error",
         transcriptError: e instanceof Error ? e.message : "轉錄失敗",
       });
       toast(e instanceof Error ? e.message : "轉錄失敗");
+      return null;
     }
   };
 
   const ensureMediaTextForAi = async (item: CanvasMedia): Promise<CanvasMedia> => {
     if (item.extractedText?.trim() || item.transcript?.trim()) return item;
+    if (item.media === "youtube" || item.media === "video" || item.media === "audio") {
+      const next = await startMediaTranscribe(item.id);
+      return next || item;
+    }
     const url = (item.originalUrl || item.url || "").trim();
     if (!url) return item;
     try {
@@ -862,6 +919,18 @@ function CanvasIdPageInner() {
     );
   };
 
+  const askMediaAi = async (mediaId: string) => {
+    let item = (doc.media || []).find((m) => m.id === mediaId);
+    if (!item) return;
+    setSelected([{ type: "media", id: mediaId }]);
+    item = await ensureMediaTextForAi(item);
+    if (!item.transcript?.trim() && !item.extractedText?.trim()) {
+      toast("尚無可用內容，請先轉錄或換一支有字幕的影片");
+      return;
+    }
+    // Refresh selection packing with ensured text, then open stage AI.
+    requestAnimationFrame(() => openStageAi());
+  };
 
   const alignSelected = (mode: AlignMode) => {
     const boxes = selected
@@ -1903,12 +1972,20 @@ function CanvasIdPageInner() {
 
   const focusNote = (noteId: string) => {
     const pin = doc.notes.find((n) => n.noteId === noteId);
-    if (!pin) return;
-    setDoc((d) => ({
-      ...d,
-      pan: { x: 120 - pin.x * d.scale, y: 120 - pin.y * d.scale },
-    }));
-    setSelected([{ type: "note", id: noteId }]);
+    if (pin) {
+      setDoc((d) => ({
+        ...d,
+        pan: { x: 120 - pin.x * d.scale, y: 120 - pin.y * d.scale },
+      }));
+      setSelected([{ type: "note", id: noteId }]);
+    }
+    if (noteTabs) {
+      noteTabs.open(noteId);
+      noteTabs.setSplit(noteId);
+      setSplitLayout((prev) =>
+        prev.collapse === "right" ? { ...prev, collapse: "none" } : prev
+      );
+    }
   };
 
   useEffect(() => {
@@ -2197,7 +2274,17 @@ function CanvasIdPageInner() {
   };
 
   return (
-    <div className="cv-page cv-immersive">
+    <div
+      className={`cv-page cv-immersive${splitNoteId ? " is-split" : ""}${
+        splitNoteId && splitLayout.collapse !== "none" ? ` is-collapse-${splitLayout.collapse}` : ""
+      }`}
+      style={
+        splitNoteId && splitLayout.collapse === "none"
+          ? ({ ["--split-left" as string]: `${splitLayout.leftPct}%` } as CSSProperties)
+          : undefined
+      }
+    >
+      <div className="cv-split-main">
       <div className="cv-float-chrome">
         <WorkspaceSwitcher
           label="白板"
@@ -2672,11 +2759,24 @@ function CanvasIdPageInner() {
                       const sx = Number(el.dataset.sx || 0);
                       const sy = Number(el.dataset.sy || 0);
                       if (Math.hypot(e.clientX - sx, e.clientY - sy) > 6) return;
+                      if (noteTabs) {
+                        noteTabs.open(n.id);
+                        noteTabs.setSplit(n.id);
+                        setSplitLayout((prev) =>
+                          prev.collapse === "right" ? { ...prev, collapse: "none" } : prev
+                        );
+                        return;
+                      }
                       router.push(`/notes/${n.id}`);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
+                        if (noteTabs) {
+                          noteTabs.open(n.id);
+                          noteTabs.setSplit(n.id);
+                          return;
+                        }
                         router.push(`/notes/${n.id}`);
                       }
                     }}
@@ -2702,6 +2802,7 @@ function CanvasIdPageInner() {
                 onSummarize={summarizeMedia}
                 onMindMap={mindMapMedia}
                 onSplitCards={splitMediaToCards}
+                onAskAi={(id) => void askMediaAi(id)}
                 onPatchMedia={patchMedia}
               />
             ))}
@@ -2955,6 +3056,20 @@ function CanvasIdPageInner() {
       )}
 
       {connectFrom && <p className="cv-toast">連線中… 點錨點或物件作為終點</p>}
+      </div>
+
+      {splitNoteId ? (
+        <>
+          <NoteSplitResizer layout={splitLayout} onChange={setSplitLayout} />
+          <NoteSplitPane
+            noteId={splitNoteId}
+            collapsed={splitLayout.collapse === "right"}
+            onExpand={() => setSplitLayout({ ...splitLayout, collapse: "none" })}
+            onCollapse={() => setSplitLayout({ ...splitLayout, collapse: "right" })}
+            onClose={() => noteTabs?.setSplit(null)}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

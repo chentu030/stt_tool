@@ -44,6 +44,14 @@ import {
   type ScheduleAiEdit,
 } from "@/lib/scheduleAiEdit";
 import type { ScheduleEvent } from "@/lib/scheduleEvents";
+import {
+  CANVAS_AI_LIVE_EVENT,
+  parseCanvasAiEdit,
+  readCanvasLiveSnapshot,
+  requestApplyCanvasOps,
+  summarizeCanvasOps,
+  type CanvasAiEdit,
+} from "@/lib/canvasAiEdit";
 import { getDatabase, listDatabaseRowsOnce } from "@/lib/database";
 import { toast } from "@/lib/toast";
 import {
@@ -62,6 +70,7 @@ type Msg = {
   editNoteId?: string;
   dbEdit?: DbAiEdit | null;
   scheduleEdit?: ScheduleAiEdit | null;
+  canvasEdit?: CanvasAiEdit | null;
   editApplied?: boolean;
 };
 type RailMode = "dock" | "float";
@@ -127,10 +136,12 @@ const JOURNAL_PAGE_SUGGESTIONS = [
 const LIBRARY_SUGGESTIONS = AI_SUGGESTIONS;
 
 const CANVAS_SUGGESTIONS = [
-  { label: "分析白板", prompt: "請分析目前這張白板的結構與內容，給 3 點改進建議" },
-  { label: "整理區塊", prompt: "幫我把白板上的內容整理成幾個清楚的區塊框架" },
-  { label: "建議連線", prompt: "依內容建議該連結或釘上哪些筆記" },
-  { label: "擴寫便利貼", prompt: "為選取或重點便利貼擴寫更完整的內容" },
+  { label: "分析白板", prompt: "請分析目前這張白板的結構與內容，給 3 點改進建議（先不要改畫布）" },
+  { label: "整理區塊", prompt: "幫我把白板上的內容整理成幾個清楚的區塊框架，並產出可套用的白板修改" },
+  { label: "建議連線", prompt: "依內容建議並建立該有的連線，產出可套用的白板修改" },
+  { label: "擴寫便利貼", prompt: "為選取或重點便利貼擴寫更完整的內容，並更新畫布上的便利貼" },
+  { label: "補便利貼", prompt: "依目前白板主題新增 3–5 張重點便利貼，排在現有內容附近" },
+  { label: "只問不改", prompt: "先不要改白板，只說明這張畫布在講什麼" },
 ];
 
 function uid() {
@@ -300,6 +311,7 @@ export default function GlobalAiDock() {
   const [meetingCtx, setMeetingCtx] = useState<MeetingAiContext | null>(null);
   const [dbLiveTick, setDbLiveTick] = useState(0);
   const [scheduleLiveTick, setScheduleLiveTick] = useState(0);
+  const [canvasLiveTick, setCanvasLiveTick] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [sheetH, setSheetH] = useState(48); // vh units on mobile
   const [showWelcome, setShowWelcome] = useState(false);
@@ -316,6 +328,7 @@ export default function GlobalAiDock() {
   const onDbPage = pathname?.startsWith("/db/");
   const onJournalPage = pathname === "/journal" || pathname?.startsWith("/journal/");
   const allowNoteEdit = prefsCtx?.prefs.aiAllowNoteEdit !== false;
+  const allowCanvasEdit = prefsCtx?.prefs.aiAllowCanvasEdit !== false;
   const focusNote = useMemo(
     () => (focusNoteId ? notes.find((n) => n.id === focusNoteId) : null),
     [focusNoteId, notes]
@@ -331,6 +344,10 @@ export default function GlobalAiDock() {
     if (!onJournalPage) return null;
     return readScheduleLiveSnapshot();
   }, [onJournalPage, scheduleLiveTick, open, pathname]);
+  const canvasSnap = useMemo(() => {
+    if (!onCanvasPage) return null;
+    return readCanvasLiveSnapshot();
+  }, [onCanvasPage, canvasLiveTick, open, pathname]);
   const activeDbSnap =
     liveDb && (!focusDatabaseId || liveDb.databaseId === focusDatabaseId) ? liveDb : null;
   const dockSuggestions =
@@ -510,6 +527,12 @@ export default function GlobalAiDock() {
   }, []);
 
   useEffect(() => {
+    const on = () => setCanvasLiveTick((n) => n + 1);
+    window.addEventListener(CANVAS_AI_LIVE_EVENT, on);
+    return () => window.removeEventListener(CANVAS_AI_LIVE_EVENT, on);
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "a") {
         e.preventDefault();
@@ -567,6 +590,11 @@ export default function GlobalAiDock() {
       const t = activeDbSnap.name || "資料庫";
       return t.length > 28 ? `${t.slice(0, 28)}…` : t;
     }
+    if (onCanvasPage && canvasSnap) {
+      const t = canvasSnap.name || "白板";
+      return t.length > 28 ? `${t.slice(0, 28)}…` : `白板 · ${t}`;
+    }
+    if (onCanvasPage) return "白板";
     if (onJobPage && jobCtx) {
       const t = jobCtx.filename || jobCtx.title || "逐字稿";
       return t.length > 28 ? `${t.slice(0, 28)}…` : t;
@@ -575,7 +603,17 @@ export default function GlobalAiDock() {
     if (focusNote) return focusNote.title || "筆記";
     if (onNotePage) return "跨庫提問 · 本篇可用 Ctrl+J";
     return `知識庫 ${notes.length} 篇`;
-  }, [activeDbSnap, onJobPage, jobCtx, onNotePage, notes.length, pinnedNotes.length, focusNote]);
+  }, [
+    activeDbSnap,
+    onCanvasPage,
+    canvasSnap,
+    onJobPage,
+    jobCtx,
+    onNotePage,
+    notes.length,
+    pinnedNotes.length,
+    focusNote,
+  ]);
 
   const historySorted = useMemo(
     () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -734,6 +772,24 @@ export default function GlobalAiDock() {
     }
   };
 
+  const applyCanvasEdit = (msgId: string, edit: CanvasAiEdit) => {
+    if (!edit.ops.length) return;
+    if (!allowCanvasEdit) {
+      toast("已關閉「可改白板」");
+      return;
+    }
+    const ok = requestApplyCanvasOps(edit.ops);
+    if (!ok) {
+      toast("白板尚未就緒，請回到白板頁再試");
+      return;
+    }
+    patchActive((t) => ({
+      ...t,
+      msgs: t.msgs.map((m) => (m.id === msgId ? { ...m, editApplied: true } : m)),
+    }));
+    toast(`已套用白板修改（${edit.ops.length} 項：${summarizeCanvasOps(edit.ops)}）`);
+  };
+
   const send = async (text: string) => {
     const prompt = text.trim();
     if (!prompt || busy) return;
@@ -809,9 +865,11 @@ export default function GlobalAiDock() {
         throw new Error("資料庫脈絡尚未就緒，請等表格載入後再試");
       }
       const liveSchedule = onJournalPage ? readScheduleLiveSnapshot() : null;
+      const liveCanvas = onCanvasPage ? readCanvasLiveSnapshot() : null;
       const canEditDb = allowNoteEdit && !!dbSnap;
       const canEditHere = allowNoteEdit && !!focusNote && onNotePage && !dbSnap;
       const canEditSchedule = onJournalPage && !!liveSchedule && !dbSnap;
+      const canEditCanvas = onCanvasPage && !!liveCanvas && !dbSnap;
 
       if (dbSnap) {
         body = {
@@ -824,6 +882,27 @@ export default function GlobalAiDock() {
           allowNoteEdit: false,
           allowDbEdit: canEditDb,
           focusDatabaseId: dbSnap.databaseId,
+        };
+      } else if (canEditCanvas && liveCanvas) {
+        const pinExtra = snapshotPins.length
+          ? `\n\n使用者 @ 的筆記（可 pin_note）：\n${snapshotPins
+              .map((id) => {
+                const n = notes.find((x) => x.id === id);
+                return n ? `- ${n.id}｜${n.title || "未命名"}` : null;
+              })
+              .filter(Boolean)
+              .join("\n")}`
+          : "";
+        body = {
+          action: "canvas",
+          prompt:
+            (allowCanvasEdit
+              ? prompt
+              : `${prompt}\n\n（使用者已關閉「可改白板」——只給建議，ops 必須為空陣列）`) + pinExtra,
+          canvasSummary: liveCanvas.summary,
+          selectedIds: liveCanvas.selectedIds,
+          messages: history,
+          assistant,
         };
       } else if (meetingCtx) {
         const packed = packTranscriptForAi(meetingCtx.transcript || "");
@@ -940,6 +1019,7 @@ export default function GlobalAiDock() {
       let noteEdit: NoteAiEdit | null = null;
       let dbEdit: DbAiEdit | null = null;
       let scheduleEdit: ScheduleAiEdit | null = null;
+      let canvasEdit: CanvasAiEdit | null = null;
       let editApplied = false;
 
       if (canEditDb && dbSnap) {
@@ -983,6 +1063,11 @@ export default function GlobalAiDock() {
         displayText = parsedSched.displayText;
         scheduleEdit = parsedSched.edit;
         // Journal schedule edits require explicit「套用到行程」— do not auto-write.
+      } else if (canEditCanvas) {
+        const parsedCanvas = parseCanvasAiEdit(rawText);
+        displayText = parsedCanvas.displayText;
+        canvasEdit = allowCanvasEdit ? parsedCanvas.edit : null;
+        // Canvas edits require explicit「套用到白板」— do not auto-write.
       }
 
       const assistantMsg: Msg = {
@@ -993,6 +1078,7 @@ export default function GlobalAiDock() {
         editNoteId: noteEdit && focusNote ? focusNote.id : undefined,
         dbEdit,
         scheduleEdit,
+        canvasEdit,
         editApplied,
       };
       patchActive((t) => ({
@@ -1348,6 +1434,22 @@ export default function GlobalAiDock() {
                       </button>
                     </div>
                   ) : null}
+                  {m.role === "assistant" && m.canvasEdit?.ops?.length ? (
+                    <div className="cadence-ai-edit-bar">
+                      <span>
+                        {m.editApplied
+                          ? `已寫入白板（${m.canvasEdit.ops.length} 項）`
+                          : `建議修改白板（${m.canvasEdit.ops.length} 項：${summarizeCanvasOps(m.canvasEdit.ops)}）`}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => applyCanvasEdit(m.id, m.canvasEdit!)}
+                      >
+                        {m.editApplied ? "再次套用" : "套用到白板"}
+                      </button>
+                    </div>
+                  ) : null}
                   {m.role === "assistant" && m.edit && m.editNoteId ? (
                     <div className="cadence-ai-edit-bar">
                       <span>
@@ -1439,6 +1541,28 @@ export default function GlobalAiDock() {
                     }}
                   >
                     {allowNoteEdit ? "可改筆記" : "禁改筆記"}
+                  </button>
+                ) : null}
+                {onCanvasPage ? (
+                  <button
+                    type="button"
+                    className={`doc-cmd${allowCanvasEdit ? " is-on" : ""}`}
+                    title={
+                      allowCanvasEdit
+                        ? "AI 可產出白板修改，需按「套用到白板」才會寫入"
+                        : "AI 只能分析白板，不會產出修改"
+                    }
+                    aria-pressed={allowCanvasEdit}
+                    onClick={() => {
+                      prefsCtx?.setPrefs({ aiAllowCanvasEdit: !allowCanvasEdit });
+                      toast(
+                        !allowCanvasEdit
+                          ? "已允許 AI 修改白板（需按套用）"
+                          : "已關閉 AI 修改白板"
+                      );
+                    }}
+                  >
+                    {allowCanvasEdit ? "可改白板" : "禁改白板"}
                   </button>
                 ) : null}
                 <button type="button" className="doc-cmd" onClick={() => router.push("/library")}>

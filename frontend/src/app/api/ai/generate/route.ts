@@ -256,7 +256,7 @@ ops 可用：
 - {"op":"delete","id":"現有id"}
 - {"op":"connect","from":"id","to":"id"}
 - {"op":"pin_note","noteId":"必須來自 noteCatalog","x":n,"y":n}
-規則：不要捏造 noteId；刪除要謹慎；一次最多 12 個 ops；座標以現有物件附近為佳；若只需建議可不給 ops。`,
+規則：不要捏造 noteId；刪除要謹慎；一次最多 12 個 ops；座標以現有物件附近為佳；若只需建議可不給 ops（ops:[]）。使用者會在介面按「套用到白板」後才寫入，你要在 message 清楚說明將做哪些變更。`,
       prompt: `畫布狀態：\n${data.canvasSummary || "{}"}\n\n選取：${JSON.stringify(data.selectedIds || [])}\n\n使用者：\n${data.prompt?.trim() || "請分析這張白板並給建議"}`,
       temperature: 0.45,
     };
