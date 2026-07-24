@@ -112,3 +112,75 @@ export async function createAiStudyNoteFromTranscript(opts: {
   seedNoteBody(noteId, body_md);
   return noteId;
 }
+
+/**
+ * Voice / job → structured meeting note (議程／決議／待辦), then caller may offer board cards.
+ */
+export async function createMeetingNoteFromTranscript(opts: {
+  uid: string;
+  jobId: string;
+  title: string;
+  filename?: string;
+  transcriptRaw: string;
+  assistant?: AssistantPrefs;
+}): Promise<{ noteId: string; pack: string }> {
+  const segs = parseTranscript(opts.transcriptRaw || "");
+  const stamped = segmentsToTimestampedText(segs);
+  const plain = segmentsToPlainText(segs);
+  const source = stamped || plain || opts.transcriptRaw || "";
+  if (!source.trim()) throw new Error("沒有可整理的逐字稿內容");
+
+  const noteTitle = (opts.title.trim() || opts.filename || "會議整理").slice(0, 80);
+  const skeleton = [
+    `# ${noteTitle}`,
+    "",
+    "## 出席",
+    "",
+    "## 議程",
+    "",
+    "## 討論",
+    "",
+    "<!-- cadence-meeting-ai:start -->",
+    "## 會後整理",
+    "",
+    "（整理中…）",
+    "<!-- cadence-meeting-ai:end -->",
+    "",
+    "---",
+    "",
+    "## 逐字稿",
+    "",
+    source.slice(0, 24000),
+    "",
+  ].join("\n");
+
+  const noteId = await createNote(opts.uid, noteTitle, skeleton, opts.jobId, ["會議", "錄音"], {
+    sort_order: -Date.now(),
+    icon: "groups",
+    folder: "會議",
+    status: "doing",
+  });
+
+  const res = await aiFetch("/api/ai/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "meeting_pack",
+      title: noteTitle,
+      body: source.slice(0, 28000),
+      prompt:
+        "請產出會議整理包，必須用以下 Markdown 標題（缺則寫「無」）：\n## 摘要\n## 決議\n## 待辦\n（待辦必須用 - [ ] checklist）\n## 未決／跟進",
+      assistant: opts.assistant,
+    }),
+  });
+  const data = (await res.json()) as { text?: string; error?: string };
+  if (!res.ok) throw new Error(data.error || "會議整理失敗");
+  const pack = String(data.text || "").trim() || "（AI 未產出內容）";
+
+  const { upsertMeetingAiSection } = await import("@/lib/meetingSession");
+  const nextBody = upsertMeetingAiSection(skeleton, pack);
+  await updateNote(noteId, { body_md: nextBody });
+  seedNoteBody(noteId, nextBody);
+  return { noteId, pack };
+}
+

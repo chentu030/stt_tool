@@ -6,6 +6,10 @@ import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import SelectionAiPanel, { type SelectionAiAction } from "@/components/SelectionAiPanel";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { useAuth } from "@/components/AuthProvider";
+import { useRouter } from "next/navigation";
+import { landSelectionOnCanvas } from "@/lib/surfaceHandoff";
+import { toast } from "@/lib/toast";
 
 const EMOJIS = ["👍", "❤️", "😊", "🎉", "🔥", "✅", "❗", "💡", "👀", "🙏", "✨", "📌"];
 
@@ -254,6 +258,9 @@ export default function SelectionBubbleMenu({
   aiAutoAction,
   onAiOpenChange,
 }: Props) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [handoffBusy, setHandoffBusy] = useState(false);
   const [turnOpen, setTurnOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -833,6 +840,39 @@ export default function SelectionBubbleMenu({
                 {skill.label}
               </button>
             ))}
+            <button
+              type="button"
+              className="sel-bub-skill"
+              disabled={handoffBusy || !user}
+              title="把選取內容攤成白板卡片"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const t = selectionText().trim();
+                if (!t || !user || handoffBusy) return;
+                setHandoffBusy(true);
+                void (async () => {
+                  try {
+                    const { canvasId, cardCount } = await landSelectionOnCanvas({
+                      uid: user.uid,
+                      text: t,
+                      title: noteTitle || undefined,
+                    });
+                    toast(
+                      cardCount > 1
+                        ? `已攤到白板（${cardCount} 張卡片）`
+                        : "已攤到白板"
+                    );
+                    router.push(`/canvas/${canvasId}`);
+                  } catch (e) {
+                    toast(e instanceof Error ? e.message : "攤到白板失敗");
+                  } finally {
+                    setHandoffBusy(false);
+                  }
+                })();
+              }}
+            >
+              攤到白板
+            </button>
             <button
               type="button"
               className="sel-bub-skill"

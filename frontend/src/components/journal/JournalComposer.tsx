@@ -10,8 +10,11 @@ import {
 } from "@/lib/journalMeta";
 import AiMarkdown from "@/components/AiMarkdown";
 import { usePrefsOptional } from "@/components/PrefsProvider";
+import { useAuth } from "@/components/AuthProvider";
+import { useRouter } from "next/navigation";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
+import { landSelectionOnCanvas } from "@/lib/surfaceHandoff";
 
 export type JournalComposerHandle = {
   save: () => void;
@@ -53,11 +56,14 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
   ref
 ) {
   const prefsCtx = usePrefsOptional();
+  const { user } = useAuth();
+  const router = useRouter();
   const tagDefs = prefsCtx?.prefs.journalTags || [];
   const templates = prefsCtx?.prefs.journalTemplates || [];
 
   const [text, setText] = useState(initialText);
   const [selected, setSelected] = useState<string[]>(initialTags);
+  const [handoffBusy, setHandoffBusy] = useState(false);
   // Empty day → start writing immediately (capture-first UX).
   const [mode, setMode] = useState<"preview" | "edit">(
     () => (initialText.trim() ? "preview" : "edit")
@@ -251,6 +257,47 @@ const JournalComposer = forwardRef<JournalComposerHandle, Props>(function Journa
           </button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={onOpenFull}>
             完整編輯
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={handoffBusy || !user}
+            title="把選取或全文攤成白板卡片"
+            onClick={() => {
+              if (!user || handoffBusy) return;
+              const el = textareaRef.current;
+              let payload = "";
+              if (el && typeof el.selectionStart === "number") {
+                payload = (el.value || "").slice(el.selectionStart, el.selectionEnd).trim();
+              }
+              if (!payload) payload = text.trim();
+              if (!payload) {
+                toast("先選取或寫入一些文字");
+                return;
+              }
+              setHandoffBusy(true);
+              void (async () => {
+                try {
+                  const { canvasId, cardCount } = await landSelectionOnCanvas({
+                    uid: user.uid,
+                    text: payload,
+                    title: `日誌 ${dateKey}`,
+                  });
+                  toast(
+                    cardCount > 1
+                      ? `已攤到白板（${cardCount} 張卡片）`
+                      : "已攤到白板"
+                  );
+                  router.push(`/canvas/${canvasId}`);
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : "攤到白板失敗");
+                } finally {
+                  setHandoffBusy(false);
+                }
+              })();
+            }}
+          >
+            攤到白板
           </button>
         </div>
       </div>

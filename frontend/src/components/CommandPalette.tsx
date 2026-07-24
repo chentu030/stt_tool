@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { createNote, deleteNote, updateNote, Note, Job, jobDisplayTitle } from "@/lib/firebase";
+import { createNote, deleteNote, updateNote, Note, Job } from "@/lib/firebase";
 import { NOTE_TEMPLATES } from "@/lib/templates";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { parseDefaultTags, toggleFavoriteId } from "@/lib/userPrefs";
@@ -19,7 +19,15 @@ import { normalizeFolderPath } from "@/lib/noteTree";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import { appendToTodayJournal, peekJournalCaptureUndo, undoLastJournalCapture } from "@/lib/journalCapture";
 import { markDailyRhythmStep } from "@/lib/dailyRhythm";
-import { searchNotes, type LibraryNote } from "@/lib/libraryIndex";
+import {
+  searchNotes,
+  searchJobs,
+  searchCanvases,
+  type LibraryNote,
+  type LibraryJob,
+  type LibraryCanvas,
+} from "@/lib/libraryIndex";
+import { listenCanvases, type CanvasMeta } from "@/lib/canvasCloud";
 
 type Props = {
   open: boolean;
@@ -31,8 +39,9 @@ type Props = {
 
 type Row =
   | { kind: "nav"; href: string; label: string; hint: string }
-  | { kind: "note"; id: string; label: string; hint: string; snippet?: string }
-  | { kind: "job"; id: string; label: string; hint: string }
+  | { kind: "note"; id: string; label: string; hint: string; snippet?: string; surface?: string }
+  | { kind: "job"; id: string; label: string; hint: string; snippet?: string; surface?: string }
+  | { kind: "canvas"; id: string; label: string; hint: string; snippet?: string; surface?: string }
   | { kind: "action"; id: string; label: string; hint: string; run: () => void };
 
 function readFocusNoteId(pathname: string | null): string | null {
@@ -53,6 +62,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
   const [q, setQ] = useState("");
   const [index, setIndex] = useState(0);
   const [contextNoteId, setContextNoteId] = useState<string | null>(null);
+  const [canvases, setCanvases] = useState<CanvasMeta[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -60,6 +70,14 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     setIndex(0);
     setContextNoteId(readFocusNoteId(pathname));
   }, [open, pathname]);
+
+  useEffect(() => {
+    if (!open || !userId) {
+      setCanvases([]);
+      return;
+    }
+    return listenCanvases(userId, setCanvases);
+  }, [open, userId]);
 
   const favIds = prefsCtx?.prefs.favoriteNoteIds || [];
   const recentIds = prefsCtx?.prefs.recentNoteIds || [];
@@ -330,7 +348,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
       updated_at: n.updated_at instanceof Date ? n.updated_at : new Date(n.updated_at || Date.now()),
       created_at: n.created_at instanceof Date ? n.created_at : new Date(n.created_at || Date.now()),
     }));
-    const hits = searchNotes(libraryNotes, q, { sort: "relevance" }).slice(0, 12);
+    const hits = searchNotes(libraryNotes, q, { sort: "relevance" }).slice(0, 10);
     const matchedNotes: Note[] = [];
     for (const hit of hits) {
       const n = notes.find((x) => x.id === hit.id);
@@ -348,15 +366,46 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         label: n.title || "未命名",
         hint: fieldHint,
         snippet: hit.snippet || undefined,
+        surface: "筆記",
       });
     }
     if (matchedNotes[0]) pushNoteActions(matchedNotes[0], "hit-");
 
-    for (const j of jobs) {
-      const title = jobDisplayTitle(j);
-      if (String(title).toLowerCase().includes(s) || j.id.toLowerCase().includes(s)) {
-        out.push({ kind: "job", id: j.id, label: String(title), hint: "逐字稿" });
-      }
+    const libraryJobs: LibraryJob[] = jobs.map((j) => ({
+      id: j.id,
+      status: j.status,
+      title: j.title,
+      filenames: j.filenames,
+      youtube_url: j.youtube_url,
+      created_at: j.created_at instanceof Date ? j.created_at : new Date(j.created_at || Date.now()),
+      transcripts: j.transcripts,
+    }));
+    for (const hit of searchJobs(libraryJobs, q, 6)) {
+      out.push({
+        kind: "job",
+        id: hit.id,
+        label: hit.title,
+        hint: hit.surfaceLabel,
+        snippet: hit.snippet,
+        surface: hit.surfaceLabel,
+      });
+    }
+
+    const libraryCanvases: LibraryCanvas[] = canvases.map((c) => ({
+      id: c.id,
+      name: c.name,
+      searchText: c.searchText,
+      updated_at: c.updated_at,
+    }));
+    for (const hit of searchCanvases(libraryCanvases, q, 6)) {
+      out.push({
+        kind: "canvas",
+        id: hit.id,
+        label: hit.title,
+        hint: hit.surfaceLabel,
+        snippet: hit.snippet,
+        surface: hit.surfaceLabel,
+      });
     }
 
     if (userId && q.trim()) {
@@ -420,7 +469,7 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
     }
 
     return out.slice(0, 32);
-  }, [q, notes, jobs, favIds, recentIds, userId, prefsCtx, router, onClose, contextNote, pathname]);
+  }, [q, notes, jobs, canvases, favIds, recentIds, userId, prefsCtx, router, onClose, contextNote, pathname]);
 
   useEffect(() => {
     setIndex(0);
@@ -451,6 +500,9 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
         } else if (row.kind === "job") {
           onClose();
           router.push(`/job/${row.id}`);
+        } else if (row.kind === "canvas") {
+          onClose();
+          router.push(`/canvas/${row.id}`);
         } else if (row.kind === "action") {
           row.run();
         }
@@ -497,21 +549,29 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
                   } else if (row.kind === "job") {
                     onClose();
                     router.push(`/job/${row.id}`);
+                  } else if (row.kind === "canvas") {
+                    onClose();
+                    router.push(`/canvas/${row.id}`);
                   } else {
                     row.run();
                   }
                 }}
               >
                 <strong>{row.label}</strong>
-                <span>{row.hint}</span>
-                {row.kind === "note" && row.snippet ? (
+                {"surface" in row && row.surface ? (
+                  <span className={`cmdk-surface cmdk-surface--${row.kind}`}>{row.surface}</span>
+                ) : (
+                  <span>{row.hint}</span>
+                )}
+                {(row.kind === "note" || row.kind === "job" || row.kind === "canvas") &&
+                row.snippet ? (
                   <em className="cmdk-snippet">{row.snippet}</em>
                 ) : null}
               </button>
             ))
           )}
         </div>
-        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 搜尋標題／標籤／內文 · 輸入後優先寫入日誌</p>
+        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 搜尋筆記／白板／錄音 · 輸入後優先寫入日誌</p>
       </div>
     </div>
   );

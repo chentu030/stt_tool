@@ -32,6 +32,8 @@ export type CanvasMeta = {
   media: number;
   /** Sample sticky colors for mini-preview */
   stickyColors: string[];
+  /** Flattened sticky / shape / media text for ⌘K unified search */
+  searchText?: string;
 };
 
 function canvasesCol(uid: string) {
@@ -88,6 +90,32 @@ export function listenCanvases(
             return "";
           })
           .filter(Boolean);
+        const searchParts: string[] = [];
+        for (const s of stickies) {
+          if (s && typeof s === "object" && "text" in s) {
+            const t = String((s as { text?: string }).text || "").trim();
+            if (t) searchParts.push(t.slice(0, 400));
+          }
+        }
+        for (const s of shapes) {
+          if (s && typeof s === "object" && "label" in s) {
+            const t = String((s as { label?: string }).label || "").trim();
+            if (t) searchParts.push(t.slice(0, 200));
+          }
+        }
+        for (const m of media) {
+          if (!m || typeof m !== "object") continue;
+          const rec = m as {
+            title?: string;
+            transcript?: string;
+            extractedText?: string;
+            description?: string;
+          };
+          for (const key of ["title", "description", "transcript", "extractedText"] as const) {
+            const t = String(rec[key] || "").trim();
+            if (t) searchParts.push(t.slice(0, key === "title" ? 200 : 800));
+          }
+        }
         return {
           id: d.id,
           name: (data.name as string) || "未命名白板",
@@ -99,6 +127,7 @@ export function listenCanvases(
           pins: pins.length,
           media: media.length,
           stickyColors,
+          searchText: searchParts.join("\n").slice(0, 12000),
         } satisfies CanvasMeta;
       });
       list.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());

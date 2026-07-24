@@ -9,6 +9,7 @@ import {
   upsertMeetingAiSection,
   type MeetingAiContext,
 } from "@/lib/meetingSession";
+import { offerMeetingBoardExport } from "@/lib/meetingBoardExport";
 import { getNote, updateNote } from "@/lib/firebase";
 import { toast } from "@/lib/toast";
 import { askConfirm } from "@/lib/dialogs";
@@ -52,7 +53,7 @@ export default function MeetingNoteBar({
             cancelLabel: "只整理筆記",
           }));
         toast("正在產生會後整理…");
-        const { journalNoteId } = await finishMeetingWithPack({
+        const { journalNoteId, pack } = await finishMeetingWithPack({
           uid,
           noteId,
           title: noteTitle || ctx?.title || "會議",
@@ -61,6 +62,13 @@ export default function MeetingNoteBar({
         });
         toast(journalNoteId ? "已整理並寫進今天" : "會後整理已寫入");
         onBodyPatched?.();
+        await offerMeetingBoardExport({
+          uid,
+          pack,
+          meetingNoteId: noteId,
+          meetingTitle: noteTitle || ctx?.title || "會議",
+          dateKey: ctx?.event?.dateKey,
+        });
         return;
       }
       const prompt =

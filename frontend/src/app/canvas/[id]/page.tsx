@@ -3,7 +3,7 @@ import { aiFetch } from "@/lib/aiFetch";
 
 import PageLoading from "@/components/motion/PageLoading";
 
-import { askPrompt } from "@/lib/dialogs";
+import { askPrompt, askConfirm } from "@/lib/dialogs";
 import {
   useCallback,
   useEffect,
@@ -46,6 +46,7 @@ import {
 import { resolveEmbedUrl } from "@/lib/embedUrls";
 import { embedProxySrc, canEmbedProxy } from "@/lib/embedProxy";
 import { extractFirstHttpUrl, packCanvasSelectionForAi, type CanvasAiMediaRef } from "@/lib/canvasAiContext";
+import { createNoteFromCanvasHarvest } from "@/lib/surfaceHandoff";
 import { toast } from "@/lib/toast";
 import {
   type CanvasDoc,
@@ -724,6 +725,44 @@ function CanvasIdPageInner() {
     });
     if (created.length) setSelected(created.map((id) => ({ type: "sticky" as const, id })));
     toast(created.length > 1 ? `已新增 ${created.length} 張便利貼` : "已新增便利貼");
+  };
+
+  const harvestSelectionToNote = async () => {
+    if (!user || !selected.length) return;
+    const ok = await askConfirm({
+      title: "收成筆記？",
+      message: `將目前選取的 ${selected.length} 個物件整理成一篇結構化筆記（標題＋條列）。`,
+      confirmLabel: "收成筆記",
+      cancelLabel: "取消",
+    });
+    if (!ok) return;
+    try {
+      const noteTitles = new Map<string, string>();
+      for (const s of selected) {
+        if (s.type === "note") {
+          const n = noteMap.get(s.id);
+          if (n?.title) noteTitles.set(s.id, n.title);
+        }
+      }
+      const { noteId, title } = await createNoteFromCanvasHarvest({
+        uid: user.uid,
+        doc,
+        selected,
+        noteTitles,
+      });
+      toast(`已收成「${title}」`);
+      if (noteTabs) {
+        noteTabs.open(noteId);
+        noteTabs.setSplit(noteId);
+        setSplitLayout((prev) =>
+          prev.collapse === "right" ? { ...prev, collapse: "none" } : prev
+        );
+      } else {
+        router.push(`/notes/${noteId}`);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "收成筆記失敗");
+    }
   };
 
   const applyStageAiReplace = (text: string) => {
@@ -3120,6 +3159,7 @@ function CanvasIdPageInner() {
                   onSummarize={mediaSel ? () => void summarizeMedia(mediaSel.id) : undefined}
                   onMindMap={mediaSel ? () => void mindMapMedia(mediaSel.id) : undefined}
                   onSplitCards={mediaSel ? () => void splitMediaToCards(mediaSel.id) : undefined}
+                  onHarvestNote={() => void harvestSelectionToNote()}
                 />
               );
             })()}

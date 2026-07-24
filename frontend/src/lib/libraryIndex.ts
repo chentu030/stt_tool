@@ -29,6 +29,28 @@ export type LibraryJob = {
   filenames?: string[];
   youtube_url?: string;
   created_at: Date;
+  /** Inline transcript chunks when present on the job doc */
+  transcripts?: { filename: string; text: string }[];
+};
+
+export type SearchSurface = "note" | "canvas" | "recording";
+
+export type UnifiedSearchHit = {
+  surface: SearchSurface;
+  id: string;
+  title: string;
+  snippet: string;
+  score: number;
+  href: string;
+  /** Product label: 筆記／白板／錄音 */
+  surfaceLabel: string;
+};
+
+export type LibraryCanvas = {
+  id: string;
+  name: string;
+  searchText?: string;
+  updated_at: Date;
 };
 
 export function libraryJobTitle(job: LibraryJob): string {
@@ -258,6 +280,109 @@ export function searchNotes(
   });
 
   return hits;
+}
+
+function scoreHaystack(hay: string, tokens: string[]): { score: number; fields: string[] } {
+  let score = 0;
+  const fields: string[] = [];
+  const lower = hay.toLowerCase();
+  for (const tok of tokens) {
+    if (!tok) continue;
+    if (lower.includes(tok)) {
+      const hits = lower.split(tok).length - 1;
+      score += Math.min(20, 4 + hits * 2);
+      fields.push("body");
+    }
+  }
+  return { score, fields: Array.from(new Set(fields)) };
+}
+
+/** Search jobs by title / filenames / inline transcript text. */
+export function searchJobs(jobs: LibraryJob[], query: string, limit = 8): UnifiedSearchHit[] {
+  const q = query.trim().toLowerCase();
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  if (!tokens.length) return [];
+
+  const hits: UnifiedSearchHit[] = [];
+  for (const job of jobs) {
+    const title = libraryJobTitle(job);
+    const tx = (job.transcripts || []).map((t) => t.text || "").join("\n");
+    const hay = [
+      title,
+      job.id,
+      ...(job.filenames || []),
+      job.youtube_url || "",
+      tx.slice(0, 20000),
+    ]
+      .join("\n")
+      .toLowerCase();
+    const { score: bodyScore } = scoreHaystack(hay, tokens);
+    let score = bodyScore;
+    const titleLower = title.toLowerCase();
+    for (const tok of tokens) {
+      if (titleLower.includes(tok)) score += 18;
+    }
+    if (score <= 0) continue;
+    hits.push({
+      surface: "recording",
+      id: job.id,
+      title,
+      snippet: plainSnippet(tx || title, q),
+      score,
+      href: `/job/${job.id}`,
+      surfaceLabel: "錄音",
+    });
+  }
+  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** Search whiteboards by name + card / media text blob. */
+export function searchCanvases(
+  canvases: LibraryCanvas[],
+  query: string,
+  limit = 8
+): UnifiedSearchHit[] {
+  const q = query.trim().toLowerCase();
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  if (!tokens.length) return [];
+
+  const hits: UnifiedSearchHit[] = [];
+  for (const c of canvases) {
+    const name = (c.name || "未命名白板").trim() || "未命名白板";
+    const blob = `${name}\n${c.searchText || ""}`;
+    const { score: bodyScore } = scoreHaystack(blob.toLowerCase(), tokens);
+    let score = bodyScore;
+    const nameLower = name.toLowerCase();
+    for (const tok of tokens) {
+      if (nameLower.includes(tok)) score += 20;
+    }
+    if (score <= 0) continue;
+    const inCards = (c.searchText || "").toLowerCase();
+    const matchedCard = tokens.some((t) => inCards.includes(t));
+    hits.push({
+      surface: "canvas",
+      id: c.id,
+      title: name,
+      snippet: plainSnippet(matchedCard ? c.searchText || name : name, q),
+      score,
+      href: `/canvas/${c.id}`,
+      surfaceLabel: "白板",
+    });
+  }
+  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** Map note hits into unified surface rows (筆記). */
+export function notesToUnifiedHits(hits: SearchHit[], limit = 12): UnifiedSearchHit[] {
+  return hits.slice(0, limit).map((h) => ({
+    surface: "note" as const,
+    id: h.id,
+    title: h.title || "未命名",
+    snippet: h.snippet,
+    score: h.score,
+    href: `/notes/${h.id}`,
+    surfaceLabel: "筆記",
+  }));
 }
 
 /** Pack notes into a bounded context string for the AI assistant */

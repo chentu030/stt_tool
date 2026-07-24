@@ -23,6 +23,7 @@ import {
   getMeetingAiContext,
   setMeetingAiContext,
 } from "@/lib/meetingSession";
+import { offerMeetingBoardExport } from "@/lib/meetingBoardExport";
 
 export type LiveRecordingStart = {
   uid: string;
@@ -139,7 +140,7 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
           }
 
           toast("正在產生會後整理…");
-          const { journalNoteId } = await finishMeetingWithPack({
+          const { journalNoteId, pack } = await finishMeetingWithPack({
             uid,
             noteId,
             title: meeting.title,
@@ -149,6 +150,13 @@ export default function LiveRecordingProvider({ children }: { children: ReactNod
           toast(
             journalNoteId ? "會後整理已寫入，並附加到今日日誌" : "會後整理已寫入筆記"
           );
+          await offerMeetingBoardExport({
+            uid,
+            pack,
+            meetingNoteId: noteId,
+            meetingTitle: meeting.title,
+            dateKey: meeting.event?.dateKey || meeting.dateKey,
+          });
         } catch (e) {
           toast(e instanceof Error ? e.message : "會後整理失敗");
         } finally {

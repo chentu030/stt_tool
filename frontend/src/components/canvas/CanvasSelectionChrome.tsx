@@ -34,6 +34,7 @@ type Props = {
   onSummarize?: () => void;
   onMindMap?: () => void;
   onSplitCards?: () => void;
+  onHarvestNote?: () => void;
 };
 
 export function selectionKindOf(selected: Selectable[]): SelectionKind {
@@ -65,6 +66,7 @@ export default function CanvasSelectionChrome({
   onSummarize,
   onMindMap,
   onSplitCards,
+  onHarvestNote,
 }: Props) {
   const multi = count > 1;
   const [fillOpen, setFillOpen] = useState(false);
@@ -210,6 +212,16 @@ export default function CanvasSelectionChrome({
       <button type="button" className="cv-sel-chrome-btn" onClick={onDuplicate} title="複製">
         複製
       </button>
+      {onHarvestNote && (kind === "sticky" || kind === "mixed" || kind === "section" || multi) && (
+        <button
+          type="button"
+          className="cv-sel-chrome-btn is-ai"
+          onClick={onHarvestNote}
+          title="把選取內容收成筆記"
+        >
+          收成筆記
+        </button>
+      )}
       <button type="button" className="cv-sel-chrome-btn" onClick={onDelete} title="刪除">
         刪除
       </button>

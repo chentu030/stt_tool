@@ -23,7 +23,9 @@ import { usePrefsOptional } from "@/components/PrefsProvider";
 import { toast } from "@/lib/toast";
 import { setJobAiContext } from "@/lib/jobAiContext";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
-import { createAiStudyNoteFromTranscript } from "@/lib/jobToNote";
+import { createAiStudyNoteFromTranscript, createMeetingNoteFromTranscript } from "@/lib/jobToNote";
+import { offerMeetingBoardExport } from "@/lib/meetingBoardExport";
+import { askConfirm } from "@/lib/dialogs";
 
 export default function JobPage() {
   const { id } = useParams<{ id: string }>();
@@ -149,6 +151,47 @@ export default function JobPage() {
     }
   };
 
+  const runMeetingNote = async () => {
+    if (!user || !job || !current) return;
+    const ok = await askConfirm({
+      title: "會議整理？",
+      message: "會依逐字稿建立結構化會議筆記（摘要／決議／待辦），可再選擇建立看板卡片。",
+      confirmLabel: "開始整理",
+      cancelLabel: "取消",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setTplOpen(false);
+    try {
+      const { noteId, pack } = await createMeetingNoteFromTranscript({
+        uid: user.uid,
+        jobId: job.id,
+        title: titleDraft.trim() || jobDisplayTitle(job),
+        filename: current.filename,
+        transcriptRaw: liveText || current.text,
+        assistant: {
+          name: prefsCtx?.prefs.aiAssistantName,
+          style: prefsCtx?.prefs.aiStyle,
+          model: prefsCtx?.prefs.aiModel,
+          grounding: prefsCtx?.prefs.aiGrounding,
+        },
+      });
+      setLinkedNoteId(noteId);
+      toast("會議筆記已建立");
+      await offerMeetingBoardExport({
+        uid: user.uid,
+        pack,
+        meetingNoteId: noteId,
+        meetingTitle: titleDraft.trim() || jobDisplayTitle(job),
+      });
+      router.push(`/notes/${noteId}`);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "會議整理失敗");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) return <PageLoading />;
   if (!user) return <p>請先登入。</p>;
   if (!job) return <p style={{ color: "var(--text-muted)" }}>找不到此工作。</p>;
@@ -227,6 +270,13 @@ export default function JobPage() {
                   onClick={() => void runAiStudyNote()}
                 >
                   AI 整理筆記
+                </button>
+                <button
+                  type="button"
+                  className="doc-more-item"
+                  onClick={() => void runMeetingNote()}
+                >
+                  會議整理
                 </button>
                 {NOTE_TEMPLATES.map((t) => (
                   <button

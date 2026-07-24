@@ -110,6 +110,7 @@ import {
   computeNoteStats,
   extractOutline,
   findRelatedNotes,
+  slugifyHeading,
 } from "@/lib/noteMeta";
 import { buildNoteAiContext } from "@/lib/noteAiContext";
 import { findCadenceAiAction } from "@/lib/cadenceAiActions";
@@ -1421,6 +1422,20 @@ function NotePageInner() {
     }, 80);
     return () => window.clearTimeout(t);
   }, [id, note, viewMode]);
+
+  useEffect(() => {
+    if (!id || !note || (viewMode !== "write" && viewMode !== "read")) return;
+    if (typeof window === "undefined") return;
+    const raw = window.location.hash.replace(/^#/, "").trim();
+    if (!raw) return;
+    const t = window.setTimeout(() => {
+      const hit = outline.find((h) => slugifyHeading(h.text) === raw || h.id === raw);
+      if (hit) jumpHeading(hit);
+    }, 120);
+    return () => window.clearTimeout(t);
+    // jumpHeading/outline intentionally after note body ready
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, note, viewMode, outline]);
 
   useEffect(() => {
     const el = mainScrollRef.current;

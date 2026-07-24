@@ -3,10 +3,12 @@ import { aiFetch } from "@/lib/aiFetch";
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent as REPointerEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
 import { type Note } from "@/lib/firebase";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 import { packLibraryContext, AI_SUGGESTIONS } from "@/lib/libraryIndex";
+import { extractOutline, slugifyHeading } from "@/lib/noteMeta";
 import { usePrefsOptional } from "@/components/PrefsProvider";
 import { buildResearchUrl } from "@/lib/researchBridge";
 import {
@@ -74,6 +76,8 @@ type Msg = {
   scheduleEdit?: ScheduleAiEdit | null;
   canvasEdit?: CanvasAiEdit | null;
   editApplied?: boolean;
+  /** Knowledge-base sources used for this answer (標題＋錨點). */
+  sources?: { title: string; href: string; heading?: string }[];
 };
 type RailMode = "dock" | "float";
 type ChatThread = {
@@ -148,6 +152,33 @@ const CANVAS_SUGGESTIONS = [
 
 function uid() {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function noteSourceHref(note: { id: string; body_md?: string; title?: string }, preferHeading?: string) {
+  const outline = extractOutline(note.body_md || "");
+  const heading =
+    (preferHeading && outline.find((h) => h.text.includes(preferHeading))) || outline[0];
+  if (heading) {
+    return `/notes/${note.id}#${slugifyHeading(heading.text)}`;
+  }
+  return `/notes/${note.id}`;
+}
+
+function sourcesFromNotes(list: Note[]): { title: string; href: string; heading?: string }[] {
+  const out: { title: string; href: string; heading?: string }[] = [];
+  const seen = new Set<string>();
+  for (const n of list) {
+    if (!n?.id || seen.has(n.id)) continue;
+    seen.add(n.id);
+    const outline = extractOutline(n.body_md || "");
+    const heading = outline[0]?.text;
+    out.push({
+      title: (n.title || "未命名").trim() || "未命名",
+      href: noteSourceHref(n),
+      heading,
+    });
+  }
+  return out.slice(0, 10);
 }
 
 function readFocusNoteId(pathname: string | null): string | null {
@@ -860,6 +891,7 @@ export default function GlobalAiDock() {
       const history = buildChatApiHistory(snapshotMsgs, memory);
 
       let body: Record<string, unknown>;
+      let pendingSources: Msg["sources"] = undefined;
       const dbSnap =
         readDbLiveSnapshot(focusDatabaseId) ||
         (focusDatabaseId ? null : readDbLiveSnapshot());
@@ -927,6 +959,17 @@ export default function GlobalAiDock() {
           allowNoteEdit: allowNoteEdit,
           focusNoteId: meetingCtx.noteId,
         };
+        const meetingNote = notes.find((n) => n.id === meetingCtx.noteId);
+        if (meetingNote) {
+          pendingSources = sourcesFromNotes([meetingNote]);
+        } else {
+          pendingSources = [
+            {
+              title: meetingCtx.title || "會議筆記",
+              href: `/notes/${meetingCtx.noteId}`,
+            },
+          ];
+        }
       } else if (onJobPage && jobCtx) {
         const packed = packTranscriptForAi(jobCtx.transcript);
         if (!packed.trim()) throw new Error("尚無逐字稿內容可詢問");
@@ -956,6 +999,10 @@ export default function GlobalAiDock() {
                 .map((n) => `### ${n.title}\n${(n.body_md || "").slice(0, 2500)}`)
                 .join("\n\n")}\n—— 結束 ——`
             : "";
+        pendingSources = sourcesFromNotes([
+          { ...focusNote, title: noteTitle, body_md: noteBody },
+          ...pinExtra,
+        ]);
         body = {
           action: "note",
           title: noteTitle,
@@ -998,6 +1045,11 @@ export default function GlobalAiDock() {
           maxNotes: snapshotPins.length ? Math.min(snapshotPins.length, 12) : 10,
           maxChars: 14000,
         });
+        pendingSources = sourcesFromNotes(
+          packed.usedIds
+            .map((id) => notes.find((n) => n.id === id))
+            .filter(Boolean) as Note[]
+        );
         body = {
           action: "library",
           prompt,
@@ -1023,6 +1075,7 @@ export default function GlobalAiDock() {
       let scheduleEdit: ScheduleAiEdit | null = null;
       let canvasEdit: CanvasAiEdit | null = null;
       let editApplied = false;
+      const answerSources = pendingSources;
 
       if (canEditDb && dbSnap) {
         const parsedDb = parseDbAiEdit(rawText);
@@ -1072,6 +1125,7 @@ export default function GlobalAiDock() {
         scheduleEdit,
         canvasEdit,
         editApplied,
+        sources: answerSources?.length ? answerSources : undefined,
       };
       patchActive((t) => ({
         ...t,
@@ -1394,6 +1448,23 @@ export default function GlobalAiDock() {
                   ) : (
                     <p>{m.text}</p>
                   )}
+                  {m.role === "assistant" && m.sources && m.sources.length > 0 ? (
+                    <div className="cadence-ai-sources" aria-label="來源">
+                      <span className="cadence-ai-sources-label">來源</span>
+                      <ul>
+                        {m.sources.map((s) => (
+                          <li key={s.href}>
+                            <Link href={s.href} className="cadence-ai-source-link">
+                              {s.title}
+                              {s.heading ? (
+                                <span className="cadence-ai-source-anchor"> · {s.heading}</span>
+                              ) : null}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {m.role === "assistant" && m.dbEdit ? (
                     <div className="cadence-ai-edit-bar">
                       <span>
