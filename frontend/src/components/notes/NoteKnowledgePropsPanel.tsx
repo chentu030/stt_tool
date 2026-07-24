@@ -39,13 +39,23 @@ import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 import type { DbPropType } from "@/lib/database";
 
+/** Align with database addable types (exclude formula/rollup/system — need DB context). */
 const ADDABLE_PROP_TYPES = [
-  { value: "text", label: "文字" },
-  { value: "number", label: "數字" },
-  { value: "date", label: "日期" },
-  { value: "select", label: "單選" },
-  { value: "status", label: "狀態" },
-  { value: "checkbox", label: "核取方塊" },
+  { value: "text", label: "文字", hint: "基本" },
+  { value: "number", label: "數字", hint: "基本" },
+  { value: "checkbox", label: "核取方塊", hint: "基本" },
+  { value: "date", label: "日期", hint: "基本" },
+  { value: "datetime", label: "日期時間", hint: "基本" },
+  { value: "select", label: "單選", hint: "選項" },
+  { value: "multi_select", label: "多選", hint: "選項" },
+  { value: "status", label: "狀態", hint: "選項" },
+  { value: "tags", label: "標籤", hint: "選項" },
+  { value: "url", label: "網址", hint: "聯絡" },
+  { value: "email", label: "Email", hint: "聯絡" },
+  { value: "phone", label: "電話", hint: "聯絡" },
+  { value: "person", label: "人員", hint: "聯絡" },
+  { value: "files", label: "圖片／音訊／檔案", hint: "進階" },
+  { value: "relation", label: "關聯", hint: "進階" },
 ] as const;
 
 type AddablePropType = (typeof ADDABLE_PROP_TYPES)[number]["value"];
@@ -53,10 +63,25 @@ type AddablePropType = (typeof ADDABLE_PROP_TYPES)[number]["value"];
 function coerceAddPropValue(type: AddablePropType, raw: string, checked: boolean): unknown {
   if (type === "checkbox") return checked;
   const t = raw.trim();
-  if (!t) return "";
+  if (!t) {
+    if (type === "multi_select" || type === "tags" || type === "relation" || type === "files") return [];
+    return "";
+  }
   if (type === "number") {
     const n = Number(t);
     return Number.isFinite(n) ? n : t;
+  }
+  if (type === "multi_select" || type === "tags") {
+    return t
+      .split(/[,，、\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  if (type === "relation") {
+    return t
+      .split(/[,，\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
   }
   return t;
 }
@@ -67,9 +92,26 @@ function valuePlaceholder(type: AddablePropType): string {
       return "例如 42";
     case "date":
       return "YYYY-MM-DD";
+    case "datetime":
+      return "YYYY-MM-DD HH:mm";
     case "select":
     case "status":
       return "選項名稱（可留空）";
+    case "multi_select":
+    case "tags":
+      return "多個用逗號分隔（可留空）";
+    case "url":
+      return "https://…";
+    case "email":
+      return "name@example.com";
+    case "phone":
+      return "電話號碼";
+    case "person":
+      return "人員名稱";
+    case "files":
+      return "可稍後上傳";
+    case "relation":
+      return "筆記標題（可稍後補）";
     default:
       return "可留空";
   }
@@ -327,8 +369,41 @@ export default function NoteKnowledgePropsPanel({
         return;
       }
       const def = createCustomWorkspaceDef(name, addType as DbPropType);
+      if (
+        (addType === "select" || addType === "status" || addType === "multi_select") &&
+        addValue.trim()
+      ) {
+        const labels = addValue
+          .split(/[,，、\n]+/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+        if (labels.length) {
+          def.options = labels.map((label, i) => ({
+            id: `o_${i}_${label.slice(0, 12)}`,
+            label,
+          }));
+          if (addType === "status") {
+            def.statusGroups = [{ name: "預設", optionIds: def.options.map((o) => o.id) }];
+          }
+        }
+      }
       await upsertWorkspacePropertyDef(userId, def);
-      const value = coerceAddPropValue(addType, addValue, addChecked);
+      let value = coerceAddPropValue(addType, addValue, addChecked);
+      // For select/status, store option id when we seeded from content
+      if (
+        (addType === "select" || addType === "status") &&
+        def.options?.length &&
+        typeof value === "string" &&
+        value
+      ) {
+        const hit = def.options.find((o) => o.label === value || o.id === value);
+        value = hit?.id || def.options[0].id;
+      }
+      if (addType === "multi_select" && def.options?.length && Array.isArray(value)) {
+        value = (value as string[])
+          .map((v) => def.options!.find((o) => o.label === v || o.id === v)?.id || v)
+          .filter(Boolean);
+      }
       await commitWs(def.id, value);
       toast(`已加入工作區屬性「${def.name}」`);
       setAddOpen(false);
