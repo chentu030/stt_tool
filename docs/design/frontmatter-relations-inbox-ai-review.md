@@ -10,6 +10,7 @@ Internal engineering note. Reference product names OK here; never surface in pro
 - Fields with `[[wikilinks]]` (or known relation keys) promoted to first-class `note.props` keys
 - Leftover unknown keys still in `props.frontmatter`
 - UI: `NoteKnowledgePropsPanel` on non-database notes (類型、關係、標為已整理)
+  - **Polished panel:** see `note-properties-panel.md` (pills, relationship chips, 新增屬性／關係, aside「資訊」)
 - Export / local-folder push round-trip via `frontmatterExtrasFromProps`
 
 ### 2. Structured relationships

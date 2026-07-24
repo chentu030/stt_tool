@@ -61,6 +61,17 @@ const RELATION_KEY_HINTS = new Set([
   "相關",
   "人物",
   "專案",
+  "belongs_to",
+  "belongs",
+  "belong",
+  "has",
+  "has_notes",
+  "owned_by",
+  "owner",
+  "屬於",
+  "歸屬",
+  "擁有",
+  "下屬",
 ]);
 
 const STATUS_FM_KEYS = new Set(["status", "state", "progress", "狀態"]);
@@ -75,6 +86,7 @@ export type NoteKnowledgeLite = {
   source_job_id?: string;
   parent_id?: string;
   props?: Record<string, unknown>;
+  created_at?: Date;
   updated_at?: Date;
 };
 
@@ -135,6 +147,13 @@ function relationLabel(key: string): string {
     previous: "上一則",
     up: "上層",
     down: "下層",
+    belongs_to: "屬於",
+    belongs: "屬於",
+    belong: "屬於",
+    has: "擁有",
+    has_notes: "擁有筆記",
+    owned_by: "歸屬",
+    owner: "擁有者",
   };
   return map[key.toLowerCase()] || key;
 }
@@ -378,6 +397,257 @@ export function withNoteType(
   if (t) next[TYPE_PROP] = t;
   else delete next[TYPE_PROP];
   return next;
+}
+
+export function withFmStatus(
+  props: Record<string, unknown> | undefined,
+  status: string
+): Record<string, unknown> {
+  const next = { ...(props || {}) };
+  const s = status.trim();
+  if (s) next[FM_STATUS_PROP] = s;
+  else delete next[FM_STATUS_PROP];
+  return next;
+}
+
+/** Serialize relation titles as `[[Title]]` list (YAML-friendly). */
+export function encodeRelationTitles(titles: string[]): string[] {
+  const out: string[] = [];
+  for (const raw of titles) {
+    const t = raw.trim().replace(/^\[\[|\]\]$/g, "").trim();
+    if (!t) continue;
+    const encoded = `[[${t}]]`;
+    if (!out.includes(encoded)) out.push(encoded);
+  }
+  return out;
+}
+
+export function withRelationTitles(
+  props: Record<string, unknown> | undefined,
+  key: string,
+  titles: string[],
+  opts?: { keepEmpty?: boolean }
+): Record<string, unknown> {
+  const k = key.trim();
+  if (!k || INTERNAL_NOTE_PROP_KEYS.has(k) || k === TYPE_PROP || k === FM_STATUS_PROP) {
+    return { ...(props || {}) };
+  }
+  const next = { ...(props || {}) };
+  const encoded = encodeRelationTitles(titles);
+  if (encoded.length) next[k] = encoded.length === 1 ? encoded[0] : encoded;
+  else if (opts?.keepEmpty) next[k] = [];
+  else delete next[k];
+  return next;
+}
+
+/** Create an empty relationship field (shows「新增」slot in UI). */
+export function ensureRelationField(
+  props: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown> {
+  const k = key.trim();
+  if (!k || INTERNAL_NOTE_PROP_KEYS.has(k) || k === TYPE_PROP || k === FM_STATUS_PROP) {
+    return { ...(props || {}) };
+  }
+  const next = { ...(props || {}) };
+  if (!(k in next)) next[k] = [];
+  return next;
+}
+
+export function addRelationTitle(
+  props: Record<string, unknown> | undefined,
+  key: string,
+  title: string
+): Record<string, unknown> {
+  const existing = wikiTitlesFromValue(props?.[key]);
+  const t = title.trim().replace(/^\[\[|\]\]$/g, "").trim();
+  if (!t) return { ...(props || {}) };
+  if (existing.some((x) => x.toLowerCase() === t.toLowerCase())) {
+    return withRelationTitles(props, key, existing);
+  }
+  return withRelationTitles(props, key, [...existing, t]);
+}
+
+export function removeRelationTitle(
+  props: Record<string, unknown> | undefined,
+  key: string,
+  title: string
+): Record<string, unknown> {
+  const t = title.trim().toLowerCase();
+  const existing = wikiTitlesFromValue(props?.[key]).filter(
+    (x) => x.trim().toLowerCase() !== t
+  );
+  return withRelationTitles(props, key, existing, { keepEmpty: true });
+}
+
+/** Custom scalar / text props stored in the frontmatter bag (not relations). */
+export function withFrontmatterExtra(
+  props: Record<string, unknown> | undefined,
+  key: string,
+  value: string
+): Record<string, unknown> {
+  const k = key.trim();
+  if (!k || INTERNAL_NOTE_PROP_KEYS.has(k)) return { ...(props || {}) };
+  const next = { ...(props || {}) };
+  const bag =
+    typeof next[FRONTMATTER_PROP] === "object" && next[FRONTMATTER_PROP]
+      ? { ...(next[FRONTMATTER_PROP] as Record<string, unknown>) }
+      : {};
+  const v = value.trim();
+  if (v) bag[k] = v;
+  else delete bag[k];
+  if (Object.keys(bag).length) next[FRONTMATTER_PROP] = bag;
+  else delete next[FRONTMATTER_PROP];
+  return next;
+}
+
+export function removeFrontmatterExtra(
+  props: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown> {
+  return withFrontmatterExtra(props, key, "");
+}
+
+/** Remove a scalar from frontmatter bag and/or top-level props. */
+export function removeScalarProp(
+  props: Record<string, unknown> | undefined,
+  key: string
+): Record<string, unknown> {
+  let next = removeFrontmatterExtra(props, key);
+  if (key in next && key !== TYPE_PROP && key !== FM_STATUS_PROP && !INTERNAL_NOTE_PROP_KEYS.has(key)) {
+    next = { ...next };
+    delete next[key];
+  }
+  return next;
+}
+
+export type ScalarPropView = {
+  key: string;
+  label: string;
+  value: string;
+  source: "frontmatter" | "prop";
+};
+
+/** Non-relation custom fields for the 屬性 panel (frontmatter bag + loose strings). */
+export function listScalarProps(
+  props?: Record<string, unknown> | null
+): ScalarPropView[] {
+  if (!props) return [];
+  const out: ScalarPropView[] = [];
+  const seen = new Set<string>();
+
+  const bag =
+    typeof props[FRONTMATTER_PROP] === "object" && props[FRONTMATTER_PROP]
+      ? (props[FRONTMATTER_PROP] as Record<string, unknown>)
+      : {};
+  for (const [k, v] of Object.entries(bag)) {
+    const lk = k.toLowerCase();
+    if (["created", "updated", "date", "organized"].includes(lk)) continue;
+    if (STATUS_FM_KEYS.has(lk)) continue;
+    if (isRelationField(k, v)) continue;
+    const s = Array.isArray(v) ? v.map(String).join(", ") : String(v ?? "").trim();
+    if (!s) continue;
+    seen.add(k.toLowerCase());
+    out.push({ key: k, label: k, value: s, source: "frontmatter" });
+  }
+
+  for (const [k, v] of Object.entries(props)) {
+    if (INTERNAL_NOTE_PROP_KEYS.has(k)) continue;
+    if (k === TYPE_PROP || k === FM_STATUS_PROP) continue;
+    if (isRelationField(k, v)) continue;
+    if (seen.has(k.toLowerCase())) continue;
+    if (typeof v === "object" && v != null && !Array.isArray(v)) continue;
+    const s = Array.isArray(v) ? v.map(String).join(", ") : String(v ?? "").trim();
+    if (!s) continue;
+    out.push({ key: k, label: k, value: s, source: "prop" });
+  }
+  return out;
+}
+
+export type DatePill = {
+  key: string;
+  label: string;
+  text: string;
+};
+
+function formatDatePill(raw: unknown): string | null {
+  if (raw == null || raw === "") return null;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    return raw.toLocaleDateString("zh-TW", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime()) && /^\d{4}/.test(s)) {
+    return d.toLocaleDateString("zh-TW", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+  return s;
+}
+
+/** Key dates for pills: FM date + note created/updated. */
+export function listNoteDatePills(note: NoteKnowledgeLite): DatePill[] {
+  const out: DatePill[] = [];
+  const bag =
+    note.props &&
+    typeof note.props[FRONTMATTER_PROP] === "object" &&
+    note.props[FRONTMATTER_PROP]
+      ? (note.props[FRONTMATTER_PROP] as Record<string, unknown>)
+      : {};
+  const fmDate = formatDatePill(bag.date ?? bag.Date);
+  if (fmDate) out.push({ key: "fm-date", label: "日期", text: fmDate });
+  if (note.created_at) {
+    const t = formatDatePill(note.created_at);
+    if (t) out.push({ key: "created", label: "建立", text: t });
+  }
+  if (note.updated_at) {
+    const t = formatDatePill(note.updated_at);
+    if (t) out.push({ key: "updated", label: "編輯", text: t });
+  }
+  return out;
+}
+
+/** Relation rows including empty slots (key present but no titles yet). */
+export function listPropRelationFields(
+  props?: Record<string, unknown> | null
+): PropRelation[] {
+  if (!props) return [];
+  const out: PropRelation[] = [];
+  for (const [key, value] of Object.entries(props)) {
+    if (INTERNAL_NOTE_PROP_KEYS.has(key)) continue;
+    if (key === TYPE_PROP || key === FM_STATUS_PROP) continue;
+    if (STATUS_FM_KEYS.has(key.toLowerCase())) continue;
+
+    const titles = wikiTitlesFromValue(value);
+    const emptySlot =
+      (Array.isArray(value) && value.length === 0) ||
+      value === "" ||
+      value == null;
+    if (emptySlot) {
+      // Empty array marks a user-created relationship field; hint keys also count.
+      if (Array.isArray(value) || RELATION_KEY_HINTS.has(key.toLowerCase())) {
+        out.push({ key, label: relationLabel(key), titles: [] });
+      }
+      continue;
+    }
+    if (!isRelationField(key, value)) continue;
+    out.push({ key, label: relationLabel(key), titles });
+  }
+  return out;
+}
+
+/** Stable teal/slate tone index for relationship chip color (0–5). */
+export function relationToneIndex(key: string): number {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return h % 6;
 }
 
 /** Merge first-class props into YAML extras for export round-trip. */

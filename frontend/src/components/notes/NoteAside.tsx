@@ -4,7 +4,9 @@ import Link from "next/link";
 import { HeadingItem, NoteStats, RelatedNote } from "@/lib/noteMeta";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NoteAsideRecording from "@/components/notes/NoteAsideRecording";
+import NoteKnowledgePropsPanel from "@/components/notes/NoteKnowledgePropsPanel";
 import type { LiveSegment } from "@/lib/liveSegments";
+import type { Note } from "@/lib/firebase";
 
 type OutboundLink = {
   title: string;
@@ -62,6 +64,11 @@ type Props = {
   canEditRecording?: boolean;
   /** Keep「錄音」tab visible while a live session is active (even before first segment). */
   showRecordingTab?: boolean;
+  /** Non-database note 屬性／關係 panel (same component as editor chrome). */
+  knowledgeNote?: Note | null;
+  knowledgeReadOnly?: boolean;
+  onKnowledgePropsPatch?: (props: Record<string, unknown>) => void;
+  resolveNoteHref?: (title: string) => string | undefined;
 };
 
 export default function NoteAside({
@@ -90,6 +97,10 @@ export default function NoteAside({
   recordingExportFilename,
   canEditRecording = false,
   showRecordingTab = false,
+  knowledgeNote = null,
+  knowledgeReadOnly = false,
+  onKnowledgePropsPatch,
+  resolveNoteHref,
 }: Props) {
   if (!open) return null;
 
@@ -276,6 +287,15 @@ export default function NoteAside({
 
       {tab === "info" && (
         <div className="note-aside-body">
+          {knowledgeNote && !knowledgeNote.database_id ? (
+            <NoteKnowledgePropsPanel
+              note={knowledgeNote}
+              readOnly={knowledgeReadOnly || !onKnowledgePropsPatch}
+              variant="aside"
+              resolveNoteHref={resolveNoteHref}
+              onPropsPatch={onKnowledgePropsPatch || (() => {})}
+            />
+          ) : null}
           <div className="note-stat-grid">
             <div><strong>{stats.words}</strong><span>字詞</span></div>
             <div><strong>{stats.chars}</strong><span>字元</span></div>

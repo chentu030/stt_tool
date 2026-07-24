@@ -15294,57 +15294,350 @@ body.rich-media-float-dragging * {
 .nk-props {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  margin: 0.35rem 0 0.75rem;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.85rem;
+  padding: 0.55rem 0.7rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-muted) 70%, var(--bg) 30%);
+}
+.nk-props--aside {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.55rem 0.55rem;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-muted) 55%, transparent);
 }
-.nk-props-row {
-  display: grid;
-  grid-template-columns: 5.2rem minmax(0, 1fr);
-  gap: 0.45rem;
-  align-items: start;
-  font-size: 0.82rem;
+.nk-props.is-collapsed {
+  gap: 0.25rem;
+  padding-bottom: 0.45rem;
 }
-.nk-props-key {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  padding-top: 0.35rem;
+.nk-props-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
 }
-.nk-props-val {
-  color: var(--text);
-  word-break: break-word;
-}
-.nk-props-input {
-  width: 100%;
+.nk-props-head-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   min-width: 0;
 }
-.nk-props-links {
+.nk-props-head-main strong {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.nk-props-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+}
+.nk-props-icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.nk-props-icon-btn:hover {
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  color: var(--text);
+}
+.nk-props-collapsed-summary {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.15rem 0.1rem;
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.nk-props-collapsed-summary:hover {
+  color: var(--accent);
+}
+.nk-props-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.nk-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  line-height: 1.25;
+  cursor: default;
+}
+button.nk-pill {
+  cursor: pointer;
+}
+button.nk-pill:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--bg));
+}
+.nk-pill.is-empty {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+.nk-pill-label {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.nk-pill-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+}
+.nk-pill--type {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 85%, var(--bg));
+}
+.nk-pill--type .nk-pill-value {
+  color: var(--accent);
+}
+.nk-pill--status {
+  border-color: color-mix(in srgb, var(--accent-3) 30%, var(--border));
+  background: color-mix(in srgb, var(--accent-3) 10%, var(--bg));
+}
+.nk-pill--status .nk-pill-value {
+  color: var(--accent-3);
+}
+.nk-pill--date {
+  background: color-mix(in srgb, var(--bg-muted) 40%, var(--bg));
+}
+.nk-pill--extra {
+  background: color-mix(in srgb, var(--bg-muted) 55%, var(--bg));
+}
+.nk-pill--edit {
+  padding-right: 0.35rem;
+}
+.nk-pill-input {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 550;
+  min-width: 5.5rem;
+  max-width: 10rem;
+  outline: none;
+  padding: 0;
+}
+.nk-rels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding-top: 0.1rem;
+}
+.nk-rel-row {
+  display: grid;
+  grid-template-columns: 4.6rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+}
+.nk-props--aside .nk-rel-row {
+  grid-template-columns: 3.8rem minmax(0, 1fr);
+}
+.nk-rel-key {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-top: 0.28rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nk-rel-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+  align-items: center;
+  min-width: 0;
 }
-.nk-wiki-chip {
-  font-size: 0.75rem;
-  padding: 0.12rem 0.4rem;
-  border-radius: 6px;
+.nk-rel-chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.nk-rel-chip {
+  display: inline-block;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 999px;
+  line-height: 1.25;
+}
+.nk-rel-chip-wrap .nk-rel-chip {
+  border-radius: 999px 0 0 999px;
+  padding-right: 0.35rem;
+}
+.nk-rel-chip-wrap:not(:has(.nk-rel-chip-x)) .nk-rel-chip {
+  border-radius: 999px;
+  padding-right: 0.5rem;
+}
+.nk-rel-chip.is-missing {
+  opacity: 0.72;
+  font-style: italic;
+}
+.nk-rel-chip--t0 {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.nk-rel-chip--t1 {
+  background: color-mix(in srgb, var(--accent-3) 16%, transparent);
+  color: var(--accent-3);
+}
+.nk-rel-chip--t2 {
+  background: color-mix(in srgb, #0f766e 14%, transparent);
+  color: #0f766e;
+}
+:root[data-theme="dark"] .nk-rel-chip--t2,
+html.dark .nk-rel-chip--t2 {
+  color: #5eead4;
+  background: color-mix(in srgb, #5eead4 14%, transparent);
+}
+.nk-rel-chip--t3 {
+  background: color-mix(in srgb, #0369a1 14%, transparent);
+  color: #0369a1;
+}
+:root[data-theme="dark"] .nk-rel-chip--t3,
+html.dark .nk-rel-chip--t3 {
+  color: #7dd3fc;
+  background: color-mix(in srgb, #7dd3fc 14%, transparent);
+}
+.nk-rel-chip--t4 {
+  background: color-mix(in srgb, #115e59 14%, transparent);
+  color: #115e59;
+}
+:root[data-theme="dark"] .nk-rel-chip--t4,
+html.dark .nk-rel-chip--t4 {
+  color: #99f6e4;
+  background: color-mix(in srgb, #99f6e4 12%, transparent);
+}
+.nk-rel-chip--t5 {
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text);
+}
+.nk-rel-chip-x {
+  border: none;
+  background: inherit;
+  color: inherit;
+  opacity: 0.55;
+  width: 1.15rem;
+  height: 100%;
+  min-height: 1.35rem;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  border-radius: 0 999px 999px 0;
+}
+.nk-rel-chip-wrap:has(.nk-rel-chip--t0) {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.nk-rel-chip-wrap:has(.nk-rel-chip--t1) {
+  background: color-mix(in srgb, var(--accent-3) 16%, transparent);
+  color: var(--accent-3);
+}
+.nk-rel-chip-wrap:has(.nk-rel-chip--t2) {
+  background: color-mix(in srgb, #0f766e 14%, transparent);
+  color: #0f766e;
+}
+.nk-rel-chip-wrap:has(.nk-rel-chip--t3) {
+  background: color-mix(in srgb, #0369a1 14%, transparent);
+  color: #0369a1;
+}
+.nk-rel-chip-wrap:has(.nk-rel-chip--t4) {
+  background: color-mix(in srgb, #115e59 14%, transparent);
+  color: #115e59;
+}
+.nk-rel-chip-wrap:has(.nk-rel-chip--t5) {
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  color: var(--text);
+}
+.nk-rel-chip-x:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.nk-rel-slot {
+  border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.nk-rel-slot:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
   background: var(--accent-soft);
-  color: var(--accent-2);
 }
-.nk-props-actions {
+.nk-props-foot {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.25rem 0.55rem;
   align-items: center;
-  margin-top: 0.2rem;
+  padding-top: 0.15rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.nk-props-add {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.15rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.nk-props-add:hover {
+  color: var(--accent);
+}
+.nk-props-add--quiet {
+  margin-left: auto;
+  font-weight: 500;
+  opacity: 0.9;
 }
 .nk-inbox-badge,
 .nk-org-badge {
-  font-size: 0.7rem;
-  padding: 0.12rem 0.45rem;
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
   border-radius: 999px;
+  font-weight: 600;
 }
 .nk-inbox-badge {
   background: color-mix(in srgb, #c45c26 18%, transparent);

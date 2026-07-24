@@ -2747,6 +2747,10 @@ function NotePageInner() {
               ) : (
                 <NoteKnowledgePropsPanel
                   note={note}
+                  resolveNoteHref={(t) => {
+                    const hit = findNoteByTitle(allNotes, t);
+                    return hit ? `/notes/${hit.id}` : undefined;
+                  }}
                   onPropsPatch={(props) => {
                     setNote((n) => (n ? { ...n, props } : n));
                     void updateNote(note.id, { props });
@@ -2795,6 +2799,10 @@ function NotePageInner() {
             <NoteKnowledgePropsPanel
               note={note}
               readOnly
+              resolveNoteHref={(t) => {
+                const hit = findNoteByTitle(allNotes, t);
+                return hit ? `/notes/${hit.id}` : undefined;
+              }}
               onPropsPatch={() => {}}
             />
           ) : null}
@@ -2994,6 +3002,20 @@ function NotePageInner() {
           onInsertWiki={viewMode === "read" ? () => undefined : insertWiki}
           widthPx={asideWidth}
           onResizeWidth={onAsideResize}
+          knowledgeNote={note}
+          knowledgeReadOnly={!canEditNote || viewMode === "read"}
+          resolveNoteHref={(t) => {
+            const hit = findNoteByTitle(allNotes, t);
+            return hit ? `/notes/${hit.id}` : undefined;
+          }}
+          onKnowledgePropsPatch={
+            note && canEditNote
+              ? (props) => {
+                  setNote((n) => (n ? { ...n, props } : n));
+                  void updateNote(note.id, { props });
+                }
+              : undefined
+          }
         />
       </div>
 
