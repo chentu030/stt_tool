@@ -1,4 +1,5 @@
 import { hexToRgb, normalizeHexColor, rgbToHex } from "@/lib/colorPick";
+import { isYoutubeUrl, resolveEmbedUrl } from "@/lib/embedUrls";
 
 /** Spatial canvas document model + local persistence */
 
@@ -466,6 +467,16 @@ export function edgePath(a: Point, b: Point, _radius = 12): string {
 export type CanvasAiOp =
   | { op: "add_sticky"; text?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
   | { op: "add_shape"; shape?: ShapeKind; label?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
+  | {
+      op: "add_media";
+      media?: "image" | "youtube" | "link" | "web";
+      url: string;
+      title?: string;
+      x?: number;
+      y?: number;
+      w?: number;
+      h?: number;
+    }
   | { op: "update"; id: string; text?: string; label?: string; x?: number; y?: number; w?: number; h?: number; color?: string }
   | { op: "delete"; id: string }
   | { op: "connect"; from: string; to: string; label?: string }
@@ -598,6 +609,49 @@ export function applyCanvasOps(
         z: z++,
       };
       next.shapes.push(sh);
+    } else if (op.op === "add_media" && op.url?.trim()) {
+      const rawUrl = op.url.trim();
+      const resolved = resolveEmbedUrl(rawUrl, op.title);
+      let kind: CanvasMediaKind =
+        op.media === "image" || op.media === "youtube" || op.media === "web" || op.media === "link"
+          ? op.media
+          : "link";
+      if (!op.media && isYoutubeUrl(rawUrl)) kind = "youtube";
+      if (!op.media && resolved?.kind === "youtube") kind = "youtube";
+      if (kind === "youtube" && resolved?.kind === "youtube") {
+        // keep youtube
+      } else if (op.media === "image") {
+        kind = "image";
+      } else if (resolved?.kind === "youtube") {
+        kind = "youtube";
+      } else if (resolved?.kind === "web" || resolved?.kind === "link") {
+        kind = resolved.kind === "web" ? "web" : "link";
+      }
+      const size = MEDIA_DEFAULT_SIZE[kind] || MEDIA_DEFAULT_SIZE.link;
+      const displayUrl =
+        kind === "youtube" && resolved?.src
+          ? resolved.src
+          : kind === "image"
+            ? rawUrl
+            : resolved?.src || rawUrl;
+      const originalUrl = resolved?.original || rawUrl;
+      const m: CanvasMedia = createMediaItem({
+        media: kind,
+        x: op.x ?? 80 + Math.random() * 80,
+        y: op.y ?? 80 + Math.random() * 60,
+        w: op.w ?? size.w,
+        h: op.h ?? size.h,
+        url: displayUrl,
+        originalUrl,
+        title: (
+          op.title ||
+          resolved?.title ||
+          (kind === "youtube" ? "YouTube" : kind === "image" ? "圖片" : "連結")
+        ).slice(0, 120),
+        frameable: kind === "image" || kind === "youtube" || kind === "web",
+        z: z++,
+      });
+      next.media.push(m);
     } else if (op.op === "update" && op.id) {
       next.stickies = next.stickies.map((s) => {
         if (s.id !== op.id) return s;

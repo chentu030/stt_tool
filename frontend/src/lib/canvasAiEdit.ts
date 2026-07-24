@@ -108,6 +108,7 @@ export function summarizeCanvasOps(ops: CanvasAiOp[]): string {
   const labels: Record<string, string> = {
     add_sticky: "新增便利貼",
     add_shape: "新增形狀",
+    add_media: "新增媒體",
     update: "更新物件",
     delete: "刪除",
     connect: "連線",
@@ -122,7 +123,7 @@ export function summarizeCanvasOps(ops: CanvasAiOp[]): string {
 export function userAskedToEditCanvas(prompt: string): boolean {
   const t = prompt.trim();
   if (!t) return false;
-  return /整理|區塊|框架|連線|連接|釘上|新增|加上|加入|刪除|刪掉|移除|移動|改成|改寫|擴寫|便利貼|形狀|白板|畫布|排版|佈局|重排|建議連|拆成|拆卡/.test(
+  return /整理|區塊|框架|連線|連接|釘上|新增|加上|加入|刪除|刪掉|移除|移動|改成|改寫|擴寫|便利貼|形狀|白板|畫布|排版|佈局|重排|建議連|拆成|拆卡|圖片|影片|YouTube|youtube|插圖|配圖/.test(
     t
   );
 }

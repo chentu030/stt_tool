@@ -14,6 +14,7 @@ import {
 import { NOTE_EDIT_SYSTEM_RULES } from "@/lib/noteAiEdit";
 import { DB_EDIT_SYSTEM_RULES } from "@/lib/dbAiEdit";
 import { SCHEDULE_EDIT_SYSTEM_RULES } from "@/lib/scheduleAiEdit";
+import { MEDIA_INSERT_SYSTEM_RULES } from "@/lib/aiMediaInsert";
 import { requireAiUser } from "@/lib/aiApiGuard";
 
 export const runtime = "nodejs";
@@ -78,6 +79,8 @@ type Body = {
   allowDbEdit?: boolean;
   /** When true, system prompt allows albireus-schedule-edit fences for journal schedule. */
   allowScheduleEdit?: boolean;
+  /** When true, system prompt allows albireus-media-insert fences (images / YouTube). */
+  allowMediaInsert?: boolean;
   /** Focus note id (for edit targeting hints). */
   focusNoteId?: string;
   /** Focus database id (for edit targeting hints). */
@@ -260,11 +263,13 @@ function buildPrompt(data: Body): {
 ops 可用：
 - {"op":"add_sticky","text":"...","x":number,"y":number,"color":"yellow"|"mint"|"sky"|"rose"|"violet"|"sand"}
 - {"op":"add_shape","shape":"rect"|"ellipse"|"frame","label":"...","x":n,"y":n,"w":n,"h":n}
+- {"op":"add_media","media":"image"|"youtube"|"link","url":"https://…","title":"可選","x":n,"y":n}
 - {"op":"update","id":"現有id","text":"...","label":"...","x":n,"y":n}
 - {"op":"delete","id":"現有id"}
 - {"op":"connect","from":"id","to":"id"}
 - {"op":"pin_note","noteId":"必須來自 noteCatalog","x":n,"y":n}
-規則：不要捏造 noteId；刪除要謹慎；一次最多 12 個 ops；座標以現有物件附近為佳；若只需建議可不給 ops（ops:[]）。使用者會在介面按「套用到白板」後才寫入，你要在 message 清楚說明將做哪些變更。`,
+規則：不要捏造 noteId；刪除要謹慎；一次最多 12 個 ops；座標以現有物件附近為佳；若只需建議可不給 ops（ops:[]）。add_media 的 url 必須是真實可公開存取的網址（YouTube 用完整 watch／youtu.be；圖片用 https 圖檔）；不要捏造圖床或影片 id。需要 AI 生圖時改在 message 說明，並另外輸出 albireus-media-insert（type:image_generate），不要用假 url。使用者會在介面按「套用到白板」或「插入圖片／影片」後才寫入，你要在 message 清楚說明將做哪些變更。
+${MEDIA_INSERT_SYSTEM_RULES}`,
       prompt: `畫布狀態：\n${data.canvasSummary || "{}"}\n\n選取：${JSON.stringify(data.selectedIds || [])}\n\n使用者：\n${data.prompt?.trim() || "請分析這張白板並給建議"}`,
       temperature: 0.45,
     };
@@ -275,6 +280,7 @@ ops 可用：
     const allowEdit = !!data.allowNoteEdit;
     const allowDb = !!data.allowDbEdit;
     const allowSchedule = !!data.allowScheduleEdit;
+    const allowMedia = !!data.allowMediaInsert;
     const editRules = [
       allowDb
         ? `使用者已授權你在「明確要求修改資料庫」時直接產出可套用的資料庫編輯區塊。目前資料庫 ID：${data.focusDatabaseId || "（未知）"}。\n${DB_EDIT_SYSTEM_RULES}`
@@ -284,6 +290,9 @@ ops 可用：
         : "",
       allowSchedule
         ? `使用者已授權你在「明確要求修改日誌行程」時產出可套用的行程編輯區塊（需使用者確認後才會寫入）。目前選取日：${data.focusScheduleDate || "（未知）"}。\n${SCHEDULE_EDIT_SYSTEM_RULES}`
+        : "",
+      allowMedia
+        ? `使用者目前在可插入媒體的頁面。當對方要求配圖、插圖、生成圖片或嵌入 YouTube 時，請輸出媒體插入區塊（按「插入圖片／插入影片」才會寫入）。\n${MEDIA_INSERT_SYSTEM_RULES}`
         : "",
       !allowDb && !allowEdit && !allowSchedule
         ? "你目前沒有寫入筆記、資料庫或行程的權限；只能在對話中給出建議，不要假裝已修改。"

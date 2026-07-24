@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
-import { type Note } from "@/lib/firebase";
+import { type Note, uploadCanvasMedia, uploadNoteMedia } from "@/lib/firebase";
 import { useNotesList } from "@/components/notes/NotesListProvider";
 import { packLibraryContext, AI_SUGGESTIONS } from "@/lib/libraryIndex";
 import { resolveSemanticNoteIds } from "@/lib/noteSemanticSearch";
@@ -57,6 +57,17 @@ import {
   summarizeCanvasOps,
   type CanvasAiEdit,
 } from "@/lib/canvasAiEdit";
+import {
+  insertNoteMarkdownAtCursor,
+  mediaItemActionLabel,
+  mediaItemLabel,
+  mediaItemToNoteMarkdown,
+  parseAiMediaInsert,
+  requestCanvasMediaInsert,
+  type AiMediaInsert,
+  type AiMediaItem,
+} from "@/lib/aiMediaInsert";
+import { generateAiImageFile } from "@/lib/aiImage";
 import { getDatabase, listDatabaseRowsOnce } from "@/lib/database";
 import { toast } from "@/lib/toast";
 import {
@@ -90,6 +101,9 @@ type Msg = {
   dbEdit?: DbAiEdit | null;
   scheduleEdit?: ScheduleAiEdit | null;
   canvasEdit?: CanvasAiEdit | null;
+  mediaInsert?: AiMediaInsert | null;
+  /** Item ids already inserted from mediaInsert. */
+  mediaInsertedIds?: string[];
   editApplied?: boolean;
   /** Knowledge-base sources used for this answer (標題＋錨點). */
   sources?: { title: string; href: string; heading?: string }[];
@@ -132,6 +146,8 @@ const NOTE_PAGE_SUGGESTIONS = [
   { label: "總結此頁", prompt: "請總結目前這篇筆記的重點" },
   { label: "改寫本篇", prompt: "請改寫目前這篇筆記，讓文字更清楚，並直接更新筆記內容" },
   { label: "整理結構", prompt: "請把目前這篇筆記重新整理成清楚的標題與條列，並直接更新筆記" },
+  { label: "配圖說明", prompt: "請為這篇筆記建議 1–2 張示意圖（用 AI 生成），輸出可一鍵插入的媒體區塊" },
+  { label: "嵌入影片", prompt: "若合適，請建議一支相關的 YouTube 影片並輸出可一鍵插入的媒體區塊；不確定實際網址就改用生圖示意" },
   { label: "抽出待辦", prompt: "請從目前這篇筆記抽出待辦清單，追加到筆記文末" },
   { label: "補細節", prompt: "請擴寫目前這篇筆記不足的地方，並直接更新筆記內容" },
   { label: "只問不改", prompt: "先不要改筆記，只說明這篇在講什麼" },
@@ -1043,6 +1059,95 @@ export default function GlobalAiDock() {
     toast(`已套用白板修改（${edit.ops.length} 項：${summarizeCanvasOps(edit.ops)}）`);
   };
 
+  const [mediaBusyId, setMediaBusyId] = useState<string | null>(null);
+
+  const markMediaInserted = (msgId: string, itemId: string) => {
+    patchActive((t) => ({
+      ...t,
+      msgs: t.msgs.map((m) => {
+        if (m.id !== msgId) return m;
+        const prev = m.mediaInsertedIds || [];
+        if (prev.includes(itemId)) return m;
+        return { ...m, mediaInsertedIds: [...prev, itemId] };
+      }),
+    }));
+  };
+
+  const applyMediaItem = async (msgId: string, item: AiMediaItem) => {
+    if (!user) {
+      toast("請先登入");
+      return;
+    }
+    const busyKey = `${msgId}:${item.id}`;
+    if (mediaBusyId) return;
+    setMediaBusyId(busyKey);
+    try {
+      let finalUrl = item.url?.trim() || "";
+      let alt = item.alt || item.title;
+
+      if (item.type === "image_generate") {
+        const prompt = (item.prompt || "").trim();
+        if (!prompt) throw new Error("缺少生圖描述");
+        toast("正在生成圖片…");
+        const { file, caption } = await generateAiImageFile({
+          prompt,
+          aspectRatio: item.aspectRatio || "16:9",
+        });
+        alt = alt || caption || prompt.slice(0, 80);
+        if (onCanvasPage) {
+          const live = readCanvasLiveSnapshot();
+          if (!live?.canvasId) throw new Error("白板尚未就緒，請回到白板頁再試");
+          const up = await uploadCanvasMedia(user.uid, live.canvasId, file);
+          finalUrl = up.url;
+        } else if (onNotePage && focusNote) {
+          const up = await uploadNoteMedia(user.uid, focusNote.id, file);
+          finalUrl = up.url;
+        } else {
+          throw new Error("請先開啟筆記或白板再插入圖片");
+        }
+      }
+
+      if (!finalUrl) throw new Error("缺少媒體網址");
+
+      if (onCanvasPage) {
+        const media =
+          item.type === "youtube"
+            ? "youtube"
+            : item.type === "image_url" || item.type === "image_generate"
+              ? "image"
+              : "link";
+        const ok = requestCanvasMediaInsert({
+          media,
+          url: finalUrl,
+          title: alt || item.title,
+        });
+        if (!ok) throw new Error("白板尚未就緒，請回到白板頁再試");
+        markMediaInserted(msgId, item.id);
+        toast(item.type === "youtube" ? "已插入影片到白板" : "已插入圖片到白板");
+        return;
+      }
+
+      if (onNotePage && focusNote) {
+        const md = mediaItemToNoteMarkdown({
+          ...item,
+          url: finalUrl,
+          alt: alt || item.alt,
+          type: item.type === "youtube" ? "youtube" : "image_url",
+        });
+        insertNoteMarkdownAtCursor(md);
+        markMediaInserted(msgId, item.id);
+        toast(item.type === "youtube" ? "已插入影片到筆記" : "已插入圖片到筆記");
+        return;
+      }
+
+      throw new Error("請先開啟筆記或白板再插入媒體");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "插入媒體失敗");
+    } finally {
+      setMediaBusyId(null);
+    }
+  };
+
   const send = async (text: string) => {
     const trimmed = text.trim();
     const attachSnapshot = attach.attachments.slice();
@@ -1145,6 +1250,7 @@ export default function GlobalAiDock() {
       const canEditHere = allowNoteEdit && !!focusNote && onNotePage && !dbSnap;
       const canEditSchedule = onJournalPage && !!liveSchedule && !dbSnap;
       const canEditCanvas = onCanvasPage && !!liveCanvas && !dbSnap;
+      const canInsertMedia = (onNotePage && !!focusNote && !dbSnap) || (onCanvasPage && !!liveCanvas && !dbSnap);
       const canvasSelectedIds =
         forceSelSnap && liveCanvas?.selectedIds?.length
           ? liveCanvas.selectedIds
@@ -1202,6 +1308,7 @@ export default function GlobalAiDock() {
           messages: history,
           assistant,
           allowNoteEdit: allowNoteEdit,
+          allowMediaInsert: true,
           focusNoteId: meetingCtx.noteId,
         };
         const meetingNote = notes.find((n) => n.id === meetingCtx.noteId);
@@ -1260,6 +1367,7 @@ export default function GlobalAiDock() {
           messages: history,
           assistant,
           allowNoteEdit: canEditHere,
+          allowMediaInsert: canInsertMedia,
           focusNoteId: focusNote.id,
         };
       } else if (canEditSchedule && liveSchedule) {
@@ -1387,11 +1495,23 @@ export default function GlobalAiDock() {
       let dbEdit: DbAiEdit | null = null;
       let scheduleEdit: ScheduleAiEdit | null = null;
       let canvasEdit: CanvasAiEdit | null = null;
+      let mediaInsert: AiMediaInsert | null = null;
       let editApplied = false;
       const answerSources = pendingSources;
 
+      // Strip media fence first so canvas JSON / note-edit fences parse cleanly
+      if (canInsertMedia || meetingCtx) {
+        const parsedMedia = parseAiMediaInsert(rawText);
+        if (parsedMedia.media) {
+          mediaInsert = parsedMedia.media;
+          displayText = parsedMedia.displayText;
+        }
+      }
+
+      const editSource = displayText;
+
       if (canEditDb && dbSnap) {
-        const parsedDb = parseDbAiEdit(rawText);
+        const parsedDb = parseDbAiEdit(editSource);
         displayText = parsedDb.displayText;
         dbEdit = parsedDb.edit;
         if (dbEdit && dbEdit.databaseId === dbSnap.databaseId && user) {
@@ -1412,15 +1532,15 @@ export default function GlobalAiDock() {
           }
         }
       } else if (canEditHere) {
-        const parsed = parseNoteAiEdit(rawText);
+        const parsed = parseNoteAiEdit(editSource);
         displayText = parsed.displayText;
         noteEdit = parsed.edit;
       } else if (canEditSchedule) {
-        const parsedSched = parseScheduleAiEdit(rawText);
+        const parsedSched = parseScheduleAiEdit(editSource);
         displayText = parsedSched.displayText;
         scheduleEdit = parsedSched.edit;
       } else if (canEditCanvas) {
-        const parsedCanvas = parseCanvasAiEdit(rawText);
+        const parsedCanvas = parseCanvasAiEdit(editSource);
         displayText = parsedCanvas.displayText;
         canvasEdit = allowCanvasEdit ? parsedCanvas.edit : null;
       }
@@ -1434,6 +1554,7 @@ export default function GlobalAiDock() {
         dbEdit,
         scheduleEdit,
         canvasEdit,
+        mediaInsert,
         editApplied,
         sources: answerSources?.length ? answerSources : undefined,
       };
@@ -1865,6 +1986,53 @@ export default function GlobalAiDock() {
                       >
                         {m.editApplied ? "再次套用" : "套用到白板"}
                       </button>
+                    </div>
+                  ) : null}
+                  {m.role === "assistant" && m.mediaInsert?.items?.length ? (
+                    <div className="cadence-ai-edit-bar cadence-ai-edit-bar--review cadence-ai-media-bar">
+                      <div className="cadence-ai-edit-head">
+                        <span>建議插入媒體</span>
+                        <span className="cadence-ai-edit-summary">
+                          {m.mediaInsert.items.length} 項 · 點一下寫入目前頁面
+                        </span>
+                      </div>
+                      <ul className="cadence-ai-media-list">
+                        {m.mediaInsert.items.map((item) => {
+                          const done = (m.mediaInsertedIds || []).includes(item.id);
+                          const busy = mediaBusyId === `${m.id}:${item.id}`;
+                          return (
+                            <li key={item.id} className="cadence-ai-media-item">
+                              <div className="cadence-ai-media-meta">
+                                <strong>{mediaItemLabel(item)}</strong>
+                                {item.type === "image_generate" && item.prompt ? (
+                                  <span className="cadence-ai-media-sub" title={item.prompt}>
+                                    {item.prompt.slice(0, 72)}
+                                    {item.prompt.length > 72 ? "…" : ""}
+                                  </span>
+                                ) : null}
+                                {item.type !== "image_generate" && item.url ? (
+                                  <span className="cadence-ai-media-sub" title={item.url}>
+                                    {item.url.slice(0, 56)}
+                                    {item.url.length > 56 ? "…" : ""}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                disabled={busy || !!mediaBusyId}
+                                onClick={() => void applyMediaItem(m.id, item)}
+                              >
+                                {busy
+                                  ? "處理中…"
+                                  : done
+                                    ? "再次插入"
+                                    : mediaItemActionLabel(item)}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                   ) : null}
                   {m.role === "assistant" && m.edit && m.editNoteId ? (

@@ -118,6 +118,10 @@ import {
   registerCanvasAiApplyHandler,
   CANVAS_AI_APPLY_EVENT,
 } from "@/lib/canvasAiEdit";
+import {
+  AI_CANVAS_MEDIA_EVENT,
+  type AiCanvasMediaInsertDetail,
+} from "@/lib/aiMediaInsert";
 import { applyStageWheel, isDragGesture, isZoomInKey, isZoomOutKey, zoomAtClientPoint } from "@/lib/canvasNav";
 import {
   listenCanvases,
@@ -1397,6 +1401,33 @@ function CanvasIdPageInner() {
     if (!raw?.trim()) return;
     insertResolvedUrl(raw.trim());
   };
+
+  useEffect(() => {
+    if (embed) return;
+    const onAiMedia = (e: Event) => {
+      const detail = (e as CustomEvent<AiCanvasMediaInsertDetail>).detail;
+      if (!detail?.url?.trim()) return;
+      if (detail.media === "image") {
+        const size = MEDIA_DEFAULT_SIZE.image;
+        const center = viewportCenterWorld();
+        placeMedia({
+          media: "image",
+          x: snapVal(center.x - size.w / 2, 22, doc.snap),
+          y: snapVal(center.y - size.h / 2, 22, doc.snap),
+          w: size.w,
+          h: size.h,
+          url: detail.url.trim(),
+          originalUrl: detail.url.trim(),
+          title: detail.title || "圖片",
+          frameable: true,
+        });
+        return;
+      }
+      insertResolvedUrl(detail.url.trim());
+    };
+    window.addEventListener(AI_CANVAS_MEDIA_EVENT, onAiMedia as EventListener);
+    return () => window.removeEventListener(AI_CANVAS_MEDIA_EVENT, onAiMedia as EventListener);
+  }, [embed, doc.snap]);
 
   // One-shot: upgrade old text-only「連結」cards to PDF / web iframe previews
   const linkUpgradeDone = useRef(new Set<string>());
