@@ -20,17 +20,17 @@ Internal engineering note. Reference product names OK here; never surface in pro
 - Relative attachment paths: `\`→`/`, strip `./`, resolve `..` against note dir; upload when file present in import set.
 
 ## Explicitly not in this ship
-- Desktop Local REST / folder sync companion (P1 bridge)
+- Desktop Local REST / folder sync companion (P1 bridge) — **done in P1**, see `docs/design/local-folder-bridge-p1.md`
 - Dataview-like query language
 - Obsidian plugin loader / TipTap plugin host
-- Full vault bidirectional sync
+- Full vault bidirectional sync (background watcher)
 
 ## Next from priority list
 | Phase | Item | Notes |
 |-------|------|--------|
-| P1 | Local REST / desktop companion bridge | Watch folder ↔ Cadence API; not in-browser |
+| P1 | Local REST / desktop companion bridge | **Shipped** as FS Access folder sync — `local-folder-bridge-p1.md` |
 | P1 | Richer FM types | Nested YAML, dataview-ish fields as DB props |
-| P2 | Extension host RPC expansion | Beyond current iframe utilities |
+| P2 | Extension host RPC expansion | Beyond current iframe utilities — first task in P1 handoff |
 | Stretch | Template / journal polish | Tied to `NOTE_TEMPLATES` / community templates — light only |
 
 ## Key files

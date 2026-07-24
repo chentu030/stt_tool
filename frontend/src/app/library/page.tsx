@@ -49,6 +49,7 @@ import {
   pickMarkdownFiles,
   pickMarkdownFolder,
 } from "@/lib/importMarkdownNotes";
+import LocalFolderSyncPanel from "@/components/library/LocalFolderSyncPanel";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -80,6 +81,7 @@ function LibraryPageInner() {
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkFolder, setBulkFolder] = useState("");
   const [mdDropOver, setMdDropOver] = useState(false);
+  const [showLocalFolder, setShowLocalFolder] = useState(false);
   const mdDragDepth = useRef(0);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -379,6 +381,14 @@ function LibraryPageInner() {
           </button>
           <button
             type="button"
+            className={`btn btn-sm btn-ghost${showLocalFolder ? " is-on" : ""}`}
+            title="連結本機 Markdown 資料夾並同步"
+            onClick={() => setShowLocalFolder((v) => !v)}
+          >
+            本機資料夾
+          </button>
+          <button
+            type="button"
             className="btn btn-sm btn-ghost"
             onClick={() => setShowTemplates((v) => !v)}
           >
@@ -395,6 +405,14 @@ function LibraryPageInner() {
           </ShinyPill>
         </div>
       </header>
+
+      {showLocalFolder ? (
+        <LocalFolderSyncPanel
+          uid={user.uid}
+          notes={notes}
+          selectedNoteIds={selected.length ? selected : undefined}
+        />
+      ) : null}
 
       <div className="kb-layout">
         <LibraryRail

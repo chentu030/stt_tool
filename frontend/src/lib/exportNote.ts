@@ -33,6 +33,7 @@ export type MarkdownExportMeta = {
   folder?: string;
   created?: string | Date;
   updated?: string | Date;
+  cadenceId?: string;
   extras?: Record<string, unknown>;
   /** When true (default), wrap with YAML frontmatter for round-trip */
   includeFrontmatter?: boolean;
@@ -73,6 +74,7 @@ export function buildExportMarkdown(
       (typeof fmExtras.folder === "string" ? fmExtras.folder : undefined),
     created: meta?.created,
     updated: meta?.updated,
+    cadenceId: meta?.cadenceId,
     extras: fmExtras,
   });
 }

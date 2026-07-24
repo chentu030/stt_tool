@@ -15089,6 +15089,63 @@ body.rich-media-float-dragging * {
   font-weight: 650;
   backdrop-filter: blur(2px);
 }
+
+/* Local folder bridge (P1) */
+.lfs-panel {
+  flex-shrink: 0;
+  margin: 0.35rem 0 0.55rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--bg-primary)) 88%, var(--accent) 4%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.lfs-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.lfs-panel-head strong {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+.lfs-panel-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.lfs-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.lfs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.lfs-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-end;
+  max-width: 100%;
+}
+.lfs-settings .lfs-status {
+  text-align: right;
+}
+.lfs-settings .lfs-actions {
+  justify-content: flex-end;
+}
+.btn.btn-sm.is-on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
 .kb-hero {
   display: flex;
   justify-content: space-between;

@@ -35,6 +35,8 @@ import { toast } from "@/lib/toast";
 import { isAllowlistedEmail } from "@/lib/accessGate";
 import { formatBytes, USER_STORAGE_LIMIT_BYTES } from "@/lib/storageQuota";
 import StorageManagerDialog from "@/components/shell/StorageManagerDialog";
+import LocalFolderSyncPanel from "@/components/library/LocalFolderSyncPanel";
+import { useNotesList } from "@/components/notes/NotesListProvider";
 
 function Row({
   label,
@@ -273,6 +275,7 @@ function ProfileEditor() {
 
 export default function SettingsPage() {
   const { user, loading } = useAuth();
+  const { notes } = useNotesList();
   const { prefs, setPrefs, replacePrefs } = usePrefs();
   const [section, setSection] = useState<SettingsSectionId>("appearance");
   const [importText, setImportText] = useState("");
@@ -531,6 +534,18 @@ export default function SettingsPage() {
                 onChange={(libraryShowEmpty) => patch({ libraryShowEmpty })}
               />
             </Row>
+            {user ? (
+              <Row
+                label="本機資料夾"
+                hint="連結本機 Markdown 資料夾，與知識庫雙向同步（Chrome／Edge）"
+              >
+                <LocalFolderSyncPanel
+                  uid={user.uid}
+                  notes={notes}
+                  variant="settings"
+                />
+              </Row>
+            ) : null}
           </section>
 
           <section id="st-board" className="st-card">

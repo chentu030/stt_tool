@@ -176,6 +176,8 @@ export type ParsedMarkdownImport = {
   updated?: string;
   /** Explicit folder from YAML (when not using directory structure) */
   folder?: string;
+  /** Cadence note id for local-folder bridge matching */
+  cadenceId?: string;
   /** Non-mapped YAML keys for round-trip */
   extras: Record<string, unknown>;
 };
@@ -195,6 +197,7 @@ const RESERVED_FM = new Set([
   "journal_date",
   "journal",
   "folder",
+  "cadence_id",
 ]);
 
 function asStringList(v: unknown): string[] {
@@ -253,6 +256,11 @@ export function parseMarkdownImport(raw: string): ParsedMarkdownImport {
     typeof map.folder === "string" || typeof map.folder === "number"
       ? normalizeFolderPath(String(map.folder))
       : undefined;
+  const cadenceRaw = map.cadence_id ?? map.cadenceId;
+  const cadenceId =
+    cadenceRaw != null && String(cadenceRaw).trim()
+      ? String(cadenceRaw).trim()
+      : undefined;
 
   const extras: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(map)) {
@@ -273,6 +281,7 @@ export function parseMarkdownImport(raw: string): ParsedMarkdownImport {
     created,
     updated,
     folder: folder || undefined,
+    cadenceId,
     extras,
   };
 }
@@ -286,6 +295,8 @@ export function serializeFrontmatter(meta: {
   folder?: string;
   created?: string | Date;
   updated?: string | Date;
+  /** Local-folder bridge identity */
+  cadenceId?: string;
   extras?: Record<string, unknown>;
 }): string {
   const lines: string[] = ["---"];
@@ -303,6 +314,9 @@ export function serializeFrontmatter(meta: {
   }
   if (meta.folder?.trim()) {
     lines.push(`folder: ${yamlQuote(meta.folder.trim())}`);
+  }
+  if (meta.cadenceId?.trim()) {
+    lines.push(`cadence_id: ${yamlQuote(meta.cadenceId.trim())}`);
   }
   const created = formatFmDate(meta.created);
   if (created) lines.push(`created: ${yamlQuote(created)}`);
