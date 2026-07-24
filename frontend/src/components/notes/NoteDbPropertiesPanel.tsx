@@ -28,38 +28,11 @@ import {
   type WorkspacePropertyDef,
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
+import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 
 const COLLAPSED_MAX = 6;
-
-function propIcon(type: DbPropType): string {
-  const map: Partial<Record<DbPropType, string>> = {
-    text: "≡",
-    number: "#",
-    checkbox: "☑",
-    date: "▦",
-    datetime: "▦",
-    select: "▾",
-    multi_select: "≡",
-    status: "●",
-    tags: "#",
-    url: "↗",
-    email: "@",
-    phone: "☎",
-    files: "◫",
-    person: "☺",
-    relation: "↗",
-    rollup: "Σ",
-    formula: "ƒ",
-    unique_id: "ID",
-    created_time: "◷",
-    last_edited_time: "◷",
-    created_by: "☺",
-    last_edited_by: "☺",
-  };
-  return map[type] || "·";
-}
 
 function isEmptyValue(prop: DbProperty, row: Note, allProps: DbProperty[], allRows: Note[]): boolean {
   if (prop.type === "title") return !(row.title || "").trim();
@@ -84,7 +57,8 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   const [db, setDb] = useState<CadenceDatabase | null>(null);
   const [rows, setRows] = useState<Note[]>([]);
   const [wsDefs, setWsDefs] = useState<WorkspacePropertyDef[]>([]);
-  const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [menuPropId, setMenuPropId] = useState<string | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -121,7 +95,11 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
         setMenuPropId(null);
         return;
       }
-      if (!(e.target as HTMLElement).closest(".ndb-props-add-menu, .ndb-prop-menu, .ndb-props-add, .ndb-prop-menu-btn")) {
+      if (
+        !(e.target as HTMLElement).closest(
+          ".ndb-props-add-menu, .nk-prop-menu, .ndb-prop-menu, .ndb-props-add, .nk-props-add, .nk-prop-menu-btn, .ndb-prop-menu-btn"
+        )
+      ) {
         setAddOpen(false);
         setMenuPropId(null);
       }
@@ -158,11 +136,11 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
   const emptyCount = displayProps.length - filled.length;
 
   const visible = useMemo(() => {
-    if (expanded) return displayProps;
+    if (showAll) return displayProps;
     if (filled.length >= COLLAPSED_MAX) return filled.slice(0, COLLAPSED_MAX);
     const rest = displayProps.filter((p) => isEmptyValue(p, note, db?.properties || [], rows));
     return [...filled, ...rest].slice(0, COLLAPSED_MAX);
-  }, [expanded, displayProps, filled, note, db, rows]);
+  }, [showAll, displayProps, filled, note, db, rows]);
 
   if (!databaseId) return null;
   if (!db) {
@@ -271,8 +249,8 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
       className={`nk-props nk-props--inline ndb-props${expanded ? " is-expanded" : ""}`}
       aria-label="資料庫屬性"
     >
-      <header className="nk-props-head ndb-props-head">
-        <div className="nk-props-head-main ndb-props-head-main">
+      <header className="nk-props-head">
+        <div className="nk-props-head-main">
           <strong>屬性</strong>
           <Link href={`/db/${db.id}`} className="ndb-props-db" title="開啟資料庫">
             {db.icon || "▦"} {db.name}
@@ -281,11 +259,11 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
             {filled.length}/{displayProps.length}
           </span>
         </div>
-        <div className="nk-props-head-actions ndb-props-head-actions">
+        <div className="nk-props-head-actions">
           {displayProps.length > COLLAPSED_MAX || emptyCount > 0 ? (
             <button
               type="button"
-              className="ndb-props-toggle"
+              className="nk-props-add"
               onClick={() => setExpanded((v) => !v)}
             >
               {expanded ? "收合" : hiddenEmpty ? `展開（含 ${emptyCount} 個空白）` : "展開全部"}
@@ -296,7 +274,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
               <button
                 ref={addBtnRef}
                 type="button"
-                className="ndb-props-add"
+                className="nk-props-add ndb-props-add"
                 aria-expanded={addOpen}
                 onClick={() => setAddOpen((v) => !v)}
               >
@@ -338,21 +316,18 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
         </div>
       </header>
 
-      <div className="ndb-props-grid nk-props-rows">
+      <NotePropsFieldsGrid aria-label="資料庫屬性欄位">
         {visible.map((prop) => (
-          <div key={prop.id} className="nk-prop-row ndb-prop-row">
-            <div className="nk-prop-row-key ndb-prop-label">
-              <span className="ndb-prop-icon" aria-hidden>
-                {propIcon(prop.type)}
-              </span>
-              <span className="ndb-prop-name" title={prop.name}>
-                {prop.name}
-              </span>
-              {!readOnly ? (
-                <div className="ndb-prop-menu-wrap">
+          <NotePropsFieldRow
+            key={prop.id}
+            label={prop.name}
+            type={prop.type}
+            menu={
+              !readOnly ? (
+                <div className="nk-prop-menu-wrap">
                   <button
                     type="button"
-                    className="ndb-prop-menu-btn"
+                    className="nk-prop-menu-btn"
                     aria-label={`${prop.name} 選項`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -362,7 +337,7 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
                     ···
                   </button>
                   {menuPropId === prop.id ? (
-                    <div className="ndb-prop-menu" role="menu">
+                    <div className="nk-prop-menu" role="menu">
                       <button type="button" role="menuitem" onClick={() => void renameProp(prop)}>
                         重新命名
                       </button>
@@ -377,26 +352,25 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
                     </div>
                   ) : null}
                 </div>
-              ) : null}
-            </div>
-            <div className="nk-prop-row-val ndb-prop-value">
-              <PropertyValueEditor
-                note={note}
-                prop={prop}
-                allProps={resolveDatabaseProperties(db.properties, wsDefs)}
-                allRows={rows}
-                userId={userId}
-                databaseId={databaseId}
-                readOnly={readOnly}
-                onCommit={(v) => void commitValue(prop, v)}
-              />
-            </div>
-          </div>
+              ) : undefined
+            }
+          >
+            <PropertyValueEditor
+              note={note}
+              prop={prop}
+              allProps={resolveDatabaseProperties(db.properties, wsDefs)}
+              allRows={rows}
+              userId={userId}
+              databaseId={databaseId}
+              readOnly={readOnly}
+              onCommit={(v) => void commitValue(prop, v)}
+            />
+          </NotePropsFieldRow>
         ))}
-      </div>
+      </NotePropsFieldsGrid>
 
       {!expanded && displayProps.length > visible.length ? (
-        <button type="button" className="ndb-props-more" onClick={() => setExpanded(true)}>
+        <button type="button" className="nk-props-add" onClick={() => setExpanded(true)}>
           還有 {displayProps.length - visible.length} 個屬性…
         </button>
       ) : null}

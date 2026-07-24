@@ -12578,47 +12578,13 @@ body.is-split-resizing iframe {
 }
 .doc-props:hover { border-bottom-color: var(--border); }
 
-/* Note page: compact database properties (space-efficient vs Notion) */
-/* DB-entry props: same framed card as .nk-props (note knowledge panel) */
-.ndb-props {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  margin: 0.35rem 0 0.85rem;
-  padding: 0.55rem 0.7rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-muted) 70%, var(--bg) 30%);
-  container-type: inline-size;
-  container-name: props-panel;
-}
+/* DB-entry props: behavioral hooks + menus only; card chrome comes from .nk-props */
 .ndb-props--loading {
   font-size: 0.78rem;
   color: var(--text-muted);
   border: none;
   background: transparent;
   padding: 0.35rem 0;
-}
-.ndb-props-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.ndb-props-head-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-width: 0;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-.ndb-props-head-main strong {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--text);
-  letter-spacing: 0.02em;
 }
 .ndb-props-db {
   color: var(--accent);
@@ -12627,35 +12593,14 @@ body.is-split-resizing iframe {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.72rem;
 }
 .ndb-props-db:hover { text-decoration: underline; }
 .ndb-props-count {
   opacity: 0.7;
-  font-variant-numeric: tabular-nums;
-}
-.ndb-props-head-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-.ndb-props-toggle,
-.ndb-props-add,
-.ndb-props-more {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
   font-size: 0.72rem;
-  font-weight: 600;
-  padding: 0.2rem 0.35rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.ndb-props-toggle:hover,
-.ndb-props-add:hover,
-.ndb-props-more:hover {
-  background: var(--bg-muted);
-  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
 }
 .ndb-props-add-wrap { position: relative; }
 .ndb-props-add-menu {
@@ -12698,99 +12643,6 @@ body.is-split-resizing iframe {
 }
 .ndb-props-add-group button:hover {
   background: var(--bg-muted);
-}
-.ndb-props-grid,
-.ndb-props-list {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.15rem 0.75rem;
-  margin-top: 0.15rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  min-width: 0;
-}
-.ndb-prop-row {
-  display: grid;
-  grid-template-columns: minmax(5rem, 6.5rem) minmax(0, 1fr);
-  align-items: center;
-  gap: 0.35rem 0.5rem;
-  min-height: 1.7rem;
-  min-width: 0;
-  padding: 0.2rem 0.15rem;
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-.ndb-prop-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28rem;
-  min-width: 0;
-  color: var(--text-muted);
-}
-.ndb-prop-icon {
-  flex-shrink: 0;
-  width: 0.95rem;
-  text-align: center;
-  font-size: 0.68rem;
-  opacity: 0.75;
-}
-.ndb-prop-name {
-  font-size: 0.74rem;
-  font-weight: 550;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ndb-prop-menu-wrap {
-  position: relative;
-  flex-shrink: 0;
-  opacity: 0;
-}
-.ndb-prop-row:hover .ndb-prop-menu-wrap,
-.ndb-prop-menu-wrap:focus-within {
-  opacity: 1;
-}
-.ndb-prop-menu-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  line-height: 1;
-  padding: 0.1rem 0.2rem;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.ndb-prop-menu-btn:hover { background: var(--bg-muted); }
-.ndb-prop-menu {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 2px);
-  z-index: 30;
-  min-width: 7.5rem;
-  padding: 0.25rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-elevated, var(--bg));
-  box-shadow: 0 8px 20px color-mix(in srgb, #000 14%, transparent);
-  display: flex;
-  flex-direction: column;
-}
-.ndb-prop-menu button {
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 0.35rem 0.45rem;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 0.76rem;
-  cursor: pointer;
-  color: inherit;
-}
-.ndb-prop-menu button:hover { background: var(--bg-muted); }
-.ndb-prop-menu button.is-danger { color: #b91c1c; }
-.ndb-prop-value {
-  min-width: 0;
-  font-size: 0.8rem;
 }
 .ndb-input {
   width: 100%;
@@ -15673,11 +15525,12 @@ body.rich-media-float-dragging * {
   flex-wrap: wrap;
   gap: 0.35rem;
 }
-.nk-props-rows {
+/* Shared property fields grid — used by DB-entry and note panels */
+.nk-props-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0.15rem 0.75rem;
-  margin-top: 0.35rem;
+  margin-top: 0.15rem;
   padding-top: 0.45rem;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   min-width: 0;
@@ -15685,8 +15538,9 @@ body.rich-media-float-dragging * {
 .nk-prop-row {
   display: grid;
   grid-template-columns: minmax(5rem, 6.5rem) minmax(0, 1fr);
-  gap: 0.5rem;
-  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+  min-height: 1.7rem;
   min-width: 0;
   padding: 0.2rem 0.15rem;
   font-size: 0.78rem;
@@ -15694,55 +15548,105 @@ body.rich-media-float-dragging * {
 }
 /* 1 → 2 → 3 property columns. Viewport fallbacks first (Cadence 720 / 1100). */
 @media (min-width: 720px) {
-  .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
-  .ndb-props > .ndb-props-grid {
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (min-width: 1100px) {
-  .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
-  .ndb-props > .ndb-props-grid {
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 /* Prefer panel width when @container works (matches Cadence editor ~640 / ~780). */
 @supports (container-type: inline-size) {
-  .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
-  .ndb-props > .ndb-props-grid {
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
     grid-template-columns: minmax(0, 1fr);
   }
   @container props-panel (min-width: 520px) {
-    .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
-    .ndb-props > .ndb-props-grid {
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
   @container props-panel (min-width: 780px) {
-    .nk-props--inline:not(.is-collapsed) > .nk-props-rows,
-    .ndb-props > .ndb-props-grid {
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
 }
 .nk-prop-row-key {
-  color: var(--text-muted);
-  font-weight: 500;
-  min-width: 0;
-}
-.nk-prop-row-key.ndb-prop-label {
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
-}
-.nk-prop-row-val {
-  color: var(--text);
   min-width: 0;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.nk-prop-icon {
+  flex-shrink: 0;
+  width: 0.95rem;
+  text-align: center;
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+.nk-prop-name {
+  font-size: 0.74rem;
+  font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
-.nk-prop-row-val.ndb-prop-value {
-  /* Editors (chips / selects) need to wrap */
+.nk-prop-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.nk-prop-row:hover .nk-prop-menu-wrap,
+.nk-prop-menu-wrap:focus-within {
+  opacity: 1;
+}
+.nk-prop-menu-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.1rem 0.2rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.nk-prop-menu-btn:hover { background: var(--bg-muted); }
+.nk-prop-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 2px);
+  z-index: 30;
+  min-width: 7.5rem;
+  padding: 0.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg));
+  box-shadow: 0 8px 20px color-mix(in srgb, #000 14%, transparent);
+  display: flex;
+  flex-direction: column;
+}
+.nk-prop-menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+  color: inherit;
+}
+.nk-prop-menu button:hover { background: var(--bg-muted); }
+.nk-prop-menu button.is-danger { color: #b91c1c; }
+.nk-prop-row-val {
+  color: var(--text);
+  min-width: 0;
+  /* Editors (chips / selects) need to wrap; plain text can ellipsize via child */
   overflow: visible;
   text-overflow: unset;
   white-space: normal;
@@ -15750,6 +15654,9 @@ body.rich-media-float-dragging * {
 .nk-prop-row--system .nk-prop-row-val {
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nk-pill {
   display: inline-flex;

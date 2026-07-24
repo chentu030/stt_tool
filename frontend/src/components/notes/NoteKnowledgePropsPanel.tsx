@@ -34,6 +34,7 @@ import {
   type WorkspacePropertyDef,
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
+import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
 import MenuSelect from "@/components/MenuSelect";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
@@ -548,61 +549,55 @@ export default function NoteKnowledgePropsPanel({
         </button>
       ) : (
         <>
-          <div className="nk-props-rows ndb-props-list" aria-label="工作區屬性">
-            {(readOnly ? displayDefs : systemDefs.concat(
-              customCatalogDefs.filter((d) => {
-                const v = getWorkspaceFieldValue(note, d.id);
-                return v != null && v !== "";
-              })
-            )).map((def) => {
+          <NotePropsFieldsGrid aria-label="工作區屬性">
+            {(readOnly
+              ? displayDefs
+              : systemDefs.concat(
+                  customCatalogDefs.filter((d) => {
+                    const v = getWorkspaceFieldValue(note, d.id);
+                    return v != null && v !== "";
+                  })
+                )
+            ).map((def) => {
               const prop = asDbProperty(def);
               const value = getWorkspaceFieldValue(note, def.id);
               return (
-                <div key={def.id} className="nk-prop-row ndb-prop-row">
-                  <span className="nk-prop-row-key">{def.name}</span>
-                  <div className="nk-prop-row-val ndb-prop-value">
-                    <PropertyValueEditor
-                      note={note}
-                      prop={prop}
-                      value={value}
-                      userId={userId}
-                      readOnly={readOnly}
-                      onCommit={(v) => void commitWs(def.id, v)}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            {extraDbProps?.map((prop) => (
-              <div key={prop.id} className="nk-prop-row ndb-prop-row">
-                <span className="nk-prop-row-key">{prop.name}</span>
-                <div className="nk-prop-row-val ndb-prop-value">
+                <NotePropsFieldRow key={def.id} label={def.name} type={def.type}>
                   <PropertyValueEditor
                     note={note}
                     prop={prop}
+                    value={value}
                     userId={userId}
                     readOnly={readOnly}
-                    onCommit={(v) => onExtraDbCommit?.(prop.id, v)}
+                    onCommit={(v) => void commitWs(def.id, v)}
                   />
-                </div>
-              </div>
+                </NotePropsFieldRow>
+              );
+            })}
+            {extraDbProps?.map((prop) => (
+              <NotePropsFieldRow key={prop.id} label={prop.name} type={prop.type}>
+                <PropertyValueEditor
+                  note={note}
+                  prop={prop}
+                  userId={userId}
+                  readOnly={readOnly}
+                  onCommit={(v) => onExtraDbCommit?.(prop.id, v)}
+                />
+              </NotePropsFieldRow>
             ))}
-          </div>
-
-          {dates.some((d) => d.kind === "system") ? (
-            <div className="nk-props-rows" aria-label="時間屬性">
-              {dates
-                .filter((d) => d.kind === "system")
-                .map((d) => (
-                  <div key={d.key} className="nk-prop-row nk-prop-row--system">
-                    <span className="nk-prop-row-key">{d.label}</span>
-                    <span className="nk-prop-row-val" title={d.text}>
-                      {d.text}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          ) : null}
+            {dates
+              .filter((d) => d.kind === "system")
+              .map((d) => (
+                <NotePropsFieldRow
+                  key={d.key}
+                  label={d.label}
+                  type={d.key === "updated" ? "last_edited_time" : "created_time"}
+                  system
+                >
+                  <span title={d.text}>{d.text}</span>
+                </NotePropsFieldRow>
+              ))}
+          </NotePropsFieldsGrid>
 
           {scalars.length > 0 ? (
             <div className="nk-props-pills" role="list">
