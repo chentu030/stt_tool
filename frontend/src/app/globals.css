@@ -9124,6 +9124,7 @@ button.jn-heat-cell:disabled {
   place-items: center;
   align-self: center;
   margin-top: 0.15rem;
+  animation: block-sel-pop 0.22s ease-out;
 }
 .cv-dock-tip {
   position: absolute;
@@ -12121,7 +12122,7 @@ body.is-split-resizing iframe {
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.note-related { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
+.note-related { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; margin: 0; padding: 0; }
 .note-related a {
   display: flex;
   flex-direction: column;
@@ -12132,6 +12133,115 @@ body.is-split-resizing iframe {
 .note-related a:hover { background: var(--bg-muted); }
 .note-related strong { font-size: 0.82rem; }
 .note-related span { font-size: 0.7rem; color: var(--text-muted); }
+.note-aside-heads-up {
+  margin: 0 0 0.85rem;
+  padding: 0.55rem 0.6rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 45%, var(--bg-card));
+}
+.note-aside-heads-up-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+.note-aside-heads-up-title h4 {
+  margin: 0;
+}
+.note-aside-heads-up-count {
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.note-aside-heads-up-hint {
+  margin: 0 0 0.45rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.note-aside-heads-up-backlinks {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.kbd-radar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  background: color-mix(in srgb, #0f172a 28%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  animation: cadence-dialog-fade 0.14s ease;
+}
+.kbd-radar-panel {
+  width: min(360px, 100%);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated, var(--bg-card));
+  box-shadow: 0 18px 48px color-mix(in srgb, #000 22%, transparent);
+  padding: 0.85rem 0.95rem 0.95rem;
+  animation: cadence-dialog-pop 0.18s ease;
+}
+.kbd-radar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+.kbd-radar-head strong {
+  font-size: 0.95rem;
+}
+.kbd-radar-head span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.kbd-radar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.kbd-radar-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0.2rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+.kbd-radar-list li:last-child {
+  border-bottom: none;
+}
+.kbd-radar-list kbd {
+  font-family: inherit;
+  font-size: 0.72rem;
+  color: var(--text-main);
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+  white-space: nowrap;
+}
+.kbd-radar-list span {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: right;
+}
 .note-ai-actions { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .note-ai-chip {
   border: 1px solid var(--border);
@@ -13754,6 +13864,36 @@ body.rich-media-float-dragging * {
   line-height: 1;
   margin-left: 1px;
   pointer-events: none;
+  animation: block-sel-pop 0.22s ease-out;
+}
+.block-sel-float-count {
+  position: absolute;
+  z-index: 35;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: block-sel-pop 0.24s ease-out;
+}
+@keyframes block-sel-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 /* Windows Explorer-style rubber-band over note blocks */
 .block-marquee {
@@ -18292,6 +18432,12 @@ body.is-sidebar-resizing iframe {
   flex-wrap: wrap;
   gap: 0.35rem;
 }
+.empty-templates-grid--primary {
+  gap: 0.4rem;
+}
+.empty-templates-grid--more {
+  margin-top: 0.4rem;
+}
 .empty-template-btn {
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -18301,6 +18447,12 @@ body.is-sidebar-resizing iframe {
   font-size: 0.8rem;
   cursor: pointer;
 }
+.empty-template-btn--primary {
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--bg-card));
+}
+.empty-template-btn.is-on,
 .empty-template-btn:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -18340,9 +18492,11 @@ body.is-sidebar-resizing iframe {
 }
 .cmdk-item {
   width: 100%;
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 0.75rem;
+  row-gap: 0.15rem;
   border: none;
   background: transparent;
   text-align: left;
@@ -18350,8 +18504,29 @@ body.is-sidebar-resizing iframe {
   border-radius: 8px;
   cursor: pointer;
   color: var(--text-main);
+  align-items: baseline;
 }
-.cmdk-item span { color: var(--text-muted); font-size: 0.75rem; }
+.cmdk-item strong {
+  grid-column: 1;
+  grid-row: 1;
+}
+.cmdk-item > span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  grid-column: 2;
+  grid-row: 1;
+}
+.cmdk-item .cmdk-snippet {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cmdk-item.is-on,
 .cmdk-item:hover { background: var(--accent-soft); }
 .cmdk-empty, .cmdk-foot {

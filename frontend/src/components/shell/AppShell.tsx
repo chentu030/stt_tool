@@ -13,6 +13,7 @@ import SidebarNotesTree from "@/components/shell/SidebarNotesTree";
 import SidebarAnonymousFeedback from "@/components/shell/SidebarAnonymousFeedback";
 import SidebarStorageTip from "@/components/shell/SidebarStorageTip";
 import CommandPalette from "@/components/CommandPalette";
+import KeyboardRadar from "@/components/KeyboardRadar";
 import GlobalAiDock, { toggleGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import NavHistoryControls from "@/components/shell/NavHistoryControls";
 import NoteTabsShell, { isNoteTabsPath } from "@/components/notes/NoteTabsShell";
@@ -559,6 +560,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       userId={user?.uid}
     />
   );
+  const keyboardRadar = <KeyboardRadar />;
 
   const renderAppsNav = (opts: { collapsed?: boolean; iconsOnly?: boolean; onNavigate?: () => void }) => {
     const rail = Boolean(opts.collapsed);
@@ -973,6 +975,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
         )}
         {palette}
+        {keyboardRadar}
         <GlobalAiDock />
         <ScheduleReminderWatcher />
       </div>
@@ -1105,6 +1108,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {mainContent}
       </main>
       {palette}
+      {keyboardRadar}
       <GlobalAiDock />
       <ScheduleReminderWatcher />
     </div>

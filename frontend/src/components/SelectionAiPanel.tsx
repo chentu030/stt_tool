@@ -16,9 +16,15 @@ export type SelectionAiAction =
   | "translate"
   | "ask_selection"
   | "proofread"
-  | "reformat";
+  | "reformat"
+  | "summarize"
+  | "rewrite"
+  | "actions";
 
 const QUICK: { id: SelectionAiAction; label: string }[] = [
+  { id: "summarize", label: "摘要" },
+  { id: "rewrite", label: "改寫" },
+  { id: "actions", label: "待辦" },
   { id: "improve", label: "提升寫作" },
   { id: "proofread", label: "校對" },
   { id: "explain", label: "解釋" },
@@ -122,6 +128,8 @@ export default function SelectionAiPanel({
         askPrompt = "請重新格式化這段文字：整理段落與條列，讓結構更清晰，只輸出結果。";
       }
 
+      const selectionScoped =
+        apiAction === "summarize" || apiAction === "rewrite" || apiAction === "actions";
       const payload: Record<string, unknown> = {
         action:
           apiAction === "expand"
@@ -139,7 +147,9 @@ export default function SelectionAiPanel({
           grounding: prefsCtx?.prefs.aiGrounding,
         },
       };
-      if (noteBody) payload.context = aiContext || noteBody.slice(0, 6000);
+      if (!selectionScoped && noteBody) {
+        payload.context = aiContext || noteBody.slice(0, 6000);
+      }
       if (apiAction === "ask_selection") {
         payload.prompt =
           askPrompt?.trim() ||
@@ -172,8 +182,6 @@ export default function SelectionAiPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per open with autoAction
   }, [open, autoAction]);
 
-  if (!open) return null;
-
   const replaceSelection = () => {
     if (!result) return;
     const { from: a, to: b, text } = rangeRef.current;
@@ -193,6 +201,28 @@ export default function SelectionAiPanel({
     editor.chain().focus().insertContentAt(b, `<p></p>${html}`).run();
     onClose();
   };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && result && !busy) {
+        e.preventDefault();
+        e.stopPropagation();
+        replaceSelection();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- apply/close from latest result
+  }, [open, result, busy, onClose]);
+
+  if (!open) return null;
 
   return (
     <div
@@ -248,8 +278,9 @@ export default function SelectionAiPanel({
         <div className="sel-ai-result">
           <AiMarkdown text={result} />
           <div className="sel-ai-actions">
-            <button type="button" className="doc-cmd is-on" onClick={replaceSelection}>
+            <button type="button" className="doc-cmd is-on" onClick={replaceSelection} title="Tab 套用">
               {hasSelection ? "取代選取" : "插入此處"}
+              <kbd style={{ marginLeft: 6, opacity: 0.7 }}>Tab</kbd>
             </button>
             <button type="button" className="doc-cmd" onClick={insertBelow}>
               插入下方

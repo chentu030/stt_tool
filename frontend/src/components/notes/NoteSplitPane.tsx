@@ -205,13 +205,11 @@ export default function NoteSplitPane({
             ? ""
             : status === "saving"
               ? "儲存中"
-              : status === "saved"
-                ? "已存"
-                : status === "offline"
-                  ? "離線已存"
-                  : status === "dirty"
-                    ? "未存"
-                    : ""}
+              : status === "offline"
+                ? "離線已存"
+                : status === "dirty"
+                  ? "未存"
+                  : ""}
         </span>
         <button
           type="button"

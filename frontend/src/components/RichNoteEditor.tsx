@@ -339,6 +339,7 @@ export default function RichNoteEditor({
     open: boolean;
     autoAction?: SelectionAiAction;
   }>({ open: false });
+  const [emptyMoreOpen, setEmptyMoreOpen] = useState(false);
   const hlPanelRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{
@@ -2301,32 +2302,59 @@ export default function RichNoteEditor({
         </div>
         {!readOnly && showEmptyTemplates && isEmptyDoc && onEmptyTemplate && (
           <div className="empty-templates">
-            <p className="empty-templates-label">從範本開始</p>
-            <div className="empty-templates-grid">
-              {templateList
-                .filter((t) => t.id !== "blank")
-                .slice(0, 10)
-                .map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className="empty-template-btn"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onEmptyTemplate(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
+            <p className="empty-templates-label">開始寫作</p>
+            <div className="empty-templates-grid empty-templates-grid--primary">
               <button
-                key="blank"
                 type="button"
-                className="empty-template-btn"
+                className="empty-template-btn empty-template-btn--primary"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onEmptyTemplate("blank")}
               >
-                空白
+                空白寫作
+              </button>
+              <button
+                type="button"
+                className="empty-template-btn empty-template-btn--primary"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onEmptyTemplate("meeting")}
+              >
+                會議／錄音
+              </button>
+              <button
+                type="button"
+                className="empty-template-btn empty-template-btn--primary"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onEmptyTemplate("lecture")}
+              >
+                結構化筆記
+              </button>
+              <button
+                type="button"
+                className={`empty-template-btn${emptyMoreOpen ? " is-on" : ""}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setEmptyMoreOpen((v) => !v)}
+                title="展開其他範本"
+              >
+                更多範本
               </button>
             </div>
+            {emptyMoreOpen ? (
+              <div className="empty-templates-grid empty-templates-grid--more">
+                {templateList
+                  .filter((t) => t.id !== "blank" && t.id !== "meeting" && t.id !== "lecture")
+                  .map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="empty-template-btn"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => onEmptyTemplate(t.id)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+              </div>
+            ) : null}
           </div>
         )}
         {wiki && (
@@ -3479,15 +3507,33 @@ function BlockDragHandle({
   };
 
   const range = selRange(blockSel);
-  const multiCount =
-    range && grip && range.parentFrom === grip.parentFrom
-      ? range.end - range.start + 1
-      : 0;
+  const multiCount = range ? range.end - range.start + 1 : 0;
+  const showMultiBadge = multiCount > 1;
 
-  if (!grip && dropIndex === null && !marquee) return null;
+  if (!grip && dropIndex === null && !marquee && !showMultiBadge) return null;
 
   return (
     <>
+      {showMultiBadge ? (
+        <div
+          key={`sel-${multiCount}-${range?.start}-${range?.end}`}
+          className="block-sel-float-count"
+          style={
+            grip
+              ? { top: Math.max(4, grip.top - 6), left: grip.left + 36 }
+              : marquee
+                ? {
+                    top: marquee.top + Math.max(0, marquee.height / 2 - 10),
+                    left: marquee.left + Math.max(0, marquee.width / 2 - 10),
+                  }
+                : { top: 12, left: 12 }
+          }
+          aria-live="polite"
+          title={`已選 ${multiCount} 個區塊`}
+        >
+          {multiCount}
+        </div>
+      ) : null}
       {marquee && (
         <div
           className="block-marquee"

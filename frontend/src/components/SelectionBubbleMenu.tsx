@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import SelectionAiPanel, { type SelectionAiAction } from "@/components/SelectionAiPanel";
+import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 
 const EMOJIS = ["👍", "❤️", "😊", "🎉", "🔥", "✅", "❗", "💡", "👀", "🙏", "✨", "📌"];
 
@@ -806,6 +807,48 @@ export default function SelectionBubbleMenu({
             <span className="material-symbols-outlined sel-bub-ico">auto_awesome</span>
           </BubBtn>
         </div>
+        ) : null}
+        {!aiOpen ? (
+          <div className="sel-bubble-skills" role="toolbar" aria-label="選取 AI">
+            <span className="sel-bub-skills-label">AI</span>
+            {(
+              [
+                { id: "summarize" as const, label: "摘要" },
+                { id: "rewrite" as const, label: "改寫" },
+                { id: "actions" as const, label: "待辦" },
+              ] as const
+            ).map((skill) => (
+              <button
+                key={skill.id}
+                type="button"
+                className="sel-bub-skill"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setTurnOpen(false);
+                  setColorOpen(false);
+                  setEmojiOpen(false);
+                  setAiOpen(true, { action: skill.id });
+                }}
+              >
+                {skill.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="sel-bub-skill"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                const t = selectionText().trim();
+                if (onSendToAside && t) {
+                  onSendToAside(t);
+                  return;
+                }
+                openGlobalAiRail();
+              }}
+            >
+              開 AI 側欄
+            </button>
+          </div>
         ) : null}
       </div>
       <span hidden data-hl={hlColor} />

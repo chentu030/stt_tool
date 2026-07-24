@@ -1321,9 +1321,11 @@ function NotePageInner() {
     () => computeNoteStats(body, { excludeSource: true, props: note?.props }),
     [body, note?.props]
   );
+  const showWritingGoals = prefsCtx?.prefs.editorWritingGoals === true;
   const goalProgress = useMemo(
-    () => computeWritingGoalProgress(body, note?.props),
-    [body, note?.props]
+    () =>
+      showWritingGoals ? computeWritingGoalProgress(body, note?.props) : null,
+    [body, note?.props, showWritingGoals]
   );
   const outline = useMemo(() => extractOutline(body), [body]);
   const liveSegments = useMemo(
@@ -1857,24 +1859,37 @@ function NotePageInner() {
   if (!isOwner && aclRole === undefined) return <PageLoading label="確認權限…" />;
   if (!canViewNote) return <p style={{ padding: "2rem" }}>無權限。</p>;
 
+  // Quiet save: hide idle / synced / saved; only surface dirty / saving / error / offline.
   const statusLabel =
-    viewMode === "read" ? "閱讀模式"
-    : collabReady
-      ? (collab.status === "saving" ? "即時同步中…"
-        : collab.status === "synced" ? "即時共編已連線"
-        : collab.status === "offline" ? "離線（重連後同步）"
-        : collab.status === "error" ? "共編連線異常"
-        : collab.status === "connecting" ? "共編連線中…"
-        : status === "dirty" ? "未儲存變更"
-          : status === "saving" ? "儲存中…"
-            : status === "saved" ? "已自動儲存"
-              : "")
-    : status === "saving" ? "儲存中…"
-      : status === "saved" ? "已自動儲存"
-        : status === "offline" ? "已離線儲存，上線後同步"
-        : status === "dirty" ? "未儲存變更"
-          : status === "error" ? errorMsg
-            : "";
+    viewMode === "read"
+      ? ""
+      : collabReady
+        ? collab.status === "saving"
+          ? "即時同步中…"
+          : collab.status === "offline"
+            ? "離線（重連後同步）"
+            : collab.status === "error"
+              ? "共編連線異常"
+              : collab.status === "connecting"
+                ? "共編連線中…"
+                : status === "dirty"
+                  ? "未儲存變更"
+                  : status === "saving"
+                    ? "儲存中…"
+                    : status === "error"
+                      ? errorMsg || "儲存失敗"
+                      : status === "offline"
+                        ? "已離線儲存，上線後同步"
+                        : ""
+        : status === "saving"
+          ? "儲存中…"
+          : status === "offline"
+            ? "已離線儲存，上線後同步"
+            : status === "dirty"
+              ? "未儲存變更"
+              : status === "error"
+                ? errorMsg
+                : "";
 
   const addTag = () => {
     const t = tagInput.trim().replace(/^#/, "");
@@ -2025,16 +2040,29 @@ function NotePageInner() {
           ) : null}
           <div className="doc-command-actions">
           <NotePresence noteId={note.id} />
-          {collabReady ? (
+          {collabReady &&
+          (collab.status === "saving" ||
+            collab.status === "connecting" ||
+            collab.status === "offline" ||
+            collab.status === "error") ? (
             <span
               className={`doc-collab-status${
-                collab.status === "saving" ? " is-saving"
-                  : collab.status === "error" ? " is-error"
-                    : collab.status === "offline" ? " is-offline"
+                collab.status === "saving"
+                  ? " is-saving"
+                  : collab.status === "error"
+                    ? " is-error"
+                    : collab.status === "offline"
+                      ? " is-offline"
                       : ""
               }`}
             >
-              {collab.status === "synced" ? "共編中" : collab.status === "saving" ? "同步中" : collab.status === "connecting" ? "連線中" : collab.status === "offline" ? "離線" : "共編異常"}
+              {collab.status === "saving"
+                ? "同步中"
+                : collab.status === "connecting"
+                  ? "連線中"
+                  : collab.status === "offline"
+                    ? "離線"
+                    : "共編異常"}
             </span>
           ) : null}
           <NoteHuddle noteId={note.id} />
@@ -2818,7 +2846,7 @@ function NotePageInner() {
                   }}
                 />
               )}
-              {viewMode === "write" && !note.database_id ? (
+              {viewMode === "write" && !note.database_id && showWritingGoals ? (
                 <NoteWritingGoalEditor
                   propsBag={note.props}
                   onPropsPatch={(props) => {

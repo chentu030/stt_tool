@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { HeadingItem, NoteStats, RelatedNote } from "@/lib/noteMeta";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
+import { usePrefsOptional } from "@/components/PrefsProvider";
 import NoteAsideRecording from "@/components/notes/NoteAsideRecording";
 import NoteKnowledgePropsPanel from "@/components/notes/NoteKnowledgePropsPanel";
 import NoteWritingGoalEditor from "@/components/notes/NoteWritingGoalEditor";
@@ -108,9 +109,13 @@ export default function NoteAside({
   resolveNoteHref,
   goalProgress = null,
 }: Props) {
+  const prefsCtx = usePrefsOptional();
+  const showWritingGoals = prefsCtx?.prefs.editorWritingGoals === true;
+
   if (!open) return null;
 
   const q = linkPicker.trim();
+  const asideGoalProgress = showWritingGoals ? goalProgress : null;
   const showLinkSearch = !!onLinkPickerChange;
   const hasRecording = liveSegments.length > 0 || showRecordingTab;
   const tabs: { id: NoteAsideTab; label: string }[] = [
@@ -252,6 +257,50 @@ export default function NoteAside({
 
       {tab === "outline" && (
         <div className="note-aside-body">
+          <div className="note-aside-block note-aside-heads-up">
+            <div className="note-aside-heads-up-title">
+              <h4>相關筆記</h4>
+              {related.length > 0 ? (
+                <span className="note-aside-heads-up-count">{related.length}</span>
+              ) : null}
+            </div>
+            <p className="note-aside-heads-up-hint">
+              {related.length > 0
+                ? "依雙向連結、標籤與標題相近整理"
+                : "寫入 [[連結]] 或共用標籤後，這裡會浮現相關筆記"}
+            </p>
+            {related.length > 0 ? (
+              <ul className="note-related">
+                {related.map((r) => (
+                  <li key={r.id}>
+                    <Link href={`/notes/${r.id}`}>
+                      <strong>{r.title}</strong>
+                      <span>{r.reason}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {(backlinks.length > 0 || reverseRelations.length > 0) && (
+              <div className="note-aside-heads-up-backlinks">
+                <p className="doc-link-label">連到此頁</p>
+                {backlinks.slice(0, 4).map((n) => (
+                  <Link key={n.id} href={`/notes/${n.id}`} className="doc-link-item">
+                    {n.title}
+                  </Link>
+                ))}
+                {reverseRelations
+                  .filter((r) => !backlinks.some((b) => b.id === r.id))
+                  .slice(0, 3)
+                  .map((r) => (
+                    <Link key={`rev-${r.id}`} href={`/notes/${r.id}`} className="doc-link-item">
+                      {r.title}
+                      <span className="note-rel-via"> ← {r.via}</span>
+                    </Link>
+                  ))}
+              </div>
+            )}
+          </div>
           {outline.length === 0 ? (
             <p className="note-aside-empty">尚無標題。用 H1／H2 或輸入 # 建立結構。</p>
           ) : (
@@ -272,21 +321,6 @@ export default function NoteAside({
                 </div>
               ))}
             </nav>
-          )}
-          {related.length > 0 && (
-            <div className="note-aside-block">
-              <h4>相關筆記</h4>
-              <ul className="note-related">
-                {related.map((r) => (
-                  <li key={r.id}>
-                    <Link href={`/notes/${r.id}`}>
-                      <strong>{r.title}</strong>
-                      <span>{r.reason}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
         </div>
       )}
@@ -311,18 +345,19 @@ export default function NoteAside({
             <div><strong>{stats.links}</strong><span>連結</span></div>
             <div><strong>{stats.todosDone}/{stats.todos}</strong><span>待辦</span></div>
           </div>
-          {goalProgress ? (
+          {asideGoalProgress ? (
             <div className="note-aside-block note-aside-goal">
               <h4>目標進度</h4>
-              <p className="note-aside-goal-summary">{goalProgress.summary}</p>
-              {goalProgress.goal.minWords || goalProgress.goal.dailyQuota ? (
+              <p className="note-aside-goal-summary">{asideGoalProgress.summary}</p>
+              {asideGoalProgress.goal.minWords || asideGoalProgress.goal.dailyQuota ? (
                 <div className="note-aside-goal-bar" aria-hidden>
                   <i
                     style={{
                       width: `${Math.min(
                         100,
                         Math.round(
-                          ((goalProgress.minProgress ?? goalProgress.dailyProgress) || 0) * 100
+                          ((asideGoalProgress.minProgress ?? asideGoalProgress.dailyProgress) || 0) *
+                            100
                         )
                       )}%`,
                     }}
@@ -331,7 +366,7 @@ export default function NoteAside({
               ) : null}
             </div>
           ) : null}
-          {knowledgeNote && onKnowledgePropsPatch ? (
+          {showWritingGoals && knowledgeNote && onKnowledgePropsPatch ? (
             <NoteWritingGoalEditor
               propsBag={knowledgeNote.props}
               onPropsPatch={onKnowledgePropsPatch}

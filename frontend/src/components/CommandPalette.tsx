@@ -19,6 +19,7 @@ import { normalizeFolderPath } from "@/lib/noteTree";
 import { openGlobalAiRail } from "@/components/shell/GlobalAiDock";
 import { appendToTodayJournal, peekJournalCaptureUndo, undoLastJournalCapture } from "@/lib/journalCapture";
 import { markDailyRhythmStep } from "@/lib/dailyRhythm";
+import { searchNotes, type LibraryNote } from "@/lib/libraryIndex";
 
 type Props = {
   open: boolean;
@@ -30,7 +31,7 @@ type Props = {
 
 type Row =
   | { kind: "nav"; href: string; label: string; hint: string }
-  | { kind: "note"; id: string; label: string; hint: string }
+  | { kind: "note"; id: string; label: string; hint: string; snippet?: string }
   | { kind: "job"; id: string; label: string; hint: string }
   | { kind: "action"; id: string; label: string; hint: string; run: () => void };
 
@@ -315,21 +316,39 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
       }
     }
 
+    const libraryNotes: LibraryNote[] = notes.map((n) => ({
+      id: n.id,
+      title: n.title || "未命名",
+      body_md: n.body_md || "",
+      tags: n.tags,
+      folder: n.folder,
+      status: n.status,
+      icon: n.icon,
+      color: n.color,
+      source_job_id: n.source_job_id,
+      props: n.props,
+      updated_at: n.updated_at instanceof Date ? n.updated_at : new Date(n.updated_at || Date.now()),
+      created_at: n.created_at instanceof Date ? n.created_at : new Date(n.created_at || Date.now()),
+    }));
+    const hits = searchNotes(libraryNotes, q, { sort: "relevance" }).slice(0, 12);
     const matchedNotes: Note[] = [];
-    for (const n of notes) {
-      if (
-        n.title.toLowerCase().includes(s) ||
-        (n.folder || "").toLowerCase().includes(s) ||
-        (n.tags || []).some((t) => t.toLowerCase().includes(s))
-      ) {
-        matchedNotes.push(n);
-        out.push({
-          kind: "note",
-          id: n.id,
-          label: n.title,
-          hint: n.folder || "筆記",
-        });
-      }
+    for (const hit of hits) {
+      const n = notes.find((x) => x.id === hit.id);
+      if (!n) continue;
+      matchedNotes.push(n);
+      const fieldHint =
+        hit.matchFields?.includes("body") && !hit.matchFields.includes("title")
+          ? "內文"
+          : hit.matchFields?.includes("tag")
+            ? "標籤"
+            : n.folder || "筆記";
+      out.push({
+        kind: "note",
+        id: n.id,
+        label: n.title || "未命名",
+        hint: fieldHint,
+        snippet: hit.snippet || undefined,
+      });
     }
     if (matchedNotes[0]) pushNoteActions(matchedNotes[0], "hit-");
 
@@ -485,11 +504,14 @@ export default function CommandPalette({ open, onClose, notes, jobs = [], userId
               >
                 <strong>{row.label}</strong>
                 <span>{row.hint}</span>
+                {row.kind === "note" && row.snippet ? (
+                  <em className="cmdk-snippet">{row.snippet}</em>
+                ) : null}
               </button>
             ))
           )}
         </div>
-        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 隨時開啟 · 輸入後優先寫入日誌</p>
+        <p className="cmdk-foot">↑↓ 選擇 · Enter 執行 · Esc 關閉 · ⌘K 搜尋標題／標籤／內文 · 輸入後優先寫入日誌</p>
       </div>
     </div>
   );
