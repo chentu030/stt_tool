@@ -87,9 +87,25 @@ function driveFileId(url: string): string | null {
   return null;
 }
 
+/** Add https:// when paste is a bare host/path (common for campus PDF links). */
+export function normalizeHttpUrl(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return t;
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^\/\//.test(t)) return `https:${t}`;
+  // host.tld/... or host.tld
+  if (/^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}([/:?#]|$)/i.test(t)) return `https://${t}`;
+  return t;
+}
+
 function looksPdf(url: string, nameHint = ""): boolean {
   const s = `${url} ${nameHint}`.toLowerCase();
-  return /\.pdf(\?|#|$)/i.test(s) || s.includes("application/pdf");
+  // Allow trailing punctuation / CJK period after .pdf (paste from chat)
+  return /\.pdf(\?|#|$|[^a-z0-9])/i.test(s) || s.includes("application/pdf");
+}
+
+export function isPdfUrl(url: string, nameHint = ""): boolean {
+  return looksPdf(url, nameHint);
 }
 
 function looksPpt(url: string, nameHint = ""): boolean {
@@ -239,6 +255,11 @@ function linkCard(original: string, title?: string): EmbedResolved {
   };
 }
 
+/** @deprecated Prefer resolveEmbedUrl → web + proxy; kept for callers that need a plain card. */
+export function asLinkCard(original: string, title?: string): EmbedResolved {
+  return linkCard(original, title);
+}
+
 export function faviconUrl(pageUrl: string): string {
   try {
     const host = new URL(pageUrl).hostname;
@@ -249,7 +270,7 @@ export function faviconUrl(pageUrl: string): string {
 }
 
 export function resolveEmbedUrl(raw: string, nameHint = ""): EmbedResolved | null {
-  const original = (raw || "").trim();
+  const original = normalizeHttpUrl(raw || "");
   if (!original) return null;
 
   const yt = youtubeId(original);
@@ -364,13 +385,15 @@ export function resolveEmbedUrl(raw: string, nameHint = ""): EmbedResolved | nul
   try {
     const u = new URL(original);
     if (u.protocol === "http:" || u.protocol === "https:") {
-      // Sites that refuse framing → link card (avoids「拒絕連線」)
-      if (isKnownNonFrameable(u.hostname, u.pathname)) {
-        return linkCard(original, u.hostname);
-      }
-      // Generic websites: prefer link card. Browsers cannot bypass X-Frame-Options;
-      // iframe-ing random pages usually shows "refused to connect".
-      return linkCard(original, u.hostname);
+      // Prefer iframe preview (caller routes through embed-proxy to strip XFO).
+      // Known hard blockers still get a web card; insert layer falls back to link if proxy denied.
+      return {
+        kind: "web",
+        src: original,
+        title: nameHint || u.hostname,
+        original,
+        frameable: true,
+      };
     }
   } catch {
     return null;

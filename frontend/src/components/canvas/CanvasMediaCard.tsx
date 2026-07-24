@@ -108,6 +108,8 @@ export default function CanvasMediaCard({
     <div
       className={`cv-media cv-media--${item.media}${selected ? " is-on" : ""}`}
       style={{ left: item.x, top: item.y, width: item.w, height: item.h, zIndex: item.z }}
+      draggable={false}
+      onDragStart={(e) => e.preventDefault()}
     >
       <div className="cv-media-bar">
         <span className="cv-media-kind">{label}</span>
@@ -156,6 +158,8 @@ export default function CanvasMediaCard({
           target="_blank"
           rel="noreferrer"
           className="cv-media-open"
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
@@ -197,24 +201,21 @@ export default function CanvasMediaCard({
           item.media !== "image" &&
           item.media !== "audio" &&
           item.media !== "video" && (
-          <a
+          <div
             className={`cv-media-file${item.previewImage ? " cv-media-file--rich" : ""}`}
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
+            draggable={false}
+            onDragStart={(e) => e.preventDefault()}
           >
             {item.previewImage ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="cv-media-og" src={item.previewImage} alt="" />
+              <img className="cv-media-og" src={item.previewImage} alt="" draggable={false} />
             ) : null}
             <div className="cv-media-file-meta">
               <strong>{item.title || "開啟連結"}</strong>
               {item.description ? <p className="cv-media-desc">{item.description}</p> : null}
-              <span>{href.replace(/^https?:\/\//, "").slice(0, 72)}</span>
+              <span title={href}>{href.replace(/^https?:\/\//, "")}</span>
             </div>
-          </a>
+          </div>
         )}
       </div>
       {segments.length > 0 && (

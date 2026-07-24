@@ -144,7 +144,18 @@ export default function StageSelectionAi({
 
   const hasSelection = !!selectionText.trim();
   const fallback = (context || "").trim().slice(0, 4000) || title || "（無內容）";
-  const snip = (snippetLabel || selectionText || title || "").trim();
+  const mediaUrlSnip = (mediaRefs || [])
+    .map((r) => (r.url || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  // Prefer full media URLs in the chip — truncated labels used to drop ".pdf"
+  const snip = (mediaUrlSnip || snippetLabel || selectionText || title || "").trim();
+  const snipShown =
+    snip.length > 180 && !mediaUrlSnip
+      ? `${snip.slice(0, 180)}…`
+      : snip.length > 220
+        ? `${snip.slice(0, 220)}…`
+        : snip;
 
   const run = async (action: StageAiAction, ask?: string) => {
     const sel = selectionText.trim() || fallback;
@@ -240,8 +251,8 @@ export default function StageSelectionAi({
         </button>
       </div>
       <p className="sel-ai-snip" title={snip}>
-        {snip
-          ? `「${snip.slice(0, 120)}${snip.length > 120 ? "…" : ""}」`
+        {snipShown
+          ? `「${snipShown}」`
           : "（未選取 — 可直接提問或生圖）"}
       </p>
       <div className="sel-ai-quick">

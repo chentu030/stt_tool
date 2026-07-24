@@ -9817,6 +9817,9 @@ button.jn-heat-cell:disabled {
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
+  -webkit-user-drag: none;
+  user-select: none;
+  cursor: inherit;
 }
 .cv-media-file--rich {
   padding: 0;
@@ -10264,6 +10267,21 @@ button.jn-heat-cell:disabled {
   font-size: 0.9rem;
   display: block;
   margin-bottom: 0.35rem;
+  -webkit-user-drag: none;
+}
+.cv-note-title {
+  font-weight: 650;
+  font-size: 0.9rem;
+  display: block;
+  margin-bottom: 0.35rem;
+  cursor: pointer;
+  color: inherit;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.cv-note-title:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .cv-note p {
   font-size: 0.74rem;

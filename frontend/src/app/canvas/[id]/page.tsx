@@ -13,7 +13,6 @@ import {
   Suspense,
   type PointerEvent as REPointerEvent,
 } from "react";
-import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { loginWithGoogle, getNote, uploadCanvasMedia, fetchYoutubeTitle, type Note } from "@/lib/firebase";
@@ -1031,25 +1030,61 @@ function CanvasIdPageInner() {
     const url = (seed.originalUrl || seed.url || "").trim();
     if (!url) return;
     try {
+      // Upgrade legacy「連結」cards → PDF / web iframe when possible
+      if (seed.media === "link") {
+        const resolved = resolveEmbedUrl(url);
+        if (resolved?.kind === "pdf") {
+          const nextUrl =
+            resolved.original && canEmbedProxy(resolved.original)
+              ? embedProxySrc(resolved.original)
+              : resolved.src || resolved.original;
+          const size = MEDIA_DEFAULT_SIZE.pdf;
+          patchMedia(id, {
+            media: "pdf",
+            url: nextUrl,
+            originalUrl: resolved.original,
+            frameable: true,
+            title: seed.title && seed.title !== resolved.original ? seed.title : "PDF",
+            w: Math.max(seed.w, size.w),
+            h: Math.max(seed.h, size.h),
+          });
+          seed = { ...seed, media: "pdf", url: nextUrl, originalUrl: resolved.original };
+        } else if (resolved && canEmbedProxy(resolved.original)) {
+          const size = MEDIA_DEFAULT_SIZE.web;
+          const nextUrl = embedProxySrc(resolved.original);
+          patchMedia(id, {
+            media: "web",
+            url: nextUrl,
+            originalUrl: resolved.original,
+            frameable: true,
+            w: Math.max(seed.w, size.w),
+            h: Math.max(seed.h, size.h),
+          });
+          seed = { ...seed, media: "web", url: nextUrl, originalUrl: resolved.original };
+        }
+      }
+
       if (seed.media === "youtube") {
         const title = await fetchYoutubeTitle(seed.originalUrl || url);
         if (title) patchMedia(id, { title });
         return;
       }
       if (seed.media === "pdf") {
-        const res = await fetch(`/api/web/pdf-text?url=${encodeURIComponent(url)}`);
+        const pdfUrl = (seed.originalUrl || url).trim();
+        const res = await fetch(`/api/web/pdf-text?url=${encodeURIComponent(pdfUrl)}`);
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.text) patchMedia(id, { extractedText: String(data.text) });
         return;
       }
       if (seed.media === "link" || seed.media === "web") {
-        const res = await fetch(`/api/web/unfurl?url=${encodeURIComponent(url)}`);
+        const pageUrl = (seed.originalUrl || url).trim();
+        const res = await fetch(`/api/web/unfurl?url=${encodeURIComponent(pageUrl)}`);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return;
         const patch: Partial<CanvasMedia> = {};
         if (data.title) patch.title = String(data.title);
         if (data.description) patch.description = String(data.description);
-        if (data.image) {
+        if (data.image && seed.media === "link") {
           patch.previewImage = String(data.image);
           // Rich preview cards read better larger
           patch.h = Math.max(seed.h, 280);
@@ -1081,20 +1116,29 @@ function CanvasIdPageInner() {
       office: "web",
       link: "link",
     };
-    const media = mediaMap[resolved.kind] || "link";
-    const size = MEDIA_DEFAULT_SIZE[media];
+    let media = mediaMap[resolved.kind] || "link";
     const center = at ?? viewportCenterWorld();
     let url = resolved.src;
     let frameable = resolved.frameable;
-    if (media === "pdf" && resolved.original && canEmbedProxy(resolved.original)) {
+    if (
+      (media === "pdf" || media === "web") &&
+      resolved.original &&
+      canEmbedProxy(resolved.original)
+    ) {
       url = embedProxySrc(resolved.original);
       frameable = true;
+    } else if (media === "web" && resolved.original && !canEmbedProxy(resolved.original)) {
+      // Login / private hosts — fall back to link card (no broken iframe)
+      media = "link";
+      url = resolved.original;
+      frameable = false;
     }
+    const size = MEDIA_DEFAULT_SIZE[media];
     placeMedia({
       media,
       x: snapVal(center.x - size.w / 2, 22, doc.snap),
       y: snapVal(center.y - size.h / 2, 22, doc.snap),
-      w: size.w,
+      w: media === "link" ? Math.max(size.w, 380) : size.w,
       h: media === "link" ? Math.max(size.h, 200) : size.h,
       url,
       originalUrl: resolved.original,
@@ -1156,14 +1200,29 @@ function CanvasIdPageInner() {
     insertResolvedUrl(raw.trim());
   };
 
+  // One-shot: upgrade old text-only「連結」cards to PDF / web iframe previews
+  const linkUpgradeDone = useRef(new Set<string>());
+  useEffect(() => {
+    if (!ready) return;
+    for (const m of doc.media || []) {
+      if (m.media !== "link") continue;
+      if (linkUpgradeDone.current.has(m.id)) continue;
+      const u = (m.originalUrl || m.url || "").trim();
+      if (!u) continue;
+      linkUpgradeDone.current.add(m.id);
+      void enrichMediaCard(m.id, m);
+    }
+  }, [ready, doc.media]);
+
   const onPointerDown = (e: REPointerEvent) => {
     const t = e.target as HTMLElement;
     // Connect ports / edge ends handle themselves — don't steal those events.
     if (t.closest(".cv-port, .cv-edge-end")) return;
-    // Connect mode must hit note cards even when the title <a> is under the cursor.
+    // Interactive controls only — don't bail on plain <a> (note titles / media links
+    // used to steal the gesture and produce a native grey URL drag ghost).
     if (tool === "connect") {
-      if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file,.cv-media-actions,.cv-media-tx")) return;
-    } else if (t.closest("textarea,a,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-file,.cv-media-actions,.cv-media-tx")) {
+      if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-actions,.cv-media-tx")) return;
+    } else if (t.closest("textarea,button,input,audio,video,iframe,.cv-handle,.cv-ctx,.cv-media-open,.cv-media-actions,.cv-media-tx")) {
       return;
     }
     setCtxMenu(null);
@@ -2570,20 +2629,39 @@ function CanvasIdPageInner() {
                   key={pin.noteId}
                   className={`cv-note${isSelected("note", pin.noteId) ? " is-on" : ""}${connectOn ? " is-connect" : ""}`}
                   style={{ left: pin.x, top: pin.y, width: pin.w, height: pin.h }}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
                 >
-                  <Link
-                    href={`/notes/${n.id}`}
+                  <span
+                    className="cv-note-title"
+                    role="link"
+                    tabIndex={0}
+                    draggable={false}
+                    onDragStart={(e) => e.preventDefault()}
+                    onPointerDown={(e) => {
+                      const el = e.currentTarget;
+                      el.dataset.sx = String(e.clientX);
+                      el.dataset.sy = String(e.clientY);
+                    }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (tool === "connect") e.preventDefault();
+                      if (tool === "connect") return;
+                      if (drag.current?.moved) return;
+                      const el = e.currentTarget;
+                      const sx = Number(el.dataset.sx || 0);
+                      const sy = Number(el.dataset.sy || 0);
+                      if (Math.hypot(e.clientX - sx, e.clientY - sy) > 6) return;
+                      router.push(`/notes/${n.id}`);
                     }}
-                    onPointerDown={(e) => {
-                      if (tool === "connect") return; // let stage handle connect hit-test
-                      e.stopPropagation();
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        router.push(`/notes/${n.id}`);
+                      }
                     }}
                   >
                     {n.title || "未命名"}
-                  </Link>
+                  </span>
                   <p>
                     {n.body_md
                       .replace(/<!--[\s\S]*?-->/g, "")
