@@ -15548,30 +15548,87 @@ body.rich-media-float-dragging * {
   font-size: 0.78rem;
   line-height: 1.35;
 }
+/* Faint vertical rules between side-by-side property columns */
+.nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row {
+  border-left: 1px solid transparent;
+}
 /* 1 → 2 → 3 property columns. Viewport fallbacks first (Cadence 720 / 1100). */
 @media (min-width: 720px) {
   .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 0;
+  }
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(odd) {
+    padding-right: 0.7rem;
+  }
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(even) {
+    border-left-color: color-mix(in srgb, var(--border) 55%, transparent);
+    padding-left: 0.7rem;
   }
 }
 @media (min-width: 1100px) {
   .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    column-gap: 0;
+  }
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(odd),
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(even) {
+    border-left-color: transparent;
+    padding-left: 0.15rem;
+    padding-right: 0.15rem;
+  }
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:not(:nth-child(3n+1)) {
+    border-left-color: color-mix(in srgb, var(--border) 55%, transparent);
+    padding-left: 0.7rem;
+  }
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:not(:nth-child(3n)) {
+    padding-right: 0.7rem;
   }
 }
 /* Prefer panel width when @container works (matches Cadence editor ~640 / ~780). */
 @supports (container-type: inline-size) {
   .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
     grid-template-columns: minmax(0, 1fr);
+    column-gap: 0.75rem;
+  }
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(odd),
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(even),
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:not(:nth-child(3n+1)),
+  .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:not(:nth-child(3n)) {
+    border-left-color: transparent;
+    padding-left: 0.15rem;
+    padding-right: 0.15rem;
   }
   @container props-panel (min-width: 520px) {
     .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 0;
+    }
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(odd) {
+      padding-right: 0.7rem;
+    }
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(even) {
+      border-left-color: color-mix(in srgb, var(--border) 55%, transparent);
+      padding-left: 0.7rem;
     }
   }
   @container props-panel (min-width: 780px) {
     .nk-props--inline:not(.is-collapsed) > .nk-props-fields {
       grid-template-columns: repeat(3, minmax(0, 1fr));
+      column-gap: 0;
+    }
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(odd),
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:nth-child(even) {
+      border-left-color: transparent;
+      padding-left: 0.15rem;
+      padding-right: 0.15rem;
+    }
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:not(:nth-child(3n+1)) {
+      border-left-color: color-mix(in srgb, var(--border) 55%, transparent);
+      padding-left: 0.7rem;
+    }
+    .nk-props--inline:not(.is-collapsed) > .nk-props-fields > .nk-prop-row:not(:nth-child(3n)) {
+      padding-right: 0.7rem;
     }
   }
 }
