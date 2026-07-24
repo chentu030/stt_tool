@@ -631,13 +631,27 @@ function colorFromHtmlAttrs(attrs: string): string {
   return "";
 }
 
+/** Peel one &amp;lt;/&amp;gt; layer when it wraps mark/span (nested escapeHtml cycles). */
+function peelEncodedMarkEntities(s: string): string {
+  let out = s;
+  for (let i = 0; i < 4; i++) {
+    if (!/&amp;lt;\/?(?:mark|span)\b/i.test(out)) break;
+    out = out
+      .replace(/&amp;lt;/gi, "&lt;")
+      .replace(/&amp;gt;/gi, "&gt;")
+      .replace(/&amp;quot;/gi, "&quot;")
+      .replace(/&amp;#39;/gi, "&#39;");
+  }
+  return out;
+}
+
 /**
  * Recover highlighter / text-color that were saved as literal HTML (or &lt;mark&gt; text).
  * Those round-trips otherwise show raw tags after refresh.
  */
 export function healHighlightArtifacts(md: string): string {
   if (!md) return md;
-  let s = md;
+  let s = peelEncodedMarkEntities(md);
 
   // Entity-encoded marks: &lt;mark ...&gt;text&lt;/mark&gt;
   // Allow &quot; / &#39; inside attrs (common after escapeHtml → re-escape cycles).
@@ -694,9 +708,32 @@ function applyHighlightMarkdown(md: string): string {
       const t = escapeHtml(text);
       if (color) {
         const c = escapeAttr(color.trim());
-        return `<mark data-color="${c}" style="background-color: ${c}">${t}</mark>`;
+        // Match TipTap Highlight multicolor renderHTML (color: inherit).
+        return `<mark data-color="${c}" style="background-color: ${c}; color: inherit">${t}</mark>`;
       }
       return `<mark>${t}</mark>`;
+    }
+  );
+}
+
+/**
+ * Last-chance repair: if escapeHtml / marked left &lt;mark&gt; in the HTML string,
+ * turn those entities back into real <mark> elements TipTap can parse.
+ */
+function healEscapedMarksInHtml(html: string): string {
+  if (!html || !/&lt;mark\b/i.test(html)) return html;
+  let s = peelEncodedMarkEntities(html);
+  return s.replace(
+    /&lt;mark\b((?:[^&]|&(?!lt;|gt;))*?)&gt;([\s\S]*?)&lt;\/mark&gt;/gi,
+    (_m, attrs: string, text: string) => {
+      const color = colorFromHtmlAttrs(decodeBasicEntities(attrs));
+      const t = decodeBasicEntities(text).replace(/<[^>]+>/g, "").replace(/\n+/g, " ").trim();
+      if (!t) return "";
+      if (color) {
+        const c = escapeAttr(color);
+        return `<mark data-color="${c}" style="background-color: ${c}; color: inherit">${escapeHtml(t)}</mark>`;
+      }
+      return `<mark>${escapeHtml(t)}</mark>`;
     }
   );
 }
@@ -1009,7 +1046,8 @@ export function markdownToHtml(md: string, resolveWiki?: WikiResolver): string {
   const normalized = wrapBareTablesHtml(
     normalizeTableColWidths(normalizeTaskListHtml(normalizeBlockMediaHtml(html)))
   );
-  return sanitizeNoteHtml(normalized);
+  // If toggle/column escapeHtml still left &lt;mark&gt;, turn it back into real marks.
+  return sanitizeNoteHtml(healEscapedMarksInHtml(normalized));
 }
 
 /** Strip XSS vectors while keeping TipTap / media data-* attributes. */
@@ -1427,6 +1465,24 @@ export function htmlToMarkdown(html: string): string {
         const id = el.getAttribute("data-template") || "meeting";
         const label = (el.textContent || "插入範本").trim();
         el.replaceWith(doc.createTextNode(park(`\n\n[template|${id}|${label}](#)\n\n`)));
+      });
+
+      // Park real <mark> before Turndown so save never leaks raw HTML tags into body_md.
+      // Inner HTML goes through turndown so nested bold/italic survive (==**x**==).
+      doc.querySelectorAll("mark").forEach((el) => {
+        const color = normalizeCssColor(
+          el.getAttribute("data-color") ||
+            (el as HTMLElement).style?.backgroundColor ||
+            ""
+        );
+        const inner = turndown.turndown((el as HTMLElement).innerHTML || "").trim();
+        if (!inner) {
+          el.remove();
+          return;
+        }
+        el.replaceWith(
+          doc.createTextNode(park(color ? `==${inner}=={${color}}` : `==${inner}==`))
+        );
       });
 
       // Heal text nodes that already contain leaked mark/span HTML (corrupted docs).

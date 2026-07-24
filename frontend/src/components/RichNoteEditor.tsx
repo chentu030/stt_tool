@@ -1829,20 +1829,35 @@ export default function RichNoteEditor({
   useEffect(() => {
     if (!editor) return;
     if (collabProvider) return;
-    if (skip.current) {
+    const rawMd = (valueMd || "").trim();
+    const healedMd = healHighlightArtifacts(rawMd);
+    const needsHeal = healedMd !== rawMd;
+    // Visible "<mark …>" in the doc means TipTap has escaped highlight HTML as text.
+    const leakedInEditor = /<\/?mark\b/i.test(editor.getText());
+    // Never skip past a heal — otherwise corrupt bodies stay as raw HTML after refresh.
+    if (skip.current && !needsHeal && !leakedInEditor) {
       skip.current = false;
       return;
     }
-    const rawMd = (valueMd || "").trim();
-    const healedMd = healHighlightArtifacts(rawMd);
+    skip.current = false;
     // Persist repair when body was saved as literal <mark> / &lt;mark&gt; text.
-    if (healedMd !== rawMd) {
+    if (needsHeal) {
       skip.current = true;
       onChangeRef.current(healedMd);
     }
     const next = markdownToHtml(healedMd, (t) => resolveWikiRef.current(t));
-    if (htmlToMarkdown(editor.getHTML()) !== healedMd) {
+    if (needsHeal || leakedInEditor || htmlToMarkdown(editor.getHTML()) !== healedMd) {
       editor.commands.setContent(next, { emitUpdate: false });
+      // If the editor still shows raw mark tags, force a serialize→heal→reload pass.
+      if (/<\/?mark\b/i.test(editor.getText())) {
+        const repaired = healHighlightArtifacts(htmlToMarkdown(editor.getHTML()));
+        skip.current = true;
+        onChangeRef.current(repaired);
+        editor.commands.setContent(
+          markdownToHtml(repaired, (t) => resolveWikiRef.current(t)),
+          { emitUpdate: false }
+        );
+      }
     }
     // Intentionally omit wikiNotes: resolveWikiRef is a ref; listing all notes must not
     // re-setContent (that was wiping YouTube embeds after transcription finished).
