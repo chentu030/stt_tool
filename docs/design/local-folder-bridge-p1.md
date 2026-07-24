@@ -41,20 +41,19 @@ Rationale after spike:
 4. Edit files locally, then「從本機拉入」to update / create Cadence notes.
 5. Optional: select notes in 知識庫 first to push only the selection.
 
-## Next — P2 first task (extension notes RPC)
-When continuing to P2, start with:
+## Next — P2 (done) / P3 first task
 
-**Define a typed notes RPC surface for hosted extensions** (read/list/patch note by id; search titles; create note) exposed from the Cadence host to sandboxed extension iframes — expand beyond current `hostUtilities` / iframe utilities, without a plugin `main.js` loader.
+P2 extension notes RPC shipped — see `docs/design/extension-notes-rpc-p2.md`.
 
-Suggested first concrete slice:
-1. Spec `docs/design/extension-notes-rpc-p2.md` with message shapes (`cadence.notes.get|list|update|create`).
-2. Implement host dispatcher + one sample utility that calls `list` / `get`.
-3. Keep permission gated to the signed-in user’s notes only.
+When continuing to P3, start with:
+
+**Attachment / media bridge for sandboxed extensions** — permission-gated upload or attach to a note the extension can write, without a host plugin loader.
 
 ## Priority leftovers
 | Phase | Item | Notes |
 |-------|------|--------|
 | P1.x | Optional Local REST client settings | Base URL + token pull/push if users run a local HTTPS API |
 | P1.x | Richer FM types | Nested YAML → DB props |
-| P2 | Extension notes RPC | See above |
+| P2 | Extension notes RPC | Done — `extension-notes-rpc-p2.md` |
+| P3 | Extension media / attach RPC | See P2 handoff |
 | Stretch | Background folder watch | Needs companion or periodic poll UX |

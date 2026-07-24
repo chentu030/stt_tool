@@ -21,6 +21,7 @@ export type PackagePermission =
   | "iframe"
   | "clipboard"
   | "storage"
+  | "notes_read"
   | "notes_write"
   | "settings";
 

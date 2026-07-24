@@ -91,6 +91,14 @@ export default function CommunityDocsPage() {
           <code>postMessage</code> 事件 <code>albireus:settings</code>。
         </p>
         <p>
+          若需讀寫使用者知識庫，請宣告 <code>notes_read</code> / <code>notes_write</code>，並透過{" "}
+          <code>cadence.notes.get|list|update|create</code> postMessage RPC（見{" "}
+          <a href="/community/ai.md" target="_blank" rel="noreferrer">
+            ai.md §4.1
+          </a>
+          、輔助腳本 <code>/samples/notes-rpc-client.js</code>）。主程式不會執行遠端 <code>main.js</code>。
+        </p>
+        <p>
           <code>permissions</code> 會顯示在商店信任分數卡（未填會依類型推斷）。模板請宣告{" "}
           <code>notes_write</code>。<code>minAppVersion</code> 低於目前 App 版本時會拒絕安裝。
         </p>

@@ -15,6 +15,12 @@ import {
   buildExtensionFrameUrl,
   mergeExtensionSettings,
 } from "@/lib/community/extensionSettings";
+import { effectivePermissions } from "@/lib/community/permissions";
+import {
+  handleNotesRpcRequest,
+  isNotesRpcRequest,
+  originFromFrameUrl,
+} from "@/lib/community/notesRpc";
 import { useAuth } from "@/components/AuthProvider";
 
 type Props = {
@@ -58,6 +64,7 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
 
   useEffect(() => {
     if (!frameSrc || !installed) return;
+    const entryOrigin = originFromFrameUrl(frameSrc);
     const payload = {
       type: "albireus:settings",
       noteId: note.id,
@@ -66,7 +73,7 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
     };
     const post = () => {
       try {
-        frameRef.current?.contentWindow?.postMessage(payload, "*");
+        frameRef.current?.contentWindow?.postMessage(payload, entryOrigin || "*");
       } catch {
         /* ignore */
       }
@@ -78,6 +85,7 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
   useEffect(() => {
     if (!frameSrc || !installed) return;
     let cancelled = false;
+    const entryOrigin = originFromFrameUrl(frameSrc);
     const postAuth = async () => {
       try {
         const token = user ? await user.getIdToken() : "";
@@ -91,7 +99,7 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
             apiBase: (process.env.NEXT_PUBLIC_API_BASE || "").replace(/\/$/, ""),
             listenBackend: vocabListenBackend(),
           },
-          "*"
+          entryOrigin || "*"
         );
       } catch {
         /* ignore */
@@ -108,6 +116,31 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
       window.removeEventListener("message", onMsg);
     };
   }, [frameSrc, installed, user]);
+
+  useEffect(() => {
+    if (!frameSrc || !installed) return;
+    const entryOrigin = originFromFrameUrl(frameSrc);
+    if (!entryOrigin) return;
+    const permissions = effectivePermissions(installed.manifest);
+    const onMsg = (e: MessageEvent) => {
+      if (!isNotesRpcRequest(e.data)) return;
+      if (e.source !== frameRef.current?.contentWindow) return;
+      if (e.origin !== entryOrigin) return;
+      void handleNotesRpcRequest(e.data, {
+        uid: user?.uid || "",
+        permissions,
+      }).then((reply) => {
+        if (!reply) return;
+        try {
+          frameRef.current?.contentWindow?.postMessage(reply, entryOrigin);
+        } catch {
+          /* ignore */
+        }
+      });
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [frameSrc, installed, user?.uid]);
 
   if (!link?.type || !link.id) return null;
 
@@ -162,6 +195,7 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
           referrerPolicy="no-referrer-when-downgrade"
           allow="clipboard-read; clipboard-write"
           onLoad={() => {
+            const entryOrigin = originFromFrameUrl(frameSrc);
             try {
               frameRef.current?.contentWindow?.postMessage(
                 {
@@ -170,11 +204,11 @@ export default function NoteAppSurface({ note, userId, compact, onTitleHint }: P
                   extensionId: installed?.id,
                   settings,
                 },
-                "*"
+                entryOrigin || "*"
               );
               frameRef.current?.contentWindow?.postMessage(
                 { type: "albireus:auth-request" },
-                "*"
+                entryOrigin || "*"
               );
             } catch {
               /* ignore */

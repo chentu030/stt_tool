@@ -59,7 +59,12 @@ function assertMinAppVersion(pack: ResolvedPackage) {
 function assertSafeModeAllows(pack: ResolvedPackage) {
   if (!isCommunitySafeMode()) return;
   const perms = effectivePermissions(pack.manifest);
-  if (pack.manifest.kind === "extension" || perms.includes("notes_write") || perms.includes("network")) {
+  if (
+    pack.manifest.kind === "extension" ||
+    perms.includes("notes_write") ||
+    perms.includes("notes_read") ||
+    perms.includes("network")
+  ) {
     throw new Error("目前為安全模式：請先在社群商店關閉安全模式後再安裝");
   }
 }

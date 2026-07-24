@@ -1,0 +1,328 @@
+/**
+ * Typed postMessage notes RPC for sandboxed community extension iframes.
+ * Host never evals remote main.js — iframe UI only.
+ */
+
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+import {
+  createNote,
+  db,
+  getNote,
+  updateNote,
+  type Note,
+} from "@/lib/firebase";
+import type { PackagePermission } from "@/lib/community/types";
+
+export const NOTES_RPC_RESULT = "cadence.notes.result" as const;
+
+export const NOTES_RPC_METHODS = ["get", "list", "update", "create"] as const;
+export type NotesRpcMethod = (typeof NOTES_RPC_METHODS)[number];
+
+export type NotesRpcRequestType =
+  | "cadence.notes.get"
+  | "cadence.notes.list"
+  | "cadence.notes.update"
+  | "cadence.notes.create";
+
+export type NotesRpcErrorCode =
+  | "bad_request"
+  | "unauthorized"
+  | "forbidden"
+  | "not_found"
+  | "internal";
+
+export type NotesRpcNoteSummary = {
+  id: string;
+  title: string;
+  tags: string[];
+  folder: string;
+  updated_at: number;
+  created_at: number;
+};
+
+export type NotesRpcNote = NotesRpcNoteSummary & {
+  body_md: string;
+};
+
+export type NotesRpcResultMessage = {
+  type: typeof NOTES_RPC_RESULT;
+  reqId: string;
+  method: NotesRpcMethod;
+  ok: boolean;
+  data?: unknown;
+  error?: { code: NotesRpcErrorCode; message: string };
+};
+
+const TYPE_TO_METHOD: Record<NotesRpcRequestType, NotesRpcMethod> = {
+  "cadence.notes.get": "get",
+  "cadence.notes.list": "list",
+  "cadence.notes.update": "update",
+  "cadence.notes.create": "create",
+};
+
+const METHOD_PERM: Record<NotesRpcMethod, PackagePermission> = {
+  get: "notes_read",
+  list: "notes_read",
+  update: "notes_write",
+  create: "notes_write",
+};
+
+const LIST_DEFAULT_LIMIT = 50;
+const LIST_MAX_LIMIT = 100;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+function asString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
+}
+
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .filter((x): x is string => typeof x === "string")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return out;
+}
+
+export function parseNotesRpcMethod(type: unknown): NotesRpcMethod | null {
+  if (typeof type !== "string") return null;
+  if (type in TYPE_TO_METHOD) return TYPE_TO_METHOD[type as NotesRpcRequestType];
+  return null;
+}
+
+export function isNotesRpcRequest(
+  data: unknown
+): data is Record<string, unknown> & {
+  type: NotesRpcRequestType;
+  reqId: string;
+} {
+  if (!isRecord(data)) return false;
+  if (!parseNotesRpcMethod(data.type)) return false;
+  return typeof data.reqId === "string" && data.reqId.length > 0 && data.reqId.length <= 128;
+}
+
+function toSummary(note: Note): NotesRpcNoteSummary {
+  return {
+    id: note.id,
+    title: note.title || "",
+    tags: Array.isArray(note.tags) ? note.tags : [],
+    folder: note.folder || "",
+    updated_at: note.updated_at?.getTime?.() || 0,
+    created_at: note.created_at?.getTime?.() || 0,
+  };
+}
+
+function toFull(note: Note): NotesRpcNote {
+  return {
+    ...toSummary(note),
+    body_md: note.body_md || "",
+  };
+}
+
+function resultOk(reqId: string, method: NotesRpcMethod, data: unknown): NotesRpcResultMessage {
+  return { type: NOTES_RPC_RESULT, reqId, method, ok: true, data };
+}
+
+function resultErr(
+  reqId: string,
+  method: NotesRpcMethod,
+  code: NotesRpcErrorCode,
+  message: string
+): NotesRpcResultMessage {
+  return { type: NOTES_RPC_RESULT, reqId, method, ok: false, error: { code, message } };
+}
+
+function noteFromSnap(id: string, data: Record<string, unknown>): Note {
+  const created = data.created_at as { toDate?: () => Date } | Date | undefined;
+  const updated = data.updated_at as { toDate?: () => Date } | Date | undefined;
+  return {
+    id,
+    user_id: String(data.user_id || ""),
+    title: String(data.title || ""),
+    body_md: String(data.body_md || ""),
+    tags: Array.isArray(data.tags) ? (data.tags as string[]) : [],
+    folder: String(data.folder || ""),
+    journal_date: String(data.journal_date || ""),
+    status: (data.status as Note["status"]) || "backlog",
+    source_job_id: String(data.source_job_id || ""),
+    icon: String(data.icon || ""),
+    color: String(data.color || ""),
+    cover: String(data.cover || ""),
+    parent_id: String(data.parent_id || ""),
+    created_at:
+      created && typeof created === "object" && "toDate" in created && created.toDate
+        ? created.toDate()
+        : created instanceof Date
+          ? created
+          : new Date(),
+    updated_at:
+      updated && typeof updated === "object" && "toDate" in updated && updated.toDate
+        ? updated.toDate()
+        : updated instanceof Date
+          ? updated
+          : new Date(),
+  };
+}
+
+async function listOwnedNotes(uid: string): Promise<Note[]> {
+  const snap = await getDocs(query(collection(db, "notes"), where("user_id", "==", uid)));
+  const notes = snap.docs.map((d) => noteFromSnap(d.id, d.data() as Record<string, unknown>));
+  notes.sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime());
+  return notes;
+}
+
+export type NotesRpcHandleContext = {
+  uid: string;
+  permissions: PackagePermission[];
+};
+
+/**
+ * Handle one iframe postMessage payload.
+ * Returns a result message, or null if the message is not a notes RPC request.
+ */
+export async function handleNotesRpcRequest(
+  data: unknown,
+  ctx: NotesRpcHandleContext
+): Promise<NotesRpcResultMessage | null> {
+  if (!isNotesRpcRequest(data)) return null;
+  const method = parseNotesRpcMethod(data.type)!;
+  const reqId = data.reqId;
+
+  const need = METHOD_PERM[method];
+  if (!ctx.permissions.includes(need)) {
+    return resultErr(reqId, method, "forbidden", `缺少權限：${need}`);
+  }
+  if (!ctx.uid) {
+    return resultErr(reqId, method, "unauthorized", "請先登入");
+  }
+
+  try {
+    if (method === "get") {
+      const noteId = asString(data.noteId)?.trim();
+      if (!noteId) return resultErr(reqId, method, "bad_request", "缺少 noteId");
+      const note = await getNote(noteId);
+      if (!note || note.user_id !== ctx.uid) {
+        return resultErr(reqId, method, "not_found", "找不到筆記");
+      }
+      return resultOk(reqId, method, toFull(note));
+    }
+
+    if (method === "list") {
+      const q = (asString(data.q) || "").trim().toLowerCase();
+      const folder = asString(data.folder);
+      const includeBody = data.includeBody === true;
+      let limit = LIST_DEFAULT_LIMIT;
+      if (typeof data.limit === "number" && Number.isFinite(data.limit)) {
+        limit = Math.max(1, Math.min(LIST_MAX_LIMIT, Math.floor(data.limit)));
+      }
+      let notes = await listOwnedNotes(ctx.uid);
+      if (folder != null && folder !== "") {
+        notes = notes.filter((n) => (n.folder || "") === folder);
+      }
+      if (q) {
+        notes = notes.filter((n) => {
+          const title = (n.title || "").toLowerCase();
+          const tags = (n.tags || []).join(" ").toLowerCase();
+          const body = includeBody ? (n.body_md || "").toLowerCase() : "";
+          return title.includes(q) || tags.includes(q) || body.includes(q);
+        });
+      }
+      const slice = notes.slice(0, limit);
+      const items = includeBody ? slice.map(toFull) : slice.map(toSummary);
+      return resultOk(reqId, method, { items, total: notes.length });
+    }
+
+    if (method === "update") {
+      const noteId = asString(data.noteId)?.trim();
+      if (!noteId) return resultErr(reqId, method, "bad_request", "缺少 noteId");
+      const patchRaw = data.patch;
+      if (!isRecord(patchRaw)) {
+        return resultErr(reqId, method, "bad_request", "缺少 patch");
+      }
+      const note = await getNote(noteId);
+      if (!note || note.user_id !== ctx.uid) {
+        return resultErr(reqId, method, "not_found", "找不到筆記");
+      }
+      const updates: {
+        title?: string;
+        body_md?: string;
+        tags?: string[];
+        folder?: string;
+      } = {};
+      if ("title" in patchRaw) {
+        const t = asString(patchRaw.title);
+        if (t === undefined) return resultErr(reqId, method, "bad_request", "title 必須是字串");
+        updates.title = t.slice(0, 500) || "未命名筆記";
+      }
+      if ("body_md" in patchRaw) {
+        const b = asString(patchRaw.body_md);
+        if (b === undefined) return resultErr(reqId, method, "bad_request", "body_md 必須是字串");
+        updates.body_md = b;
+      }
+      if ("tags" in patchRaw) {
+        const tags = asStringArray(patchRaw.tags);
+        if (tags === undefined) {
+          return resultErr(reqId, method, "bad_request", "tags 必須是字串陣列");
+        }
+        updates.tags = tags.slice(0, 40);
+      }
+      if ("folder" in patchRaw) {
+        const f = asString(patchRaw.folder);
+        if (f === undefined) return resultErr(reqId, method, "bad_request", "folder 必須是字串");
+        updates.folder = f.slice(0, 400);
+      }
+      if (Object.keys(updates).length === 0) {
+        return resultErr(reqId, method, "bad_request", "patch 沒有可更新欄位");
+      }
+      const { updatedAt } = await updateNote(noteId, updates);
+      const next = await getNote(noteId);
+      return resultOk(reqId, method, {
+        note: next && next.user_id === ctx.uid ? toFull(next) : { id: noteId, ...updates },
+        updated_at: updatedAt,
+      });
+    }
+
+    // create
+    const title = (asString(data.title) || "").trim() || "未命名筆記";
+    const body_md = asString(data.body_md) ?? "";
+    const tags = asStringArray(data.tags) || [];
+    const folder = asString(data.folder) || "";
+    const id = await createNote(ctx.uid, title.slice(0, 500), body_md, undefined, tags.slice(0, 40), {
+      folder: folder.slice(0, 400),
+    });
+    const created = await getNote(id);
+    return resultOk(reqId, method, {
+      note: created
+        ? toFull(created)
+        : {
+            id,
+            title,
+            body_md,
+            tags,
+            folder,
+            updated_at: Date.now(),
+            created_at: Date.now(),
+          },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "內部錯誤";
+    return resultErr(reqId, method, "internal", message);
+  }
+}
+
+/** Expected origin for an extension frame URL (empty if unparseable). */
+export function originFromFrameUrl(frameUrl: string): string {
+  try {
+    return new URL(frameUrl).origin;
+  } catch {
+    return "";
+  }
+}

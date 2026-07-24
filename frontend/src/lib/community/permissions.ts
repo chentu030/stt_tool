@@ -26,10 +26,15 @@ export const PERMISSION_META: Record<
     risk: "low",
     hint: "可儲存擴充設定於你的帳號",
   },
+  notes_read: {
+    label: "讀取知識庫",
+    risk: "high",
+    hint: "可透過擴充 RPC 讀取你的筆記內容",
+  },
   notes_write: {
     label: "寫入知識庫",
     risk: "high",
-    hint: "可建立或修改筆記（模板套用）",
+    hint: "可建立或修改筆記（模板套用或擴充 RPC）",
   },
   settings: {
     label: "自訂設定",
@@ -43,6 +48,7 @@ const ALLOWED: PackagePermission[] = [
   "iframe",
   "clipboard",
   "storage",
+  "notes_read",
   "notes_write",
   "settings",
 ];

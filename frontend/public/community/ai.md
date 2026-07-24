@@ -118,7 +118,8 @@ Sample manifests: `/samples/albireus-extension-sample.json`, `/samples/albireus-
   - `clipboard` — clipboard API
   - `storage` — settings saved on user account
   - `settings` — shows settings panel
-  - `notes_write` — **templates only** (creating notes)
+  - `notes_read` — extension notes RPC: `get` / `list`
+  - `notes_write` — templates **or** notes RPC: `create` / `update`
 
 ### Template example
 
@@ -182,7 +183,55 @@ window.addEventListener("message", (e) => {
 
 **Do not rely on cookies from albireus.app** — treat the iframe as a separate origin. Persist tool state on your backend keyed by `note` id, or use your own auth.
 
-There is **no** official host→iframe API for reading the user’s notes, boards, or Firebase. If you need note content, ask the user to paste it, or provide an export/import UX inside your page.
+### 4.1 Notes RPC (`cadence.notes.*`)
+
+Sandboxed extensions may call a typed **postMessage** notes API on the host (signed-in user’s notes only). Declare permissions in `albireus.json`:
+
+- `notes_read` → `cadence.notes.get`, `cadence.notes.list`
+- `notes_write` → `cadence.notes.update`, `cadence.notes.create`
+
+Request (iframe → host) — always include `reqId`:
+
+```js
+window.parent.postMessage(
+  { type: "cadence.notes.list", reqId: crypto.randomUUID(), q: "會議", limit: 20 },
+  "*"
+);
+```
+
+| type | params |
+|------|--------|
+| `cadence.notes.get` | `noteId` |
+| `cadence.notes.list` | optional `q`, `folder`, `limit` (≤100), `includeBody` |
+| `cadence.notes.update` | `noteId`, `patch`: `{ title?, body_md?, tags?, folder? }` |
+| `cadence.notes.create` | `title`, optional `body_md`, `tags`, `folder` |
+
+Reply (host → iframe):
+
+```js
+{
+  type: "cadence.notes.result",
+  reqId,
+  method: "get" | "list" | "update" | "create",
+  ok: true | false,
+  data?: /* … */,
+  error?: { code: string, message: string }
+}
+```
+
+Minimal helper (same-origin sample on the host): `/samples/notes-rpc-client.js`
+
+```js
+// After loading the helper:
+const { items } = await CadenceNotes.list({ q: "會議", limit: 20 });
+const note = await CadenceNotes.get(items[0].id);
+await CadenceNotes.update(note.id, { title: "新標題" });
+await CadenceNotes.create({ title: "擴充建立", body_md: "## hi\n", tags: ["rpc"] });
+```
+
+Host checks: message `source` must be the extension iframe, `origin` must match `pageType.entry`, and the method’s permission must be granted. The host **never** evaluates remote `main.js`.
+
+Also available: `albireus:auth` / `albireus:auth-request` (token injection) as used by built-in apps like vocab.
 
 ---
 
@@ -387,7 +436,7 @@ Failures that block install (fix these before asking the user to upload):
 - Extension without `pageType.type === "iframe"` or non-HTTPS `entry`
 - Template without `pages[]`
 - `minAppVersion` newer than host app → install rejected
-- Safe mode ON in the store → blocks extensions / network / notes_write installs
+- Safe mode ON in the store → blocks extensions / network / notes_read / notes_write installs
 
 ---
 
@@ -425,6 +474,7 @@ Copy-paste:
 | `/community/submit` | Manifest validator |
 | `/samples/albireus-extension-sample.json` | Extension sample |
 | `/samples/albireus-template-sample.json` | Template sample |
+| `/samples/notes-rpc-client.js` | Notes RPC helper for iframes |
 
 ---
 
