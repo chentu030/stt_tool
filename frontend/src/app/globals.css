@@ -16109,6 +16109,110 @@ html.dark .nk-rel-chip--t4 {
   font-weight: 500;
   opacity: 0.9;
 }
+
+/* Note chrome meta rows inside 屬性 panel */
+.nk-meta-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  min-width: 0;
+}
+.nk-meta-inline .nk-props-add--quiet {
+  margin-left: 0;
+}
+.nk-meta-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.15rem 0;
+  outline: none;
+}
+.nk-meta-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+.nk-meta-input--tag {
+  width: auto;
+  min-width: 5.5rem;
+  flex: 1 1 5.5rem;
+}
+.nk-meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.28rem 0.35rem;
+  min-width: 0;
+  width: 100%;
+}
+.nk-meta-source-link {
+  color: var(--accent-2, var(--accent));
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+.nk-meta-source-link:hover {
+  text-decoration: underline;
+}
+
+/* Cover picker dialog */
+.cadence-dialog--cover {
+  width: min(480px, 100%);
+}
+.nk-cover-picker-upload {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.nk-cover-picker-recents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.nk-cover-picker-recents-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+.nk-cover-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+.nk-cover-picker-thumb {
+  aspect-ratio: 16 / 10;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--bg-muted) center / cover no-repeat;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+.nk-cover-picker-thumb:hover,
+.nk-cover-picker-thumb:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+  outline: none;
+}
+.nk-cover-picker-thumb.is-current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.nk-cover-picker-thumb:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+@media (max-width: 420px) {
+  .nk-cover-picker-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .nk-inbox-badge,
 .nk-org-badge {
   font-size: 0.68rem;

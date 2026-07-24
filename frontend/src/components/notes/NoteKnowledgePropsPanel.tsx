@@ -35,6 +35,7 @@ import {
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
 import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
+import NoteMetaPropFields, { type NoteMetaHandlers } from "@/components/notes/NoteMetaPropFields";
 import MenuSelect from "@/components/MenuSelect";
 import { askConfirm, askPrompt, type PromptSuggestion } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
@@ -135,6 +136,8 @@ type Props = {
   /** Also show database-only columns below workspace fields */
   extraDbProps?: import("@/lib/database").DbProperty[];
   onExtraDbCommit?: (propId: string, value: unknown) => void;
+  /** Cover / folder / tags / status / word-count (chrome moved into 屬性). */
+  meta?: NoteMetaHandlers | null;
 };
 
 function collapseStorageKey(noteId: string) {
@@ -156,6 +159,7 @@ export default function NoteKnowledgePropsPanel({
   defaultCollapsed = false,
   extraDbProps,
   onExtraDbCommit,
+  meta,
 }: Props) {
   const titleId = useId();
   const addDialogTitleId = useId();
@@ -249,13 +253,14 @@ export default function NoteKnowledgePropsPanel({
     () => defs.filter((d) => !d.archived),
     [defs]
   );
-  const systemDefs = useMemo(
-    () =>
-      WORKSPACE_SYSTEM_IDS.map((id) => activeDefs.find((d) => d.id === id)).filter(
-        (d): d is WorkspacePropertyDef => !!d
-      ),
-    [activeDefs]
-  );
+  const systemDefs = useMemo(() => {
+    const ids = meta
+      ? WORKSPACE_SYSTEM_IDS.filter((id) => id !== WS_STATUS_ID)
+      : WORKSPACE_SYSTEM_IDS;
+    return ids
+      .map((id) => activeDefs.find((d) => d.id === id))
+      .filter((d): d is WorkspacePropertyDef => !!d);
+  }, [activeDefs, meta]);
   const customCatalogDefs = useMemo(
     () => activeDefs.filter((d) => !(WORKSPACE_SYSTEM_IDS as readonly string[]).includes(d.id)),
     [activeDefs]
@@ -563,6 +568,14 @@ export default function NoteKnowledgePropsPanel({
       ) : (
         <>
           <NotePropsFieldsGrid aria-label="工作區屬性">
+            {meta ? (
+              <NoteMetaPropFields
+                note={note}
+                userId={userId}
+                readOnly={readOnly}
+                {...meta}
+              />
+            ) : null}
             {(readOnly
               ? displayDefs
               : systemDefs.concat(

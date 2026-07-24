@@ -25,10 +25,12 @@ import {
   ensureWorkspacePropertyDefs,
   listenWorkspacePropertyDefs,
   resolveDatabaseProperties,
+  WS_STATUS_ID,
   type WorkspacePropertyDef,
 } from "@/lib/workspaceProperties";
 import PropertyValueEditor from "@/components/notes/PropertyValueEditor";
 import { NotePropsFieldRow, NotePropsFieldsGrid } from "@/components/notes/NotePropsFields";
+import NoteMetaPropFields, { type NoteMetaHandlers } from "@/components/notes/NoteMetaPropFields";
 import { askConfirm, askPrompt } from "@/lib/dialogs";
 import { toast } from "@/lib/toast";
 
@@ -50,9 +52,11 @@ type Props = {
   userId: string;
   readOnly?: boolean;
   onNotePatch: (patch: Partial<Note>) => void;
+  /** Cover / folder / tags / status / word-count (chrome moved into 屬性). */
+  meta?: NoteMetaHandlers | null;
 };
 
-export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePatch }: Props) {
+export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePatch, meta }: Props) {
   const databaseId = (note.database_id || "").trim();
   const [db, setDb] = useState<CadenceDatabase | null>(null);
   const [rows, setRows] = useState<Note[]>([]);
@@ -126,8 +130,13 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
 
   const displayProps = useMemo(() => {
     if (!db) return [];
-    return resolveDatabaseProperties(db.properties, wsDefs).filter((p) => p.type !== "title");
-  }, [db, wsDefs]);
+    return resolveDatabaseProperties(db.properties, wsDefs).filter((p) => {
+      if (p.type === "title") return false;
+      // Avoid duplicate「狀態」when note meta status row is shown
+      if (meta && (p.id === WS_STATUS_ID || p.workspaceDefId === WS_STATUS_ID)) return false;
+      return true;
+    });
+  }, [db, wsDefs, meta]);
 
   const filled = useMemo(
     () => displayProps.filter((p) => !isEmptyValue(p, note, db?.properties || [], rows)),
@@ -351,6 +360,14 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
       ) : (
         <>
           <NotePropsFieldsGrid aria-label="資料庫屬性欄位">
+            {meta ? (
+              <NoteMetaPropFields
+                note={note}
+                userId={userId}
+                readOnly={readOnly}
+                {...meta}
+              />
+            ) : null}
             {visible.map((prop) => (
               <NotePropsFieldRow
                 key={prop.id}

@@ -55,7 +55,6 @@ import {
   rehydrateMeetingAiContext,
   type MeetingAiContext,
 } from "@/lib/meetingSession";
-import MenuSelect, { NOTE_STATUS_OPTIONS } from "@/components/MenuSelect";
 import { parseNoteShare, type NoteShare } from "@/lib/share";
 import { getNoteAclRole, listenNoteAcl, type NoteAclRole } from "@/lib/noteAcl";
 import { useNoteCollab } from "@/hooks/useNoteCollab";
@@ -89,8 +88,9 @@ import NoteKnowledgePropsPanel from "@/components/notes/NoteKnowledgePropsPanel"
 import {
   extractPropRelations,
   findReverseRelations,
-  noteTypeOf,
 } from "@/lib/noteKnowledge";
+import { patchWorkspaceField, WS_STATUS_ID } from "@/lib/workspaceProperties";
+import type { NoteMetaHandlers } from "@/components/notes/NoteMetaPropFields";
 import SlideStudio, { SlideStudioActions } from "@/components/slides/SlideStudio";
 import {
   SlideDeck,
@@ -1990,6 +1990,42 @@ function NotePageInner() {
     markDirty({ tags: next });
   };
 
+  const noteMetaHandlers = useMemo((): NoteMetaHandlers | null => {
+    if (!note) return null;
+    return {
+      folder,
+      onFolderChange: (v) => {
+        setFolder(v);
+        markDirty({ folder: v });
+      },
+      tags,
+      tagInput,
+      onTagInputChange: setTagInput,
+      onAddTag: addTag,
+      onRemoveTag: removeTag,
+      cover,
+      onCoverChange: (v) => {
+        setCover(v);
+        markDirty({ cover: v });
+      },
+      onStatusChange: (status) => {
+        const cleared = !status;
+        const patch = patchWorkspaceField(note, WS_STATUS_ID, status || "");
+        const nextStatus = (cleared ? "" : patch.status ?? status) as Note["status"];
+        setNote({ ...note, status: nextStatus, props: patch.props });
+        void updateNote(note.id, {
+          status: nextStatus,
+          props: patch.props,
+          ...(patch.body_md != null ? { body_md: patch.body_md } : {}),
+        });
+      },
+      stats,
+      goalProgress,
+    };
+    // addTag/removeTag close over latest tags/tagInput; markDirty is stable enough for this page
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note, folder, tags, tagInput, cover, stats, goalProgress]);
+
   const editorWidth = prefsCtx?.prefs.editorWidth || "medium";
   const widthExtended = editorWidth === "full" || editorWidth === "wide";
   const isAppPage = isNoteAppSurface(note.app_link);
@@ -2896,82 +2932,11 @@ function NotePageInner() {
 
           {viewMode === "write" && (
             <>
-              <div className="doc-chrome-actions">
-                {!cover && (
-                  <button
-                    type="button"
-                    className="doc-cmd"
-                    onClick={() => {
-                      void (async () => {
-                        const url = await askPrompt("封面圖片網址", "https://");
-                        if (!url) return;
-                        const nextCover = url.trim();
-                        setCover(nextCover);
-                        markDirty({ cover: nextCover });
-                      })();
-                    }}
-                  >
-                    加封面
-                  </button>
-                )}
-              </div>
-
-              <div className="doc-props">
-                <input
-                  className="doc-prop-input"
-                  placeholder="資料夾"
-                  value={folder}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setFolder(v);
-                    markDirty({ folder: v });
-                  }}
-                />
-                {tags.map((t) => (
-                  <span key={t} className="badge doc-tag-chip">
-                    #{t}
-                    <button
-                      type="button"
-                      className="doc-tag-remove"
-                      aria-label={`移除標籤 ${t}`}
-                      title="移除標籤"
-                      onClick={() => removeTag(t)}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-                <input
-                  className="doc-prop-input"
-                  placeholder="加標籤…"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                />
-                <MenuSelect
-                  variant="pill"
-                  ariaLabel="筆記狀態"
-                  value={note.status === "doing" || note.status === "done" ? note.status : "backlog"}
-                  options={NOTE_STATUS_OPTIONS}
-                  onChange={(v) => {
-                    void updateNote(note.id, { status: v as Note["status"] });
-                    setNote({ ...note, status: v as Note["status"] });
-                  }}
-                />
-                <span className="doc-meta-chip">
-                  <EditorWritingStats stats={stats} goalProgress={goalProgress} />
-                </span>
-                {note.source_job_id && (
-                  <Link href={`/job/${note.source_job_id}`} className="doc-prop-input" style={{ color: "var(--accent-2)" }}>
-                    來源逐字稿
-                  </Link>
-                )}
-              </div>
-
               {note.database_id ? (
                 <NoteDbPropertiesPanel
                   note={note}
                   userId={user.uid}
+                  meta={noteMetaHandlers}
                   onNotePatch={(patch) => {
                     setNote((n) => {
                       if (!n) return n;
@@ -2987,12 +2952,21 @@ function NotePageInner() {
                       setTags(patch.tags);
                       latest.current = { ...latest.current, tags: patch.tags };
                     }
+                    if (patch.cover != null) {
+                      setCover(patch.cover);
+                      latest.current = { ...latest.current, cover: patch.cover };
+                    }
+                    if (patch.folder != null) {
+                      setFolder(patch.folder);
+                      latest.current = { ...latest.current, folder: patch.folder };
+                    }
                   }}
                 />
               ) : (
                 <NoteKnowledgePropsPanel
                   note={note}
                   userId={note.user_id}
+                  meta={noteMetaHandlers}
                   resolveNoteHref={(t) => {
                     const hit = findNoteByTitle(allNotes, t);
                     return hit ? `/notes/${hit.id}` : undefined;
@@ -3004,6 +2978,18 @@ function NotePageInner() {
                   }}
                   onNotePatch={(patch) => {
                     setNote((n) => (n ? { ...n, ...patch } : n));
+                    if (patch.cover != null) {
+                      setCover(patch.cover);
+                      latest.current = { ...latest.current, cover: patch.cover };
+                    }
+                    if (patch.folder != null) {
+                      setFolder(patch.folder);
+                      latest.current = { ...latest.current, folder: patch.folder };
+                    }
+                    if (patch.tags) {
+                      setTags(patch.tags);
+                      latest.current = { ...latest.current, tags: patch.tags };
+                    }
                   }}
                 />
               )}
@@ -3020,28 +3006,12 @@ function NotePageInner() {
             </>
           )}
 
-          {viewMode === "read" && (tags.length > 0 || folder || stats.words > 0 || note.database_id || noteTypeOf(note)) && (
-            <div className="doc-props doc-props--read" aria-label="筆記資訊">
-              {folder ? <span className="doc-meta-chip">{folder}</span> : null}
-              {noteTypeOf(note) ? (
-                <span className="doc-meta-chip">類型 · {noteTypeOf(note)}</span>
-              ) : null}
-              {tags.map((t) => (
-                <span key={t} className="badge">
-                  #{t}
-                </span>
-              ))}
-              <span className="doc-meta-chip">
-                <EditorWritingStats stats={stats} goalProgress={goalProgress} />
-              </span>
-            </div>
-          )}
-
           {viewMode === "read" && note.database_id ? (
             <NoteDbPropertiesPanel
               note={note}
               userId={user.uid}
               readOnly
+              meta={noteMetaHandlers}
               onNotePatch={() => {}}
             />
           ) : null}
@@ -3051,6 +3021,7 @@ function NotePageInner() {
               note={note}
               userId={note.user_id}
               readOnly
+              meta={noteMetaHandlers}
               resolveNoteHref={(t) => {
                 const hit = findNoteByTitle(allNotes, t);
                 return hit ? `/notes/${hit.id}` : undefined;
