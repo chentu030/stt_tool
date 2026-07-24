@@ -1164,6 +1164,7 @@ export default function SidebarNotesTree() {
     }
 
     if (target.kind === "folder") {
+      // Real folders (incl. nested e.g. 預設資料夾/子資料夾). 未分類 is virtual-only.
       const isVirtual = target.path === UNCATEGORIZED;
       items.push(
         {
@@ -1185,6 +1186,13 @@ export default function SidebarNotesTree() {
             type: "item",
             label: "新增子資料夾",
             action: () => void createFolder(target.path),
+          },
+          { type: "sep" },
+          {
+            type: "item",
+            label: "刪除資料夾…",
+            danger: true,
+            action: () => void deleteFolder(target.path),
           }
         );
       } else {
@@ -1195,6 +1203,7 @@ export default function SidebarNotesTree() {
         });
       }
       items.push(
+        { type: "sep" },
         {
           type: "item",
           label: "選取此夾全部",
@@ -1229,17 +1238,6 @@ export default function SidebarNotesTree() {
         { type: "sep" },
         { type: "item", label: "全選可見", action: selectAllVisible }
       );
-      if (!isVirtual) {
-        items.push(
-          { type: "sep" },
-          {
-            type: "item",
-            label: "刪除資料夾…",
-            danger: true,
-            action: () => void deleteFolder(target.path),
-          }
-        );
-      }
       return items;
     }
 
