@@ -16,9 +16,12 @@ type Props = {
   folderFilter: string;
   tagFilter: string;
   statusFilter: string;
+  inboxCount?: number;
+  inboxActive?: boolean;
   onFolder: (v: string) => void;
   onTag: (v: string) => void;
   onStatus: (v: string) => void;
+  onInbox?: (active: boolean) => void;
 };
 
 export default function LibraryRail({
@@ -29,9 +32,12 @@ export default function LibraryRail({
   folderFilter,
   tagFilter,
   statusFilter,
+  inboxCount = 0,
+  inboxActive = false,
   onFolder,
   onTag,
   onStatus,
+  onInbox,
 }: Props) {
   const totalNotes = folders.reduce((sum, f) => sum + f.count, 0);
   const scoped = Boolean(folderFilter);
@@ -55,6 +61,15 @@ export default function LibraryRail({
       <section className="kb-rail-section">
         <h3>捷徑</h3>
         <div className="kb-shortcuts">
+          {onInbox ? (
+            <button
+              type="button"
+              className={`kb-shortcut-btn${inboxActive ? " is-active" : ""}`}
+              onClick={() => onInbox(!inboxActive)}
+            >
+              待整理{inboxCount > 0 ? ` (${inboxCount})` : ""}
+            </button>
+          ) : null}
           <Link
             href={`/library?folder=${encodeURIComponent("深度研究")}`}
             className="is-pin"

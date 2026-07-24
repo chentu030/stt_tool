@@ -2,6 +2,7 @@
 
 import { createNote, updateNote, uploadNoteMedia } from "@/lib/firebase";
 import { normalizeFolderPath } from "@/lib/noteTree";
+import { structureFrontmatterExtras, ORGANIZED_PROP } from "@/lib/noteKnowledge";
 
 const MD_EXT = /\.(md|markdown|mdx)$/i;
 const MAX_BYTES = 2_500_000;
@@ -178,6 +179,12 @@ export type ParsedMarkdownImport = {
   folder?: string;
   /** Cadence note id for local-folder bridge matching */
   cadenceId?: string;
+  /** note.props.type from YAML `type` */
+  noteType?: string;
+  /** Mapped kanban status from YAML status/state when recognized */
+  kanbanStatus?: "backlog" | "doing" | "done";
+  /** First-class props: type, fm_status, relation fields with [[wikilinks]] */
+  promotedProps: Record<string, unknown>;
   /** Non-mapped YAML keys for round-trip */
   extras: Record<string, unknown>;
 };
@@ -198,6 +205,12 @@ const RESERVED_FM = new Set([
   "journal",
   "folder",
   "cadence_id",
+  "type",
+  "note_type",
+  "status",
+  "state",
+  "progress",
+  "organized",
 ]);
 
 function asStringList(v: unknown): string[] {
@@ -232,10 +245,10 @@ function asJournalDate(v: unknown): string | undefined {
 export function parseMarkdownImport(raw: string): ParsedMarkdownImport {
   const text = raw.replace(/^\uFEFF/, "");
   if (!text.startsWith("---")) {
-    return { body: text, tags: [], aliases: [], extras: {} };
+    return { body: text, tags: [], aliases: [], extras: {}, promotedProps: {} };
   }
   const end = text.indexOf("\n---", 3);
-  if (end < 0) return { body: text, tags: [], aliases: [], extras: {} };
+  if (end < 0) return { body: text, tags: [], aliases: [], extras: {}, promotedProps: {} };
   const fence = text.slice(3, end).replace(/^\r?\n/, "").replace(/\r?\n$/, "");
   const body = text.slice(end + 4).replace(/^\r?\n/, "");
   const map = parseYamlBlock(fence);
@@ -262,15 +275,24 @@ export function parseMarkdownImport(raw: string): ParsedMarkdownImport {
       ? String(cadenceRaw).trim()
       : undefined;
 
-  const extras: Record<string, unknown> = {};
+  const rawExtras: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(map)) {
     if (RESERVED_FM.has(k.toLowerCase())) continue;
-    extras[k] = v;
+    rawExtras[k] = v;
+  }
+  // Re-include type/status keys for structured promotion (they are reserved above)
+  for (const k of ["type", "note_type", "status", "state", "progress", "organized"]) {
+    if (map[k] != null) rawExtras[k] = map[k];
   }
   // Keep original date fields that weren't mapped to journal when useful for export
-  if (map.date != null && !journalDate) extras.date = map.date;
-  if (created) extras.created = created;
-  if (updated) extras.updated = updated;
+  if (map.date != null && !journalDate) rawExtras.date = map.date;
+  if (created) rawExtras.created = created;
+  if (updated) rawExtras.updated = updated;
+
+  const structured = structureFrontmatterExtras(rawExtras);
+  if (map.organized === true || map.organized === "true" || map.organized === 1) {
+    structured.promoted[ORGANIZED_PROP] = true;
+  }
 
   return {
     body,
@@ -282,7 +304,10 @@ export function parseMarkdownImport(raw: string): ParsedMarkdownImport {
     updated,
     folder: folder || undefined,
     cadenceId,
-    extras,
+    noteType: structured.type,
+    kanbanStatus: structured.kanbanStatus,
+    promotedProps: structured.promoted,
+    extras: structured.extras,
   };
 }
 
@@ -723,7 +748,7 @@ export async function importMarkdownFilesAsNotes(
         }
       }
 
-      const props: Record<string, unknown> = {};
+      const props: Record<string, unknown> = { ...parsed.promotedProps };
       if (parsed.aliases.length) props[ALIASES_PROP] = parsed.aliases;
       if (Object.keys(parsed.extras).length) {
         props[FRONTMATTER_PROP] = parsed.extras;
@@ -732,7 +757,7 @@ export async function importMarkdownFilesAsNotes(
       const id = await createNote(uid, title, body, undefined, tags, {
         folder,
         parent_id: parentId || undefined,
-        status: opts?.defaultStatus || "backlog",
+        status: parsed.kanbanStatus || opts?.defaultStatus || "backlog",
         journal_date: parsed.journalDate || undefined,
         props,
       });

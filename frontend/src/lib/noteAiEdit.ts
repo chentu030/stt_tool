@@ -111,6 +111,14 @@ export function applyNoteAiEditToBody(
   return edit.bodyMd;
 }
 
+/** Preview body after a pending AI edit (for review / diff). */
+export function previewNoteAiEditBody(
+  currentBody: string,
+  edit: NoteAiEdit
+): string {
+  return applyNoteAiEditToBody(currentBody, edit);
+}
+
 export function dispatchNoteAiEdit(detail: NoteAiEditEventDetail) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(NOTE_AI_EDIT_EVENT, { detail }));

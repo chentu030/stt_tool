@@ -50,6 +50,10 @@ import {
   pickMarkdownFolder,
 } from "@/lib/importMarkdownNotes";
 import LocalFolderSyncPanel from "@/components/library/LocalFolderSyncPanel";
+import {
+  listInboxNotes,
+  withOrganizedFlag,
+} from "@/lib/noteKnowledge";
 
 const SORT_OPTIONS = [
   { value: "updated" as const, label: "最近更新" },
@@ -65,12 +69,14 @@ function LibraryPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const folderFromUrl = searchParams.get("folder") || "";
+  const queueFromUrl = searchParams.get("queue") || "";
   const [jobs, setJobs] = useState<Job[]>([]);
   const { notes } = useNotesList();
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"notes" | "jobs">("notes");
   const [tagFilter, setTagFilter] = useState("");
   const [folderFilter, setFolderFilter] = useState(folderFromUrl);
+  const [inboxQueue, setInboxQueue] = useState(queueFromUrl === "inbox");
   const [statusFilter, setStatusFilter] = useState("");
   const [sort, setSort] = useState<SortKey>(prefs.librarySort);
   const [view, setView] = useState<ViewMode>(prefs.libraryView);
@@ -90,9 +96,30 @@ function LibraryPageInner() {
   }, [folderFromUrl]);
 
   useEffect(() => {
+    setInboxQueue(queueFromUrl === "inbox");
+  }, [queueFromUrl]);
+
+  useEffect(() => {
     const t = searchParams.get("tab");
     if (t === "jobs" || t === "notes") setTab(t);
   }, [searchParams]);
+
+  const inboxNotes = useMemo(() => listInboxNotes(notes), [notes]);
+  const inboxCount = inboxNotes.length;
+
+  const setInboxActive = (active: boolean) => {
+    setInboxQueue(active);
+    const params = new URLSearchParams(searchParams.toString());
+    if (active) {
+      params.set("queue", "inbox");
+      params.delete("folder");
+      setFolderFilter("");
+    } else {
+      params.delete("queue");
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/library?${qs}` : "/library");
+  };
 
   useEffect(() => {
     if (prefsReady) return;
@@ -135,15 +162,29 @@ function LibraryPageInner() {
   const filteredNotes = useMemo(() => {
     let list = searchNotes(notes, q, {
       tag: tagFilter,
-      folder: folderFilter,
+      folder: inboxQueue ? "" : folderFilter,
       status: statusFilter,
       sort: q.trim() && sort === "updated" ? "relevance" : sort,
     });
+    if (inboxQueue) {
+      const ids = new Set(inboxNotes.map((n) => n.id));
+      list = list.filter((n) => ids.has(n.id));
+    }
     if (!prefs.libraryShowEmpty) {
       list = list.filter((n) => (n.body_md || "").trim().length > 0);
     }
     return list;
-  }, [notes, q, tagFilter, folderFilter, statusFilter, sort, prefs.libraryShowEmpty]);
+  }, [
+    notes,
+    q,
+    tagFilter,
+    folderFilter,
+    statusFilter,
+    sort,
+    prefs.libraryShowEmpty,
+    inboxQueue,
+    inboxNotes,
+  ]);
 
   const filteredJobs = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -249,6 +290,18 @@ function LibraryPageInner() {
     setBulkFolder(folder);
     await Promise.all(selected.map((id) => updateNote(id, { folder })));
     toast(`已移動 ${selected.length} 篇`);
+  };
+
+  const runBulkOrganize = async () => {
+    if (!selected.length) return;
+    const pool = notes.filter((n) => selected.includes(n.id));
+    await Promise.all(
+      pool.map((n) =>
+        updateNote(n.id, { props: withOrganizedFlag(n.props, true) })
+      )
+    );
+    toast(`已標為已整理：${selected.length} 篇`);
+    setSelected([]);
   };
 
   const runBulkDelete = async () => {
@@ -423,9 +476,14 @@ function LibraryPageInner() {
           folderFilter={folderFilter}
           tagFilter={tagFilter}
           statusFilter={statusFilter}
+          inboxCount={inboxCount}
+          inboxActive={inboxQueue}
+          onInbox={setInboxActive}
           onFolder={(v) => {
+            setInboxQueue(false);
             setFolderFilter(v);
             const params = new URLSearchParams(searchParams.toString());
+            params.delete("queue");
             if (v) params.set("folder", v);
             else params.delete("folder");
             const qs = params.toString();
@@ -488,8 +546,9 @@ function LibraryPageInner() {
               </div>
             </div>
 
-            {(tagFilter || folderFilter || statusFilter || q) && (
+            {(tagFilter || folderFilter || statusFilter || q || inboxQueue) && (
               <div className="kb-filters">
+                {inboxQueue && <span className="kb-chip">待整理</span>}
                 {folderFilter && (
                   <span className="kb-chip">
                     資料夾：{folderFilter === "__none__" ? "未分類" : folderFilter}
@@ -505,6 +564,7 @@ function LibraryPageInner() {
                     setTagFilter("");
                     setFolderFilter("");
                     setStatusFilter("");
+                    setInboxQueue(false);
                     setQ("");
                     router.replace("/library");
                   }}
@@ -536,6 +596,15 @@ function LibraryPageInner() {
                       }}
                     >
                       移動至…
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm kb-ctrl-btn"
+                      onClick={() => {
+                        void runBulkOrganize();
+                      }}
+                    >
+                      標為已整理
                     </button>
                     <button type="button" className="btn btn-ghost btn-sm kb-ctrl-btn" onClick={exportSelectedOrFiltered}>
                       匯出 MD

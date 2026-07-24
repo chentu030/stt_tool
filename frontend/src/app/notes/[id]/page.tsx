@@ -83,7 +83,13 @@ import {
   downloadPdfViaPrint,
   downloadPptOutline,
 } from "@/lib/exportNote";
-import { ALIASES_PROP, FRONTMATTER_PROP } from "@/lib/importMarkdownNotes";
+import { ALIASES_PROP } from "@/lib/importMarkdownNotes";
+import NoteKnowledgePropsPanel from "@/components/notes/NoteKnowledgePropsPanel";
+import {
+  extractPropRelations,
+  findReverseRelations,
+  noteTypeOf,
+} from "@/lib/noteKnowledge";
 import SlideStudio, { SlideStudioActions } from "@/components/slides/SlideStudio";
 import {
   SlideDeck,
@@ -1331,6 +1337,27 @@ function NotePageInner() {
     return findBacklinks(allNotes, { id: note.id, title, body_md: body, tags, props: note.props });
   }, [allNotes, note, title, body, tags]);
 
+  const propRelations = useMemo(() => {
+    if (!note) return [];
+    return extractPropRelations(note.props).map((rel) => ({
+      label: rel.label,
+      titles: rel.titles.map((t) => {
+        const hit = findNoteByTitle(allNotes, t);
+        return hit ? { title: t, href: `/notes/${hit.id}` } : { title: t };
+      }),
+    }));
+  }, [note, allNotes]);
+
+  const reverseRelations = useMemo(() => {
+    if (!note) return [];
+    return findReverseRelations(allNotes, {
+      id: note.id,
+      title,
+      body_md: body,
+      props: note.props,
+    }).map((r) => ({ id: r.noteId, title: r.title, via: r.via }));
+  }, [allNotes, note, title, body]);
+
   const outbound = useMemo(() => extractWikiLinks(body), [body]);
 
   useEffect(() => {
@@ -2308,12 +2335,7 @@ function NotePageInner() {
                         folder: folder || undefined,
                         created: note?.created_at,
                         updated: note?.updated_at || new Date(),
-                        extras:
-                          note?.props && typeof note.props[FRONTMATTER_PROP] === "object"
-                            ? {
-                                ...(note.props[FRONTMATTER_PROP] as Record<string, unknown>),
-                              }
-                            : {},
+                        extras: note?.props || {},
                       }),
                   },
                   { label: "匯出 PDF", fn: () => downloadPdfViaPrint(title, body) },
@@ -2679,14 +2701,25 @@ function NotePageInner() {
                     }
                   }}
                 />
-              ) : null}
+              ) : (
+                <NoteKnowledgePropsPanel
+                  note={note}
+                  onPropsPatch={(props) => {
+                    setNote((n) => (n ? { ...n, props } : n));
+                    void updateNote(note.id, { props });
+                  }}
+                />
+              )}
 
             </>
           )}
 
-          {viewMode === "read" && (tags.length > 0 || folder || stats.words > 0 || note.database_id) && (
+          {viewMode === "read" && (tags.length > 0 || folder || stats.words > 0 || note.database_id || noteTypeOf(note)) && (
             <div className="doc-props doc-props--read" aria-label="筆記資訊">
               {folder ? <span className="doc-meta-chip">{folder}</span> : null}
+              {noteTypeOf(note) ? (
+                <span className="doc-meta-chip">類型 · {noteTypeOf(note)}</span>
+              ) : null}
               {tags.map((t) => (
                 <span key={t} className="badge">
                   #{t}
@@ -2712,6 +2745,14 @@ function NotePageInner() {
               userId={user.uid}
               readOnly
               onNotePatch={() => {}}
+            />
+          ) : null}
+
+          {viewMode === "read" && !note.database_id ? (
+            <NoteKnowledgePropsPanel
+              note={note}
+              readOnly
+              onPropsPatch={() => {}}
             />
           ) : null}
 
@@ -2900,6 +2941,8 @@ function NotePageInner() {
             return hit ? { title: t, href: `/notes/${hit.id}` } : { title: t };
           })}
           backlinks={backlinks.map((n) => ({ id: n.id, title: n.title }))}
+          propRelations={propRelations}
+          reverseRelations={reverseRelations}
           onJumpHeading={jumpHeading}
           linkPicker={linkPicker}
           onLinkPickerChange={setLinkPicker}

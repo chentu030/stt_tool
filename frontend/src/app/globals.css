@@ -15253,6 +15253,136 @@ body.rich-media-float-dragging * {
   color: var(--accent);
   font-weight: 600;
 }
+.kb-shortcut-btn {
+  font-size: 0.75rem;
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  cursor: pointer;
+}
+.kb-shortcut-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.nk-props {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-muted) 55%, transparent);
+}
+.nk-props-row {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  font-size: 0.82rem;
+}
+.nk-props-key {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding-top: 0.35rem;
+}
+.nk-props-val {
+  color: var(--text);
+  word-break: break-word;
+}
+.nk-props-input {
+  width: 100%;
+  min-width: 0;
+}
+.nk-props-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.nk-wiki-chip {
+  font-size: 0.75rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-2);
+}
+.nk-props-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.2rem;
+}
+.nk-inbox-badge,
+.nk-org-badge {
+  font-size: 0.7rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+}
+.nk-inbox-badge {
+  background: color-mix(in srgb, #c45c26 18%, transparent);
+  color: #c45c26;
+}
+.nk-org-badge {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.note-rel-group {
+  margin-bottom: 0.45rem;
+}
+.note-rel-label {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-bottom: 0.15rem;
+}
+.note-rel-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.note-rel-via {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.cadence-ai-edit-bar--review {
+  flex-direction: column;
+  align-items: stretch;
+}
+.cadence-ai-edit-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+.cadence-ai-edit-summary {
+  color: var(--accent-2);
+}
+.cadence-ai-diff {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 70%, #000 8%);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cadence-ai-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
 
 /* Cross-app continue chips — permanently hidden */
 .continue-chips,

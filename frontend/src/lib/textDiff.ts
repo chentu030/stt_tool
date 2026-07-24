@@ -106,6 +106,48 @@ export function summarizeLineOps(ops: LineOp[]): string {
   return `刪除約 ${removed} 行`;
 }
 
+export type DiffViewRow = {
+  kind: "ctx" | "add" | "del";
+  text: string;
+};
+
+/** Expand line ops into a short review preview (context + changes). */
+export function expandDiffPreview(
+  before: string,
+  after: string,
+  contextLines = 1,
+  maxRows = 48
+): DiffViewRow[] {
+  const a = splitLines(before);
+  const ops = diffLines(before, after);
+  const rows: DiffViewRow[] = [];
+  let i = 0;
+  for (const op of ops) {
+    if (op.op === "keep") {
+      if (op.n <= contextLines * 2) {
+        for (let k = 0; k < op.n; k++) rows.push({ kind: "ctx", text: a[i + k] ?? "" });
+      } else {
+        for (let k = 0; k < contextLines; k++) rows.push({ kind: "ctx", text: a[i + k] ?? "" });
+        rows.push({ kind: "ctx", text: "…" });
+        for (let k = op.n - contextLines; k < op.n; k++) {
+          rows.push({ kind: "ctx", text: a[i + k] ?? "" });
+        }
+      }
+      i += op.n;
+    } else if (op.op === "del") {
+      for (let k = 0; k < op.n; k++) rows.push({ kind: "del", text: a[i + k] ?? "" });
+      i += op.n;
+    } else {
+      for (const line of op.lines) rows.push({ kind: "add", text: line });
+    }
+    if (rows.length >= maxRows) {
+      rows.push({ kind: "ctx", text: "…" });
+      break;
+    }
+  }
+  return rows.slice(0, maxRows);
+}
+
 export function approxOpBytes(ops: LineOp[]): number {
   try {
     return JSON.stringify(ops).length;

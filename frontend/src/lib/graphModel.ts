@@ -1,6 +1,7 @@
 /** Knowledge graph model: wiki links, tags, folders, layouts, analytics */
 
 import { extractWikiLinks, extractTagsFromText } from "@/lib/wiki";
+import { extractPropRelations } from "@/lib/noteKnowledge";
 
 export type GraphNote = {
   id: string;
@@ -11,9 +12,10 @@ export type GraphNote = {
   status?: string;
   updated_at: Date;
   created_at: Date;
+  props?: Record<string, unknown>;
 };
 
-export type EdgeKind = "wiki" | "tag" | "folder";
+export type EdgeKind = "wiki" | "tag" | "folder" | "relation";
 
 export type GraphNodeKind = "note" | "ghost" | "tag" | "folder";
 
@@ -280,6 +282,35 @@ export function buildGraph(
         addEdge(from, gid, "wiki", 1, link);
       }
     }
+    // Structured relation props (YAML / 屬性 with [[wikilinks]]) — higher weight
+    for (const rel of extractPropRelations(n.props)) {
+      for (const link of rel.titles) {
+        const target = byTitle.get(titleKey(link));
+        const label = `${rel.label}:${link}`;
+        if (target) {
+          addEdge(from, nodeIdForNote(target.id), "relation", 2.2, label);
+        } else {
+          const gid = nodeIdForGhost(link);
+          addNode({
+            id: gid,
+            kind: "ghost",
+            title: link.trim(),
+            folder: "",
+            tags: [],
+            words: 0,
+            updatedAt: 0,
+            outDegree: 0,
+            inDegree: 0,
+            degree: 0,
+            x: 0,
+            y: 0,
+            vx: 0,
+            vy: 0,
+          });
+          addEdge(from, gid, "relation", 2.2, label);
+        }
+      }
+    }
   }
 
   // tag co-occurrence soft edges between notes
@@ -371,7 +402,7 @@ export function buildGraph(
     const a = byId.get(e.from);
     const b = byId.get(e.to);
     if (!a || !b) continue;
-    if (e.kind === "wiki") {
+    if (e.kind === "wiki" || e.kind === "relation") {
       a.outDegree += 1;
       b.inDegree += 1;
     }
@@ -396,7 +427,7 @@ export function applySavedPositions(
 }
 
 export function computeStats(bundle: GraphBundle, noteCount: number): GraphStats {
-  const wikiEdges = bundle.edges.filter((e) => e.kind === "wiki").length;
+  const wikiEdges = bundle.edges.filter((e) => e.kind === "wiki" || e.kind === "relation").length;
   const tagEdges = bundle.edges.filter((e) => e.kind === "tag").length;
   const folderEdges = bundle.edges.filter((e) => e.kind === "folder").length;
   const ghosts = bundle.nodes.filter((n) => n.kind === "ghost").length;
@@ -617,7 +648,7 @@ export function layoutGraph(
   });
 
   const wikiEdges = bundle.edges.filter(
-    (e) => e.kind === "wiki" || e.kind === "tag" || e.kind === "folder"
+    (e) => e.kind === "wiki" || e.kind === "relation" || e.kind === "tag" || e.kind === "folder"
   );
   const iters = Math.max(iterations, 120);
   for (let iter = 0; iter < iters; iter++) {
@@ -649,8 +680,20 @@ export function layoutGraph(
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const ideal = e.kind === "wiki" ? 180 : e.kind === "tag" ? 320 : 380;
-      const spring = e.kind === "wiki" ? 0.028 : 0.01;
+      const ideal =
+        e.kind === "wiki" || e.kind === "relation"
+          ? e.kind === "relation"
+            ? 150
+            : 180
+          : e.kind === "tag"
+            ? 320
+            : 380;
+      const spring =
+        e.kind === "wiki" || e.kind === "relation"
+          ? e.kind === "relation"
+            ? 0.04
+            : 0.028
+          : 0.01;
       const force = (dist - ideal) * spring * e.weight * cooling;
       dx = (dx / dist) * force;
       dy = (dy / dist) * force;
@@ -683,7 +726,7 @@ export function neighborsOf(
     if (e.from === nodeId) {
       const n = bundle.byId.get(e.to);
       if (n) {
-        if (e.kind === "wiki") outbound.push(n);
+        if (e.kind === "wiki" || e.kind === "relation") outbound.push(n);
         else if (!seen.has(n.id)) {
           undirected.push(n);
           seen.add(n.id);
@@ -693,7 +736,7 @@ export function neighborsOf(
     if (e.to === nodeId) {
       const n = bundle.byId.get(e.from);
       if (n) {
-        if (e.kind === "wiki") inbound.push(n);
+        if (e.kind === "wiki" || e.kind === "relation") inbound.push(n);
         else if (!seen.has(n.id)) {
           undirected.push(n);
           seen.add(n.id);
@@ -709,7 +752,7 @@ export function shortestPath(
   bundle: GraphBundle,
   fromId: string,
   toId: string,
-  kinds: EdgeKind[] = ["wiki"]
+  kinds: EdgeKind[] = ["wiki", "relation"]
 ): PathResult {
   if (!bundle.byId.has(fromId) || !bundle.byId.has(toId)) return null;
   if (fromId === toId) return { nodes: [fromId], edges: [] };

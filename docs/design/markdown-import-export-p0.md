@@ -29,7 +29,7 @@ Internal engineering note. Reference product names OK here; never surface in pro
 | Phase | Item | Notes |
 |-------|------|--------|
 | P1 | Local REST / desktop companion bridge | **Shipped** as FS Access folder sync — `local-folder-bridge-p1.md` |
-| P1 | Richer FM types | Nested YAML, dataview-ish fields as DB props |
+| P1 | Richer FM types | **Shipped** type / status / relation props — `frontmatter-relations-inbox-ai-review.md` |
 | P2 | Extension host RPC expansion | Beyond current iframe utilities — first task in P1 handoff |
 | Stretch | Template / journal polish | Tied to `NOTE_TEMPLATES` / community templates — light only |
 

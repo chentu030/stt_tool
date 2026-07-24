@@ -16,6 +16,17 @@ type Backlink = {
   title: string;
 };
 
+type PropRelationView = {
+  label: string;
+  titles: OutboundLink[];
+};
+
+type ReverseRelationView = {
+  id: string;
+  title: string;
+  via: string;
+};
+
 type LinkCandidate = {
   id: string;
   title: string;
@@ -29,6 +40,8 @@ type Props = {
   related: RelatedNote[];
   outbound?: OutboundLink[];
   backlinks?: Backlink[];
+  propRelations?: PropRelationView[];
+  reverseRelations?: ReverseRelationView[];
   onJumpHeading?: (item: HeadingItem) => void;
   /** Search / open / insert wiki links */
   linkPicker?: string;
@@ -57,6 +70,8 @@ export default function NoteAside({
   related,
   outbound = [],
   backlinks = [],
+  propRelations = [],
+  reverseRelations = [],
   onJumpHeading,
   linkPicker = "",
   onLinkPickerChange,
@@ -300,6 +315,29 @@ export default function NoteAside({
           <h4>連結圖譜</h4>
           <Link href="/graph">開啟圖譜 →</Link>
         </div>
+        {propRelations.length > 0 && (
+          <div className="note-aside-block note-aside-rels">
+            <p className="doc-link-label">關係屬性</p>
+            {propRelations.map((rel) => (
+              <div key={rel.label} className="note-rel-group">
+                <span className="note-rel-label">{rel.label}</span>
+                <div className="note-rel-links">
+                  {rel.titles.map((t) =>
+                    t.href ? (
+                      <Link key={t.title} href={t.href} className="doc-link-item">
+                        {t.title}
+                      </Link>
+                    ) : (
+                      <span key={t.title} className="doc-link-missing">
+                        {t.title}（未建立）
+                      </span>
+                    )
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="doc-link-grid doc-link-grid--aside">
           <div>
             <p className="doc-link-label">此頁連出</p>
@@ -323,16 +361,28 @@ export default function NoteAside({
           </div>
           <div>
             <p className="doc-link-label">連到此頁</p>
-            {backlinks.length === 0 ? (
+            {backlinks.length === 0 && reverseRelations.length === 0 ? (
               <p className="note-aside-empty">尚無反向連結</p>
             ) : (
-              backlinks.map((n) => (
-                <div key={n.id}>
-                  <Link href={`/notes/${n.id}`} className="doc-link-item">
-                    {n.title}
-                  </Link>
-                </div>
-              ))
+              <>
+                {backlinks.map((n) => (
+                  <div key={n.id}>
+                    <Link href={`/notes/${n.id}`} className="doc-link-item">
+                      {n.title}
+                    </Link>
+                  </div>
+                ))}
+                {reverseRelations
+                  .filter((r) => !backlinks.some((b) => b.id === r.id))
+                  .map((r) => (
+                    <div key={`rev-${r.id}`}>
+                      <Link href={`/notes/${r.id}`} className="doc-link-item">
+                        {r.title}
+                      </Link>
+                      <span className="note-rel-via"> ← {r.via}</span>
+                    </div>
+                  ))}
+              </>
             )}
           </div>
         </div>

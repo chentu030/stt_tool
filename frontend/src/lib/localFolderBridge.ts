@@ -15,6 +15,7 @@ import {
   parseMarkdownImport,
   titleFromMarkdown,
 } from "@/lib/importMarkdownNotes";
+import { frontmatterExtrasFromProps } from "@/lib/noteKnowledge";
 import { normalizeFolderPath } from "@/lib/noteTree";
 
 const DB_NAME = "cadence_local_bridge";
@@ -333,10 +334,7 @@ function buildNoteMarkdown(note: Note): string {
   const aliases = Array.isArray(note.props?.[ALIASES_PROP])
     ? (note.props![ALIASES_PROP] as string[])
     : [];
-  const fmExtras =
-    note.props && typeof note.props[FRONTMATTER_PROP] === "object"
-      ? { ...(note.props[FRONTMATTER_PROP] as Record<string, unknown>) }
-      : {};
+  const fmExtras = frontmatterExtrasFromProps(note.props);
   delete fmExtras[CADENCE_ID_KEY];
   delete fmExtras.cadenceId;
   return markdownWithFrontmatter(note.body_md || "", {
@@ -418,7 +416,7 @@ export async function pullFromLocalFolder(
       const folder =
         parsed.folder || folderFromRelPath(entry.relativePath);
 
-      const props: Record<string, unknown> = {};
+      const props: Record<string, unknown> = { ...(parsed.promotedProps || {}) };
       if (parsed.aliases.length) props[ALIASES_PROP] = parsed.aliases;
       const extras = { ...(parsed.extras || {}) };
       delete extras[CADENCE_ID_KEY];
@@ -437,6 +435,7 @@ export async function pullFromLocalFolder(
           tags,
           folder,
           journal_date: parsed.journalDate || "",
+          ...(parsed.kanbanStatus ? { status: parsed.kanbanStatus } : {}),
           props: {
             ...(byId.get(targetId)?.props || {}),
             ...props,
@@ -448,6 +447,7 @@ export async function pullFromLocalFolder(
         const id = await createNote(uid, title, body, undefined, tags, {
           folder,
           journal_date: parsed.journalDate || undefined,
+          status: parsed.kanbanStatus || "backlog",
           props,
         });
         // Stamp cadence_id on disk so the next pull/push matches stably

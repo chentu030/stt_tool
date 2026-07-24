@@ -2,9 +2,9 @@
 
 import {
   ALIASES_PROP,
-  FRONTMATTER_PROP,
   markdownWithFrontmatter,
 } from "@/lib/importMarkdownNotes";
+import { frontmatterExtrasFromProps } from "@/lib/noteKnowledge";
 
 export type LibraryNote = {
   id: string;
@@ -314,10 +314,7 @@ export function exportNotesMarkdown(notes: LibraryNote[], title = "Albireus çŸ¥è
     const aliases = Array.isArray(n.props?.[ALIASES_PROP])
       ? (n.props![ALIASES_PROP] as string[])
       : [];
-    const extras =
-      n.props && typeof n.props[FRONTMATTER_PROP] === "object"
-        ? { ...(n.props[FRONTMATTER_PROP] as Record<string, unknown>) }
-        : {};
+    const extras = frontmatterExtrasFromProps(n.props);
     const chunk = markdownWithFrontmatter(n.body_md || "", {
       title: n.title,
       tags: n.tags,

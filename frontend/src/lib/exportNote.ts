@@ -20,6 +20,7 @@ import {
   FRONTMATTER_PROP,
   markdownWithFrontmatter,
 } from "@/lib/importMarkdownNotes";
+import { frontmatterExtrasFromProps } from "@/lib/noteKnowledge";
 
 function safeName(title: string) {
   return (title || "note").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80);
@@ -57,13 +58,15 @@ export function buildExportMarkdown(
   const extras = { ...(meta?.extras || {}) };
   delete extras[ALIASES_PROP];
   delete extras[FRONTMATTER_PROP];
-  const fmExtras =
-    meta?.extras && typeof meta.extras[FRONTMATTER_PROP] === "object"
-      ? {
-          ...(meta.extras[FRONTMATTER_PROP] as Record<string, unknown>),
-          ...extras,
-        }
-      : extras;
+  const fromProps =
+    meta?.extras && typeof meta.extras === "object"
+      ? frontmatterExtrasFromProps(meta.extras)
+      : {};
+  const fmExtras = { ...fromProps, ...extras };
+  // Prefer explicit frontmatter bag merge when nested
+  if (meta?.extras && typeof meta.extras[FRONTMATTER_PROP] === "object") {
+    Object.assign(fmExtras, meta.extras[FRONTMATTER_PROP] as Record<string, unknown>);
+  }
   return markdownWithFrontmatter(body || "", {
     title: meta?.title ?? title,
     tags: meta?.tags,

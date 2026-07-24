@@ -60,7 +60,17 @@ export function findBacklinks(notes: NoteLite[], current: NoteLite): NoteLite[] 
   return notes.filter((n) => {
     if (n.id === current.id) return false;
     const links = extractWikiLinks(n.body_md).map((x) => x.toLowerCase());
-    return titles.some((t) => links.includes(t));
+    if (titles.some((t) => links.includes(t))) return true;
+    // Prop relation fields with [[wikilinks]] also count as backlinks
+    const props = n.props || {};
+    for (const [k, v] of Object.entries(props)) {
+      if (k === ALIASES_PROP || k === "frontmatter" || k === "live_segments") continue;
+      const blob = Array.isArray(v) ? v.map(String).join(" ") : String(v ?? "");
+      if (!/\[\[/.test(blob)) continue;
+      const propLinks = extractWikiLinks(blob).map((x) => x.toLowerCase());
+      if (titles.some((t) => propLinks.includes(t))) return true;
+    }
+    return false;
   });
 }
 

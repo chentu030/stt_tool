@@ -25,9 +25,11 @@ import AiThinkingMorph from "@/components/motion/AiThinkingMorph";
 import {
   dispatchNoteAiEdit,
   parseNoteAiEdit,
+  previewNoteAiEditBody,
   readNoteLiveDraft,
   type NoteAiEdit,
 } from "@/lib/noteAiEdit";
+import { expandDiffPreview, summarizeLineOps, diffLines } from "@/lib/textDiff";
 import {
   applyDbAiEdit,
   packDbContextForAi,
@@ -1047,17 +1049,7 @@ export default function GlobalAiDock() {
         const parsed = parseNoteAiEdit(rawText);
         displayText = parsed.displayText;
         noteEdit = parsed.edit;
-        if (parsed.edit && focusNote) {
-          dispatchNoteAiEdit({
-            noteId: focusNote.id,
-            mode: parsed.edit.mode,
-            bodyMd: parsed.edit.bodyMd,
-            title: parsed.edit.title,
-            source: "global-ai",
-          });
-          editApplied = true;
-          toast(parsed.edit.mode === "append" ? "已追加到筆記" : "已更新筆記內容");
-        }
+        // Write path: parse edit blocks but require explicit review / 套用 — do not auto-write.
       } else if (canEditSchedule) {
         const parsedSched = parseScheduleAiEdit(rawText);
         displayText = parsedSched.displayText;
@@ -1451,21 +1443,53 @@ export default function GlobalAiDock() {
                     </div>
                   ) : null}
                   {m.role === "assistant" && m.edit && m.editNoteId ? (
-                    <div className="cadence-ai-edit-bar">
-                      <span>
-                        {m.editApplied
-                          ? m.edit.mode === "append"
-                            ? "已追加到筆記"
-                            : "已寫入筆記"
-                          : "建議修改筆記"}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        onClick={() => applyEdit(m.id, m.edit!, m.editNoteId!)}
-                      >
-                        {m.editApplied ? "再次套用" : "套用到筆記"}
-                      </button>
+                    <div className="cadence-ai-edit-bar cadence-ai-edit-bar--review">
+                      <div className="cadence-ai-edit-head">
+                        <span>
+                          {m.editApplied
+                            ? m.edit.mode === "append"
+                              ? "已追加到筆記"
+                              : "已寫入筆記"
+                            : "建議修改筆記（請先檢視）"}
+                        </span>
+                        <span className="cadence-ai-edit-summary">
+                          {(() => {
+                            const live = readNoteLiveDraft(m.editNoteId!);
+                            const before = live?.body ?? focusNote?.body_md ?? "";
+                            const after = previewNoteAiEditBody(before, m.edit!);
+                            return summarizeLineOps(diffLines(before, after));
+                          })()}
+                        </span>
+                      </div>
+                      {!m.editApplied && (
+                        <pre className="cadence-ai-diff" aria-label="修改預覽">
+                          {(() => {
+                            const live = readNoteLiveDraft(m.editNoteId!);
+                            const before = live?.body ?? focusNote?.body_md ?? "";
+                            const after = previewNoteAiEditBody(before, m.edit!);
+                            const rows = expandDiffPreview(before, after, 1, 36);
+                            if (!rows.length) return "（無文字變更）";
+                            return rows
+                              .map((r) =>
+                                r.kind === "add"
+                                  ? `+ ${r.text}`
+                                  : r.kind === "del"
+                                    ? `− ${r.text}`
+                                    : `  ${r.text}`
+                              )
+                              .join("\n");
+                          })()}
+                        </pre>
+                      )}
+                      <div className="cadence-ai-edit-actions">
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => applyEdit(m.id, m.edit!, m.editNoteId!)}
+                        >
+                          {m.editApplied ? "再次套用" : "套用到筆記"}
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
