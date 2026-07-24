@@ -15264,7 +15264,8 @@ body.rich-media-float-dragging * {
   position: fixed;
   top: auto;
   left: auto;
-  z-index: 5000;
+  /* Above cadence-dialog-backdrop (10050) and similar modals */
+  z-index: 11000;
 }
 .menu-select-menu--portal.menu-select-menu--top {
   top: auto;
