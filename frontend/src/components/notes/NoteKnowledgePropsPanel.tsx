@@ -19,7 +19,7 @@ import {
   withFrontmatterExtra,
   withOrganizedFlag,
 } from "@/lib/noteKnowledge";
-import { moveIdBefore } from "@/lib/database";
+import { swapIds } from "@/lib/database";
 import {
   WORKSPACE_SYSTEM_IDS,
   WS_STATUS_ID,
@@ -291,7 +291,10 @@ export default function NoteKnowledgePropsPanel({
       .filter((d): d is WorkspacePropertyDef => !!d);
   }, [activeDefs, meta]);
 
-  /** Panel rows follow workspace catalog sortOrder (system + filled custom). */
+  /**
+   * Movable catalog rows (drag handles). Fixed meta/dates/relations render first;
+   * these keep workspace catalog sortOrder among themselves.
+   */
   const panelDefs = useMemo(() => {
     const skipStatus = !!meta;
     return activeDefs.filter((d) => {
@@ -554,8 +557,9 @@ export default function NoteKnowledgePropsPanel({
 
   const commitDefReorder = async (fromId: string, toId: string) => {
     if (!userId || fromId === toId || readOnly) return;
+    // Only pairwise-swap among catalog defs (meta / dates / relations are not drop targets).
     const fullIds = activeDefs.map((d) => d.id);
-    const nextIds = moveIdBefore(fullIds, fromId, toId);
+    const nextIds = swapIds(fullIds, fromId, toId);
     if (nextIds.join("\0") === fullIds.join("\0")) return;
     setDefs((prev) => {
       const map = new Map(prev.map((d) => [d.id, d]));
@@ -737,6 +741,7 @@ export default function NoteKnowledgePropsPanel({
       ) : (
         <>
           <NotePropsFieldsGrid aria-label="工作區屬性">
+            {/* Fixed / non-movable rows first (no drag handles → not swap targets). */}
             {meta ? (
               <NoteMetaPropFields
                 note={note}
@@ -745,6 +750,75 @@ export default function NoteKnowledgePropsPanel({
                 {...meta}
               />
             ) : null}
+            {dates
+              .filter((d) => d.kind === "system")
+              .map((d) => (
+                <NotePropsFieldRow
+                  key={d.key}
+                  label={d.label}
+                  type={d.key === "updated" ? "last_edited_time" : "created_time"}
+                  system
+                >
+                  <span title={d.text}>{d.text}</span>
+                </NotePropsFieldRow>
+              ))}
+            {relations.map((rel) => {
+              const tone = relationToneIndex(rel.key);
+              return (
+                <NotePropsFieldRow key={`rel:${rel.key}`} label={rel.label} icon="hub">
+                  <div className="nk-rel-chips">
+                    {rel.titles.map((t) => {
+                      const href = resolveNoteHref?.(t);
+                      const chipClass = `nk-rel-chip nk-rel-chip--t${tone}`;
+                      return (
+                        <span key={t} className="nk-rel-chip-wrap">
+                          {href ? (
+                            <Link href={href} className={chipClass}>
+                              {t}
+                            </Link>
+                          ) : (
+                            <span className={`${chipClass} is-missing`} title="尚未建立此筆記">
+                              {t}
+                            </span>
+                          )}
+                          {!readOnly ? (
+                            <button
+                              type="button"
+                              className="nk-rel-chip-x"
+                              aria-label={`移除 ${t}`}
+                              onClick={() => onPropsPatch(removeRelationTitle(note.props, rel.key, t))}
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                    {!readOnly ? (
+                      <button
+                        type="button"
+                        className="nk-rel-slot"
+                        onClick={() => void addLinkToRelation(rel.key, rel.label)}
+                      >
+                        新增
+                      </button>
+                    ) : null}
+                  </div>
+                </NotePropsFieldRow>
+              );
+            })}
+            {extraDbProps?.map((prop) => (
+              <NotePropsFieldRow key={prop.id} label={prop.name} type={prop.type}>
+                <PropertyValueEditor
+                  note={note}
+                  prop={prop}
+                  userId={userId}
+                  readOnly={readOnly}
+                  onCommit={(v) => onExtraDbCommit?.(prop.id, v)}
+                />
+              </NotePropsFieldRow>
+            ))}
+            {/* Movable catalog defs — pairwise swap via drag handles; order = sortOrder. */}
             {panelDefs.map((def) => {
               const prop = asDbProperty(def);
               const value = getWorkspaceFieldValue(note, def.id);
@@ -801,74 +875,6 @@ export default function NoteKnowledgePropsPanel({
                     readOnly={readOnly}
                     onCommit={(v) => void commitWs(def.id, v)}
                   />
-                </NotePropsFieldRow>
-              );
-            })}
-            {extraDbProps?.map((prop) => (
-              <NotePropsFieldRow key={prop.id} label={prop.name} type={prop.type}>
-                <PropertyValueEditor
-                  note={note}
-                  prop={prop}
-                  userId={userId}
-                  readOnly={readOnly}
-                  onCommit={(v) => onExtraDbCommit?.(prop.id, v)}
-                />
-              </NotePropsFieldRow>
-            ))}
-            {dates
-              .filter((d) => d.kind === "system")
-              .map((d) => (
-                <NotePropsFieldRow
-                  key={d.key}
-                  label={d.label}
-                  type={d.key === "updated" ? "last_edited_time" : "created_time"}
-                  system
-                >
-                  <span title={d.text}>{d.text}</span>
-                </NotePropsFieldRow>
-              ))}
-            {relations.map((rel) => {
-              const tone = relationToneIndex(rel.key);
-              return (
-                <NotePropsFieldRow key={`rel:${rel.key}`} label={rel.label} icon="hub">
-                  <div className="nk-rel-chips">
-                    {rel.titles.map((t) => {
-                      const href = resolveNoteHref?.(t);
-                      const chipClass = `nk-rel-chip nk-rel-chip--t${tone}`;
-                      return (
-                        <span key={t} className="nk-rel-chip-wrap">
-                          {href ? (
-                            <Link href={href} className={chipClass}>
-                              {t}
-                            </Link>
-                          ) : (
-                            <span className={`${chipClass} is-missing`} title="尚未建立此筆記">
-                              {t}
-                            </span>
-                          )}
-                          {!readOnly ? (
-                            <button
-                              type="button"
-                              className="nk-rel-chip-x"
-                              aria-label={`移除 ${t}`}
-                              onClick={() => onPropsPatch(removeRelationTitle(note.props, rel.key, t))}
-                            >
-                              ×
-                            </button>
-                          ) : null}
-                        </span>
-                      );
-                    })}
-                    {!readOnly ? (
-                      <button
-                        type="button"
-                        className="nk-rel-slot"
-                        onClick={() => void addLinkToRelation(rel.key, rel.label)}
-                      >
-                        新增
-                      </button>
-                    ) : null}
-                  </div>
                 </NotePropsFieldRow>
               );
             })}

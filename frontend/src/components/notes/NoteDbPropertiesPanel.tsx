@@ -14,7 +14,7 @@ import {
   listenDatabase,
   listenDatabaseRows,
   removeProperty,
-  reorderProperties,
+  swapProperties,
   scrubViewsAfterPropRemove,
   setCellValue,
   setPropertyHidden,
@@ -176,7 +176,8 @@ export default function NoteDbPropertiesPanel({ note, userId, readOnly, onNotePa
 
   const commitPropReorder = async (fromId: string, toId: string) => {
     if (!db || fromId === toId || readOnly) return;
-    const properties = reorderProperties(db.properties, fromId, toId);
+    // Pairwise swap among movable DB props (meta rows have no drop handlers).
+    const properties = swapProperties(db.properties, fromId, toId);
     setDb({ ...db, properties });
     try {
       await updateDatabase(db.id, { properties });

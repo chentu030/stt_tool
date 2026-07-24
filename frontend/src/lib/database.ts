@@ -762,12 +762,39 @@ export function moveIdBefore(ids: string[], fromId: string, toId: string): strin
   return next;
 }
 
+/** Pairwise exchange of two ids (others stay put). */
+export function swapIds(ids: string[], aId: string, bId: string): string[] {
+  if (aId === bId) return ids.slice();
+  const i = ids.indexOf(aId);
+  const j = ids.indexOf(bId);
+  if (i < 0 || j < 0) return ids.slice();
+  const next = ids.slice();
+  next[i] = bId;
+  next[j] = aId;
+  return next;
+}
+
 export function reorderProperties(
   properties: DbProperty[],
   fromId: string,
   toId: string
 ): DbProperty[] {
   const ids = moveIdBefore(
+    properties.map((p) => p.id),
+    fromId,
+    toId
+  );
+  const map = new Map(properties.map((p) => [p.id, p]));
+  return ids.map((id) => map.get(id)!).filter(Boolean);
+}
+
+/** Swap two properties in schema order (屬性 panel DnD). */
+export function swapProperties(
+  properties: DbProperty[],
+  fromId: string,
+  toId: string
+): DbProperty[] {
+  const ids = swapIds(
     properties.map((p) => p.id),
     fromId,
     toId

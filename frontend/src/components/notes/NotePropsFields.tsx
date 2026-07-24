@@ -116,8 +116,8 @@ export function NotePropsFieldRow({
               type="button"
               className="nk-prop-drag-handle"
               draggable
-              title="拖曳調整順序"
-              aria-label={`拖曳調整「${label}」順序`}
+              title="拖曳與另一個屬性交換位置"
+              aria-label={`拖曳交換「${label}」位置`}
               onDragStart={(e) => {
                 e.dataTransfer.setData("text/plain", reorder.reorderId);
                 e.dataTransfer.effectAllowed = "move";
